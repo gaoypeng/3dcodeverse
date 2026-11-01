@@ -3,8 +3,7 @@
 Package `codeverse3d`, CLI `3dcodeverse` (short alias `3dcode`), repo location
 `harness/` in the 3dcodeverse checkout.  Backend only.  Python 3.13 (one fixed version), a small Node
 runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
-for the graphics track.  Checked against the code on 2026-09-22; design history and deviations are in
-`docs/DECISIONS.md`, how-to in `docs/RUNBOOK.md`, evaluation protocol in
+for the graphics track.  Checked against the code on 2026-09-22; design history is kept in optional local decision notes; how-to is in `docs/RUNBOOK.md`, evaluation protocol in
 `eval/docs/EVAL.md`, complexity measurement + the score-vs-complexity study in
 `eval/docs/COMPLEXITY.md`, binding signatures in `docs/INTERFACES.md`.
 
@@ -613,10 +612,10 @@ judge 0.686 → 0.701, materials 0.60 → 0.69, shipped.
 
 ## 9. What a run costs and how long it takes
 
-Measured, not restated here: `docs/COST.md` is the home of every money figure (§15: one live
-run per profile; §28: where the time goes), and RUNBOOK §2 gives the operator's expected cost
-and time per track.  (This section used to hold a 2026-08-23 table of wave-1 runs, made with
-the since-deleted in-process `api-agent` and the since-removed pass / plateau stops.)
+RUNBOOK §2 gives expected cost and time per track. Use `3dcode cost <slug>` for a
+run's recorded spend and `3dcode cost profiles` for profile expectations. Historical
+measurements cited elsewhere in this document are local experiment notes and are
+not distributed with the repository.
 
 ## 10. Known limits
 

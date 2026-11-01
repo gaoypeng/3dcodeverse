@@ -14,6 +14,3 @@ Other top-level folders are separate components: `toolkits/` owns the general da
 `finetune/` owns training and its data preparation. The canonical LLaMA-Factory data scripts live in
 `finetune/llamafactory/`; `finetune/configs/`, `finetune/env/`, and the training launchers in
 `finetune/scripts/` retain their existing locations. Read `finetune/CLAUDE.md` before changing them.
-
-`plugins/` holds optional runtime plugins that wrap harness hooks for one process without editing
-`harness/` (`plugins/scene_director/`: art-direction notes as scene refine tasks; a prototype).

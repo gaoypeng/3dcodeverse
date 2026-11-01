@@ -22,3 +22,11 @@ dist/
 # in-tree virtualenv (docs/INSTALL.md tells users to create one)
 .venv/
 .venv*/
+
+# Local experiment history; retained on the maintainer machine, not distributed.
+/harness/docs/COST.md
+/harness/docs/DECISIONS.md
+/harness/docs/SKILLS_LEDGER.md
+
+# Developer-only visual studies; agents use the production starter library.
+/harness/examples/graphics_lab/

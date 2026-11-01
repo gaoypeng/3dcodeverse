@@ -190,7 +190,7 @@ record refers to a routing decision by id, so recycling it would silently relabe
 declares **one deterministic quantity it claims to move**, in its own frontmatter
 (`target_metric`, `target_direction`, `target_baseline`) and in `codeverse3d/addons/skill_targets.py`.
 `python eval/bench/skill_targets.py eval/bench/out` prints them all — per battery or paired across an
-A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row maintenance surface**.
+A/B's two arms — and the optional local skills ledger records historical measurements.
 
 `cadquery-forms` and `threejs-forms` stay `inherited-unverified` — routed by default since
 2026-09-22, but unranked: their languages have **4 (cadquery) and 3 (threejs) graded runs**
@@ -292,7 +292,7 @@ CLI launched by its own backend's `run()`, a chair brief that never mentions ski
 
 Every CLI read every routed body and no reference file; the atime probe on the same four
 sessions reported every reference "read" and the control opened — git, not the agent.
-Details, costs and commands: `docs/SKILLS_LEDGER.md` §0b.
+Details, costs and commands: the local skills ledger (not distributed) §0b.
 
 ### Measured 2026-08-25, on the atime probe
 
@@ -388,7 +388,7 @@ Two contradiction checks are worth separating, because they answer different que
    native skill loader, and the ground-truth channel this section wished it had (§9, "CLI
    backends' read rate is UNMEASURED") now exists: each backend logs its CLI's own tool calls.
 2. **All four CLIs load the bundles, unprompted, and it is proven from their transcripts**
-   (§4 table; `docs/SKILLS_LEDGER.md` §0b): gemini-cli, claude-code, codex and agy each
+   (§4 table; the local skills ledger (not distributed) §0b): gemini-cli, claude-code, codex and agy each
    activated **4 of 4** routed bundles on an ordinary chair brief, none touched the control,
    none read a reference file.  The discovery wiring was re-read from the installed binaries
    and two gaps were closed: gemini-cli's `skills.enabled` is now pinned in the per-session
@@ -642,7 +642,7 @@ chose to go deeper" (§1).
    direction, and its baseline from `python eval/bench/skill_targets.py eval/bench/out`. If no
    deterministic instrument can see the claim, say so with `measurable=False` and a
    `caveat`: that is a finding about the bundle, not a gap to paper over with a judged
-   criterion. Then add its row to `docs/SKILLS_LEDGER.md`.
+   criterion. Maintainers may also record the measurement in their local skills ledger.
 6. `3dcode skills validate --strict` and `pytest tests/skills`.
 
 Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 12 lines (D107); never restate a
@@ -693,7 +693,7 @@ so; the rest are live.
   `c3d-threejs-shader-traps` is instrumented from that date on. Runs recorded before it carry
   no `shader_preflight` gate: a readout across the date must not mix the two.
 * ~~**`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.**~~ Fixed 2026-08-26; the entry
-  lives in `docs/SKILLS_LEDGER.md` §4.
+  lives in the local skills ledger (not distributed) §4.
 * ~~**The atime probe is blind in any git workspace, and its control proves it.**~~ **Worked
   around 2026-09-22**: the probe reads each CLI's own tool calls first (§4) and falls back to
   atime only for a session that left no trace.  The atime probe itself is as blind as ever —

@@ -6,9 +6,9 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 
 * **Tracks:** `static_object` · `articulated_object` · `scene` · `graphics`
 * **Languages:** `blender` · `cadquery` · `threejs` · `urdf_blender` ·
-  `scene_threejs` · `glsl_shader` · `opengl_python`
-* **Backends:** Gemini / Anthropic / OpenAI chat models; coding agents `gemini-cli`,
-  `claude-code`, `codex`, `agy` (Antigravity) — always a vendor's CLI — and
+  `scene_threejs` · `scene_blender` · `glsl_shader` · `opengl_python`
+* **Backends:** Gemini / Anthropic / OpenAI chat models; coding agents `claude-code`,
+  `codex`, `agy` (Antigravity) — always a vendor's CLI — and
   `single-shot` generation on any chat model.
 * **Spatial tools** (direct, or over the MCP server `3dcode` for the agentic CLIs): build,
   measure, render, section, connectivity/contract checks, joint sweeps, scene and GL probes —
@@ -46,8 +46,8 @@ codeverse3d/
   tracks/          the four track pipelines + the round loop, the one planner loop, generation strategies
                    (vendor-CLI agent / single-shot), repair, best-of-N, skills hook
   languages/       one merged module per language (lint → skeleton → runtime) beside its
-                   data dirs: blender cadquery threejs urdf scene_threejs glsl_shader opengl_python
-  agents/          CodingAgent protocol + the vendor-CLI backends (gemini-cli, claude-code,
+                   data dirs: blender cadquery threejs urdf scene_threejs scene_blender glsl_shader opengl_python
+  agents/          CodingAgent protocol + the vendor-CLI backends (claude-code,
                    codex, antigravity): sessions, watchdog clocks, transcripts
   models/          ChatModel + gemini/anthropic/openai adapters; key-pool retry machine,
                    streaming with stall detection, IPv4-pinned transport, pricing, health
@@ -87,12 +87,10 @@ pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcode
 python -m pytest tests -q -m "not live"
 ```
 
-What a run costs and how long it takes: `docs/COST.md` (measured) and `docs/RUNBOOK.md` §2
-(expected, per track).
+Expected cost and time per track: `docs/RUNBOOK.md` §2. Inspect actual run costs with
+`3dcode cost <slug>` and configured profiles with `3dcode cost profiles`.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
-(signatures) · `docs/RUNBOOK.md` (operate / extend) · `docs/DECISIONS.md` (ADRs) ·
+(signatures) · `docs/RUNBOOK.md` (operate / extend) ·
 `eval/docs/EVAL.md` (evaluation protocol + judge calibration) · `CLAUDE.md` (working rules).
-
-Effect library studies: [Graphics Lab](examples/graphics_lab/README.md).

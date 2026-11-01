@@ -5,7 +5,7 @@ This file lists the signatures other packages may rely on.  Types live in
 `languages/base.py`, `spatial/registry.py`, `tracks/__init__.py` (judges are
 duck-typed `.judge(JudgeInput) -> Judgment`; `judges/base.py` defines no protocol).
 Where the build deviated from the original plan the deviation is called out as
-**Δ** — see `docs/DECISIONS.md` for the why.  When in doubt the code wins; this
+**Δ** — the rationale is kept in optional local decision notes.  When in doubt the code wins; this
 file was last checked against it on 2026-09-22, and every `codeverse3d` name it cites is
 test-pinned (`tests/core/test_interfaces_names.py`).
 

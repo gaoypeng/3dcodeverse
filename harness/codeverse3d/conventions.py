@@ -188,15 +188,6 @@ def views_by_preference(views: Sequence[RenderView], names: Sequence[str]) -> li
     return sorted((v for v in views if view_key(v.name) in rank), key=lambda v: rank[view_key(v.name)])
 
 
-#: the view a one-camera comparison (the reference silhouette) takes, in preference order
-FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high")
-
-
-def front_view(views: Sequence[RenderView]) -> RenderView | None:
-    """The first of ``FRONT_VIEW_NAMES`` among ``views``, else the first view."""
-    return next(iter(views_by_preference(views, FRONT_VIEW_NAMES)), views[0] if views else None)
-
-
 #: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).  The
 #: ``overview_*`` views reach the judge (the first ``render_scene.MAX_JUDGE_OVERVIEWS``);
 #: ``overview_low_front`` (2026-10-14, scene_v2) is the CONTACT camera — elevation under 10°

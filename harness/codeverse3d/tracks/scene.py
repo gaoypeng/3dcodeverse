@@ -3,7 +3,7 @@
 Languages: every scene language, through its ``SceneRuntime`` (D101).  Generation is staged (each stage cached by
 ``StageRunner`` for resume); the round loop then builds (probe + shaders — the
 build's two gate reports join the round's gates),
-renders authored cameras + orbit at t=0 and t=1.5, judges with ``scene_v1``
+renders authored cameras + orbit at t=0 and t=1.5, judges with ``scene_v2``
 (console/shader errors become gate ERRORS) and dispatches refine tasks per
 zone / asset / env / camera, in parallel when file-disjoint.
 

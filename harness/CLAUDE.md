@@ -16,10 +16,14 @@ data-flywheel record per run.
 
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
 really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
-built), `docs/RUNBOOK.md` (how to run / resume / extend), `docs/DECISIONS.md`
-(ADR-style laws + deviations), `eval/docs/EVAL.md` (evaluation protocol + judge
+built), `docs/RUNBOOK.md` (how to run / resume / extend), `eval/docs/EVAL.md` (evaluation protocol + judge
 calibration) and `eval/docs/COMPLEXITY.md` (the objective complexity vector + the
 score-vs-complexity corpus study) before changing anything.
+
+Historical cost experiments, decision logs and skill measurements are local-only notes
+(COST.md, DECISIONS.md and SKILLS_LEDGER.md under harness/docs, ignored by Git).
+Historical citations in comments refer to these optional notes; they are not required
+to install, run or test the harness. Current rules and interfaces live in the tracked docs.
 
 ## Laws (do not break)
 1. Generated code is raw language — never an SDK/helper import; the harness owns
@@ -77,7 +81,7 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
 - Every model call and vendor session is priced into the run's `telemetry/cost.jsonl` — the ONLY record of
   money: `record.total_usage` is its sum at list price (D84).  A run's minutes are its steps' time minus
-  the time lost to provider errors (`RunRecord.minutes`).  `docs/COST.md` Part II has the cost controls.
+  the time lost to provider errors (`RunRecord.minutes`). Use `3dcode cost <slug>` for actual costs.
 
 ## Commands
 ```
