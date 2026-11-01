@@ -153,7 +153,7 @@ class CapRule(BaseModel):
         default_factory=dict,
         description="gate rules only: finding.data key → magnitude at or above which a WARN of the rule's kinds "
                     "keeps the judge's claim alive (measured_absent); empty = the penetration default, "
-                    "{depth_m: VETO_PENETRATION_DEPTH_M}.  scene_v2 states {gap_m: 0.02} / {sunk_m: 0.10} / "
+                    "{depth_m: VETO_PENETRATION_DEPTH_M}.  scene states {gap_m: 0.02} / {sunk_m: 0.10} / "
                     "{overlap: 0.20}; 0.0 = any WARN of the kind that carries the key",
     )
     note: str = ""
@@ -584,7 +584,7 @@ def _rule_gates_clean(rule: CapRule, gates: list[GateReport]) -> bool:
     Scoped to the rule's kinds since scoring version 4 (2026-10-14): a failed report used to
     cancel the veto whatever it failed on, and on the scene track the placement rows and the
     plan checks share ONE report — a ``no_fog`` or ``missing_content`` ERROR let every
-    "floating asset" claim stand although the rows had measured none (scene_v2 splits the
+    "floating asset" claim stand although the rows had measured none (scene splits the
     placement caps per kind for the same reason).  A failed report that names no ERROR finding
     at all cannot say what failed and still counts as not clean."""
     watched = [g for g in gates if fnmatch(g.gate, rule.gate) or any(fnmatch(f.gate, rule.gate) for f in g.findings)]
@@ -733,7 +733,7 @@ drift to report, not a fault.
 3 — 2026-09-24: a gate cap rule's ``kinds`` match the finding's typed ``data.kind`` /
     ``data.code``; the message only when it has neither, the target never (N50).  A replay
     of the 1 229 recorded judged rounds moved no cap and no veto.
-4 — 2026-10-14 (scene_v2): the measured-absent veto is scoped to the rule's ``kinds`` — a
+4 — 2026-10-14 (scene): the measured-absent veto is scoped to the rule's ``kinds`` — a
     watched report that failed on an unrelated kind no longer cancels it — and the WARN
     magnitude that keeps a claim alive is the rule's ``veto_warn_keys`` (the object rubrics
     keep the ``depth_m`` ≥ 8 mm default, so their verdicts replay unchanged unless the

@@ -1,4 +1,4 @@
-name: shader_v2
+name: shader
 version: 2
 track_hint: graphics
 pass_threshold: 0.70

@@ -47,7 +47,7 @@ FEATURE_POOL: tuple[str, ...] = ("night", "water", "interior", "particles")
 #: scene by construction, and the diagnosis would then blame the variant for the battery.  The
 #: floor IS the scene_frames gate's threshold (``frame_metrics.DARK_MEAN_LUM``, imported, never a
 #: copy that drifts when the gate moves): an authored frame whose mean luminance is below it is a
-#: ``dark_frame`` ERROR, capped by the scene_v2 rubric.  The gate has no ceiling on the mean
+#: ``dark_frame`` ERROR, capped by the scene rubric.  The gate has no ceiling on the mean
 #: (``blown_frame`` is a fraction of pure-white pixels, ``frame_metrics.BLOWN_FRAC``), so the
 #: ceiling is the loop's own margin under the white point.
 LUMINANCE_FLOOR = DARK_MEAN_LUM

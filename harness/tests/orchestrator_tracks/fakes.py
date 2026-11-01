@@ -364,7 +364,7 @@ class FakeServices(Services):
     def judge(self, rubric: str, model_id: str, n_samples: int = 1) -> Any:
         return self._judge if self._judge is not None else FakeJudge()
 
-    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference_v1") -> Any:
+    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference") -> Any:
         self.reference_judges.append((model_id, n_samples, rubric))
         return self._judge if self._judge is not None else FakeJudge()
 

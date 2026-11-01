@@ -60,7 +60,7 @@ GATE = "scene_placement"
 #: SUNK_M / OVERLAP_MIN_FRAC): those decide what is MEASURED, these decide severities.
 MAX_FINDINGS_PER_KIND = 8
 #: ``free_exempt`` needs this many ``placement='free'`` rows before their share is a finding: one
-#: hanging lantern among two placed things is 50 % and would cap a correct scene (scene_v2 caps a
+#: hanging lantern among two placed things is 50 % and would cap a correct scene (scene caps a
 #: free_exempt ERROR at 0.75).  The case it exists for — w1_tearoom, argon, 2026-10-13 — tagged 17.
 FREE_EXEMPT_MIN_ROWS = 2
 #: ``cantilevered`` needs this many foot columns resting on at most this many: a crate seated by its

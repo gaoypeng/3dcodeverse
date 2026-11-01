@@ -183,7 +183,7 @@ def _stated(stage: Stage | None) -> Stage | None:
 
 
 def _round_from_label(label: str) -> int | None:
-    """``judge:static_object_v1:r02:s1`` → 2 (``None`` when the label has no round tag)."""
+    """``judge:static_object:r02:s1`` → 2 (``None`` when the label has no round tag)."""
     for token in label.replace("/", ":").split(":"):
         t = token.strip()
         if len(t) >= 2 and t[0] == "r" and t[1:].isdigit():

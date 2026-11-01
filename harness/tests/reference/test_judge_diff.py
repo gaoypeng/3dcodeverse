@@ -20,7 +20,7 @@ from tests.judges.conftest import (
     make_spec,
 )
 
-REF = load_rubric("reference_v1")
+REF = load_rubric("reference")
 
 DIFF = {"mismatches": [{"kind": "wrong_part_count", "target": "Legs",
                         "detail": "reference shows 4 legs, render shows 2", "severity": "critical"}],
@@ -60,7 +60,7 @@ def test_a_failing_diff_never_breaks_the_verdict(ref_input, cache_dir):
     model = FakeChatModel(by_label={"reference_diff": [{"garbage": 1}],
                                     "judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
     j = _judge(model, cache_dir=cache_dir).judge(ref_input)
-    assert j.overall > 0 and j.rubric == "reference_v1"
+    assert j.overall > 0 and j.rubric == "reference"
 
 
 @pytest.mark.parametrize(("value", "diffed"), [("off", False), ("OFF", False), ("of", True)])

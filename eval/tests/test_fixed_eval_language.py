@@ -108,7 +108,7 @@ def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, t
 
 
 def test_scene_cells_run_the_placement_gate_before_the_judge(monkeypatch, tmp_path):
-    """scene_v2 (2026-10-14): a scene cell's deterministic placement caps fire in an A/B exactly as in
+    """scene (2026-10-14): a scene cell's deterministic placement caps fire in an A/B exactly as in
     the loop — ``placement_gate`` over the build's census and the cell's plan.json, before the frames
     gate; a build whose census has no placement table (the fake above) adds no report."""
     import json

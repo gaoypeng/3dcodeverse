@@ -45,7 +45,7 @@ def _write_run(root: Path, slug: str, *, index: float, overall: float, detail: f
         "rounds": [{
             "index": 0, "kind": "baseline", "gates": [],
             "measurement": _measurement(index).model_dump(mode="json"),
-            "judgment": {"rubric": "static_object_v1", "overall": overall, "passed": overall >= 0.72,
+            "judgment": {"rubric": "static_object", "overall": overall, "passed": overall >= 0.72,
                          "scores": {c: detail for c in CR.CRITERIA}, "issues": []},
         }],
     }
@@ -105,7 +105,7 @@ def test_row_recomputes_the_vector_when_the_record_has_none(tmp_path: Path) -> N
         "status": "max_rounds",
         "total_usage": {"cost_usd": 1.0}, "rounds": [{
             "index": 0, "kind": "baseline", "gates": [],
-            "judgment": {"rubric": "static_object_v1", "overall": 0.5, "passed": False,
+            "judgment": {"rubric": "static_object", "overall": 0.5, "passed": False,
                          "scores": dict.fromkeys(CR.CRITERIA, 0.5), "issues": []}}]}))
     row = CR.row_for(run, "old_battery")
     assert row is not None and row["part_count"] == 1 and row["index"] > 0

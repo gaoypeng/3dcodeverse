@@ -1,4 +1,4 @@
-name: articulated_v1
+name: articulated
 version: 1
 track_hint: articulated_object
 pass_threshold: 0.7
@@ -6,7 +6,7 @@ description: 'Rubric for an ARTICULATED object (cabinet with doors/drawers, lapt
   judged on the rest-pose render rig PLUS the POSE SHEET: a harness-made grid whose rows are poses (rest, then each
   joint at a swept value, labelled ''<joint>@<value>'') and whose columns are views (3/4, back 3/4, front), with
   optional 2x2 montages of pose_* tiles.  The pose sheet is REQUIRED: without it the overall is capped (see caps)
-  because articulation cannot be judged.  Static criteria are inherited from static_object_v1 at reduced weight;
+  because articulation cannot be judged.  Static criteria are inherited from static_object at reduced weight;
   articulation criteria score whether the joints are real, placed right and move plausibly.'
 extra_instructions: 'POSE tiles (the POSE SHEET image and any tile whose label starts with ''pose_'' or names a
   joint@value) show the SAME object with joints moved by the harness (forward kinematics from the authored URDF);
@@ -212,7 +212,7 @@ caps:
   when: acceptance
   cap: 0.6
   graded: true
-  note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object_v1); pass/fail unchanged
+  note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object); pass/fail unchanged
 - id: unattached_link
   when: gate
   gate: '*'

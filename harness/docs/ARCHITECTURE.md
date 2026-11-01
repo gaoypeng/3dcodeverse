@@ -449,10 +449,10 @@ must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
 `PairwiseJudge` (position-swapped, tie on disagreement; only `3dcode pick --by pairwise` asks it); `ReferenceJudge` for
 image-conditioned specs.
-Rubrics (pass threshold 0.70 unless named): `static_object_v1` (0.72), `articulated_v1`
-(requires pose views: the `missing_pose_sheet` cap), `scene_v2` (D105: placement caps floating 0.60 / sunken 0.65 /
+Rubrics (pass threshold 0.70 unless named): `static_object` (0.72), `articulated`
+(requires pose views: the `missing_pose_sheet` cap), `scene` (D105: placement caps floating 0.60 / sunken 0.65 /
 interpenetration 0.70 / scale 0.75 / free_exempt 0.75 measured by `scene_placement`, frame-gate caps
-dark/blown/flat/content_small, graded must-acceptance), `asset_v1`, `reference_v1`, `shader_v2` (graphics, `gl_frames`
+dark/blown/flat/content_small, graded must-acceptance), `asset`, `reference`, `shader` (graphics, `gl_frames`
 caps; also the `LikenessJudge` default). Retired `scene_v1` and `shader_v1` are no longer distributed.
 
 **Calibration** (`addons/calibration.py`: re-judges recorded rounds, n samples each) is why the
@@ -485,7 +485,7 @@ runs at all; `3dcode resume --force` is the one way to regenerate a stage under 
 the round journal + `record.json` to `rounds/pre_force/` whether or not the spec changed, and the run
 starts again at round 0 with no stage frozen.  The plan itself is `run()`'s, before the graph (`plan_stage_key`).  What the
 scene stages do: `assets` — both kinds climb one ladder (single-shot → check → one repair → agent;
-blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one
+blender_glb heroes get a sub-workspace with the static planner's parts + asset judge + one
 re-judged fix pass, undone when worse; a degraded asset verdict leaves score None / judged False,
 emits asset.judge_degraded and skips the fix pass); `env` — `env_file` (`src/env.js` / `src/env.py`): its
 session shares the tree with the asset single-shots, so it is a `shared_tree` job (credited with its own file

@@ -9,8 +9,8 @@ from codeverse3d.judges.rubrics import _rule_hit, load_rubric
 
 
 def test_detail_anchors_are_a_graded_countable_geometry_ladder() -> None:
-    """reference_v1 only: the other rubrics' system prompts are pinned by tests/prompts/manifest.json."""
-    r = load_rubric("reference_v1")
+    """reference only: the other rubrics' system prompts are pinned by tests/prompts/manifest.json."""
+    r = load_rubric("reference")
     c = r.criterion("detail")
     levels = sorted((float(k) for k in c.anchors), reverse=True)
     assert len(levels) >= 5 and levels[0] == 1.0 and levels[-1] == 0.1, levels
@@ -23,18 +23,18 @@ def test_detail_anchors_are_a_graded_countable_geometry_ladder() -> None:
 
 def test_physical_plausibility_caps_are_untouched() -> None:
     """The complexity wave may sharpen detail; it may never soften the gates."""
-    caps = {c.id: c for c in load_rubric("static_object_v1").caps}
+    caps = {c.id: c for c in load_rubric("static_object").caps}
     assert caps["build_error"].cap == 0.0
     assert caps["floating_part"].cap == 0.6
     assert caps["penetration_error"].cap == 0.7
     assert caps["contract_violation"].cap == 0.75
     assert caps["missing_must_acceptance"].cap == 0.6
-    defects = {d.id: d for d in load_rubric("static_object_v1").defects}
+    defects = {d.id: d for d in load_rubric("static_object").defects}
     assert defects["floating_part"].cap == 0.6 and defects["interpenetration"].cap == 0.7
     assert defects["wrong_object"].cap == 0.25
 
 
-@pytest.mark.parametrize("rubric", ["static_object_v1", "articulated_v1", "scene_v2"])
+@pytest.mark.parametrize("rubric", ["static_object", "articulated", "scene"])
 def test_acceptance_cap_is_graded_with_the_floor_pinned(rubric: str) -> None:
     """D46 b: the acceptance cap is graded, 0.6 + 0.4·verified/total — the flag and the floor pinned."""
     rule = next(c for c in load_rubric(rubric).caps if c.id == "missing_must_acceptance")

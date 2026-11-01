@@ -1,4 +1,4 @@
-"""compare_backends on an articulated battery: two-file one-shot answers, articulated_v1 fixed judge."""
+"""compare_backends on an articulated battery: two-file one-shot answers, articulated fixed judge."""
 
 from __future__ import annotations
 
@@ -93,20 +93,20 @@ def test_rubric_for_is_the_one_track_to_rubric_mapping():
     for t in Track:
         assert rubric_for(t) == TRACK_INFO[t].rubric
         assert rubric_for(Spec(id="x", track=t, language=lang[t], prompt="x")) == TRACK_INFO[t].rubric
-    assert report.battery_rubric({"battery": {"track": "articulated_object"}}) == "articulated_v1"
-    assert report.battery_rubric({}) == "static_object_v1" == report.battery_rubric({"battery": {"track": "nope"}})
+    assert report.battery_rubric({"battery": {"track": "articulated_object"}}) == "articulated"
+    assert report.battery_rubric({}) == "static_object" == report.battery_rubric({"battery": {"track": "nope"}})
     # a static-battery evaluator still judges an articulated cell on the articulated rubric ...
     ev = FixedEvaluator("gemini:x", n_samples=1)
-    assert ev.judge_for(_urdf_spec()).rubric.name == "articulated_v1"
+    assert ev.judge_for(_urdf_spec()).rubric.name == "articulated"
     assert ev.judge_for(_urdf_spec()) is ev.judge_for(_urdf_spec()), "one judge per rubric, cached"
-    assert ev.judge.rubric.name == "static_object_v1"
+    assert ev.judge.rubric.name == "static_object"
     # ... unless the caller pinned a rubric for every cell
-    assert FixedEvaluator("gemini:x", rubric="asset_v1").judge_for(_urdf_spec()).rubric.name == "asset_v1"
+    assert FixedEvaluator("gemini:x", rubric="asset").judge_for(_urdf_spec()).rubric.name == "asset"
 
 
 def test_articulated_cells_add_the_joint_sweep_and_the_pose_sheet(monkeypatch, tmp_path):
     """evaluate() on an articulated spec: the sweep gate joins the gates, the pose views join the
-    renders, and the judge is the cell's (articulated_v1) — keyed on the SPEC's track."""
+    renders, and the judge is the cell's (articulated) — keyed on the SPEC's track."""
     from types import SimpleNamespace
 
     import codeverse3d.spatial.connectivity as conn
@@ -131,7 +131,7 @@ def test_articulated_cells_add_the_joint_sweep_and_the_pose_sheet(monkeypatch, t
     monkeypatch.setattr(art, "default_joint_sweep", lambda ws, plan, out: (seen.__setitem__("plan", plan), (sweep, [pose]))[1])
 
     class _J:
-        rubric = SimpleNamespace(name="articulated_v1")
+        rubric = SimpleNamespace(name="articulated")
 
         def judge(self, inp):
             seen["inp"] = inp
@@ -161,6 +161,6 @@ def test_main_builds_the_evaluator_from_the_battery(monkeypatch, tmp_path):
     rc = cb.main(["--prompts", str(PROMPTS / "articulated_v2.yaml"), "--arms", "oneshot:gemini:x",
                   "--out", str(tmp_path / "out"), "--no-preflight", "--judge-samples", "3"])
     assert rc == 0
-    assert seen == {"track": Track.ARTICULATED_OBJECT, "language": Language.URDF_BLENDER, "rubric": "articulated_v1"}
+    assert seen == {"track": Track.ARTICULATED_OBJECT, "language": Language.URDF_BLENDER, "rubric": "articulated"}
     b = Battery.load(PROMPTS / "articulated_v2.yaml")
     assert b.track is Track.ARTICULATED_OBJECT and all(p.must_have for p in b.prompts)

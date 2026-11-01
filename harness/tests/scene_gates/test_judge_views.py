@@ -21,7 +21,7 @@ def test_default_selection_is_authored_plus_overviews():
     rs = _rs()
     assert len(rs.views) == 2 * (3 + 7)
     sel = select_judge_views(rs)
-    # 3 authored + the 4 overview tiles (scene_v2: the contact camera is the fourth) + 2 at t=1.5
+    # 3 authored + the 4 overview tiles (scene: the contact camera is the fourth) + 2 at t=1.5
     assert len(sel.views) == 9 <= JUDGE_MAX_VIEWS == 10
     keys = [(v.name, v.time_s) for v in sel.views]
     # authored t=0, the overview rig t=0, first two authored at t=1.5
@@ -40,7 +40,7 @@ def test_default_selection_is_authored_plus_overviews():
 
 
 def test_the_rig_has_four_judged_overviews_and_the_contact_camera_is_the_fourth():
-    """scene_v2: ``overview_low_front`` (az 20°, el 7°) is in the rig, judged, and fitted as the
+    """scene: ``overview_low_front`` (az 20°, el 7°) is in the rig, judged, and fitted as the
     contact camera (orbit.mjs takes elevation < 10° to fitContactCamera); the eye rig stays diagnostic."""
     from codeverse3d.spatial.render_scene import MAX_JUDGE_OVERVIEWS
 

@@ -188,7 +188,7 @@ def fit_orbit(census_path: Path, views: Sequence[ViewPreset], *, width: int, hei
 def _pixel_orbit(specs: list[dict[str, Any]]) -> set[str]:
     """The rig views that get Blender pixels: the first ``MAX_JUDGE_OVERVIEWS`` overviews — the
     same four tiles ``render_scene.select_judge_views`` hands the judge (the three high views
-    and the ground-level ``overview_low_front`` since scene_v2); the eye-level rig is measured
+    and the ground-level ``overview_low_front`` since scene); the eye-level rig is measured
     by the geometry pass and never rendered."""
     return set([str(o["name"]) for o in specs if str(o["name"]).startswith("overview")][:MAX_JUDGE_OVERVIEWS])
 

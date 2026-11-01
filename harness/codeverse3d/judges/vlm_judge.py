@@ -82,7 +82,7 @@ THINKING_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
 
 #: Per-track montage ceilings under the ``Settings.judge.montages`` dial.  D47's 3 → 5 was
 #: measured on the OBJECT rig only (docs/DECISIONS.md D47); graphics keeps the pre-D47 3 until a
-#: battery measures it.  The scene rig moved 3 → 4 with scene_v2 (2026-10-14): the fourth
+#: battery measures it.  The scene rig moved 3 → 4 with scene (2026-10-14): the fourth
 #: overview (``overview_low_front``, the contact camera) plus the t=1.5 tiles need a third
 #: grid on a three-camera plan and a fourth on a four-camera one — a cap of 3 silently
 #: dropped the low tile the contact crops are cut from.  An explicit ``max_montages`` wins.
@@ -108,7 +108,7 @@ class VlmJudge:
 
     def __init__(
         self,
-        rubric: str | Rubric = "static_object_v1",
+        rubric: str | Rubric = "static_object",
         model_id: str | None = None,
         n_samples: int = 1,
         temperature: float = 0.2,
@@ -390,7 +390,7 @@ class ReferenceJudge(VlmJudge):
         n_samples: int = 1,
         temperature: float = 0.2,
         *,
-        rubric: str | Rubric = "reference_v1",
+        rubric: str | Rubric = "reference",
         silhouette_fn: CompareFn | None = None,
         diff: bool = True,
         diff_model: Any | None = None,
@@ -533,7 +533,7 @@ class LikenessJudge(VlmJudge):
     name = "likeness"
 
     def __init__(self, model_id: str | None = None, n_samples: int = 1, temperature: float = 0.2, *,
-                 rubric: str | Rubric = "shader_v2", max_refs: int = 3, **kwargs: Any):
+                 rubric: str | Rubric = "shader", max_refs: int = 3, **kwargs: Any):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
         self.max_refs = max(1, int(max_refs))
 

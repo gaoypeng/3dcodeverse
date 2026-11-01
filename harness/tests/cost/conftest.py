@@ -25,9 +25,9 @@ def fake_run(tmp_path: Path) -> Path:
                       output_tokens=300, latency_ms=30_000), run=ws.name, round=0, stage="baseline",
                 label="baseline", source="session", n_calls=2, ledger=ledger)
     record_call(Usage(backend="gemini", model="gemini-3.1-pro-preview", input_tokens=12_000, output_tokens=1_000,
-                      latency_ms=5_000), run=ws.name, label="judge:static_object_v1:r00:s0", ledger=ledger)
+                      latency_ms=5_000), run=ws.name, label="judge:static_object:r00:s0", ledger=ledger)
     spec = Spec(id="fake", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
-    judgment = Judgment(rubric="static_object_v1", scores={}, overall=0.8, passed=True)
+    judgment = Judgment(rubric="static_object", scores={}, overall=0.8, passed=True)
     rec = RunRecord(spec=spec, workspace=str(ws), status=RunStatus.MAX_ROUNDS, extra={"stop_reason": "max_rounds"},
                     steps=[StepTime(step="plan", wall_s=20.0)],
                     rounds=[RoundRecord(index=0, kind="baseline", judgment=judgment,

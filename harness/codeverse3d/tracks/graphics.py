@@ -4,7 +4,7 @@ Languages: glsl_shader (Shadertoy-style fragment shader) · opengl_python (raw
 moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
 unchanged; the track-specific pieces are the prompt context (no 3D frame) and the
 render step (the sampled frames + contact sheet as the RenderSet
-the ``shader_v2`` judge sees); the ``gl_frames`` gate is the build's own
+the ``shader`` judge sees); the ``gl_frames`` gate is the build's own
 (``BuildResult.gates``).  Planning is ``tracks/planner.py``'s, like every track's
 (template, worked example, T = 0.5, acceptance: all dispatched on the track there).
 Refinement is always one whole-program task.

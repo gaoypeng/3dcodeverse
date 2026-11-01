@@ -165,7 +165,7 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
     r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
     assert r.exit_code == 0, r.output
     inp = _FakeVlm.captured["inp"]
-    assert _FakeVlm.captured["rubric"] == "static_object_v1"  # the rubric the round was judged with
+    assert _FakeVlm.captured["rubric"] == "static_object"  # the rubric the round was judged with
     assert inp.round_index == 1  # best round
     assert "Chair" in inp.plan_summary  # plan digest, not empty
     assert [a.id for a in inp.acceptance] == ["a1"]
@@ -181,9 +181,9 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(vj, "ReferenceJudge", _FakeRef)
     _FakeRef.captured.clear()
-    r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--rubric", "reference_v1"])
+    r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--rubric", "reference"])
     assert r.exit_code == 0, r.output  # no ValueError traceback any more
-    assert _FakeRef.captured["rubric"] == "reference_v1"
+    assert _FakeRef.captured["rubric"] == "reference"
 
     # a judge ValueError is a CLI error
     class _Boom(_FakeVlm):
@@ -213,7 +213,7 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
 
 
 def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
-    """A graphics round with no stored judgment is re-judged with the track's rubric, not static_object_v1."""
+    """A graphics round with no stored judgment is re-judged with the track's rubric, not static_object."""
     from codeverse3d.addons.calibration import load_run_cases
     from codeverse3d.contracts.artifacts import RenderSet, RenderView
     from codeverse3d.contracts.common import Language, Track
@@ -226,7 +226,7 @@ def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
     renders = RenderSet(views=[RenderView(name="frame_0", path=str(run / "artifacts" / "renders" / "r00" / "frame_0.png"))],
                         renderer="fake")
     (run / "rounds" / "r00.json").write_text(RoundRecord(index=0, kind="baseline", renders=renders).model_dump_json())
-    assert [c.rubric for c in load_run_cases(run)] == ["shader_v2"]
+    assert [c.rubric for c in load_run_cases(run)] == ["shader"]
 
 
 def test_make_invalid_combo_leaves_no_orphan_workspace(tmp_path: Path):
@@ -657,7 +657,7 @@ def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_
     """`3dcode judge` replays the run it reads.  r0 0.55, r1 unjudged (a judge outage), r2 0.90, of a
     static `--image` run:
     * no --round after `pick --round 0` is r0, the packaged round — not the best-scored r2 (N55a);
-    * the unjudged r1 replays on the run's reference_v1, not the track's static_object_v1 (N49);
+    * the unjudged r1 replays on the run's reference, not the track's static_object (N49);
     * r2's previous verdict is the loop's — r1's, i.e. none — not r0's (N56);
     * what the replay (or a pick) paid joins record.total_usage: it stays the ledger's sum (N53)."""
     import codeverse3d.judges.vlm_judge as vj
@@ -673,7 +673,7 @@ def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_
     r2 = rec.rounds[1].model_copy(update={"index": 2, "judgment": _judgment(0.90, True, [])})
     rec.rounds[1].judgment = None
     rec.rounds.append(r2)
-    rec.extra["rubric"] = "reference_v1"
+    rec.extra["rubric"] = "reference"
     ws.write_json(ws.record_path, rec)
     ws.write_json(ws.spec_path, rec.spec)
     ledger = ws.telemetry / "cost.jsonl"
@@ -703,7 +703,7 @@ def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_
         assert r.exit_code == 0, r.output
     (i0, _, _), (i1, rubric1, _), (i2, _, prev2) = _Judge.seen
     assert (i0, i1, i2) == (0, 1, 2)
-    assert rubric1 == "reference_v1"
+    assert rubric1 == "reference"
     assert prev2 is None
     assert load_record(ws).total_usage.cost_usd == pytest.approx(ledger_usage(load_ledger(ws.root)).cost_usd)
     assert load_record(ws).total_usage.cost_usd == pytest.approx(total + 3 * 0.05)

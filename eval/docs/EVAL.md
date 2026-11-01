@@ -137,7 +137,7 @@ Arms:
 
 Every arm ends with a `src/model.py` copied into a fresh eval workspace and scored by
 the same `FixedEvaluator` (the cell's runtime lint+build → measure → connectivity →
-14-view render + clay views → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Its payload
+14-view render + clay views → `VlmJudge(static_object, --judge, n_samples=2)`).  Its payload
 is the harness's `round_input` (`_fixed_eval.fixed_input`), so it is the in-run judge's for the
 same round — clay montage, the GLB for the D48 slice channel, connectivity in the author's frame —
 except the checklist, the brief's `must_have`.  (N83, 2026-09-24: before that it was hand-built
@@ -312,7 +312,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   on 2026-09-22), and the 0.072 round-to-round spread in the corpus is generation variance,
   not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
   vs 0.035 between 0.0 and 0.2 on 512 calls) — one more $8 battery.
-* **scene_v2 (2026-10-14): the scene judge gets stricter and detail-aware; scene_v1 was frozen
+* **scene (2026-10-14): the scene judge gets stricter and detail-aware; scene_v1 was frozen
   for replays at that time and is no longer distributed.**  Part of the argon scene-tuning program (D105): the owner asked for stricter
   connectivity / contact standards, and the scene judge was the lenient half of them — the
   placement gate measured floating / sunken / interpenetration while the rubric had one −0.06
@@ -336,7 +336,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
     placement rows and the plan checks share one report, so a `no_fog` ERROR let every floating
     claim stand although the rows had measured none.  Now a watched report is clean for a rule
     when it ran and has no ERROR of the rule's kinds and no WARN of those kinds at or over the
-    rule's `veto_warn_keys` line (scene_v2: `gap_m` 0.02 / `sunk_m` 0.10 / `overlap` 0.20 / any
+    rule's `veto_warn_keys` line (scene: `gap_m` 0.02 / `sunk_m` 0.10 / `overlap` 0.20 / any
     scale factor — a WARN-band hover at 0.08 m keeps the judge's tick, and so does a 3 cm one:
     the gap line is the INDOOR tolerance = `contact_m`, so a floating / unsupported WARN the gate
     raised is never vetoed; it was the outdoor 0.05 until 2026-10-15 and vetoed 2-5 cm indoor
@@ -371,7 +371,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   * **The A/B evaluator** (`eval/bench/_fixed_eval.py`) runs `placement_gate` on a scene cell
     before the judge, so the deterministic caps fire in a compare cell as in the loop.
   * Not measured yet: the loop's judge-calibration arm (`bench.loop judge-calib`) is the
-    within-sd / between-sd / SNR readout for scene_v2 under argon@medium; until it runs, the
+    within-sd / between-sd / SNR readout for scene under argon@medium; until it runs, the
     numbers above are the rubric's, not a battery's.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
@@ -385,7 +385,7 @@ same contact sheets ("would a curator screenshot it / does it look like the thin
 Three aurora versions nobody would take for an aurora scored 0.78 / 0.94 / 0.94 with empty issue
 lists; opaque pastel discs for bokeh 0.92; a lifted purple wash for a nebula 0.82; a crisp
 ukiyo-e wave 0.59 under planner must items.  The rubric scored the nouns of the brief being
-present.  The graphics loop fixes this (rubric `shader_v2`: likeness,
+present.  The graphics loop fixes this (rubric `shader`: likeness,
 tonal range, an artefact checklist; reference photos via `bench/refs/<id>/`; `LikenessJudge`)
 and the ledger of turns; `bench/judge_calib_graphics.py` re-judges the corpus under two rubrics
 against the eye file and is the gate for switching the track default.  The rule from §6 holds:
@@ -685,7 +685,7 @@ verbatim, `must_have` empty), our runs on the same prompts (generator
 **`api-agent:gemini:gemini-3.7-flash`** — the in-process arm, retired two days later by `66175ec`;
 `candidates=1`, `texture=false`; ≤ 3 rounds, on a 503-storm day), renders BOTH GLBs with our
 renderer, gates both, and judges both with one fixed pro judge
-(`static_object_v1`, n=2) — twice: **visual only** (no gate text in the judge's context) and
+(`static_object`, n=2) — twice: **visual only** (no gate text in the judge's context) and
 **gated** (the gate findings in the context, what the harness itself would say).  The gallery
 GLBs are merged, un-welded exports whose "floating" findings are export artefacts as often as
 defects, so the visual number is the fair headline.  `bench/h2h_scene.py` (scenes) does the
@@ -1195,7 +1195,7 @@ the original `off` roll missed, so the "drift" is the baseline's own vote varian
 `untextured_flat` votes overall: 8 → 5, the drop landing exactly on the adjudicated-false cases.
 New text: default grey / magenta placeholder (the untinted "nothing was assigned" look — a defect
 even when lit), or UNLIT fills where differently-angled faces render the SAME brightness; "no
-texture map" is never the test.  `judge_prompt_hash` moves for `static_object_v1`, as any wording
+texture map" is never the test.  `judge_prompt_hash` moves for `static_object`, as any wording
 change does; scoring is untouched.
 
 ### 2026-09-01 — sceneloop: the scene-track efficiency ledger, the first skills A/B (inconclusive), and two refuted hypotheses

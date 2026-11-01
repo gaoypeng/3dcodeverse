@@ -98,7 +98,7 @@ are marked as confounded wherever they appear below.
 
 Everything below is judged by a **fixed evaluator**: the delivered GLB re-rendered on a
 14-view rig and scored by `gemini:gemini-3.1-pro-preview` with `n_samples=3` against the
-`articulated_v1` rubric.  Arms are paired per prompt.  `--pin-plan` runs the planner once
+`articulated` rubric.  Arms are paired per prompt.  `--pin-plan` runs the planner once
 and seeds both arms, removing the planner's spread from the difference.
 
 **A/A calibration (2026-09-02, `bench/out/aa_articulated`).**  Two *identical* arms on

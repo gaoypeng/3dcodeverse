@@ -1,4 +1,4 @@
-"""scene_v2 (2026-10-14): what the scene judge is shown — the gate facts in the scene branch, the
+"""scene (2026-10-14): what the scene judge is shown — the gate facts in the scene branch, the
 MEASURED PLACEMENT line, the contact crops cut around measured placement findings, and the rubric's
 own numbers.  The object branch of every helper is pinned byte-identical in test_prompt_builder."""
 
@@ -34,7 +34,7 @@ from tests.judges.conftest import draw_chair, make_spec
 
 E, W, INFO = Severity.ERROR, Severity.WARN, Severity.INFO
 G = "scene_placement"
-S = load_rubric("scene_v2")
+S = load_rubric("scene")
 
 
 # --------------------------------------------------------------------------- fixtures
@@ -273,7 +273,7 @@ def test_a_scene_verdict_sends_the_contact_crops_after_the_centre_crop(tmp_path,
     assert text.index("scene_placement=FAIL") < text.index("scene_frames=pass")
     # an object verdict never gets the scene text
     obj = JudgeInput(spec=make_spec(), renders=RenderSet(views=[authored]), gates=[_placement(LANTERN)])
-    _, omsgs = build_judge_messages(obj, load_rubric("static_object_v1"), cache_dir=cache_dir)
+    _, omsgs = build_judge_messages(obj, load_rubric("static_object"), cache_dir=cache_dir)
     otext = omsgs[0].parts[0].text
     assert "MEASURED PLACEMENT" not in otext and "CONTACT CROP" not in otext and RIG_RULES["object"] in otext
 
@@ -287,7 +287,7 @@ def test_view_rig_counts_contact_crops_as_detail_crops():
 
 
 # --------------------------------------------------------------------------- the rubric
-def test_scene_v2_numbers_are_pinned():
+def test_scene_numbers_are_pinned():
     """What moved from v1 (eval/docs/EVAL.md §6, 2026-10-14) — and what stayed."""
     caps = {c.id: c for c in S.caps}
     assert S.version == 2 and S.pass_threshold == 0.70
@@ -339,7 +339,7 @@ def test_scene_v2_numbers_are_pinned():
                    "CONTACT CROP images are diagnostic close-ups", "must name the VIEW"):
         assert phrase in notes, phrase
     # the object rubrics did not move: no veto_warn_keys, the same content hash as their YAML
-    for name in ("static_object_v1", "articulated_v1", "reference_v1"):
+    for name in ("static_object", "articulated", "reference"):
         assert all(not c.veto_warn_keys for c in load_rubric(name).caps), name
 
 

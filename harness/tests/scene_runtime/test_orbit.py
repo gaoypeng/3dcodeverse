@@ -73,7 +73,7 @@ console.log(JSON.stringify({{
 
 
 def test_contact_camera_stands_at_ground_level_outside_the_content(tmp_path):
-    """scene_v2's ``overview_low_front`` (elevation < 10°): 1.2× the content span from the centre,
+    """scene's ``overview_low_front`` (elevation < 10°): 1.2× the content span from the centre,
     0.4 m above the ground, aimed at the ground edge of the content box; fog kept."""
     body = f"""
 import {{ fitOrbitCameras, fitContactCamera }} from './lib/orbit.mjs';

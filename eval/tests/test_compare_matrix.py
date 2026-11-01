@@ -220,7 +220,7 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     inner_eval = ev.evaluate
 
     def evaluate(ws, spec):          # the fixed evaluator buys a verdict
-        bill("judge:static_object_v1:r00:s0")
+        bill("judge:static_object:r00:s0")
         return inner_eval(ws, spec)
 
     ev.evaluate = evaluate           # type: ignore[method-assign]
@@ -239,10 +239,10 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     cells = {r.arm: Path(r.workspace) for r in rows}
     harness = cells["harness:agy:gemini-3.6-flash"]
     assert [r.label for r in load_ledger(harness / "run")] == ["baseline"]
-    assert [r.label for r in load_ledger(harness)] == ["judge:static_object_v1:r00:s0"]
+    assert [r.label for r in load_ledger(harness)] == ["judge:static_object:r00:s0"]
     oneshot = cells["oneshot:claude-code"]
     assert not (oneshot / "run").exists()
-    assert [r.label for r in load_ledger(oneshot)] == ["judge:static_object_v1:r00:s0"]
+    assert [r.label for r in load_ledger(oneshot)] == ["judge:static_object:r00:s0"]
 
 
 def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):

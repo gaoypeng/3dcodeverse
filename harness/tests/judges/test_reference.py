@@ -5,7 +5,7 @@ from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.judges.vlm_judge import ReferenceJudge, ReferenceJudgeError, iou_to_score
 from tests.judges.conftest import FakeChatModel, draw_chair, good_reply, image_parts
 
-REF = load_rubric("reference_v1")
+REF = load_rubric("reference")
 
 
 def test_reference_judge_measures_silhouette_and_adds_reference_images(judge_input, tmp_path, cache_dir):

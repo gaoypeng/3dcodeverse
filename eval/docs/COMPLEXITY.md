@@ -207,8 +207,8 @@ generation-side levers belong to the other two owners of the complexity wave.
    `complexity` block on every record (with `plan_parts`, `parts_per_plan_part`
    and the per-round trail), a `cx 0.65` chip on every gallery card, a
    complexity panel and a complexity sort in the gallery.
-2. **`geometry_detail` was made countable** (F2) in `static_object_v1`,
-   `articulated_v1`, `asset_v1` and `reference_v1`:
+2. **`geometry_detail` was made countable** (F2) in `static_object`,
+   `articulated`, `asset` and `reference`:
    * a named list of **eight refinement kinds** (bevel/fillet, taper, curve,
      moulding, cut-out, wall thickness, surface relief, modelled hardware) in the
      rubric notes, so "detail" is a count and not a mood;

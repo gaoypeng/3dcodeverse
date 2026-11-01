@@ -77,7 +77,7 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   `gemini-3.7-flash` stays the cheap API model (single-shot / economy, flash judge — lenient; needs
   the defect checklist for range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.  The argon loop judges with
-  `gemini:gemini-4-argon` at `judge.thinking=medium` (argon does not think at 'low'; D105) on rubric `scene_v2`.
+  `gemini:gemini-4-argon` at `judge.thinking=medium` (argon does not think at 'low'; D105) on rubric `scene`.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
 - Every model call and vendor session is priced into the run's `telemetry/cost.jsonl` — the ONLY record of
   money: `record.total_usage` is its sum at list price (D84).  A run's minutes are its steps' time minus

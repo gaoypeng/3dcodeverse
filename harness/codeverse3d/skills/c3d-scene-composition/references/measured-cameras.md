@@ -1,7 +1,7 @@
 # The camera instruments, and what each finding asks you to change
 
 Companion to `c3d-scene-composition`. Constants read from
-`codeverse3d/spatial/frame_metrics.py`, `codeverse3d/judges/rubrics/scene_v2.yaml`,
+`codeverse3d/spatial/frame_metrics.py`, `codeverse3d/judges/rubrics/scene.yaml`,
 `runtime_js/lib/backdrop.mjs`, `runtime_js/lib/host_census.mjs` and
 `runtime_js/lib/scene_host.mjs` on 2026-08-25, re-read 2026-10-15.
 

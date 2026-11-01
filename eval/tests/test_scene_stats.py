@@ -52,7 +52,7 @@ def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) ->
     def judged(name: str, overall: float) -> None:
         d = tmp_path / name / "run"
         d.mkdir(parents=True, exist_ok=True)
-        j = Judgment(rubric="scene_v2", scores={"a": overall}, overall=overall, passed=overall > 0.5)
+        j = Judgment(rubric="scene", scores={"a": overall}, overall=overall, passed=overall > 0.5)
         (d / "record.json").write_text(json.dumps({
             "spec": {"track": "scene", "id": name},
             "plan": {"assets": []},

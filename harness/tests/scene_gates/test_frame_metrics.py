@@ -136,7 +136,7 @@ def test_no_hint_prescribes_one_camera_or_light_construction():
 
 
 def test_scene_rubric_caps_fire_on_frame_kinds():
-    rubric = load_rubric("scene_v2")
+    rubric = load_rubric("scene")
     rep = frame_findings(_metrics(_chk("Establishing", mean_lum=0.07, dark_frac=0.41, content_frac=0.1)))
     res = apply_caps(rubric, 0.9, [rep], {}, [])
     fired = {c.rule: c.cap for c in res.caps_applied}

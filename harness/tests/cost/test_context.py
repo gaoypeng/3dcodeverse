@@ -17,7 +17,7 @@ def test_label_tells_stage_role_and_round():
     c = context_from_label("refine_drip_tray")
     assert c.stage is Stage.REFINE and c.role is None  # a generation label states no role...
     assert attribute(label="refine_drip_tray").role is Role.GENERATOR  # ...the stage derives it
-    c = context_from_label("judge:static_object_v1:r02:s1")
+    c = context_from_label("judge:static_object:r02:s1")
     assert c.stage is Stage.JUDGE and c.role is Role.JUDGE and c.round == 2
     assert context_from_label("planner-retry").stage is Stage.PLAN
     assert context_from_label("pairwise:0v1:fwd").stage is Stage.PAIRWISE
@@ -44,7 +44,7 @@ def test_session_beats_a_generation_label_a_named_job_beats_the_session_explicit
         assert tex.stage is Stage.TEXTURE and tex.role is Role.OTHER and tex.round == 2
         gate = attribute(label="texture_gate")
         assert gate.stage is Stage.TEXTURE and gate.role is Role.JUDGE
-        verdict = attribute(label="judge:static_object_v1:r02:s0")
+        verdict = attribute(label="judge:static_object:r02:s0")
         assert verdict.stage is Stage.JUDGE and verdict.role is Role.JUDGE and verdict.round == 2
         cap = attribute(label="caption:best")
         assert cap.stage is Stage.CAPTION and cap.role is Role.CAPTIONER

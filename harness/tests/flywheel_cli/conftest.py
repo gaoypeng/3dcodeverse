@@ -45,7 +45,7 @@ def tiny_png(path: Path, rgb: tuple[int, int, int] = (200, 30, 30), size: int = 
 
 def _judgment(score: float, passed: bool, plan: list[str]) -> Judgment:
     return Judgment(
-        rubric="static_object_v1", judge_backend="gemini:gemini-3.7-flash",
+        rubric="static_object", judge_backend="gemini:gemini-3.7-flash",
         scores={"fidelity": score, "geometry": score}, overall=score, passed=passed, summary=f"score {score}",
         issues=[JudgeIssue(target="Leg", kind="geometry", severity="major", detail="legs too thin")] if not passed else [],
         improvement_plan=[ImprovementItem(target="Leg", kind="geometry", instruction=s, priority=1) for s in plan],

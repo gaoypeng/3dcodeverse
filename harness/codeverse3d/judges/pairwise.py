@@ -91,7 +91,7 @@ class PairwiseJudge:
     # ------------------------------------------------------------------ API
     def compare(
         self, spec: Spec, renders_a: RenderSet, renders_b: RenderSet, *,
-        rubric: str | Rubric = "static_object_v1"
+        rubric: str | Rubric = "static_object"
     ) -> PairwiseResult:
         """The two orderings' requests are tagged ``pairwise:fwd`` / ``pairwise:swap``
         so logs — and deterministic fakes — can tell concurrent orderings apart."""

@@ -78,7 +78,7 @@ ASSET_AGENT_TIMEOUT_S = 420
 #: ran the full 420 s and held the stage to 10.9 min — 28 % of the run for one asset, and
 #: round 0 did not start until 18.9 min.
 ASSET_SESSION_SHARE = 0.15
-ASSET_RUBRIC = "asset_v1"
+ASSET_RUBRIC = "asset"
 #: the asset kinds that are a MODULE in the scene workspace (one factory per file, placed by the
 #: zones); ``blender_glb`` is the hero, built as an object and shipped as a GLB
 MODULE_KINDS: frozenset[str] = frozenset({"threejs", "bpy"})
@@ -440,7 +440,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     09-05): 15 first sessions killed at the asset timeout (booked at $0 — a killed CLI
     reports no usage), 12 GLBs one joined mesh with vertex paint (the one-part plan plus
     the Blender contract's "one object per plan part" leave no other way to colour it, so
-    wood and iron share one roughness), median asset_v1 0.57 with 2 of 18 passing, and
+    wood and iron share one roughness), median asset 0.57 with 2 of 18 passing, and
     every fix prompt reading "Style of the whole scene: (none)" because the sub-spec's
     prompt IS the asset sheet.
     """
@@ -670,7 +670,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
                    language: Language, after_fix: Callable[[RunContext], bool] | None = None,
                    measure_fn: Callable[[], Any] | None = None,
                    snapshot: Callable[[], Callable[[], None]] | None = None) -> AssetResult:
-    """Quick-sheet judge with asset_v1 (n_samples=1); ONE fix pass when below threshold,
+    """Quick-sheet judge with asset (n_samples=1); ONE fix pass when below threshold,
     then the fix is checked (``after_fix(gen_ctx)``) and JUDGED AGAIN — ``score`` describes
     the asset that ships, ``score_before`` the one that was fixed.  The fix climbs the
     same cheap rung as the generation: one chat call when the run has a chat model

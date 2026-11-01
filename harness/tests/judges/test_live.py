@@ -64,7 +64,7 @@ def test_live_vlm_judge_two_samples(tmp_path):
                      acceptance=[AcceptanceItem(id="A1", text="three legs reach the ground", how="visual", priority="must"),
                                  AcceptanceItem(id="A2", text="seat is round", how="visual", priority="should")],
                      plan_summary="parts: Seat, Leg1, Leg2, Leg3")
-    judge = VlmJudge("static_object_v1", model_id=MODEL, n_samples=2, cache_dir=tmp_path / "cache")
+    judge = VlmJudge("static_object", model_id=MODEL, n_samples=2, cache_dir=tmp_path / "cache")
     j = judge.judge(inp)
     raw = json.loads(j.raw)
     print(f"\nLIVE source={source}\noverall={j.overall} std={j.score_std} passed={j.passed} n={j.n_samples}"
@@ -84,7 +84,7 @@ def test_live_judge_separates_crafted_from_crude(tmp_path):
     if "stool" not in source:
         pytest.skip("needs real stool renders")
     spec = make_spec(prompt="A simple three-legged wooden stool, 45 cm tall, round seat 36 cm across.")
-    judge = VlmJudge("static_object_v1", model_id=MODEL, n_samples=1, cache_dir=tmp_path / "cache")
+    judge = VlmJudge("static_object", model_id=MODEL, n_samples=1, cache_dir=tmp_path / "cache")
     good = judge.judge(JudgeInput(spec=spec, renders=renders, measurement=meas, plan_summary="parts: Seat, Leg1, Leg2, Leg3"))
     crude = judge.judge(JudgeInput(spec=spec, renders=make_renders(tmp_path / "crude"), measurement=make_measurement(),
                                    plan_summary="parts: Seat, Leg1, Leg2, Leg3"))

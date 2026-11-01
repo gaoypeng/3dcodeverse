@@ -16,7 +16,7 @@ from tests.judges.conftest import (
     make_spec,
 )
 
-R = load_rubric("static_object_v1")
+R = load_rubric("static_object")
 
 
 def _fake_run(root: Path, name: str) -> Path:
@@ -51,7 +51,7 @@ def test_load_cases_reads_the_plan_and_picks_the_fallback_round(tmp_path, caplog
     run = _fake_run(tmp_path, "runA")
     cases = load_run_cases(run)
     assert [c.round_index for c in cases] == [0, 1] and cases[0].gate_errors == 1 and cases[1].gate_errors == 0
-    assert cases[0].rubric == "static_object_v1" and len(cases[0].inp.acceptance) == 2
+    assert cases[0].rubric == "static_object" and len(cases[0].inp.acceptance) == 2
     assert cases[1].is_picked and not cases[0].is_picked and cases[0].glb is None  # no usable record: the last round
     assert cases[0].inp.plan_summary == "Chair: a chair. Overall 0.50×0.90×0.50 m (W×H×D). Parts: Seat, Leg×4."
     assert load_run_cases(run, rounds=[1])[0].round_index == 1

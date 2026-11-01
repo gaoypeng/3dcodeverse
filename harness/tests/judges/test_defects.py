@@ -18,8 +18,8 @@ from codeverse3d.judges.rubrics import (
 from codeverse3d.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import FakeChatModel, good_reply
 
-R = load_rubric("static_object_v1")
-A = load_rubric("articulated_v1")
+R = load_rubric("static_object")
+A = load_rubric("articulated")
 IDS = ["A1", "A2"]
 
 
@@ -30,7 +30,7 @@ def _reply(score=0.9, defects=None):
 
 
 def test_rubrics_declare_defects_with_costs():
-    for name in ("static_object_v1", "articulated_v1", "scene_v2", "asset_v1", "reference_v1"):
+    for name in ("static_object", "articulated", "scene", "asset", "reference"):
         r = load_rubric(name)
         assert r.defects, name
         assert all(d.penalty > 0 or d.cap is not None for d in r.defects)
@@ -74,14 +74,14 @@ def test_wire_schema_has_fixed_defect_keys_and_parse_variants():
 def test_penalties_and_caps_computed_in_code(judge_input, cache_dir):
     # floating_part: -0.10 and cap 0.60; primitive_only: -0.08 no cap
     model = FakeChatModel([_reply(0.9, ["primitive_only"])])
-    j = VlmJudge("static_object_v1", chat_model=model, cache_dir=cache_dir).judge(judge_input)
+    j = VlmJudge("static_object", chat_model=model, cache_dir=cache_dir).judge(judge_input)
     raw = json.loads(j.raw)
     assert raw["overall_uncapped"] == pytest.approx(0.9) and raw["defect_penalty"] == pytest.approx(0.08)
     assert j.overall == pytest.approx(0.82) and j.passed
     assert raw["defects"]["primitive_only"] is True and raw["caps"]["caps_applied"] == []
     assert "defects (-0.08): primitive_only" in j.summary
     model2 = FakeChatModel([_reply(0.9, ["floating_part", "primitive_only"])])
-    j2 = VlmJudge("static_object_v1", chat_model=model2, cache_dir=cache_dir).judge(judge_input)
+    j2 = VlmJudge("static_object", chat_model=model2, cache_dir=cache_dir).judge(judge_input)
     raw2 = json.loads(j2.raw)
     assert raw2["overall_after_defects"] == pytest.approx(0.72)
     assert j2.overall == 0.6 and not j2.passed  # capped by defect:floating_part
@@ -94,16 +94,16 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
     """D36: an exact defect-vote tie is ABSENT, whichever sample flagged it."""
     flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
     with caplog.at_level("WARNING", logger="codeverse3d.judges.vlm_judge"):
-        j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
+        j = VlmJudge("static_object", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert "n_samples=2 is even" in caplog.text
     raw = json.loads(j.raw)
     assert raw["defect_votes"]["render_artifacts"] == [True, False]
     assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
     assert raw["tie_broken"] == ["render_artifacts"]
-    assert raw["scoring_version"] == 4 and raw["overridden"] == []  # 4: the kind-scoped veto (scene_v2, 2026-10-14)
+    assert raw["scoring_version"] == 4 and raw["overridden"] == []  # 4: the kind-scoped veto (scene, 2026-10-14)
 
     clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})
-    j2 = VlmJudge("static_object_v1", chat_model=clean_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
+    j2 = VlmJudge("static_object", chat_model=clean_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     raw2 = json.loads(j2.raw)
     assert raw2["defect_votes"]["render_artifacts"] == [False, True]
     assert raw2["defects"]["render_artifacts"] is False and j2.overall == pytest.approx(0.9)
@@ -114,12 +114,12 @@ def test_acceptance_vote_ties_follow_the_representative_sample(judge_input, cach
     """D36: an acceptance tie follows the representative sample."""
     a_ok, a_no = _reply(0.9), _reply(0.9)
     a_no["acceptance"]["A1"]["verified"] = False
-    j = VlmJudge("static_object_v1", chat_model=FakeChatModel(by_label={":s0": [a_ok], ":s1": [a_no]}),
+    j = VlmJudge("static_object", chat_model=FakeChatModel(by_label={":s0": [a_ok], ":s1": [a_no]}),
                  n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert j.acceptance_results["A1"] is True and json.loads(j.raw)["tie_broken"] == ["A1"]
     b_ok, b_no = _reply(0.9), _reply(0.9)
     b_no["acceptance"]["A1"]["verified"] = False
-    j2 = VlmJudge("static_object_v1", chat_model=FakeChatModel(by_label={":s0": [b_no], ":s1": [b_ok]}),
+    j2 = VlmJudge("static_object", chat_model=FakeChatModel(by_label={":s0": [b_no], ":s1": [b_ok]}),
                   n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert j2.acceptance_results["A1"] is False and json.loads(j2.raw)["tie_broken"] == ["A1"]
 

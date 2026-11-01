@@ -28,8 +28,8 @@ Cost: seconds of CPU.  It never writes into a run.
 
 CLI::
 
-    python bench/rejudge_offline.py bench/out --rubric static_object_v1 --out scratch/replay
-    python bench/rejudge_offline.py bench/out --rubric static_object_v1 --identity   # exit 1 on any drift, 2 when nothing was held
+    python bench/rejudge_offline.py bench/out --rubric static_object --out scratch/replay
+    python bench/rejudge_offline.py bench/out --rubric static_object --identity   # exit 1 on any drift, 2 when nothing was held
 """
 
 from __future__ import annotations
@@ -261,7 +261,7 @@ def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("roots", nargs="+", type=Path)
-    ap.add_argument("--rubric", default="static_object_v1", help="rubric NAME the stored verdicts must carry")
+    ap.add_argument("--rubric", default="static_object", help="rubric NAME the stored verdicts must carry")
     ap.add_argument("--rubric-file", type=Path, default=None,
                     help="score with THIS yaml instead of the installed rubric of the same name (a variant under test)")
     ap.add_argument("--kinds", default="", help="comma list of round kinds to keep (default all, incl. candidate)")

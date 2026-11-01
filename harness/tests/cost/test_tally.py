@@ -17,7 +17,7 @@ from codeverse3d.cost.instrument import MeteredAgent, MeteredChatModel, run_ledg
 from codeverse3d.cost.ledger import load_ledger, record_call
 from codeverse3d.cost.tally import Tally, tally, timed
 
-REQ = ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r00:s0")
+REQ = ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object:r00:s0")
 
 
 def test_a_tally_holds_exactly_the_ledger_rows_booked_inside_it(tmp_path: Path):

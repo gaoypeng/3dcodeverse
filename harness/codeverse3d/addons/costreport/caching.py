@@ -52,7 +52,7 @@ class SessionCache:
 
 def session_key(label: str) -> str:
     """Collapse a per-call label to its session: ``api-agent:refine_legs:t7`` →
-    ``refine_legs``, ``judge:static_object_v1:r02:s1`` → ``judge:static_object_v1``.
+    ``refine_legs``, ``judge:static_object:r02:s1`` → ``judge:static_object``.
 
     A session is what shares a prompt prefix: every turn of one agent session,
     every sample of one verdict."""

@@ -27,7 +27,7 @@ from codeverse3d.judges.rubrics import (
     load_rubric,
 )
 
-R = load_rubric("static_object_v1")
+R = load_rubric("static_object")
 ITEMS = [AcceptanceItem(id="M1", text="four legs", priority="must"),
          AcceptanceItem(id="M2", text="0.45 m tall", priority="must", how="measure"),
          AcceptanceItem(id="S1", text="bevelled edges", priority="should")]

@@ -1,11 +1,11 @@
 ---
 name: c3d-glsl-craft
-description: "Use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. What the five sampled frames measure and where the real operating band is, what the shader_v2 judge names and charges for, and a short list of strong optional practices behind its recorded complaints: structure that does not alias, motion from the mechanism instead of a uv scroll, light as a path through a volume, exposure before colour."
+description: "Use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. What the five sampled frames measure and where the real operating band is, what the shader judge names and charges for, and a short list of strong optional practices behind its recorded complaints: structure that does not alias, motion from the mechanism instead of a uv scroll, light as a path through a volume, exposure before colour."
 license: Apache-2.0
 compatibility: GLSL 330 core via moderngl, headless. One image pass (src/shader.frag), an optional src/common.glsl and one feedback pass (src/buffer_a.frag). The harness declares the uniforms; the contract lists them.
 metadata:
   evidence: mixed
-  evidence_note: "Gate thresholds, caps and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader_v2.yaml) and pinned in _claims. The corpus is thin: 9 graded glsl_shader runs mined 2026-08-25 under the previous rubric, so every count below names its n and no rate is generalised."
+  evidence_note: "Gate thresholds, caps and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader.yaml) and pinned in _claims. The corpus is thin: 9 graded glsl_shader runs mined 2026-08-25 under the previous rubric, so every count below names its n and no rate is generalised."
   verified: "2026-10-15"
   corpus: "9 graded glsl_shader runs (18 judged rounds) + 5 opengl_python runs, mined 2026-08-25"
   target_metric: "mean_edge_density"
@@ -33,7 +33,7 @@ them is a recipe — the brief decides what is on screen and how it is built.
 * `nan` — any NaN / Inf pixel (ERROR, cap 0)
 
 Over the 9 graded glsl runs mined 2026-08-25 the gate fired nothing while the judge sat at
-0.55-0.65: clearing it proves nothing. The judge is `shader_v2`: likeness 0.26,
+0.55-0.65: clearing it proves nothing. The judge is `shader`: likeness 0.26,
 depth_and_detail 0.16, light_and_tone 0.16, motion_quality 0.14, composition 0.10,
 technical_cleanliness 0.10, craft 0.08, plus the defect list the system prompt carries.
 One hint, and only a hint at n = 9: the harness's colourfulness metric (`gl_frames` prints

@@ -1,4 +1,4 @@
-name: static_object_v1
+name: static_object
 version: 1
 track_hint: static_object
 pass_threshold: 0.72

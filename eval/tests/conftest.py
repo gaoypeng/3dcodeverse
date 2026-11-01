@@ -108,7 +108,7 @@ class FakeEvaluator:
         gate = GateReport(gate="connectivity", passed=score >= 0.4, findings=[] if score >= 0.4 else [
             GateFinding(gate="connectivity", severity=Severity.ERROR, target="Body", message="floating part")])
         out.gates.append(gate)
-        out.judgment = Judgment(rubric="static_object_v1", judge_backend="fake", scores={"intent_fidelity": score},
+        out.judgment = Judgment(rubric="static_object", judge_backend="fake", scores={"intent_fidelity": score},
                                 overall=score, passed=score >= 0.72, n_samples=2, usage=Usage(cost_usd=0.01))
         return out
 
@@ -141,7 +141,7 @@ def fake_run_track(score: float = 0.8):
         (ws.root / MODEL_FILE).write_text(GOOD.format(score=score))
         (ws.src / "parts").mkdir(exist_ok=True)
         (ws.src / "parts" / "legs.py").write_text("LEGS = 3\n")
-        loop_verdict = Judgment(rubric="static_object_v1", scores={}, overall=round(score - 0.1, 4), passed=False)
+        loop_verdict = Judgment(rubric="static_object", scores={}, overall=round(score - 0.1, 4), passed=False)
         rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS,
                         rounds=[RoundRecord(index=0, kind="baseline", judgment=loop_verdict,
                                             build=BuildResult(ok=True, language="blender"))],

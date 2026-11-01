@@ -20,7 +20,7 @@ from codeverse3d.judges.prompt_builder import (
 from codeverse3d.judges.rubrics import load_rubric
 from tests.judges.conftest import draw_chair
 
-R = load_rubric("static_object_v1")
+R = load_rubric("static_object")
 
 
 def _parts(msgs):
@@ -64,7 +64,7 @@ def test_gates_previous_and_budget(judge_input, cache_dir):
     judge_input.gates = [GateReport(gate="connectivity", passed=False, findings=[
         GateFinding(gate="connectivity", severity=Severity.ERROR, target="LegBackLeft", message="floating 3 cm"),
         GateFinding(gate="connectivity", severity=Severity.WARN, message="thin sliver on Seat")])]
-    judge_input.previous = Judgment(rubric="static_object_v1", scores={}, overall=0.55, passed=False,
+    judge_input.previous = Judgment(rubric="static_object", scores={}, overall=0.55, passed=False,
                                     improvement_plan=[ImprovementItem(target="Seat", kind="geometry", instruction="thicken seat", priority=1)])
     judge_input.round_index = 2
     judge_input.extra_context = "x" * 50_000
@@ -80,10 +80,10 @@ def test_scene_rig_paragraph(judge_input, cache_dir):
     from codeverse3d.contracts.common import Language, Track
     judge_input.spec = judge_input.spec.model_copy(update={"track": Track.SCENE, "language": Language.SCENE_THREEJS})
     judge_input.renders.console_errors = ["ReferenceError: foo"]
-    _, msgs = build_judge_messages(judge_input, load_rubric("scene_v2"), cache_dir=cache_dir)
+    _, msgs = build_judge_messages(judge_input, load_rubric("scene"), cache_dir=cache_dir)
     text = _parts(msgs)[0].text
     assert "overview_*" in text and "console error" in text
-    # scene_v2: the rig paragraph says what the overview tiles hide and what a CONTACT CROP is
+    # scene: the rig paragraph says what the overview tiles hide and what a CONTACT CROP is
     assert "room ceilings lifted" in text and "CONTACT CROP images are diagnostic close-ups" in text
     assert "must name its view and its asset" in text
     assert len(_images(msgs)) == 2  # montage + centre crop only: no placement finding, no contact crop

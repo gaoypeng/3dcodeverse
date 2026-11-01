@@ -83,7 +83,7 @@ def test_a_metered_call_becomes_one_priced_row(tmp_path: Path):
     chat = FakeChat()
     with run_ledger(tmp_path, run="r1"):
         resp = MeteredChatModel(chat).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r01:s0"))
+            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object:r01:s0"))
     assert resp.text == "ok"
     (row,) = load_ledger(tmp_path)
     assert row.run == "r1" and row.stage is Stage.JUDGE and row.role is Role.JUDGE and row.round == 1
@@ -131,7 +131,7 @@ def test_post_hoc_work_never_creates_a_partial_ledger(tmp_path: Path):
     with run_ledger(tmp_path, run="old", create=False) as led:
         assert led is None
         MeteredChatModel(FakeChat()).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r00:s0"))
+            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object:r00:s0"))
     assert not (tmp_path / "telemetry" / "cost.jsonl").exists()
     # but a run that already keeps one is appended to
     with run_ledger(tmp_path, run="old"):
@@ -139,7 +139,7 @@ def test_post_hoc_work_never_creates_a_partial_ledger(tmp_path: Path):
     with run_ledger(tmp_path, run="old", create=False) as led:
         assert led is not None
         MeteredChatModel(FakeChat()).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r00:s0"))
+            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object:r00:s0"))
     assert len(load_ledger(tmp_path)) == 2
 
 

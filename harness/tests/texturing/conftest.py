@@ -107,7 +107,7 @@ class FakeJudge:
         overall, scores = self.verdicts[min(self.calls, len(self.verdicts) - 1)]
         self.calls += 1
         summary = "judge_error: boom" if self.degraded else "ok"
-        return Judgment(rubric="static_object_v1", scores=scores, overall=overall, passed=overall >= 0.72, summary=summary,
+        return Judgment(rubric="static_object", scores=scores, overall=overall, passed=overall >= 0.72, summary=summary,
                         usage=Usage(cost_usd=0.01))
 
 

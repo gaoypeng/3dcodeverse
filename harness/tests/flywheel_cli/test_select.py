@@ -47,10 +47,10 @@ def _run(root: Path, rounds: list[tuple[float | str | None, int]], *, status: Ru
         kept.parent.mkdir(parents=True, exist_ok=True)
         kept.write_bytes(b"glTF\x02\x00\x00\x00" + bytes([i]) * 16)
         if score == "degraded":  # a judge glitch: paid for, never a score
-            j = Judgment(rubric="static_object_v1", scores={}, overall=0.0, passed=False,
+            j = Judgment(rubric="static_object", scores={}, overall=0.0, passed=False,
                          summary="judge_error: 503", raw=json.dumps({"status": "degraded"}))
         else:
-            j = None if score is None else Judgment(rubric="static_object_v1", scores={}, overall=score, passed=score >= 0.72)
+            j = None if score is None else Judgment(rubric="static_object", scores={}, overall=score, passed=score >= 0.72)
         gates = [GateReport(gate="contract", passed=not errors,
                             findings=[GateFinding(gate="contract", severity=Severity.ERROR, message="off")] * errors)]
         recs.append(RoundRecord(index=i, kind="baseline" if i == 0 else "refine", commit=commit, judgment=j, gates=gates,
@@ -58,7 +58,7 @@ def _run(root: Path, rounds: list[tuple[float | str | None, int]], *, status: Ru
                                 renders=RenderSet(views=views, contact_sheet=str(tiny_png(ws.renders_dir(i) / "sheet.png"))),
                                 usage=Usage(cost_usd=0.1 * (i + 1))))
     ws.write_json(ws.record_path, RunRecord(spec=spec, workspace=str(ws.root), status=status, rounds=recs,
-                                            extra={"stop_reason": status.value, "rubric": "static_object_v1"}))
+                                            extra={"stop_reason": status.value, "rubric": "static_object"}))
     return ws
 
 
@@ -141,7 +141,7 @@ def test_pick_by_pairwise_asks_only_inside_the_margin_and_never_buys_a_verdict_t
     ws = _run(tmp_path / "r", [(0.70, 0), (0.72, 0)])
     judge = _Pairwise("b", 0.9)
     assert select.pick(ws.root, by="pairwise", judge=judge) == 0     # r00 is B, and B won
-    assert judge.calls and "/r01/" in judge.calls[0][0] and judge.calls[0][2] == "static_object_v1"
+    assert judge.calls and "/r01/" in judge.calls[0][0] and judge.calls[0][2] == "static_object"
     assert select.pick(ws.root, by="pairwise", judge=judge) == 0 and len(judge.calls) == 1   # cached, not re-bought
     assert ws.judge_path(1, "_vs_r00_pairwise").is_file()
     Path(judge.calls[0][0]).write_bytes(b"re-rendered")   # new pictures are a new comparison

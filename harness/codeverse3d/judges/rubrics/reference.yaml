@@ -1,4 +1,4 @@
-name: reference_v1
+name: reference
 version: 1
 track_hint: reference
 pass_threshold: 0.70
@@ -125,7 +125,7 @@ caps:
     when: acceptance
     cap: 0.6
     graded: true
-    note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object_v1); pass/fail unchanged
+    note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object); pass/fail unchanged
 
 # Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
 defects:

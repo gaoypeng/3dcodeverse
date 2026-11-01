@@ -35,12 +35,12 @@ from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput, judged_subset, rou
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
-RUBRIC = "static_object_v1"
+RUBRIC = "static_object"
 
 
 def rubric_for(spec: Spec | Track) -> str:
     """The fixed judge's rubric for a cell (or for a battery's track): the track's ``TRACK_INFO``
-    row — static_object_v1 / articulated_v1 / scene_v2 / shader_v2.
+    row — static_object / articulated / scene / shader.
 
     The one place the compare bench maps a track to a rubric: ``FixedEvaluator`` defaults to
     it, ``judge_for`` picks each cell's judge with it and ``_compare_report`` names it in the
@@ -129,7 +129,7 @@ class FixedEvaluator:
         cell of an ``ab_plan`` battery was recorded ``judge_error: no judgment`` — measured
         2026-08-26 on ``seed_v1`` (both arms, three rounds of in-loop verdicts each, and
         no pair score).  Graphics cells are judged on their frame sheet with the track's
-        rubric (``shader_v2``), through ``LikenessJudge`` when the spec carries reference
+        rubric (``shader``), through ``LikenessJudge`` when the spec carries reference
         photos so the arms see the same photos the loop saw.
         """
         from codeverse3d.judges.vlm_judge import VlmJudge, judge_for
@@ -165,7 +165,7 @@ class FixedEvaluator:
                 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
                 from codeverse3d.spatial.scene_placement import placement_gate
 
-                # the deterministic placement caps (scene_v2: floating / sunken / interpenetration /
+                # the deterministic placement caps (scene: floating / sunken / interpenetration /
                 # scale, 2026-10-14) fire in every A/B cell as they do in the loop: the gate reads
                 # the build's census and the cell's plan.json (a one-shot arm has none — the
                 # plan-less checks still run); None when the census has no placement table

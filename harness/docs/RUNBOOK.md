@@ -181,7 +181,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # paid verdict per pair, cached); --round N = that round; --texture = the
                                         # texture pass on it first.  `make`/`resume` run `pick --by score` for you
 3dcode render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
-3dcode judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
+3dcode judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
 3dcode texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
 3dcode texture scene-pack <slug> [--n 10] · 3dcode texture show <slug>

@@ -99,7 +99,7 @@ class Veto:
 _OBJECT_VETO_KINDS = (f"{CONNECTIVITY}/*", f"{CONTRACT}/*")
 
 #: the veto per track.  Graphics has none: its ERRORs are image-level verdicts (black / blown / NaN —
-#: at most two per run), so a mean rise above one per run is unreachable, and the shader_v2 rubric
+#: at most two per run), so a mean rise above one per run is unreachable, and the shader rubric
 #: caps those runs' score already.  Articulated adds the pose sweep (capped per pair by the gate,
 #: ``MAX_PAIR_FINDINGS``) and a joint that moves the wrong way — the judge caps both
 #: (``joint_collision``), the veto must see them too.

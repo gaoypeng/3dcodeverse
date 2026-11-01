@@ -7,12 +7,12 @@ from codeverse3d.judges.vlm_judge import VlmJudge
 from codeverse3d.models.base import ModelError
 from tests.judges.conftest import FakeChatModel, good_reply, image_parts
 
-R = load_rubric("static_object_v1")
+R = load_rubric("static_object")
 IDS = ["A1", "A2"]
 
 
 def _judge(model, **kw):
-    return VlmJudge("static_object_v1", model_id="fake:fake-1", chat_model=model, **kw)
+    return VlmJudge("static_object", model_id="fake:fake-1", chat_model=model, **kw)
 
 
 def test_full_path_single_sample(judge_input, cache_dir):
@@ -23,13 +23,13 @@ def test_full_path_single_sample(judge_input, cache_dir):
     assert j.acceptance_results == {"A1": True, "A2": True}
     assert j.improvement_plan[0].instruction.startswith("bevel")
     assert j.usage.cost_usd == pytest.approx(0.001)
-    assert j.judge_backend == "fake:fake-1" and j.rubric == "static_object_v1"
+    assert j.judge_backend == "fake:fake-1" and j.rubric == "static_object"
     raw = json.loads(j.raw)
     assert raw["status"] == "ok" and raw["n_used"] == 1 and raw["rubric_hash"] == R.content_hash()
     assert "[verdict: overall 0.80 vs threshold 0.72 → PASS]" in j.summary
     req = model.requests[0]
     assert req.response_schema is not None and "Criteria" in req.response_schema["$defs"]
-    assert req.label == "judge:static_object_v1:r00:s0" and req.temperature == 0.2
+    assert req.label == "judge:static_object:r00:s0" and req.temperature == 0.2
     assert len(image_parts(req)) == 3  # 2×2 montage + 2 detail crops
     assert "Defects" in req.response_schema["$defs"]
     assert raw["defects"] == {d.id: False for d in R.defects} and raw["defect_penalty"] == 0.0
@@ -85,7 +85,7 @@ def test_a_failing_model_degrades_the_verdict(judge_input, cache_dir, retryable,
 
 def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
     with pytest.raises(ValueError, match="measured criteria"):
-        VlmJudge("reference_v1", chat_model=FakeChatModel(), cache_dir=cache_dir).judge(judge_input)
+        VlmJudge("reference", chat_model=FakeChatModel(), cache_dir=cache_dir).judge(judge_input)
 
 
 # --------------------------------------------------------------- payload size (docs/COST.md §3)
@@ -97,16 +97,16 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     s = Settings()
     s.apply_profile("economy", force=True)
     monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
-    j = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1")
+    j = VlmJudge(rubric="static_object", model_id="fake:fake-1")
     # no profile shrinks the payload (docs/COST.md §14, D47)
     assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 5
     # a caller that states a size still gets it — the dial is the default, not a cap
-    explicit = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1", max_px=768, detail_crops=1)
+    explicit = VlmJudge(rubric="static_object", model_id="fake:fake-1", max_px=768, detail_crops=1)
     assert explicit.max_px == 768 and explicit.detail_crops == 1
     s2 = Settings(judge={"detail_crops": 0, "max_px": 512})
     monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s2)
     s2.apply_profile("economy")  # a stated payload survives a profile
-    assert VlmJudge(rubric="static_object_v1", model_id="fake:fake-1").detail_crops == 0
+    assert VlmJudge(rubric="static_object", model_id="fake:fake-1").detail_crops == 0
     get_settings.cache_clear()
 
 
@@ -121,7 +121,7 @@ def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
     # per-run content (acceptance ids) is NOT part of it: the schema is hashed with no ids
     assert wire_schema(R, ["A1"]) != wire_schema(R, []) and judge_prompt_hash(R) == base
     # the rubric is part of it (through the rendered rubric block)
-    other = load_rubric("shader_v2")
+    other = load_rubric("shader")
     assert judge_prompt_hash(other) != base
     # an edit to the role prompt or the rig rules changes it — that is the whole point
     monkeypatch.setattr(pb, "_ROLE", pb._ROLE + "\nScore generously.")
@@ -170,7 +170,7 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
 
 def test_per_track_montage_ceilings():
     """D47's 5 montages were measured on the object rig only: graphics keeps 3; the scene rig
-    takes 4 since scene_v2 (the fourth overview is the contact camera the crops are cut from)."""
+    takes 4 since scene (the fourth overview is the contact camera the crops are cut from)."""
     from codeverse3d.contracts.artifacts import RenderSet
     from codeverse3d.contracts.common import Language, Track
     from codeverse3d.contracts.spec import Spec
@@ -182,13 +182,13 @@ def test_per_track_montage_ceilings():
         return JudgeInput(spec=spec, renders=RenderSet(), gates=[], acceptance=[])
 
     assert TRACK_MONTAGE_CAP == {"scene": 4, "graphics": 3}
-    j = VlmJudge("scene_v2", model_id="fake:fake-1")
+    j = VlmJudge("scene", model_id="fake:fake-1")
     assert j._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 4
     assert j._montages_for(inp(Track.SCENE, Language.SCENE_BLENDER)) == 4
     assert j._montages_for(inp(Track.GRAPHICS, Language.GLSL_SHADER)) == 3
-    jo = VlmJudge("static_object_v1", model_id="fake:fake-1")
+    jo = VlmJudge("static_object", model_id="fake:fake-1")
     assert jo._montages_for(inp(Track.STATIC_OBJECT, Language.BLENDER)) == 5
-    explicit = VlmJudge("scene_v2", model_id="fake:fake-1", max_montages=5)
+    explicit = VlmJudge("scene", model_id="fake:fake-1", max_montages=5)
     assert explicit._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 5
 
 
@@ -204,14 +204,14 @@ def test_judge_thinking_comes_from_the_settings_unless_stated(monkeypatch):
     from codeverse3d.judges.vlm_judge import VlmJudge
     from codeverse3d.tracks.lifecycle import BaseTrack
 
-    assert VlmJudge("scene_v2", model_id="fake:fake-1").thinking == Settings().judge.thinking == "low"
+    assert VlmJudge("scene", model_id="fake:fake-1").thinking == Settings().judge.thinking == "low"
     s = Settings(judge={"thinking": "medium"})
     monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
-    j = VlmJudge("scene_v2", model_id="fake:fake-1")
+    j = VlmJudge("scene", model_id="fake:fake-1")
     assert j.thinking == "medium"
-    assert VlmJudge("scene_v2", model_id="fake:fake-1", thinking="high").thinking == "high"  # a stated level wins
+    assert VlmJudge("scene", model_id="fake:fake-1", thinking="high").thinking == "high"  # a stated level wins
     with pytest.raises(ValueError, match="judge thinking must be one of"):
-        VlmJudge("scene_v2", model_id="fake:fake-1", thinking="max")
+        VlmJudge("scene", model_id="fake:fake-1", thinking="max")
     assert BaseTrack.sampling(SimpleNamespace(track=Track.SCENE), j)["judge"]["thinking"] == "medium"
     get_settings.cache_clear()
 

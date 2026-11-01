@@ -26,7 +26,7 @@ from codeverse3d.workspace import Workspace
 #: scene and graphics have none and are unaffected.
 SLICE_TRACKS = ("static_object", "articulated_object")
 #: the rubric of a static object judged against reference images: it adds the measured silhouette criterion
-REFERENCE_RUBRIC = "reference_v1"
+REFERENCE_RUBRIC = "reference"
 
 
 def run_rubric(spec: Spec, default: str = "") -> str:

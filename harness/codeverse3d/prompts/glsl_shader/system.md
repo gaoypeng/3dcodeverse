@@ -29,7 +29,7 @@ t = 0, 1, 2.5, 4, 6 s must differ when motion is planned (`static`, cap 0.5) and
 (`flicker`, cap 0.7); no NaN pixel (cap 0); no black or blown frame (cap 0.5); no lint ERROR
 (cap 0.6). `u_frame` is not a clock — the sampled times are not evenly spaced.
 
-What the judge (`shader_v2`) names, and what each costs:
+What the judge (`shader`) names, and what each costs:
 
 * **Likeness (0.26)** — the thing drawn with the wrong physics scores 0.4 however complete
   its inventory: evenly spaced bars standing in for curtains, rays, flames or waves

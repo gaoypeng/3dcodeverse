@@ -189,7 +189,7 @@ def test_show_sections_and_status_share_the_packaged_run(fake_run):
     assert "DELIVERABLE" in out and "QUALITY EVIDENCE" in out and "COST & SETTINGS" in out
     assert out.index("DELIVERABLE") < out.index("QUALITY EVIDENCE") < out.index("COST & SETTINGS")
     assert "deliverable/object.glb" in out and "deliverable/src/model.py" in out
-    assert "static_object_v1" in out                       # evidence: rubric
+    assert "static_object" in out                       # evidence: rubric
     assert "the ledger, list price" in out and "models per role" in out and "price table" in out
     assert "gemini-cli" in out and "generator" in out      # settings: model id per role
 

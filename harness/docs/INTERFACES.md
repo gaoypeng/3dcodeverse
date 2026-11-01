@@ -416,7 +416,7 @@ render_blender_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5),
     # fallback, frame_ms, timings_ms}}; Settings.render.blender_{engine,samples,device,gpu_slots,gpu_wait_s}
 from codeverse3d.spatial.render_scene import select_judge_views, JUDGE_MAX_VIEWS, plan_bounds
 select_judge_views(rs, max_n=10) -> RenderSet          # priority: authored@t0, MAX_JUDGE_OVERVIEWS=4 overview@t0 (Δ 2026-10-14,
-    # scene_v2: the fourth is conventions.SCENE_VIEWS' overview_low_front, az 20° el 7°, orbit.mjs fitContactCamera), 2 authored@t_last, rest
+    # scene: the fourth is conventions.SCENE_VIEWS' overview_low_front, az 20° el 7°, orbit.mjs fitContactCamera), 2 authored@t_last, rest
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders, frame_findings, frame_summary_text, FRAME_GATE
 frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; data.kind ∈ dark_frame | blown_frame | flat_frame |
     # camera_in_geometry | camera_underground | camera_low | camera_high | content_small; authored cameras → ERROR, orbit rig → WARN
@@ -470,7 +470,7 @@ placement_findings(table, *, indoor=False, language=None, thresholds=None) -> Ga
     #   fog_short | world_edge (WARN; was no_backdrop ERROR: standing geometry ≥ WORLD_EDGE_MIN_HEIGHT_M past WORLD_EDGE_REACH_FACTOR ×
     #   the half-extent) | density_note (INFO; was underdressed ERROR) | out_of_bounds (WARN on rows carrying a PLANNED content's name
     #   only, margin max(BOUNDS_MARGIN_MIN_M 5, BOUNDS_MARGIN_FRAC 10 % of span); unplanned geometry past the bounds is never reported)
-    # messages carry the scene_v2 cap words (floating / sunken / interpenetration / scale / free_exempt); reads artifacts/census.json["placement"] (host_placement.mjs)
+    # messages carry the scene cap words (floating / sunken / interpenetration / scale / free_exempt); reads artifacts/census.json["placement"] (host_placement.mjs)
     # Δ D105 (2026-10-14): thresholds = Settings.placement (config.Placement) read at CALL time, `thresholds=` overrides; the
     #   summary INFO's data carries `thresholds` (what graded) + `counts` (measured) / `listed` (after the per-kind cap);
     #   + kinds cantilevered (WARN: rests on ≤ 1 of ≥ 4 foot columns, host_placement rows gap_max_m / columns_resting / tilt_m)
@@ -521,7 +521,7 @@ python -m codeverse3d.spatial.mcp_server --workspace <ws> [--track X] [--languag
 ```python
 from codeverse3d.judges.rubrics import load_rubric, Rubric   # Rubric{…, defects: [DefectItem{id, text, penalty, cap}], caps[{…, when:, kinds}]}
 from codeverse3d.judges.vlm_judge import VlmJudge
-VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemini-3.1-pro-preview), n_samples=1,
+VlmJudge(rubric="static_object", model_id=None (settings.default_judge = gemini-3.1-pro-preview), n_samples=1,
          temperature=0.2, *, thinking=None, max_attempts=3, max_montages=None, detail_crops=None, max_px=None,
          sample_budget_s=None, fixed_order=False, chat_model=None, cache_dir=None, label="judge")
     # Δ max_images is GONE → montage budget.  The None params resolve through Settings.judge
@@ -546,7 +546,7 @@ plan_summary(plan, language) -> str   # the digest for every track (object: "Ove
     # also the texture gate's (texturing/generate.judge_gate)
 from codeverse3d.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤5 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace the sheet + the 14-view rig (D47); clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
-    # Δ 2026-10-14 (scene_v2): plan_montages(…, gates=()) / plan_detail_crops(shaded, *, scene, gates=(), limit) — a scene sends the
+    # Δ 2026-10-14 (scene): plan_montages(…, gates=()) / plan_detail_crops(shaded, *, scene, gates=(), limit) — a scene sends the
     # centre crop + ≤ limit CONTACT CROPs (plan_contact_crops: a scene_placement finding's data.bbox projected through the judged
     # overview tile that shows it largest, project_box); gates_section(gates, *, scene=False) has a scene branch (placement →
     # frames → lint, WARNs grouped by kind, one MEASURED PLACEMENT line: placement_block); the object text is unchanged
@@ -727,7 +727,7 @@ post-render gates → the build's own `BuildResult.gates` (also when the build f
 (when references), articulated `joint_sweep` + `motion_direction`, scene
 `render_console` + `scene_frames` (via `ctx.services.frame_gate` ->
 `frame_gate_from_renders`; advisory, a failure is logged not raised), graphics `gl_frames`.  Reference specs get a
-`ReferenceJudge` (rubric `reference_v1` for static_object; `LikenessJudge` on graphics/scene —
+`ReferenceJudge` (rubric `reference` for static_object; `LikenessJudge` on graphics/scene —
 `vlm_judge.judge_for`) and images attached to generation prompts.
 
 ## texturing/  (derived asset pack; code stays truth — object.glb is never touched)

@@ -150,7 +150,7 @@ def _ctx(tmp_path, spec, settings):
     return RunContext(spec=spec, ws=ws, events=EventLog(ws.events_path), settings=settings,
                       budget=BudgetGuard(Budget(max_minutes=60)), runtime=FakeRuntime(Language.THREEJS),
                       services=FakeServices(), state=RunState(), policy=RoundPolicy(), track=spec.track,
-                      rubric="static_object_v1", agent_id="fake:fake-model", judge=FakeJudge())
+                      rubric="static_object", agent_id="fake:fake-model", judge=FakeJudge())
 
 
 # ----------------------------------------------------------------------------- end to end

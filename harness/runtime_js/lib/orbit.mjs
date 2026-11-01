@@ -137,7 +137,7 @@ const CONTACT_SPAN_FACTOR = 1.2;   // eye distance from the content centre, in c
 const CONTACT_EYE_M = 0.4;         // eye height above the ground: a base's daylight is a few cm tall
 
 /**
- * Ground-level CONTACT camera on the given azimuth side (scene_v2's `overview_low_front`,
+ * Ground-level CONTACT camera on the given azimuth side (scene's `overview_low_front`,
  * 2026-10-14): the eye stands `CONTACT_SPAN_FACTOR` content spans from the centre, 0.4 m
  * above the ground, and looks at the point where the view line leaves the content box's
  * footprint AT ground height — so the near edge of the content sits mid-frame with the

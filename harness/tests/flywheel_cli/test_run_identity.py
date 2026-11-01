@@ -19,7 +19,7 @@ def test_the_slug_rule_and_the_battery_layouts():
     for battery, rel, slug in [
         ("runs", "wooden_chair_ab12cd34", "wooden_chair_ab12cd34"),
         ("h2h_scene_v1", "h2h_b01_neon_alley.attempt1", "h2h_b01_neon_alley.attempt1"),   # a retry keeps its suffix
-        ("articulated_v1_flash", "runs/art_easy_laptop", "art_easy_laptop"),               # runs/ is noise
+        ("articulated_flash", "runs/art_easy_laptop", "art_easy_laptop"),               # runs/ is noise
         ("compare_v1_full", "cells/cmp_easy_stool/harness_x/run", "cmp_easy_stool__harness_x"),
     ]:
         assert RunId(battery=battery, rel=rel).slug == slug, rel

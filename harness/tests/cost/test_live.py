@@ -22,7 +22,7 @@ def _stable_text() -> str:
     from codeverse3d.judges.rubrics import load_rubric
 
     return "\n".join([
-        build_system_prompt(load_rubric("static_object_v1")),
+        build_system_prompt(load_rubric("static_object")),
         (REPO / "codeverse3d/prompts/blender/contract.md").read_text(),
         (REPO / "codeverse3d/prompts/blender/system.md").read_text(),
         (REPO / "codeverse3d/prompts/system/harness_contract.md").read_text(),

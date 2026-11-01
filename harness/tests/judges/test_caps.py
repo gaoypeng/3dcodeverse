@@ -12,9 +12,9 @@ from codeverse3d.judges.rubrics import (
     measured_absent,
 )
 
-R = load_rubric("static_object_v1")
-A = load_rubric("articulated_v1")
-S = load_rubric("scene_v2")
+R = load_rubric("static_object")
+A = load_rubric("articulated")
+S = load_rubric("scene")
 POSE = [RenderView(name="pose_rest", path="p")]
 
 
@@ -50,7 +50,7 @@ E, W = Severity.ERROR, Severity.WARN
      {"views": POSE}, 0.6, {"floating_part"}),
     (S, [], {"console_errors": ["TypeError: x is undefined"]}, 0.6, {"console_error"}),
     (S, [_gate("shader_probe", E, "GLSL compile failed in water.js", kind="shader")], {}, 0.5, {"shader_error"}),
-    # scene_v2: ONE cap per placement kind, by the finding's typed kind (the v1 gate-'*' floating_part
+    # scene: ONE cap per placement kind, by the finding's typed kind (the v1 gate-'*' floating_part
     # twin that fired beside floating_or_sunken_asset is gone — a floating ERROR is a single 0.60 cap)
     (S, [_gate("scene_placement", E, "Pondside/Lantern is floating 0.30 m above PondWater", target="Pondside/Lantern",
                kind="floating", gap_m=0.30)], {"defects_present": {}}, 0.6, {"floating_asset"}),
@@ -80,7 +80,7 @@ def test_gate_caps(rubric, gates, kw, overall, rules):
     assert applied == rules if rules == set() else rules <= applied
 
 
-def test_scene_v2_placement_caps_fire_one_each_and_the_tightest_wins():
+def test_scene_placement_caps_fire_one_each_and_the_tightest_wins():
     """Three measured placement ERRORs = three ledger lines (one per kind) and the 0.60 floor."""
     gates = [GateReport(gate="scene_placement", passed=False, findings=[
         GateFinding(gate="scene_placement", severity=E, target="A", message="A is floating 0.12 m", data={"kind": "floating", "gap_m": 0.12}),
@@ -164,11 +164,11 @@ def _placement(passed: bool, *findings: tuple[Severity, str, str, dict]) -> Gate
     # the gate did not run
     ("floating_asset", [GateReport(gate="scene_frames", passed=True)], False),
 ])
-def test_scene_v2_veto_is_scoped_to_the_rules_kinds(defect, gates, absent):
+def test_scene_veto_is_scoped_to_the_rules_kinds(defect, gates, absent):
     assert measured_absent(S, defect, gates) is absent
 
 
-def test_scene_v2_veto_rides_through_aggregate_samples():
+def test_scene_veto_rides_through_aggregate_samples():
     """The vote marks floating_asset; the passed placement gate switches it off (no penalty, no cap),
     and a no_fog ERROR in the same report changes nothing about that."""
     sample = JudgeOutput(criteria={c.id: CriterionScore(score=0.9, evidence="") for c in S.criteria},
@@ -190,7 +190,7 @@ def test_graded_acceptance_cap_keeps_the_gradient_but_not_the_pass():
     assert apply_caps(R, 0.99, [], {"M0": True}, ten[:2]).overall == pytest.approx(0.8)
     should = [AcceptanceItem(id="S1", text="y", priority="should")]
     assert apply_caps(R, 0.9, [], {"S1": False}, should).overall == 0.9, "a should item never caps"
-    assert apply_caps(S, 0.99, [], nine_ok, ten).overall == pytest.approx(0.96), "scene_v2 grades it like the object rubrics"
+    assert apply_caps(S, 0.99, [], nine_ok, ten).overall == pytest.approx(0.96), "scene grades it like the object rubrics"
     # pass/fail is the owner's policy: the verdict still fails on must_missing
     sample = JudgeOutput(criteria={c.id: CriterionScore(score=0.99, evidence="") for c in R.criteria},
                          acceptance={k: AcceptanceVerdict(verified=v) for k, v in nine_ok.items()},

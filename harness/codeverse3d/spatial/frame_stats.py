@@ -133,7 +133,7 @@ def sequence_stats(frames: Sequence[tuple[float, str | Path]], *, nan_counts: Se
         seq.mean_diff = float(np.mean(diffs))
         seq.max_diff = float(np.max(diffs))
         seq.n_duplicates = sum(1 for d in diffs if d < DUPLICATE_DIFF)
-        # MAX, not mean: 'static' is a scoring cap (shader_v2.yaml static_frames), so it must
+        # MAX, not mean: 'static' is a scoring cap (shader.yaml static_frames), so it must
         # require that NO sampled pair changed.  With the mean, an effect whose motion is
         # concentrated between two of the five sampled times (0/1/2.5/4/6 s) is averaged down
         # by the three quiet pairs and convicted while animating.

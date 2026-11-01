@@ -59,11 +59,11 @@ class Services:
     def judge(self, rubric: str, model_id: str, n_samples: int = 1) -> Any:
         return _import("codeverse3d.judges.vlm_judge", "VlmJudge")(rubric=rubric, model_id=model_id, n_samples=n_samples)
 
-    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference_v1") -> Any:
+    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference") -> Any:
         """Image-conditioned judge (spec has reference images): renders + references + silhouette IoU."""
         return _import("codeverse3d.judges.vlm_judge", "ReferenceJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
-    def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader_v2") -> Any:
+    def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader") -> Any:
         """Reference photos beside the frames, no silhouette (graphics / scene with images)."""
         return _import("codeverse3d.judges.vlm_judge", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 

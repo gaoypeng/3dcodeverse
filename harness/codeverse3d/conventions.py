@@ -190,7 +190,7 @@ def views_by_preference(views: Sequence[RenderView], names: Sequence[str]) -> li
 
 #: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).  The
 #: ``overview_*`` views reach the judge (the first ``render_scene.MAX_JUDGE_OVERVIEWS``);
-#: ``overview_low_front`` (2026-10-14, scene_v2) is the CONTACT camera — elevation under 10°
+#: ``overview_low_front`` (2026-10-14, scene) is the CONTACT camera — elevation under 10°
 #: puts it at ground level just outside the content (``orbit.mjs fitContactCamera``), the
 #: angle at which daylight under a base and a part through a neighbour are visible, and the
 #: tile the judge's contact crops are cut from.  The ``eye_*`` views are diagnostics only.

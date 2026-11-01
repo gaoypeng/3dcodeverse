@@ -39,7 +39,7 @@ it writes PNGs, so what you compute is what you see).  `u_prev` / `u_buffer_a` a
 `fragCoord / u_resolution` (0..1).  Circles must stay round at the plan's resolution — the judge's
 `stretched_aspect` defect (−0.06): e.g. normalise both axes by `u_resolution.y`.
 
-## What is measured (the `gl_frames` gate on the judged frames, then the `shader_v2` judge)
+## What is measured (the `gl_frames` gate on the judged frames, then the `shader` judge)
 * A NaN / Inf pixel in any frame → ERROR, score cap 0.  NaN sources in GLSL: division by zero, sqrt / pow /
   log of a negative, normalize of a zero vector, acos / asin outside [-1, 1].
 * Every frame essentially black (more than 97 % of its pixels under luminance 0.03) or blown (more than 97 %

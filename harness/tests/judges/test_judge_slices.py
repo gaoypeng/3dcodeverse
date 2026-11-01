@@ -28,7 +28,7 @@ from codeverse3d.judges.vlm_judge import SLICE_LABELS, VlmJudge
 from codeverse3d.workspace import Workspace
 from tests.judges.conftest import ACCEPTANCE, FakeChatModel, good_reply, make_renders, make_spec
 
-R = load_rubric("static_object_v1")
+R = load_rubric("static_object")
 IDS = ["A1", "A2"]
 
 
@@ -69,7 +69,7 @@ def make_input(renders: RenderSet, gates: list[GateReport], glb: Path | None, **
 
 def judge_request(inp: JudgeInput, cache_dir: Path):
     model = FakeChatModel([good_reply(R, IDS, 0.8)])
-    VlmJudge("static_object_v1", model_id="fake:fake-1", chat_model=model, cache_dir=cache_dir).judge(inp)
+    VlmJudge("static_object", model_id="fake:fake-1", chat_model=model, cache_dir=cache_dir).judge(inp)
     return model.requests[0]
 
 
@@ -119,7 +119,7 @@ def test_slices_ride_only_on_a_connectivity_error(tmp_path, cache_dir):
     assert PROVENANCE_ELICITATION not in req.system
     assert "cross-section" not in text_of(req)
     # and the protocol hash is untouched: the hash builds the default (elicitation-free) prompt
-    assert judge_prompt_hash(R) == VlmJudge("static_object_v1", model_id="fake:fake-1").prompt_hash
+    assert judge_prompt_hash(R) == VlmJudge("static_object", model_id="fake:fake-1").prompt_hash
 
     req = judge_request(make_input(renders, dirty_gates(), glb), cache_dir)
     # placement: montage, 2 detail crops, THEN the two slices — never prepended

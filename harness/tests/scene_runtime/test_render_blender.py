@@ -73,7 +73,7 @@ def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     for v in rs.views:
         with Image.open(v.path) as im:
             assert im.size == (W, H)
-    # the four overviews (scene_v2: the contact camera overview_low_front is the fourth) get pixels
+    # the four overviews (scene: the contact camera overview_low_front is the fourth) get pixels
     # at t0 only; the eye-level rig is measured, never rendered
     rig = sorted((v.name, v.time_s) for v in rs.views if v.name.startswith(("overview", "eye")))
     assert rig == [("overview_back_left", 0.0), ("overview_front_right", 0.0), ("overview_low_front", 0.0), ("overview_top", 0.0)]

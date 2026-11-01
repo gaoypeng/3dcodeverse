@@ -16,8 +16,8 @@ def _asset(tid: str, seam: float, ok_path: Path) -> TextureAsset:
 
 
 @pytest.mark.parametrize(("rubric", "criterion"), [
-    ("static_object_v1", "materials"), ("reference_v1", "material_color"), ("asset_v1", "material_truth"),
-    ("scene_v2", "materials_shaders_effects"), ("articulated_v1", ""), ("shader_v2", ""),
+    ("static_object", "materials"), ("reference", "material_color"), ("asset", "material_truth"),
+    ("scene", "materials_shaders_effects"), ("articulated", ""), ("shader", ""),
 ])
 def test_the_rubric_flags_its_materials_criterion(rubric, criterion):
     """N64: the gate sniffed criterion ids by prefix (law 4); a rubric now says which one it is."""

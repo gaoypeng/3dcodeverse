@@ -346,7 +346,7 @@ def judge_gate(
         return res
     res.overall_before, res.overall_after = float(jb.overall), float(ja.overall)
     res.delta = round(res.overall_after - res.overall_before, 4)
-    crit = load_rubric(ja.rubric).materials_criterion  # "" (articulated_v1): Δoverall alone decides
+    crit = load_rubric(ja.rubric).materials_criterion  # "" (articulated): Δoverall alone decides
     res.materials_criterion = crit
     if crit:
         res.materials_before = float(jb.scores.get(crit, 0.0))

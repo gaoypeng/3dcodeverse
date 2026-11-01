@@ -2,7 +2,7 @@ name: refs_v2_graphics
 track: graphics
 language: glsl_shader
 description: 'Second turn of the graphics loop: the same aurora brief, with/without the two photos, 3 seeds per
-  arm, judged in-loop by shader_v2 with the light-phenomena cookbook (aeb49c0) and brief-selected chapters (137541e).'
+  arm, judged in-loop by shader with the light-phenomena cookbook (aeb49c0) and brief-selected chapters (137541e).'
 prompts:
 - id: aurora_ref_1
   references:

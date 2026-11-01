@@ -1,4 +1,4 @@
-name: scene_v2
+name: scene
 version: 2
 track_hint: scene
 pass_threshold: 0.70

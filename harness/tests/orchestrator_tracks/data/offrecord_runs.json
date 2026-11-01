@@ -128,28 +128,28 @@
    "judges": [
     {
      "round": 0,
-     "rubric": "articulated_v1",
+     "rubric": "articulated",
      "cost_usd": 0.072284,
      "input_tokens": 11668,
      "output_tokens": 2335
     },
     {
      "round": 1,
-     "rubric": "articulated_v1",
+     "rubric": "articulated",
      "cost_usd": 0.071556,
      "input_tokens": 12102,
      "output_tokens": 2260
     },
     {
      "round": 2,
-     "rubric": "articulated_v1",
+     "rubric": "articulated",
      "cost_usd": 0.073526,
      "input_tokens": 10681,
      "output_tokens": 1649
     },
     {
      "round": 3,
-     "rubric": "articulated_v1",
+     "rubric": "articulated",
      "cost_usd": 0.067796,
      "input_tokens": 10558,
      "output_tokens": 1868
@@ -370,14 +370,14 @@
    "judges": [
     {
      "round": 0,
-     "rubric": "static_object_v1",
+     "rubric": "static_object",
      "cost_usd": 0.044482,
      "input_tokens": 10802,
      "output_tokens": 1956
     },
     {
      "round": 1,
-     "rubric": "static_object_v1",
+     "rubric": "static_object",
      "cost_usd": 0.062174,
      "input_tokens": 10957,
      "output_tokens": 2020
@@ -495,21 +495,21 @@
    "judges": [
     {
      "round": 0,
-     "rubric": "static_object_v1",
+     "rubric": "static_object",
      "cost_usd": 0.053338,
      "input_tokens": 10601,
      "output_tokens": 1639
     },
     {
      "round": 1,
-     "rubric": "static_object_v1",
+     "rubric": "static_object",
      "cost_usd": 0.062198,
      "input_tokens": 10705,
      "output_tokens": 1721
     },
     {
      "round": 2,
-     "rubric": "static_object_v1",
+     "rubric": "static_object",
      "cost_usd": 0.057404,
      "input_tokens": 10750,
      "output_tokens": 1679

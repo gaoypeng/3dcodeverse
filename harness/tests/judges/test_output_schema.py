@@ -8,7 +8,7 @@ from codeverse3d.judges.rubrics import (
 )
 from tests.judges.conftest import good_reply
 
-R = load_rubric("static_object_v1")
+R = load_rubric("static_object")
 IDS = ["A1", "must-2"]
 
 

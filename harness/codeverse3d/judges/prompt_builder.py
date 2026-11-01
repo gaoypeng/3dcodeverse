@@ -281,7 +281,7 @@ def plan_detail_crops(shaded: list[RenderView], *, scene: bool, gates: Sequence[
     """The crops a verdict sends, ``limit`` = ``Settings.judge.detail_crops`` (0 = none).
 
     Objects: the centre crop of the best view at 2× (detail legibility) + the ground band of
-    the lowest view, cut to ``limit``.  Scenes (scene_v2, 2026-10-14): the centre crop plus up
+    the lowest view, cut to ``limit``.  Scenes (scene, 2026-10-14): the centre crop plus up
     to ``limit`` CONTACT CROPS — close-ups around the placement findings the gate measured
     (``plan_contact_crops``), so the judge sees the daylight under a base at crop scale
     instead of reading the gate's sentence about it.
@@ -456,7 +456,7 @@ def plan_contact_crops(shaded: list[RenderView], gates: Sequence[GateReport]) ->
     size weighted by the tile's elevation (``CONTACT_TILE_WEIGHT``: the ground-level contact
     tile first, the top-down one last); a tile where the box fills the frame needs no crop.  No
     box, no camera, no tile that sees it — no crop: the verdict never dies on a crop.  Added
-    2026-10-14 (scene_v2) because the judge read the gate's floating sentences instead of the
+    2026-10-14 (scene) because the judge read the gate's floating sentences instead of the
     pictures: the crop puts the measured contact in front of it at the scale a person would
     check."""
     overviews = [v for v in shaded if v.name in SCENE_OVERVIEW_NAMES]
@@ -754,7 +754,7 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
     block (contacts, planned joins contact/open, floor gaps) the judge can cite instead.
     Without a ledger (older rounds) the text is the pre-ledger text byte for byte, which is
     what keeps ``3dcode judge <old-slug>`` comparable with the verdict it stored.
-    ``scene`` (scene_v2, 2026-10-14) is the scene track's own branch — ``_scene_gates_section``;
+    ``scene`` (scene, 2026-10-14) is the scene track's own branch — ``_scene_gates_section``;
     the object text above is untouched by it."""
     if not gates:
         return "GATE FINDINGS: (no gates run)"
@@ -811,7 +811,7 @@ PLACEMENT_WORST: dict[str, tuple[str, str]] = {
 
 
 def _scene_gates_section(gates: list[GateReport], *, max_errors: int, max_warns: int) -> str:
-    """The scene judge's gate facts (scene_v2): reports in ``SCENE_GATE_ORDER``, the ERRORs as
+    """The scene judge's gate facts (scene): reports in ``SCENE_GATE_ORDER``, the ERRORs as
     recorded, one MEASURED PLACEMENT line built from the scene_placement report's own counts
     (``placement_block``), and the WARNs grouped by (gate, kind) as the object ledger branch
     groups them — eight flat lines used to cut a round's WARNs mid-list with every frame
@@ -1125,7 +1125,7 @@ RIG_RULES: dict[str, str] = {
     # BRIEF's place, not one recipe (foreground prop + blended ground + fog), and nothing_moves is the
     # MEASURED MOTION line's — the rubric forbids judging motion by comparing tiles
     "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth readable for what each shot frames, surfaces that read as the brief's materials rather than one flat colour, variety among repeated elements, the secondary detail the brief's place implies, and distance softened where the brief's weather would soften it — each judged against what THIS place would have, not a fixed recipe. The same camera at two times appears as separate tiles; nothing_moves is answered from the MEASURED MOTION line only, never by comparing tiles.",
-    # scene_v2 (2026-10-14): the high overview tiles lift room ceilings (scene_host.skyLayersBelow) and
+    # scene (2026-10-14): the high overview tiles lift room ceilings (scene_host.skyLayersBelow) and
     # drop the fog; the low one is the contact camera; CONTACT CROPs are diagnostic close-ups
     "scene_contact": "The high overview_* tiles (overview_front_right / overview_back_left / overview_top) are rendered with the fog removed and room ceilings lifted: a missing roof, lid or haze in them is never a defect. overview_low_front stands at ground level just outside the content, where daylight under a base shows. CONTACT CROP images are diagnostic close-ups cut from an overview tile around a placement finding the gate measured (the label names the asset, the kind and the number): judge the contact they show — base meets ground, part through neighbour — never their composition, lighting or dressing. Every floating / sunken / clipping / scale claim must name its view and its asset.",
     "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",

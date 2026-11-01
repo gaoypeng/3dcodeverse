@@ -34,7 +34,7 @@ def _round(index: int, score: float, cx: float | None) -> RoundRecord:
     return RoundRecord(
         index=index, kind="baseline" if index == 0 else "refine", commit="c" * 12,
         measurement=_measurement(cx) if cx is not None else None,
-        judgment=Judgment(rubric="static_object_v1", judge_backend="gemini:x",
+        judgment=Judgment(rubric="static_object", judge_backend="gemini:x",
                           scores={"geometry_detail": score}, overall=score, passed=score >= 0.72,
                           summary="s"),
         usage=Usage(cost_usd=0.5),
