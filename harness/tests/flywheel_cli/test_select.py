@@ -123,15 +123,6 @@ def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monk
     assert asked == [0]                                           # `3dcode judge`'s default round
 
 
-def test_an_old_record_with_best_fields_still_summarises(tmp_path):
-    """A pre-2026-09-22 record (best_round / final_score / status 'passed') still loads and summarises."""
-    ws, _ = make_fake_run(tmp_path / "runs")
-    data = json.loads(ws.record_path.read_text())
-    data.update(status="passed", best_round=0, baseline_score=0.55, final_score=0.55)
-    data.setdefault("extra", {})["stop_reason"] = "pass"
-    ws.record_path.write_text(json.dumps(data))
-    s = select.summarise(ws.root)
-    assert (s.picked_round, s.stop_reason, s.baseline_score) == (1, "pass", 0.55)
 
 
 class _Pairwise:
@@ -315,15 +306,15 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     assert select.round_file(ws, rec.rounds[0]) == ws.round_artifacts(0) / "object.glb"
     assert select.round_file(ws, rec.rounds[0], "preview.gif") is None
     assert select.round_complexity_block(ws, rec.rounds[0]) is None  # never the canonical file's
-    # a run recorded before rounds kept their own: the canonical build is its best_round's only
+    # Missing snapshots cannot borrow the canonical build, even with an obsolete best_round key.
     for i in (0, 1):
         (ws.round_artifacts(i) / "object.glb").unlink()
         ws.round_artifacts(i).rmdir()
     data = json.loads(ws.record_path.read_text())
     ws.write_json(ws.record_path, {**data, "best_round": 1})
     assert select.round_file(ws, rec.rounds[0]) is None
-    assert select.round_file(ws, rec.rounds[1]) == ws.artifacts / "object.glb"
-    assert select.round_complexity_block(ws, rec.rounds[1]) == {"index": 0.9}
+    assert select.round_file(ws, rec.rounds[1]) is None
+    assert select.round_complexity_block(ws, rec.rounds[1]) is None
 
 
 def test_cli_texture_pass_textures_the_picked_round_not_the_last_build(tmp_path: Path, monkeypatch):

@@ -7,7 +7,7 @@ import time
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Language
-from codeverse3d.contracts.run import RoundRecord, RunRecord, StepTime
+from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.cost.instrument import MeteredAgent
 from codeverse3d.orchestrator import RunState
 from codeverse3d.tracks.static_object import StaticObjectTrack
@@ -48,14 +48,3 @@ def test_every_step_is_timed_and_the_minutes_leave_out_the_provider_errors(tmp_p
     # the step log survives on disk: the journal carries each round's, run_state the run's
     assert RoundRecord.model_validate(ws.read_json(ws.root / "rounds" / "r00.json")).steps == rec.rounds[0].steps
     assert RunState.load(ws).steps == rec.steps
-
-
-def test_a_record_from_before_step_timing_counts_its_own_clock():
-    old = RunRecord.model_validate({"spec": make_spec().model_dump(mode="json"), "workspace": "w",
-                                    "rounds": [{"index": 0, "kind": "baseline", "duration_s": 120.0}],
-                                    "extra": {"budget": {"elapsed_min": 7.5}}})
-    assert old.steps is None and old.minutes == 7.5 and old.rounds[0].minutes == 2.0
-    assert RunRecord.model_validate({"spec": make_spec().model_dump(mode="json"), "workspace": "w"}).minutes is None
-    # a run resumed across the change: new steps, and an old round that still counts its clock
-    mixed = old.model_copy(update={"steps": [StepTime(step="plan", wall_s=90.0, lost_s=30.0)]})
-    assert mixed.minutes == 1.0 + 2.0

@@ -20,7 +20,6 @@ from codeverse3d.judges.prompt_builder import (
     RIG_RULES,
     build_judge_messages,
     gates_section,
-    judge_prompt_hash,
     placement_block,
     placement_findings_for_crops,
     plan_contact_crops,
@@ -335,7 +334,6 @@ def test_scene_v2_numbers_are_pinned():
     # six anchors on every criterion; the weights are v1's
     for c in S.criteria:
         assert sorted(c.anchors, key=float) == ["0.1", "0.4", "0.55", "0.7", "0.85", "1.0"], c.id
-    assert {c.id: c.weight for c in S.criteria} == {c.id: c.weight for c in load_rubric("scene_v1").criteria}
     notes = S.extra_instructions
     for phrase in ("CALIBRATION", "at most 0.35", "around 0.55", "0.80 or more", "at least 0.3 apart", "room ceilings lifted",
                    "CONTACT CROP images are diagnostic close-ups", "must name the VIEW"):
@@ -343,7 +341,6 @@ def test_scene_v2_numbers_are_pinned():
     # the object rubrics did not move: no veto_warn_keys, the same content hash as their YAML
     for name in ("static_object_v1", "articulated_v1", "reference_v1"):
         assert all(not c.veto_warn_keys for c in load_rubric(name).caps), name
-    assert judge_prompt_hash(S) != judge_prompt_hash(load_rubric("scene_v1"))
 
 
 # --------------------------------------------------------------------------- the real gate → the judge

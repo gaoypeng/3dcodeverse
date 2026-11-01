@@ -5,7 +5,7 @@ quality checks, multimodal pairs, mix sampling, and publication. It contains pro
 upstream LLaMA-Factory source. General corpus curation stays in [`../../toolkits/`](../../toolkits/);
 training configs, environments, and launchers stay in the parent [`finetune/`](../README.md) component.
 
-The seven former data scripts in `../scripts/` forward to the implementation here for CLI compatibility.
+The six former data scripts in `../scripts/` forward to the implementation here for CLI compatibility.
 For new workflows, call `python llamafactory/<script>.py ...` from `finetune/`. Per-source shell drivers
 live in [`runners/`](runners/).
 
@@ -25,13 +25,11 @@ live in [`runners/`](runners/).
 | `shrink_pair_images.py` | re-encode extracted PNG renders as JPEGs at a configurable maximum size (default 448 px); source tars retain the originals |
 | `audit_pairs.py` | check pair datasets for absolute/missing/non-JPEG media paths, placeholder counts across all turns, turn shape, fenced code, empty systems, and row-count/QC mismatches; exits nonzero on findings |
 | `upload_pairs.py` | publish pair datasets under `<source>/<subdir>_llamafactory_{text,img,imgtext}` and optionally renders under `<source>/pair_renders/`, then update the Hub registry |
-| `drop_old_pair_trees.py` | delete superseded top-level pair trees after checking that the Hub registry no longer points into them |
 | `build_md_max.py`, `sample_mix.py` | build the combined corpus and sample mixes with per-dialect token budgets and captions-per-sample caps |
 | `build_refine_sft.py` | turn improved harness refinement transitions into message JSONL for SFT |
 | `to_llamafactory.py` | convert message JSONL to ShareGPT JSON and registry entries |
 | `build_hf_dataset.py` | package prepared corpus data, historical preference sets, held-out tests, and mix descriptions for the Hub |
 | `cache_ntok.py`, `ntok_cache.py` | calculate/cache token counts for data builders |
-| `extract.py` | dialect-aware extraction from free-form model output for data QC |
 | `analyze_3dcodeverse.py`, `fetch_hf_files.py` | corpus inventory and selective Hub downloads |
 | `runners/` | per-source drivers for the pair-building workflows |
 

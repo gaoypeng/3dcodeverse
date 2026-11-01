@@ -208,7 +208,7 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
     ws.record_path.write_text(json.dumps(rec))
     r = runner.invoke(app, ["status", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
     assert r.exit_code == 0, r.output
-    assert "candidates" in r.output and "c1" in r.output and "pairwise" in r.output
+    assert "candidates" in r.output and "c1" in r.output and "pairwise" not in r.output
     assert "texturing" in r.output and "shipped" in r.output
 
 
@@ -246,17 +246,15 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
 
     runs, run_dir = made_run()
     ws = Workspace(run_dir)
-    # a run recorded before 2026-09-22 that stopped on a pass (its state names the best it kept)
-    ws.state_path.write_text(json.dumps({"status": "passed", "stop_reason": "pass", "best_round": 1,
-                                         "best_commit": "abc", "best_score": 0.7436}))
-    assert RunState.load(ws).status is RunStatus.STOPPED
+    ws.state_path.write_text(json.dumps({"status": "no_refine_tasks", "stop_reason": "no_refine_tasks"}))
+    assert RunState.load(ws).status is RunStatus.NO_REFINE_TASKS
 
     entered, specs = [], []
     stub_track(lambda spec, resume, force: (entered.append((resume, force)), specs.append(spec)))
     r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
-    assert r.exit_code == 1 and "already finished" in r.output and "stop_reason='pass'" in r.output
+    assert r.exit_code == 1 and "already finished" in r.output and "status=no_refine_tasks" in r.output
     assert entered == [], "the pipeline must not be re-entered"
-    assert RunState.load(ws).status is RunStatus.STOPPED, "the terminal state must survive"
+    assert RunState.load(ws).status is RunStatus.NO_REFINE_TASKS, "the terminal state must survive"
     # ... and the escape hatch still works, loudly
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--force"]).exit_code == 130
     assert entered == [(True, True)]
@@ -379,6 +377,10 @@ def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
     assert texture_supported(Track.STATIC_OBJECT) and not texture_supported(Track.SCENE)
     stale = Spec.model_validate(json.loads((runs / "objq" / "spec.json").read_text()))
     assert texture_requested(stale)
+    tagged = stale.model_copy(deep=True)
+    tagged.options.texture = False
+    tagged.tags = ["texture"]
+    assert not texture_requested(tagged), "tags cannot enable the texture pass"
     assert not texture_requested(stale.model_copy(update={"track": Track.GRAPHICS}))
 
 

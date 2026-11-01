@@ -21,7 +21,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.agents.materialize import needs_rematerialize
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import GateReport
 from codeverse3d.contracts.common import TRACK_INFO, Track
@@ -584,7 +583,7 @@ class BaseTrack:
         if ctx.single_shot:
             return
         kind = ctx.agent_kind
-        if ctx.state.materialized_for == kind and not needs_rematerialize(ctx.ws):
+        if ctx.state.materialized_for == kind:
             return
         self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), spatial_tools=True)
         ctx.state.materialized_for = kind
@@ -869,4 +868,3 @@ class BaseTrack:
         hashes = prior.get("prompt_hashes")
         return (dict(extra) if isinstance(extra, dict) else {},
                 {str(k): str(v) for k, v in hashes.items()} if isinstance(hashes, dict) else {})
-

@@ -31,7 +31,6 @@ from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.languages._gl_common import JUDGE_TIMES, METRICS_NAME, SHEET_NAME, read_metrics
 from codeverse3d.orchestrator import TaskGroup
 from codeverse3d.prompts import render
-from codeverse3d.record.deliverable import legacy_canonical_round
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import MATERIALIZE, SKELETON, BaseTrack
@@ -106,13 +105,11 @@ def frames_render_set(ws: Workspace, build: BuildResult, round_index: int) -> Re
 def frame_stats_text(ws: Workspace, round_index: int | None = None) -> str:
     """The frame metrics as judge / refine text: round ``round_index``'s own copy
     (``renders/rNN/metrics.json``), else the canonical file, quoted only for the round it belongs
-    to — the round an old run's finalise rebuilt (``legacy_canonical_round``: its best), else
-    the LAST build's (no later round in the journal)."""
+    to — the LAST build's (no later round in the journal)."""
     where = ws.renders_dir(round_index) if round_index is not None else None
     if round_index is not None and where is not None and not (where / METRICS_NAME).is_file():
-        owner = legacy_canonical_round(ws)
         later = any(int(p.stem[1:]) > round_index for p in (ws.root / "rounds").glob("r[0-9][0-9].json"))
-        if (owner != round_index) if owner is not None else later:
+        if later:
             return "(not kept for this round: the metrics on disk are a later build's; judge motion from the frames)"
         where = None
     m = read_metrics(ws, where)

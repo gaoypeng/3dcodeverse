@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 
 from pydantic import BaseModel
@@ -15,7 +14,6 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.plan import AcceptanceItem
-from codeverse3d.contracts.run import RunStatus
 from codeverse3d.orchestrator import (
     RefineTask,
     RunState,
@@ -45,17 +43,6 @@ def test_fan_out_preserves_order_and_captures_exceptions():
     assert set(fan_out(range(6), lambda _i: var.get(), max_workers=4, label="attr")) == {"run-42"}
 
 
-def test_a_run_state_saved_before_2026_09_22_still_loads(tmp_ws):
-    """Its best-round and journal keys are ignored and ``passed`` / ``plateau`` read as ``stopped``."""
-    tmp_ws.state_path.write_text(json.dumps({
-        "status": "passed", "stop_reason": "pass", "current_round": 2, "completed_rounds": [0, 1],
-        "round_commits": {"0": "a0", "1": "a1"}, "best_round": 0, "best_commit": "a0", "best_score": 0.81,
-        "best_considered_through": 1}))
-    st = RunState.load(tmp_ws)
-    assert st is not None and st.status is RunStatus.STOPPED and st.stop_reason == "pass"
-    dumped = st.model_dump()
-    assert not {"best_round", "completed_rounds", "round_commits", "current_round"} & set(dumped)
-    assert RunStatus("plateau") is RunStatus.STOPPED
 
 
 def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):

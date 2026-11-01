@@ -33,8 +33,8 @@ geometry: mean IoU 0.985, median 1.0, 96.9% > 0.9.**
    (CC-BY-NC-SA) 4-level descriptions by uid. `attach_text.py`. (Kept in
    `curation.json`; the official caption is filled by the maintainer.)
 6. **Dedup** on the *source vec hash* (deterministic conversion ⇒ identical
-   code+geometry). `dedup_vec.py`. (`dedup_fast.py` does a geometry-fingerprint
-   variant — kept for reference; it over-merges, see Gotchas.)
+   code+geometry). `dedup_vec.py`. Geometry-fingerprint deduplication was retired because it
+   over-merges; see Gotchas.
 7. **Assemble + finalize**: merge into a JSONL, mark dedup + leakage-free splits +
    IoU fidelity tiers. `assemble_corpus.py` → `mark_dedup.py` → `finalize.py`.
 8. **Format + pack**: emit the official per-sample dir layout (`to_3dcodeverse.py`),
@@ -71,7 +71,6 @@ assemble / dedup:
   mark_dedup.py          annotate is_canonical/duplicate_of + cross-split leakage
   finalize.py            fidelity tiers (IoU) + leakage-free split_dedup
   dedup_vec.py           TRUE dedup on source vec hash
-  dedup_fast.py          geometry-fingerprint dedup (reference; over-merges)
 
 format / pack / upload:
   to_3dcodeverse.py      official per-sample dir layout (meta.json + curation.json + renders/)

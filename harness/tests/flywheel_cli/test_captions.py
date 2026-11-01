@@ -13,7 +13,6 @@ from codeverse3d.addons.dataset.captions import (
     validate_captions,
 )
 from codeverse3d.contracts.chat import ImagePart
-from codeverse3d.record.deliverable import load_deliverable
 from codeverse3d.record.record import load_record
 from tests.orchestrator_tracks.fakes import FakeChatModel
 
@@ -100,45 +99,3 @@ def test_validate_captions(fields, language, problem):
 
 
 # --------------------------------------------------------------------------- a run recorded before artifacts/rNN/
-def _old_urdf_run(tmp_path):
-    """An urdf_blender run recorded before rounds kept ``artifacts/rNN/``: its finalise rebuilt
-    round 1 (the ``best_round`` its record.json names) into ``artifacts/`` and packaged it."""
-    from codeverse3d.addons import select
-    from codeverse3d.contracts.common import Language
-
-    from .conftest import make_fake_run
-
-    ws, rec = make_fake_run(tmp_path / "runs", "arm", language=Language.URDF_BLENDER)
-    for i in (0, 1):
-        (ws.round_artifacts(i) / "object.glb").unlink()
-        ws.round_artifacts(i).rmdir()
-    (ws.artifacts / "preview.gif").write_bytes(b"GIF89a")
-    (ws.artifacts / "meshes").mkdir()
-    (ws.artifacts / "meshes" / "base.glb").write_bytes(b"glTF-base")
-    ws.write_json(ws.record_path, {**json.loads(ws.record_path.read_text()), "best_round": 1})
-    select.package(ws.root, 1)
-    return ws, load_record(ws)
-
-
-def test_an_old_runs_caption_then_export_still_ships_its_glb_gif_and_meshes(tmp_path):
-    """The caption's record rewrite once dropped the raw best_round, and with it the old run's outputs;
-    a record already rewritten without ``best_round`` falls back to its packaged deliverable."""
-    from codeverse3d.addons import select
-    from codeverse3d.addons.dataset.export import export_one
-
-    ws, rec = _old_urdf_run(tmp_path)
-    urdf = dict(GOOD, instruction="Write a URDF model of a simple robot arm with a base and one hinged link.")
-    caption_sample(ws, rec, "fake:fake", model=FakeChatModel([urdf]))
-    assert json.loads(ws.record_path.read_text())["best_round"] == 1  # the rewrite keeps the legacy key
-    handed = {f.path for f in load_deliverable(ws).files}
-    assert {"deliverable/object.glb", "deliverable/preview.gif", "deliverable/meshes/base.glb"} <= handed
-    sample = export_one(ws, load_record(ws), tmp_path / "ds")
-    assert {"renders/object.glb", "renders/preview.gif", "meshes/base.glb"} <= set(sample.file_hashes)
-
-    data = json.loads(ws.record_path.read_text())
-    del data["best_round"]
-    ws.write_json(ws.record_path, data)
-    assert select.round_file(ws, rec.rounds[1]) == ws.artifacts / "object.glb"
-    assert select.round_file(ws, rec.rounds[0]) is None
-    select.package(ws.root, 1)  # the rebuild wipes the old manifest: resolved before the wipe
-    assert (ws.deliverable / "object.glb").is_file() and (ws.deliverable / "meshes" / "base.glb").is_file()

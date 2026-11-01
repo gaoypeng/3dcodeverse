@@ -39,9 +39,9 @@ def _write_run(root: Path, slug: str, *, index: float, overall: float, detail: f
         "workspace": str(run),
         "plan": StaticPlan(object_name="Chair", summary="s", overall_bbox=box, parts=[
             PartPlan(name=n, role="r", description="d", bbox=box) for n in ("a", "b")]).model_dump(mode="json"),
-        "status": "passed", "best_round": 0,
+        "status": "max_rounds",
         "total_usage": {"cost_usd": cost},
-        "extra": {"budget": {"elapsed_min": minutes}},  # a record before step timing counts its clock
+        "steps": [{"step": "generate", "wall_s": minutes * 60}],
         "rounds": [{
             "index": 0, "kind": "baseline", "gates": [],
             "measurement": _measurement(index).model_dump(mode="json"),
@@ -93,20 +93,19 @@ def test_battery_expectations_flag_out_of_band_runs(tmp_path: Path) -> None:
 
 
 def test_row_recomputes_the_vector_when_the_record_has_none(tmp_path: Path) -> None:
-    """The historic corpus predates the vector: the report must fall back to the
-    GLB rather than skipping the run."""
+    """A missing measurement can be recomputed from the round's own GLB."""
     import trimesh
 
     run = tmp_path / "runs" / "old"
-    (run / "artifacts").mkdir(parents=True)
+    (run / "artifacts" / "r00").mkdir(parents=True)
     trimesh.Scene({"Box": trimesh.creation.box(extents=(0.3, 0.3, 0.3))}).export(
-        str(run / "artifacts" / "object.glb"))
+        str(run / "artifacts" / "r00" / "object.glb"))
     (run / "record.json").write_text(json.dumps({
-        "spec": {"track": "static_object", "language": "blender", "tags": []},
-        "plan": {"parts": []}, "status": "passed", "best_round": 0,
+        "spec": {"id": "box", "prompt": "a box", "track": "static_object", "language": "blender", "tags": []},
+        "status": "max_rounds",
         "total_usage": {"cost_usd": 1.0}, "rounds": [{
-            "index": 0, "gates": [],
-            "judgment": {"overall": 0.5, "passed": False,
+            "index": 0, "kind": "baseline", "gates": [],
+            "judgment": {"rubric": "static_object_v1", "overall": 0.5, "passed": False,
                          "scores": dict.fromkeys(CR.CRITERIA, 0.5), "issues": []}}]}))
     row = CR.row_for(run, "old_battery")
     assert row is not None and row["part_count"] == 1 and row["index"] > 0

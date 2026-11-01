@@ -733,8 +733,8 @@ post-render gates → the build's own `BuildResult.gates` (also when the build f
 ## texturing/  (derived asset pack; code stays truth — object.glb is never touched)
 ```python
 from codeverse3d.texturing.run import texture_pass, texture_requested, load_report
-texture_requested(spec) -> bool   # THE owner of "does this run texture?" (Spec.options.texture, or
-    # the legacy "texture" tag).  Asked by the CLI hand-over after the run (make/resume → addons.select.package(
+texture_requested(spec) -> bool   # Uses Spec.options.texture and the supported track.
+    # Asked by the CLI hand-over after the run (make/resume → addons.select.package(
     # texture=…), which textures the PICKED round — Δ 2026-09-22, finalise no longer does).  No agent session can
     # buy a pass: the texture_pass / texture_preview tools were deleted 2026-09-22.
 texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_obj=None, judge_model_id=None, rubric=None,
@@ -857,10 +857,8 @@ prompt_hashes{contract, generate, refine, …} (Δ D107: no cookbook key), error
 rubric, budget{elapsed_min, max_minutes} (the clock), aborted_rounds?, candidates? (the
 rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the sum of telemetry/cost.jsonl at
 list price — every billed row once, aborted rounds, retried sessions and billed-but-discarded round-trips
-included; a texture pass a pick buys joins it when `select.package` re-packages the run.  Δ 2026-09-22: no
-`cost_by_stage` / `rounds_summary` (written, never read), no `baseline_score` / `final_score` (old records
-carry them: ignored — `addons.select.summarise` answers), `best_round` only as a LEGACY read-only field (an old
-record's pointer to the round its `artifacts/` holds, `record.deliverable.round_outputs`; kept across a record
-rewrite, never written by a new run, absent from its JSON), and `status` is only
-the stop reason: max_rounds | budget | agent_quota | no_change | no_refine_tasks | judge_unavailable |
-failed (an old `passed` / `plateau` loads as `stopped`).
+included; a texture pass a pick buys joins it when `select.package` re-packages the run.
+Selection is stored separately; `RunRecord` carries no `best_round` field. Round outputs
+are read from `artifacts/rNN/`, and minutes come from `StepTime` rows. Historical status,
+manifest and timing migration is unsupported. A completed `status` names its stop reason:
+max_rounds | budget | agent_quota | no_change | no_refine_tasks | judge_unavailable | failed.

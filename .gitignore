@@ -30,3 +30,6 @@ dist/
 
 # Developer-only visual studies; agents use the production starter library.
 /harness/examples/graphics_lab/
+
+# Retired tools retained locally for reference.
+/.local-archive/

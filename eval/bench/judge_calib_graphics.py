@@ -4,7 +4,7 @@ The loop the object track had (rubric → re-judge recorded rounds → compare a
 person sees → revise) never ran for graphics.  This script is that loop's measuring half:
 
     python bench/judge_calib_graphics.py --corpus <corpus.json> --eye <eye.json> \
-        --rubrics shader_v1,shader_v2 --model gemini:gemini-3.1-pro-preview --n 2 \
+        --rubrics shader_v2 --model gemini:gemini-3.1-pro-preview --n 2 \
         --out bench/out/judge_calib_graphics
 
 * ``corpus.json``: ``[[score, run_dir, sheet_path, generator], ...]`` — every graphics run with a
@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--eye", required=True)
-    ap.add_argument("--rubrics", default="shader_v1,shader_v2")
+    ap.add_argument("--rubrics", default="shader_v2")
     ap.add_argument("--model", default="gemini:gemini-3.1-pro-preview")
     ap.add_argument("--n", type=int, default=2)
     ap.add_argument("--workers", type=int, default=4)

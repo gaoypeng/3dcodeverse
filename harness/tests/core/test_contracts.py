@@ -100,7 +100,7 @@ def test_camera_plan_name_must_be_filename_safe():
             CameraPlan(**{"name": "cam", "position": (0, 1.6, 5), "look_at": (0, 0, 0), **bad})
 
 
-def test_budget_is_strict_but_recorded_specs_migrate_the_retired_cost_key():
+def test_budget_and_recorded_specs_reject_retired_cost_keys():
     with pytest.raises(ValidationError):
         Budget(max_usd=1.0)
     with pytest.raises(ValidationError):
@@ -109,7 +109,35 @@ def test_budget_is_strict_but_recorded_specs_migrate_the_retired_cost_key():
 
     data = {"id": "x", "track": "static_object", "language": "blender", "prompt": "p",
             "budget": {"max_rounds": 2, "max_minutes": 30.0, "max_usd": 2.5}}
-    s = Spec.model_validate(data)
-    assert s.budget.max_rounds == 2 and not hasattr(s.budget, "max_usd")
-    assert Spec.model_validate_json(json.dumps(data)).budget.max_minutes == 30.0
-    assert data["budget"]["max_usd"] == 2.5, "migration must not mutate the caller's dict"
+    with pytest.raises(ValidationError):
+        Spec.model_validate(data)
+    with pytest.raises(ValidationError):
+        Spec.model_validate_json(json.dumps(data))
+
+
+@pytest.mark.parametrize("status", ["passed", "plateau", "stopped"])
+def test_retired_run_statuses_are_rejected(status):
+    from codeverse3d.contracts.run import RunStatus
+
+    with pytest.raises(ValueError):
+        RunStatus(status)
+
+
+def test_missing_round_snapshot_does_not_borrow_canonical_artifacts(tmp_ws):
+    from codeverse3d.contracts.run import RoundRecord
+    from codeverse3d.record.deliverable import keep_round_artifacts, round_outputs
+
+    (tmp_ws.artifacts / "object.glb").write_bytes(b"current build")
+    rnd = RoundRecord(index=0, kind="baseline")
+    assert round_outputs(tmp_ws, rnd) is None
+    keep_round_artifacts(tmp_ws, 0)
+    (tmp_ws.artifacts / "object.glb").write_bytes(b"next build")
+    assert (round_outputs(tmp_ws, rnd) / "object.glb").read_bytes() == b"current build"
+
+
+@pytest.mark.parametrize("name", ["scene_v1", "shader_v1"])
+def test_retired_rubrics_are_not_available(name):
+    from codeverse3d.judges.rubrics import RubricError, load_rubric
+
+    with pytest.raises(RubricError, match="unknown rubric"):
+        load_rubric(name)

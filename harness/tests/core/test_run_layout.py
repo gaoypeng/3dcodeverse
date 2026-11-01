@@ -25,8 +25,8 @@ def test_create_makes_the_buckets_aliases_and_gitignore(tmp_path: Path):
     ws.events_path.write_text('{"event": "run.start"}\n')
     assert (ws.telemetry / "events.jsonl").read_text().strip().endswith("}")
     # an atomic rewrite of the physical file must not disturb the alias
-    ws.write_json(ws.state_path, {"status": "passed"})
-    assert json.loads((ws.telemetry / "run_state.json").read_text())["status"] == "passed"
+    ws.write_json(ws.state_path, {"status": "max_rounds"})
+    assert json.loads((ws.telemetry / "run_state.json").read_text())["status"] == "max_rounds"
     assert (ws.telemetry / "run_state.json").is_symlink()
 
 
@@ -51,16 +51,15 @@ def test_ensure_layout_never_clobbers_real_data(tmp_path: Path):
 
 
 def test_record_blocks_are_additive(tmp_path: Path):
-    """An old record.json (no telemetry, a deliverable block) validates; an old manifest loads."""
+    """Telemetry can be added at finalization; manifests use the current round field."""
     spec = Spec(id="x", track="static_object", language="blender", prompt="a chair")
-    old = {"spec": spec.model_dump(mode="json"), "workspace": str(tmp_path), "status": "passed",
-           "deliverable": {"best_round": 1, "commit": "abc"}}
-    rec = RunRecord.model_validate(old)
-    assert rec.telemetry is None and rec.status.value == "stopped"
+    rec = RunRecord(spec=spec, workspace=str(tmp_path), status="max_rounds")
+    assert rec.telemetry is None
     rec.telemetry = RunTelemetry()
     again = RunRecord.model_validate_json(rec.model_dump_json())
     assert again.telemetry is not None and again.telemetry.schema_version == 1
-    assert RunDeliverable.model_validate({"best_round": 1, "commit": "abc"}).round == 1  # a pre-2026-09-22 manifest
+    assert RunDeliverable.model_validate({"round": 1, "commit": "abc"}).round == 1
+    assert RunDeliverable.model_validate({"best_round": 1, "commit": "abc"}).round is None
 
 
 # --------------------------------------------------------------------------- relocation

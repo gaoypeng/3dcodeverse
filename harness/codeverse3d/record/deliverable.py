@@ -142,29 +142,11 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
 
 
 def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
-    """Where the round's build outputs are: ``artifacts/rNN/``, or — a run recorded before
-    rounds kept their own (2026-09-22) — ``artifacts/`` itself, but only for the round
-    that run's finalise rebuilt there: the legacy ``RunRecord.best_round``, or — a record
-    rewritten by a build that dropped that key — the round its old deliverable packaged."""
+    """The build outputs retained for this round; never substitute another build."""
     if rnd is None:
         return None
     kept = ws.round_artifacts(rnd.index)
-    if kept.is_dir():
-        return kept
-    return ws.artifacts if legacy_canonical_round(ws) == rnd.index else None
-
-
-def legacy_canonical_round(ws: Workspace) -> int | None:
-    """The round a run recorded before rounds kept ``artifacts/rNN/`` rebuilt into ``artifacts/``
-    (its record's ``best_round``, else its deliverable's round); None for a run that keeps its
-    rounds — there ``artifacts/`` is the LAST build's, no round's by name."""
-    legacy = (read_json_or_none(ws.record_path) or {}).get("best_round")
-    if isinstance(legacy, int):
-        return legacy
-    if any(ws.artifacts.glob("r[0-9][0-9]")):
-        return None
-    old = load_deliverable(ws)
-    return old.round if old is not None else None
+    return kept if kept.is_dir() else None
 
 
 def texture_report_for(ws: Workspace, glb: Path) -> dict | None:
@@ -248,7 +230,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     on an unchanged run produces byte-identical content."""
     rnd = next((r for r in record.rounds if r.index == round_index), None)
     previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None
-    out = round_outputs(ws, rnd)  # before the wipe: an old run may be found by its old manifest
+    out = round_outputs(ws, rnd)
     if clean and ws.deliverable.exists():
         shutil.rmtree(ws.deliverable)
     ws.ensure_layout()
@@ -287,7 +269,7 @@ def deliverable_path(ws: Workspace, name: str) -> Path | None:
     """``deliverable/<name>`` when it exists, else ``artifacts/<name>``, else None.
 
     The one resolver every consumer (export, gallery, show) uses so both layouts
-    work: new runs answer from the hand-over folder, old runs from artifacts/."""
+    work: packaged runs answer from the hand-over folder, unpackaged runs from artifacts/."""
     for candidate in (ws.deliverable / name, ws.artifacts / name):
         if candidate.is_file():
             return candidate

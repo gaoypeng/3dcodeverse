@@ -123,8 +123,7 @@ def texture_supported(track: Track) -> bool:
 def texture_requested(spec: Spec) -> bool:
     """True when the run asked for the derived texture pass AND the track can run one.
 
-    ``Spec.options.texture`` is the switch; the legacy ``texture`` tag is still
-    honoured because recorded specs carry it.  Nothing else may turn texturing
+    ``Spec.options.texture`` is the switch. Nothing else may turn texturing
     on; ``3dcode texture pass <slug>`` is an explicit user instruction that does
     not go through here at all.
 
@@ -134,7 +133,7 @@ def texture_requested(spec: Spec) -> bool:
     spurious ``texture.failed`` event — quality's advertised "+texture" was a guaranteed
     no-op on half the tracks, and scene runs never reached the command that would work.
     """
-    return bool(spec.options.texture or "texture" in (spec.tags or [])) and texture_supported(spec.track)
+    return bool(spec.options.texture) and texture_supported(spec.track)
 
 
 def texture_pass(

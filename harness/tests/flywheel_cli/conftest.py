@@ -89,7 +89,7 @@ def make_fake_run(
             renders=RenderSet(views=views, contact_sheet=str(sheet)),
             judgment=_judgment(sc, sc >= 0.75, ["thicken the legs", "add a back rail"]),
             usage=Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=1000, output_tokens=500, cost_usd=0.02),
-            duration_s=12.0,
+            duration_s=12.0, steps=[StepTime(step="generate", wall_s=12.0)],
         ))
     if with_repair:
         e.write_text("import bpy\nbpy.ops.mesh.primitive_cube_add(size=\n")

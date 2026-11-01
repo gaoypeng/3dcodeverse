@@ -121,7 +121,7 @@ def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
     # per-run content (acceptance ids) is NOT part of it: the schema is hashed with no ids
     assert wire_schema(R, ["A1"]) != wire_schema(R, []) and judge_prompt_hash(R) == base
     # the rubric is part of it (through the rendered rubric block)
-    other = load_rubric("shader_v1")
+    other = load_rubric("shader_v2")
     assert judge_prompt_hash(other) != base
     # an edit to the role prompt or the rig rules changes it — that is the whole point
     monkeypatch.setattr(pb, "_ROLE", pb._ROLE + "\nScore generously.")

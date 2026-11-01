@@ -29,7 +29,7 @@ If both copies are edited they can drift; coordinate changes with the upstream r
 
 | source | scripts | notes |
 |---|---|---|
-| `deepcad/` | `convert_vec_to_cq.py`, `batch_convert.py`, `cq_check{,_batch}.py`, `gen_gt_stl.py`, `iou_compute.py`, `render_all.py`, `dedup_check.py`, `attach_text.py`, `pack_tar_parquet.py`, `finalize.py`, `upload_to_hf.py` | DeepCAD vector sequences → CadQuery programs, executed and checked, GT meshes + IoU, captions attached, packed and uploaded |
+| `deepcad/` | `convert_vec_to_cq.py`, `batch_convert.py`, `cq_check{,_batch}.py`, `gen_gt_stl.py`, `iou_compute.py`, `render_all.py`, `dedup_vec.py`, `attach_text.py`, `pack_tar_parquet.py`, `finalize.py`, `upload_to_hf.py` | DeepCAD vector sequences → CadQuery programs, executed and checked, GT meshes + IoU, captions attached, packed and uploaded |
 | `articraft/` | `articraft_cq.py`, `assemble_shim.py`, … | articulated assets → CadQuery / URDF projects |
 
 The shape of a curation pass is **convert → execute → render → compute ground truth → dedupe →

@@ -30,7 +30,7 @@ def _reply(score=0.9, defects=None):
 
 
 def test_rubrics_declare_defects_with_costs():
-    for name in ("static_object_v1", "articulated_v1", "scene_v1", "scene_v2", "asset_v1", "reference_v1"):
+    for name in ("static_object_v1", "articulated_v1", "scene_v2", "asset_v1", "reference_v1"):
         r = load_rubric(name)
         assert r.defects, name
         assert all(d.penalty > 0 or d.cap is not None for d in r.defects)

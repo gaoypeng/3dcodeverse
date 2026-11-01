@@ -30,14 +30,10 @@ import logging
 from codeverse3d.agents.cli_common import default_mcp_command
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.skills.materialize import BODY_FILES
-from codeverse3d.workspace import C3D_DIR, Workspace
+from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-#: a run made BEFORE D107 was handed its language's cookbook here (and a "## Cookbook" section in
-#: the body files).  Materialising removes it, and its presence makes a resumed run re-materialise
-#: (``needs_rematerialize``) so the agent of a later round never reads a cookbook.
-LEGACY_COOKBOOK = f"{C3D_DIR}/cookbook.md"
 MCP_SERVER_NAME = "3dcode"
 MCP_TOOL_TIMEOUT_MS = 600_000
 #: ``.antigravityignore`` — agy's own ignore file.  The agent-facing artefacts must stay readable:
@@ -166,13 +162,6 @@ def materialize_workspace(
     body = _body(agent_kind, contract_md, spatial_tools, mcp_command, ws)
     for name in BODY_FILES:
         (ws.root / name).write_text(body)
-    (ws.root / LEGACY_COOKBOOK).unlink(missing_ok=True)
     # No MCP server is written into the workspace: every CLI gets 3dcode from a harness-owned
     # per-session file, so an agent-planted server cannot reach the next round (audit 2026-08-27).
     (ws.root / IGNORE_FILE).write_text("\n".join(IGNORE_LINES) + "\n")
-
-
-def needs_rematerialize(ws: Workspace) -> bool:
-    """A workspace materialised before D107 (it still holds :data:`LEGACY_COOKBOOK`) — its body
-    files carry the old "## Cookbook" section, so a resumed run writes them again."""
-    return (ws.root / LEGACY_COOKBOOK).is_file()

@@ -15,7 +15,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from codeverse3d.contracts.artifacts import (
     BuildResult,
@@ -177,12 +177,6 @@ class RunStatus(StrEnum):
     NO_REFINE_TASKS = "no_refine_tasks"      # the last round left nothing to ask for
     JUDGE_UNAVAILABLE = "judge_unavailable"  # the last round has no verdict, even after a re-judge
     FAILED = "failed"
-    #: a run recorded before 2026-09-22 that ended on a judgement stop (``passed`` / ``plateau``)
-    STOPPED = "stopped"
-
-    @classmethod
-    def _missing_(cls, value: object) -> RunStatus | None:
-        return cls.STOPPED if value in ("passed", "plateau") else None
 
 
 class StepTime(BaseModel):
@@ -220,9 +214,9 @@ class RoundRecord(BaseModel):
         default=None, description="skills attached to this round's sessions, and which were actually read")
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_s: float = Field(default=0.0, description="the round's clock, provider errors included")
-    steps: list[StepTime] | None = Field(
-        default=None, description="the round's timed steps (generate / build / gates / render / judge); "
-                                  "None = recorded before 2026-09-22")
+    steps: list[StepTime] = Field(
+        default_factory=list, description="the round's timed steps (generate / build / gates / render / judge); "
+                                  "empty until timing is recorded")
     notes: str = ""
 
     @property
@@ -231,10 +225,7 @@ class RoundRecord(BaseModel):
 
     @property
     def minutes(self) -> float:
-        """The round's minutes: its steps' ``wall_s - lost_s``.  A round recorded before step
-        timing (``steps is None``) counts its own clock, ``duration_s``."""
-        if self.steps is None:
-            return self.duration_s / 60.0
+        """The round's timed steps, excluding provider wait."""
         return sum(s.active_s for s in self.steps) / 60.0
 
 
@@ -244,12 +235,11 @@ class RoleSettings(BaseModel):
 
     ``source`` says where the sampling knobs came from: ``run`` (stamped by the track as it
     ran, ``record.extra["sampling"]``) or ``spec`` (only the model is known — a vendor CLI owns
-    its knobs; the values are left empty rather than guessed).  Records before 2026-09-22 say
-    ``default`` (read off the call sites' signature defaults)."""
+    its knobs; the values are left empty rather than guessed)."""
 
     role: str
     model: str = ""
-    backend: str = Field(default="", description="gemini | anthropic | gemini-cli | codex | … (api-agent only in records written before 2026-08-28)")
+    backend: str = Field(default="", description="gemini | anthropic | agy | claude-code | codex | …")
     thinking: str = Field(default="", description="off | low | medium | high; '' = not recorded")
     temperature: float | None = None
     n_samples: int | None = Field(default=None, description="judge samples per verdict")
@@ -295,9 +285,7 @@ class StageCost(BaseModel):
 
 class CostSummary(BaseModel):
     """``telemetry/cost.json``: the run's ledger rows summarised — what the run cost, where, and
-    its minutes against ``max_minutes``.  A summary written before 2026-09-22 also carries
-    ``ledger_usd`` / ``unattributed_usd`` / ``post_run_usd`` (the record's total and the ledger
-    were two numbers then) and a span as ``wall_clock_s``: unknown keys, ignored."""
+    its minutes against ``max_minutes``."""
 
     schema_version: int = 1
     total_usd: float = Field(default=0.0, description="the ledger's sum at list price = record.total_usage")
@@ -334,8 +322,7 @@ class RunDeliverable(BaseModel):
 
     schema_version: int = 1
     dir: str = "deliverable"
-    round: int | None = Field(default=None, validation_alias=AliasChoices("round", "best_round"),
-                              description="the packaged round (manifests before 2026-09-22 call it best_round)")
+    round: int | None = Field(default=None, description="the packaged round")
     commit: str = ""
     code_source: str = Field(default="", description="commit | working_tree")
     entry: str = Field(default="", description="run-relative entry file of the code snapshot")
@@ -349,10 +336,7 @@ class RunDeliverable(BaseModel):
 
 
 class RunRecord(BaseModel):
-    """One run.  A record written before 2026-09-22 also names a baseline and a final score
-    (``baseline_score`` / ``final_score``) and a round may carry a ``pairwise`` tie-break note:
-    unknown keys, ignored — ``addons.select`` answers which round to hand over, after the run.
-    Its ``best_round`` is kept (below): the only pointer to the round its ``artifacts/`` holds."""
+    """One run; selection is recorded separately after generation finishes."""
 
     spec: Spec
     plan: StaticPlan | ArticulatedPlan | ScenePlan | GraphicsPlan | None = None
@@ -367,30 +351,18 @@ class RunRecord(BaseModel):
     error: str = ""
     telemetry: RunTelemetry | None = Field(
         default=None, description="settings snapshot + cost summary (written by finalize_record)")
-    steps: list[StepTime] | None = Field(
-        default=None, description="the run-level timed steps (plan, the pre-round stages, best-of-N, the part of "
-                                  "an aborted round that ran); None = recorded before 2026-09-22")
+    steps: list[StepTime] = Field(
+        default_factory=list, description="the run-level timed steps (plan, the pre-round stages, best-of-N, the part of "
+                                  "an aborted round that ran)")
     extra: dict[str, Any] = Field(default_factory=dict)
-    best_round: int | None = Field(
-        default=None, exclude_if=lambda v: v is None,
-        description="LEGACY, read-only: written only by runs recorded before 2026-09-22 (pre-D80), whose "
-                    "finalise rebuilt that round into artifacts/ — record.deliverable.round_outputs finds "
-                    "the round's GLB/GIF/meshes by it.  Kept so a record rewrite (flywheel caption, "
-                    "pick --texture) does not drop it; never set by a new run, never a pick")
 
     @property
-    def minutes(self) -> float | None:
+    def minutes(self) -> float:
         """THE minutes of a run, the one number every reader reports: the ``wall_s - lost_s``
         of every step, run-level and round, so time lost to 503 / 429 / token-limit errors
         does not count (owner, 2026-09-22).  It is a statistic, not the budget: the
         ``max_minutes`` clock (``orchestrator.BudgetGuard``) counts every active second,
         errors included, because it must stop a run even in a 503 storm.
 
-        A record written before step timing (``steps is None``) counts its own clock
-        instead: the budget's active minutes, ``extra["budget"]["elapsed_min"]`` (None when
-        even that is missing)."""
-        if self.steps is None:
-            budget = self.extra.get("budget")
-            elapsed = budget.get("elapsed_min") if isinstance(budget, dict) else None
-            return float(elapsed) if isinstance(elapsed, (int, float)) else None
+        """
         return sum(s.active_s for s in self.steps) / 60.0 + sum(r.minutes for r in self.rounds)

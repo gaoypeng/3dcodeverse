@@ -163,8 +163,7 @@ class Budget(BaseModel):
     for the ledger and the run record, and never gates anything.
 
     ``extra="forbid"``: a caller still passing a retired ceiling (``max_usd``) or a typo
-    must raise, not be silently swallowed.  Old on-disk specs are migrated in ONE place:
-    ``Spec._strip_retired_budget_keys``.
+    must raise, not be silently swallowed, including when loading a stored spec.
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 
 from codeverse3d.contracts.common import Language
-from codeverse3d.contracts.run import RunStatus
 from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.lifecycle import SpecChanged
@@ -76,36 +75,6 @@ def test_crash_between_round_write_and_state_save_ends_at_the_newer_round(comple
     assert ev and ev[-1]["rounds"] == 2 and ev[-1]["restored_last_round"] == 1
 
 
-def test_an_old_run_that_restored_its_best_round_resumes_from_its_last(completed_run, settings):
-    """A pre-2026-09-22 run that ended on "restore best round" resumes from, and refines, its LAST round."""
-    run = completed_run(max_rounds=1)
-    rec1, ws = run.record, run.ws
-    state = json.loads(ws.state_path.read_text())
-    state.update(status="passed", stop_reason="pass", best_round=0, best_commit=rec1.rounds[0].commit,
-                 best_score=0.5, best_considered_through=1)
-    ws.state_path.write_text(json.dumps(state))
-    record = json.loads(ws.record_path.read_text())
-    record.update(status="passed", best_round=0, baseline_score=0.5, final_score=0.5)
-    ws.record_path.write_text(json.dumps(record))
-    ws.restore(rec1.rounds[0].commit)       # what the old finalise did
-    ws.commit("restore best round r00")
-
-    seen: list[tuple[int, str]] = []
-
-    def writer(job, ws_):
-        seen.append((job.round, (ws_.src / "model.py").read_text()))
-        return _writer(job, ws_)
-
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
-                              planner_model=_planner(run.plan), settings=settings,
-                              runtime=FakeRuntime(Language.BLENDER), policy=RoundPolicy(max_rounds=2))
-    rec2 = track.run(make_spec(language=Language.BLENDER, max_rounds=2), ws, resume=True)
-    assert [r.index for r in rec2.rounds] == [0, 1, 2] and rec2.status is RunStatus.MAX_ROUNDS
-    assert seen and all(rnd == 2 for rnd, _ in seen), "only the new round generated"
-    assert seen[0][1] == _code_at(ws, rec1.rounds[1].commit) != _code_at(ws, rec1.rounds[0].commit), "round 2 refines round 1"
-    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"]
-    assert ev[-1]["restored_last_round"] == 1
-    assert ws.head() == rec2.rounds[-1].commit and _code_at(ws, ws.head()) == (ws.src / "model.py").read_text()
 
 
 def _code_at(ws: Workspace, commit: str) -> str:

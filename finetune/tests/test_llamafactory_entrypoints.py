@@ -20,7 +20,6 @@ LEGACY_SCRIPTS = (
     "audit_pairs.py",
     "build_pairs_3dcodebench.py",
     "convert_subdirs.py",
-    "drop_old_pair_trees.py",
     "shrink_pair_images.py",
     "upload_pairs.py",
     "verify_unflattened_glsl.py",

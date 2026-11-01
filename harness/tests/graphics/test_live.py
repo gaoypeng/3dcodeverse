@@ -59,7 +59,7 @@ def test_live_plan_generate_build_judge(tmp_path, keys_ok):
         pytest.skip(f"model wrote a shader that does not compile (repair loop not exercised here): {build.error_message[:200]}")
     renders = frames_render_set(ws, build, 0)
     assert len(renders.views) == 5 and renders.contact_sheet
-    judge = VlmJudge(rubric="shader_v1", model_id=MODEL, n_samples=1)
+    judge = VlmJudge(rubric="shader_v2", model_id=MODEL, n_samples=1)
     j = judge.judge(JudgeInput(spec=spec, renders=renders, gates=[lint], acceptance=plan.acceptance, plan_summary=plan.summary,
                                round_index=0, extra_context=""))
     assert 0.0 <= j.overall <= 1.0 and set(j.scores) >= {"brief_fidelity", "motion_quality"}

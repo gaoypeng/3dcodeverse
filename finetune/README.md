@@ -13,7 +13,7 @@ tools; it is not a copy or fork of the LLaMA-Factory framework.
 | path | what |
 |---|---|
 | [`llamafactory/`](llamafactory/) | canonical training-data scripts: ShareGPT conversion, quality checks, multimodal pairs, token counts, mix sampling, and Hub packaging; includes the per-source `runners/` |
-| [`scripts/`](scripts/) | training/export launchers and workstation orchestration; seven old Python data-script paths are compatibility forwarders to `llamafactory/` |
+| [`scripts/`](scripts/) | training/export launchers and workstation orchestration; six old Python data-script paths are compatibility forwarders to `llamafactory/` |
 | [`configs/lf/`](configs/lf/) | current SFT and stop-DPO YAML recipes, the LoRA export template, and a DeepSpeed offload template; see its README for the current recipe list |
 | `data_specs/` | recorded dataset registry and data statistics; each run must also have the registry and datasets named by its own `dataset_dir` |
 | `env/requirements-{llmft,lf,vllm}.txt` | snapshots of the original data/eval, LLaMA-Factory training, and vLLM inference environments |
@@ -71,10 +71,9 @@ python -m llm.run_eval --backend vllm --model /absolute/path/to/run/merged \
 
 See [`../eval/llm/README.md`](../eval/llm/README.md) for tool/asset setup and suite decoding defaults.
 
-The stop-DPO recipes are in `configs/lf/dpo_*.yaml`; their workstation orchestration remains in
-`scripts/stop_dpo_pairs.sh` and `scripts/stop_dpo_round.sh`. Those scripts still depend on the old
-generation entrypoint, output schema, and prepared training prompts. Adapting them to `eval/llm/`
-is separate work; the folder reorganization does not make that historical pipeline portable.
+The stop-DPO recipes remain in `configs/lf/dpo_*.yaml`. Their historical generation
+and workstation orchestration scripts are no longer distributed. Prepare matching
+preference data before using these training recipes.
 
 ## Released weights
 

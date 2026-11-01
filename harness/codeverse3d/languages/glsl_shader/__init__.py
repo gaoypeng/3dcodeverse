@@ -113,14 +113,11 @@ def _piece(text: str) -> str:
 
 
 def compose(shader_src: str, common_src: str | None = None, *,
-            shader_file: str = "src/shader.frag", common_file: str = "src/common.glsl",
-            legacy_src: str | None = None) -> Composed:
-    """Header (+ a pre-D107 run's :data:`LEGACY_RECIPES`) + common + shader (+ trailer) with a line
+            shader_file: str = "src/shader.frag", common_file: str = "src/common.glsl") -> Composed:
+    """Header + common + shader (+ trailer) with a line
     map back to the agent files."""
     convention = detect_convention(shader_src)
     pieces: list[tuple[str, str]] = [("harness", HEADER)]
-    if legacy_src and legacy_src.strip():
-        pieces.append((LEGACY_RECIPES, _piece(legacy_src)))
     if common_src and common_src.strip():
         pieces.append((common_file, _piece(common_src)))
     pieces.append((shader_file, _piece(shader_src)))
@@ -155,10 +152,6 @@ GATE = "lint:glsl_shader"
 SHADER = ENTRY_FILE[Language.GLSL_SHADER]
 COMMON = "src/common.glsl"
 BUFFER_A = "src/buffer_a.frag"
-#: runs made BEFORE D107 had the harness seed this file and their shaders call its functions, so
-#: it is still composed (after the header, before common.glsl) when it exists — the only reason
-#: `resume` / `render` / `pick` on such a run still builds.  No new run is given one.
-LEGACY_RECIPES = "src/recipes.glsl"
 SAMPLERS = {"u_prev", "u_noise", "u_buffer_a", "iChannel0", "iChannel1"}
 MAX_CHARS = 60_000
 
@@ -256,7 +249,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
         if p.is_file():
             findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role))
     stray = [ws_rel(ws, p) for p in ws.src.rglob("*") if p.is_file()
-             and ws_rel(ws, p) not in (SHADER, COMMON, BUFFER_A, LEGACY_RECIPES)
+             and ws_rel(ws, p) not in (SHADER, COMMON, BUFFER_A)
              and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
     for rel in stray:
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel} is not part of the shader contract and is ignored",
@@ -361,11 +354,9 @@ class GlslShaderRuntime(RuntimeLayout):
         shader = (ws.root / SHADER).read_text(errors="replace")
         common_p = ws.root / COMMON
         common = common_p.read_text(errors="replace") if common_p.is_file() else None
-        legacy_p = ws.root / LEGACY_RECIPES
-        legacy = legacy_p.read_text(errors="replace") if legacy_p.is_file() else None
-        image = compose(shader, common, legacy_src=legacy)
+        image = compose(shader, common)
         buf_p = ws.root / BUFFER_A
-        buffer_a = (compose(buf_p.read_text(errors="replace"), common, shader_file=BUFFER_A, legacy_src=legacy)
+        buffer_a = (compose(buf_p.read_text(errors="replace"), common, shader_file=BUFFER_A)
                     if buf_p.is_file() else None)
         return image, buffer_a
 

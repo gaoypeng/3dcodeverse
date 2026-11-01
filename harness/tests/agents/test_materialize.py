@@ -10,10 +10,8 @@ import tomllib
 
 from codeverse3d.agents.cli_common import default_mcp_command
 from codeverse3d.agents.materialize import (
-    LEGACY_COOKBOOK,
     codex_mcp_overrides,
     materialize_workspace,
-    needs_rematerialize,
 )
 from codeverse3d.workspace import Workspace
 
@@ -67,19 +65,6 @@ def test_the_body_is_rules_tools_and_contract_and_never_mentions_a_cookbook(tmp_
     assert not (tmp_ws.root / ".3dcode").exists() or not any((tmp_ws.root / ".3dcode").iterdir())
 
 
-def test_a_workspace_materialised_before_d107_is_rematerialised_and_loses_its_cookbook(tmp_ws: Workspace):
-    """A resumed pre-D107 run still holds ``.3dcode/cookbook.md`` and a "## Cookbook" body section:
-    ``needs_rematerialize`` says so (``ensure_materialized`` then writes the body again), and
-    materialising removes the file."""
-    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "p"}))
-    legacy = tmp_ws.root / LEGACY_COOKBOOK
-    legacy.parent.mkdir(parents=True, exist_ok=True)
-    legacy.write_text("# Cookbook\n")
-    (tmp_ws.root / "AGENTS.md").write_text("## Cookbook\ncopy its patterns exactly\n")
-    assert needs_rematerialize(tmp_ws)
-    _mat(tmp_ws)
-    assert not legacy.exists() and not needs_rematerialize(tmp_ws)
-    assert "cookbook" not in (tmp_ws.root / "AGENTS.md").read_text().lower()
 
 
 def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):

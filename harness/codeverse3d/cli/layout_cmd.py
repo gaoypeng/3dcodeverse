@@ -83,8 +83,6 @@ def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None
             score = c.get("score")
             rows[f"{c.get('label', c.get('index'))}{' *' if c.get('index') == cands.get('selected') else ''}"] = (
                 f"score {score if score is None else round(score, 3)}  build_ok={c.get('build_ok')}")
-        if pw := cands.get("pairwise"):  # a record from before 2026-09-22 (in-loop pairwise)
-            rows["pairwise"] = f"{pw.get('a')} vs {pw.get('b')} → {pw.get('winner')} (confidence {pw.get('confidence')})"
         console.print(kv_table("candidates (best-of-N, * = selected)", rows))
     if record is not None and (t := record.extra.get("texturing")):
         console.print(kv_table("texturing", {
@@ -131,8 +129,8 @@ def _deliverable_table(d: RunDeliverable) -> Table:
     return t
 
 
-def _legacy_deliverable_rows(ws: Workspace) -> dict[str, Any]:
-    """Old layout: point at the physical artifacts instead of ``deliverable/``."""
+def _unpackaged_artifact_rows(ws: Workspace) -> dict[str, Any]:
+    """A run not yet packaged: show physical artifacts instead of ``deliverable/``."""
     rows: dict[str, Any] = {}
     for name in ("object.glb", "object.stl", "object.step", "robot.urdf", "object_textured.glb", "preview.gif"):
         p = ws.artifacts / name
@@ -161,7 +159,7 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
             warn(f"not packaged: {name} — {why}")
     else:
         console.print(kv_table("artifacts (no deliverable/ yet — `3dcode pick` packages a round)",
-                               _legacy_deliverable_rows(ws)))
+                               _unpackaged_artifact_rows(ws)))
 
 
 # --------------------------------------------------------------------------- (b) evidence
@@ -232,7 +230,7 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
     tele = load_telemetry(ws, record)
     computed = False
     if tele is None or tele.cost is None:
-        tele = build_telemetry(ws, record, write=False)  # old layout: compute, do not write
+        tele = build_telemetry(ws, record, write=False)  # incomplete telemetry: compute without writing
         computed = True
     cost, settings = tele.cost, tele.settings
     if cost is not None:

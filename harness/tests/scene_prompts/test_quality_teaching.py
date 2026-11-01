@@ -29,7 +29,6 @@ def test_scene_rubric_craft_defects_inform_and_cannot_zero_a_scene() -> None:
     # diorama_look, 2026-10-15); this test keeps the invariant.
     total = sum(d.penalty for d in r.defects)
     assert 1.0 <= total <= 1.10, total
-    assert sum(d.penalty for d in load_rubric("scene_v1").defects) <= 0.62  # the frozen replay rubric
 
 
 def test_no_scene_stage_inlines_cookbook_recipes() -> None:

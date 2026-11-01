@@ -136,21 +136,3 @@ def test_program_lint_workspace(tmp_ws):
     (tmp_ws.src / "helpers.py").write_text("x = 1\n")
     rep = lint_program_ws(tmp_ws)
     assert rep.passed and any(f.data["kind"] == "stray_file" for f in rep.findings)
-
-
-def test_a_pre_d107_runs_seeded_recipes_file_still_composes_and_is_not_a_stray_file(tmp_path):
-    """Runs made before D107 call functions the harness seeded into ``src/recipes.glsl``: the build
-    still composes that file (between the header and common.glsl, with its own line map) so
-    ``resume`` / ``render`` / ``pick`` on such a run builds, and the lint does not call it stray."""
-    from codeverse3d.languages.glsl_shader import LEGACY_RECIPES, GlslShaderRuntime
-    from codeverse3d.workspace import Workspace
-
-    ws = Workspace(tmp_path / "old_run").create()
-    (ws.root / "src/shader.frag").write_text("void mainImage(out vec4 c, in vec2 f) { c = vec4(legacyGlow()); }\n")
-    (ws.root / LEGACY_RECIPES).write_text("float legacyGlow() { return 0.5; }\n")
-    image, buffer_a = GlslShaderRuntime().compose_sources(ws)
-    assert buffer_a is None
-    assert image.source.index("float legacyGlow") < image.source.index("void mainImage")
-    assert LEGACY_RECIPES in {seg.file for seg in image.line_map.segments}
-    assert not [f for f in lint_workspace(ws).findings if (f.data or {}).get("kind") == "stray_file"]
-    assert LEGACY_RECIPES not in compose(SHADER, COMMON).source

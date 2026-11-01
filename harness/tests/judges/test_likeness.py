@@ -14,8 +14,8 @@ def test_likeness_context_attaches_the_photos_and_the_note(judge_input, tmp_path
     draw_chair(ref)
     judge_input.spec = make_spec(track=Track.GRAPHICS, language=Language.GLSL_SHADER,
                                  references=[ReferenceImage(path=str(ref), role="likeness", note="aurora green spiral sea")])
-    model = FakeChatModel([good_reply(load_rubric("shader_v1"), ["A1", "A2"], 0.8)])
-    j = LikenessJudge("fake:fake-1", rubric="shader_v1", chat_model=model, cache_dir=cache_dir)
+    model = FakeChatModel([good_reply(load_rubric("shader_v2"), ["A1", "A2"], 0.8)])
+    j = LikenessJudge("fake:fake-1", rubric="shader_v2", chat_model=model, cache_dir=cache_dir)
     ctx = j.context(judge_input)
     assert ctx.extra_images == [("REAL-WORLD REFERENCE 1/1 — aurora green spiral sea", str(ref))]
     assert ctx.extra_text == LIKENESS_NOTE and "evenly spaced bars" in LIKENESS_NOTE

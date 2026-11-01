@@ -1,3 +1,0 @@
-pubimg|bash -c 'cd /wekafs/ict/hx_624/llm-ft; GPUS=$(scripts/free_gpus.sh 60000) scripts/lf_train.sh configs/lf/sft_9b_lora64_lr1e-4_len8k_pubimg.yaml > logs/train_pubimg.log 2>&1'
-stopdpo_r2_plus|bash scripts/run_stopdpo_r2_plus.sh
-noise_profile|bash scripts/run_noise_profile.sh

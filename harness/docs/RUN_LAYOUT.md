@@ -166,20 +166,14 @@ produces no diff.
 
 ## `record.json`
 
-One additive block, `None` on older records:
+`record.telemetry` stores the settings snapshot and cost summary written at finalization.
+The hand-over is described by `deliverable/manifest.json` and `selection.json`, not by
+`record.json`. Round artifacts live in `artifacts/rNN/`.
 
-* `record.telemetry` — `RunTelemetry(settings, cost)` (a record written before 2026-09-22 also carries
-  `environment` and `files`, which nothing read; they are ignored on load).
-
-The hand-over is described by `deliverable/manifest.json` (`RunDeliverable(round, commit,
-code_source, entry, files[path, role, bytes, sha256], total_bytes, skipped, generated_at)`) and
-`selection.json`, not by the record: since 2026-09-22 the record names no best round and
-carries no `deliverable` block.  A `record.json` written before that still validates — its
-`baseline_score` / `final_score` / `deliverable` keys are ignored, its `best_round` is kept as the legacy
-read-only `RunRecord.best_round` (the round its `artifacts/` holds: `record.deliverable.round_outputs`
-finds that round's GLB / GIF / meshes by it, else by the round its old deliverable packaged), a
-`passed` / `plateau` status reads `stopped`, and a manifest that says `best_round` loads as
-`round`.
+Historical record migration is not supported: retired `passed` / `plateau` / `stopped`
+statuses, `best_round` manifest aliases, pre-step timing fallbacks and canonical-artifact
+ownership inference have been removed. Use the repository revision that wrote an old run
+if you need to read it. Existing local run data is not migrated or deleted.
 
 ## Reading a run
 
@@ -189,7 +183,7 @@ finds that round's GLB / GIF / meshes by it, else by the round its old deliverab
 3dcode status <slug>               # = show --section status: the rounds, run_state, the lock holder, events
 ```
 
-`3dcode show` works on both layouts: when a run has no `telemetry/` yet the cost
+`3dcode show` can inspect a run before finalization: when it has no `telemetry/` yet the cost
 and settings block is computed on the fly (read-only) from the trajectories,
 judge verdicts and events already on disk.  Its STATUS section needs no `record.json`, so it
 also reads a run in flight (the other three sections wait for the record).

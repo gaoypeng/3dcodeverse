@@ -15,7 +15,6 @@ from codeverse3d.judges.rubrics import (
 R = load_rubric("static_object_v1")
 A = load_rubric("articulated_v1")
 S = load_rubric("scene_v2")
-S1 = load_rubric("scene_v1")  # frozen: what a recorded v1 round replays under
 POSE = [RenderView(name="pose_rest", path="p")]
 
 
@@ -73,9 +72,6 @@ E, W = Severity.ERROR, Severity.WARN
      {"camera_in_geometry"}),
     (S, [_gate("scene_frames", E, "the subject is hidden by a wall", target="Establishing", kind="camera_target_blocked")], {}, 0.9,
      set()),
-    # the frozen v1 rubric still replays its recorded rounds the old way
-    (S1, [_gate("scene_placement", E, "Pondside/Lantern is floating 0.30 m above PondWater", target="Pondside/Lantern")],
-     {"defects_present": {}}, 0.6, {"floating_or_sunken_asset", "floating_part"}),
 ])
 def test_gate_caps(rubric, gates, kw, overall, rules):
     res = apply_caps(rubric, 0.9, gates, {}, [], **kw)
@@ -114,8 +110,6 @@ CONTRACT_ERR = GateReport(gate="contract", passed=False, findings=[GateFinding(
     # a contract ERROR about the bbox does not switch off the veto connectivity earned
     (R, "floating_part", [CONTRACT_ERR, _connectivity(True, ("info", "all 4 parts are connected"))], True),
     (R, "interpenetration", [CONTRACT_ERR, _connectivity(True, ("info", "all 4 parts are connected"))], True),
-    (S1, "floating_or_sunken_asset", [GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
-        gate="scene_placement", severity=Severity.INFO, target="scene", message="13 assets checked: 0 floating")])], True),
     # a failed report that names no ERROR finding cannot say what failed: not clean
     (R, "floating_part", [GateReport(gate="connectivity", passed=False, findings=[])], False),
 ])
@@ -196,7 +190,6 @@ def test_graded_acceptance_cap_keeps_the_gradient_but_not_the_pass():
     assert apply_caps(R, 0.99, [], {"M0": True}, ten[:2]).overall == pytest.approx(0.8)
     should = [AcceptanceItem(id="S1", text="y", priority="should")]
     assert apply_caps(R, 0.9, [], {"S1": False}, should).overall == 0.9, "a should item never caps"
-    assert apply_caps(S1, 0.99, [], nine_ok, ten).overall == 0.6, "an ungraded rule (scene_v1, frozen) keeps its flat cap"
     assert apply_caps(S, 0.99, [], nine_ok, ten).overall == pytest.approx(0.96), "scene_v2 grades it like the object rubrics"
     # pass/fail is the owner's policy: the verdict still fails on must_missing
     sample = JudgeOutput(criteria={c.id: CriterionScore(score=0.99, evidence="") for c in R.criteria},

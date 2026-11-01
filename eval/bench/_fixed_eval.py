@@ -40,7 +40,7 @@ RUBRIC = "static_object_v1"
 
 def rubric_for(spec: Spec | Track) -> str:
     """The fixed judge's rubric for a cell (or for a battery's track): the track's ``TRACK_INFO``
-    row — static_object_v1 / articulated_v1 / scene_v1 / shader_v2.
+    row — static_object_v1 / articulated_v1 / scene_v2 / shader_v2.
 
     The one place the compare bench maps a track to a rubric: ``FixedEvaluator`` defaults to
     it, ``judge_for`` picks each cell's judge with it and ``_compare_report`` names it in the

@@ -30,27 +30,24 @@ from .conftest import make_fake_run
 runner = CliRunner()
 
 
-def strip_layout(ws: Workspace) -> Workspace:
-    """Turn a freshly created workspace back into a pre-2026-08-23 run directory: no
-    telemetry/ or deliverable/, no per-round builds — only the canonical one, of the best
-    round its record.json names."""
+def strip_telemetry(ws: Workspace) -> Workspace:
+    """Remove optional packaging/telemetry; keep current per-round evidence."""
     for name, _ in LAYOUT_ALIASES:
         p = ws.root / name
         if p.is_symlink():
             p.unlink()
-    for d in (ws.deliverable, ws.telemetry, *ws.artifacts.glob("r[0-9][0-9]")):
+    for d in (ws.deliverable, ws.telemetry):
         shutil.rmtree(d, ignore_errors=True)
     rec = json.loads(ws.record_path.read_text())
     rec.pop("telemetry", None)
     rec.pop("deliverable", None)
-    rec["best_round"] = max((r for r in rec["rounds"] if r.get("judgment")), key=lambda r: r["judgment"]["overall"])["index"]
     ws.record_path.write_text(json.dumps(rec, indent=2))
     return ws
 
 
-def old_layout_run(tmp_path: Path, slug: str = "wooden_chair_ab12cd34") -> tuple[Workspace, RunRecord]:
+def unpackaged_run(tmp_path: Path, slug: str = "wooden_chair_ab12cd34") -> tuple[Workspace, RunRecord]:
     ws, rec = make_fake_run(tmp_path / "runs", slug)
-    strip_layout(ws)
+    strip_telemetry(ws)
     return ws, load_record(ws)
 
 
@@ -228,8 +225,8 @@ def test_show_on_a_run_without_a_record_is_its_status(tmp_path: Path):
     assert _show("stool", ws.root.parent, "--section", "cost").exit_code == 1
 
 
-def test_show_works_on_an_old_layout_run(tmp_path: Path):
-    ws, _ = old_layout_run(tmp_path)
+def test_show_works_on_an_unpackaged_run(tmp_path: Path):
+    ws, _ = unpackaged_run(tmp_path)
     r = _show(ws.root.name, ws.root.parent)
     assert r.exit_code == 0, r.output
     assert "no deliverable/ yet" in r.output and "computed on the fly" in r.output
@@ -245,7 +242,7 @@ def test_export_and_gallery_on_both_layouts(tmp_path: Path):
     ws_new.write_json(ws_new.record_path, rec_new)
     select.package(ws_new.root, 1)
     ws_old, _ = make_fake_run(runs, "run_old")
-    strip_layout(ws_old)
+    strip_telemetry(ws_old)
 
     rep = export_samples(runs, tmp_path / "ds")
     assert rep.n_exported == 2 and not rep.skipped, rep.skipped
@@ -264,7 +261,7 @@ def test_export_and_gallery_on_both_layouts(tmp_path: Path):
     assert new_item.cost_by_stage and old_item.cost_by_stage == {}
     new_links = {ln.label: ln.rel for ln in new_item.links}
     old_links = {ln.label: ln.rel for ln in old_item.links}
-    assert old_links["glb"] == "artifacts/object.glb"
+    assert old_links["glb"] == "artifacts/r01/object.glb"
     assert new_links["glb"] == "deliverable/object.glb"
 
     # a packaged run copied without its history exports from its deliverable snapshot

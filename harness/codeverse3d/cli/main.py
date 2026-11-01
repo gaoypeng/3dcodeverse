@@ -607,7 +607,7 @@ def _finished_reason(ws, raised: dict) -> str:
         return "" if raised else f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
     if status is RunStatus.MAX_ROUNDS:
         return "" if "max_rounds" in raised else f"{detail}: raise --rounds to continue it"
-    finished = (RunStatus.STOPPED, RunStatus.NO_CHANGE, RunStatus.NO_REFINE_TASKS)
+    finished = (RunStatus.NO_CHANGE, RunStatus.NO_REFINE_TASKS)
     return detail if status in finished else ""
 
 

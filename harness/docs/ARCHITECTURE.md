@@ -452,8 +452,8 @@ image-conditioned specs.
 Rubrics (pass threshold 0.70 unless named): `static_object_v1` (0.72), `articulated_v1`
 (requires pose views: the `missing_pose_sheet` cap), `scene_v2` (D105: placement caps floating 0.60 / sunken 0.65 /
 interpenetration 0.70 / scale 0.75 / free_exempt 0.75 measured by `scene_placement`, frame-gate caps
-dark/blown/flat/content_small, graded must-acceptance; `scene_v1` is kept frozen for replays), `asset_v1`, `reference_v1`, `shader_v2` (graphics, `gl_frames`
-caps; also the `LikenessJudge` default); `shader_v1` stays for calibration replays only.
+dark/blown/flat/content_small, graded must-acceptance), `asset_v1`, `reference_v1`, `shader_v2` (graphics, `gl_frames`
+caps; also the `LikenessJudge` default). Retired `scene_v1` and `shader_v1` are no longer distributed.
 
 **Calibration** (`addons/calibration.py`: re-judges recorded rounds, n samples each) is why the
 default judge is `gemini-3.1-pro-preview` (`Settings.default_judge`) and flash is the cheap

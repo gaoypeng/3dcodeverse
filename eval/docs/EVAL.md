@@ -312,8 +312,8 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   on 2026-09-22), and the 0.072 round-to-round spread in the corpus is generation variance,
   not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
   vs 0.035 between 0.0 and 0.2 on 512 calls) — one more $8 battery.
-* **scene_v2 (2026-10-14): the scene judge gets stricter and detail-aware; scene_v1 is frozen
-  for replays.**  Part of the argon scene-tuning program (D105): the owner asked for stricter
+* **scene_v2 (2026-10-14): the scene judge gets stricter and detail-aware; scene_v1 was frozen
+  for replays at that time and is no longer distributed.**  Part of the argon scene-tuning program (D105): the owner asked for stricter
   connectivity / contact standards, and the scene judge was the lenient half of them — the
   placement gate measured floating / sunken / interpenetration while the rubric had one −0.06
   "floating or sunken" tick, no interpenetration or scale item at all, a floating cap at 0.70

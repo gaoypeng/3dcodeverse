@@ -13,7 +13,7 @@ from codeverse3d.tracks.prompting import reference_note
 def _ctx(track: Track, refs: list[str], *, single_shot: bool = False) -> SimpleNamespace:
     spec = SimpleNamespace(references=[ReferenceImage(path=p, role="likeness", note="x") for p in refs],
                            backends=SimpleNamespace(judge="gemini:pro"))
-    return SimpleNamespace(spec=spec, track=track, single_shot=single_shot, rubric="shader_v1",
+    return SimpleNamespace(spec=spec, track=track, single_shot=single_shot, rubric="shader_v2",
                            policy=SimpleNamespace(judge_samples=2))
 
 
@@ -40,7 +40,7 @@ def test_make_judge_routes_photos_to_the_likeness_judge_and_a_replay_picks_the_s
     assert BaseTrack.make_judge(me, _ctx(Track.SCENE, ["/x.png"])) == "L"
     assert BaseTrack.make_judge(me, _ctx(Track.STATIC_OBJECT, ["/x.png"])) == "R"
     assert BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, [])) == "P"
-    assert calls[0] == ("likeness", "shader_v1")
+    assert calls[0] == ("likeness", "shader_v2")
     # a replay picks the judge the live run did: `3dcode judge` / calibration and the live run share
     # `judge_for` — a graphics or scene run with photos was re-judged by ReferenceJudge (silhouette +
     # diff pass) where the run used likeness
@@ -49,7 +49,6 @@ def test_make_judge_routes_photos_to_the_likeness_judge_and_a_replay_picks_the_s
 
     assert judge_for(Track.GRAPHICS, "shader_v2", references=True) is LikenessJudge
     assert judge_for(Track.SCENE, "scene_v2", references=True) is LikenessJudge
-    assert judge_for(Track.SCENE, "scene_v1", references=True) is LikenessJudge  # a replay of a v1 round
     assert judge_for(Track.STATIC_OBJECT, "reference_v1", references=True) is ReferenceJudge
     assert judge_for(Track.STATIC_OBJECT, "reference_v1", references=False) is ReferenceJudge  # measured criteria
     assert judge_for(Track.GRAPHICS, "shader_v2", references=False) is VlmJudge
