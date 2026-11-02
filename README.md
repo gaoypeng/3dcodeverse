@@ -28,8 +28,7 @@ https://github.com/user-attachments/assets/3b0b5e5f-eed0-4ffd-8ab7-f3c709e15fad
 
 ## Awesome Showcase
 
-Films rebuilt **entirely in code** (no video or image diffusion model). Every case ships its full source and every
-agent log on [Hugging Face](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase).
+Films rebuilt **entirely in code**, with full source and agent logs on [Hugging Face](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase).
 
 | Code | Reference | Result |
 | :-- | :-: | :-: |
