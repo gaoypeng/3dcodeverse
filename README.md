@@ -31,9 +31,9 @@ https://github.com/user-attachments/assets/3b0b5e5f-eed0-4ffd-8ab7-f3c709e15fad
 Films rebuilt **entirely in code** (no video or image diffusion model). Every case ships its full source and every
 agent log on [Hugging Face](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase).
 
-| Showcase | Reference | Result |
+| Code | Reference | Result |
 | :-- | :-: | :-: |
-| [OpenAI Futures](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase/tree/main/openai-futures-30s) | <img src="assets/showcase/openai_futures_reference.gif" width="360"><br>[OpenAI on X](https://x.com/OpenAI/status/2116253388883345623) | <img src="assets/showcase/openai_futures_opus55.gif" width="360"><br>Opus 5.5 by Code |
+| [Link](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase/tree/main/openai-futures-30s) | <img src="assets/showcase/openai_futures_reference.gif" width="360"><br>[OpenAI on X](https://x.com/OpenAI/status/2116253388883345623) | <img src="assets/showcase/openai_futures_opus55.gif" width="360"><br>Opus 5.5 by Code |
 
 ## News
 
