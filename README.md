@@ -32,7 +32,31 @@ Films rebuilt **entirely in code**, with full source and agent logs on [Hugging 
 | :-- | :-: | :-: |
 | [link](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase/tree/main/openai-futures-30s) | <img src="assets/showcase/openai_futures_reference.gif" width="360"><br>[OpenAI on X](https://x.com/OpenAI/status/2116253388883345623) | <img src="assets/showcase/openai_futures_opus55.gif" width="360"><br>Opus 5.5 by Code |
 
+## Overview
+
 https://github.com/user-attachments/assets/3b0b5e5f-eed0-4ffd-8ab7-f3c709e15fad
+
+### 3DCodeVerse Harness
+
+<p align="center"><img src="assets/harness_overview.png" alt="Overview of the 3DCodeVerse Harness" width="95%"></p>
+
+An LLM planner defines the target asset, and a DAG of sub-agents codes and assembles a 3D program.
+Every round, the harness collects three kinds of feedback:
+
+1. **Execution** — build and runtime logs.
+2. **Measurement** — dimensions, contacts, collisions, kinematics and placement, reported per part
+   with numerical correction hints.
+3. **Vision** — a rubric-guided VLM judge on labelled multi-view renders.
+
+The score is computed in code from rubric weights, defect penalties and measured caps, and the
+measurements veto visual claims they rule out. The feedback becomes localized repair tasks for a fix
+agent, and the best-scoring round is the deliverable. Because every round is recorded, including
+successes, failures, repairs and preference pairs, the harness also serves as the corpus's data
+engine.
+
+### 3DCodeVerse-2M Dataset
+
+<p align="center"><img src="assets/dataset_overview.jpg" alt="Curation and composition of 3DCodeVerse-2M" width="95%"></p>
 
 ## News
 
