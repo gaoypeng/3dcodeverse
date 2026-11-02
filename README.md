@@ -90,18 +90,11 @@ on 805 fixed tasks:
 If you find 3DCodeVerse useful, please cite:
 
 ```bibtex
-@misc{gao2026_3dcodeverse,
-  title  = {{3DCodeVerse}: Exploring {3D} Worlds as Code},
-  author = {Gao, Yipeng and Zeng, Ziyao and Huang, Jinfa and Li, Yijiang and Xiong, Haolin and
-            Qin, Wang and Yu, Xinlei and Yao, Youheng and Zhang, Jie and Lin, Kun-Yu and
-            Liu, Rong and Zhao, Yinyuan and Zhao, Yajie and Guo, Meiqi and Luo, Jiebo and
-            Shu, Lei and Ge, Yunhao and Hu, Xinyu and Itti, Laurent},
-  year   = {2026},
-  eprint = {2610.22341},
-  archivePrefix = {arXiv},
-  primaryClass = {cs.CV},
-  doi    = {10.48550/arXiv.2610.22341},
-  url    = {https://arxiv.org/abs/2610.22341}
+@article{gao20263dcodeverse,
+  title={3DCodeVerse: Exploring 3D Worlds as Code},
+  author={Gao, Yipeng and Zeng, Ziyao and Huang, Jinfa and Li, Yijiang and Xiong, Haolin and Qin, Wang and Yu, Xinlei and Yao, Youheng and Zhang, Jie and Lin, Kun-Yu and others},
+  journal={arXiv preprint arXiv:2610.22341},
+  year={2026}
 }
 ```
 
