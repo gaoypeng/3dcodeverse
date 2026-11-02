@@ -33,9 +33,7 @@ agent log on [Hugging Face](https://huggingface.co/datasets/3dcodeverse/3dcodeve
 
 | Showcase | Reference | Result |
 | :-- | :-: | :-: |
-| **OpenAI "Futures" film, first 30 s**<br>Model: Claude Opus 5.5<br>Code: three.js + GLSL, SDF heroine<br>[▶ 1080p60 comparison](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase/blob/main/openai-futures-30s/videos/compare_top_opus55_bottom_openai_1080p60.mp4)<br>[Code &amp; logs](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase/tree/main/openai-futures-30s) | <img src="assets/showcase/openai_futures_reference.gif" width="360"><br>[OpenAI on X](https://x.com/OpenAI/status/2116253388883345623) | <img src="assets/showcase/openai_futures_opus55.gif" width="360"><br>Opus 5.5 by Code |
-
-<sub>GIFs play at 2x speed.</sub>
+| [OpenAI Futures](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-awesome-showcase/tree/main/openai-futures-30s) | <img src="assets/showcase/openai_futures_reference.gif" width="360"><br>[OpenAI on X](https://x.com/OpenAI/status/2116253388883345623) | <img src="assets/showcase/openai_futures_opus55.gif" width="360"><br>Opus 5.5 by Code |
 
 ## News
 
