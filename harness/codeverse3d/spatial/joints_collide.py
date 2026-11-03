@@ -6,6 +6,7 @@ import fcl as _fcl
 import numpy as np
 import trimesh
 from trimesh.ray import ray_util
+from trimesh.ray.ray_triangle import RayMeshIntersector
 
 _MAX_SAMPLE_POINTS = 1500
 _RAY_DIR = np.array([0.4395064455, 0.617598629942, 0.652231566745])
@@ -71,7 +72,18 @@ def inside_island(island: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
     """Deterministic parity containment (fixed ray direction, both directions must agree)."""
     if len(points) == 0:
         return np.zeros(0, dtype=bool)
-    return np.asarray(ray_util.contains_points(island.ray, points, check_direction=_RAY_DIR), dtype=bool)
+    return np.asarray(ray_util.contains_points(_intersector(island), points, check_direction=_RAY_DIR), dtype=bool)
+
+
+def _intersector(mesh: trimesh.Trimesh) -> object:
+    """The ray engine of the parity test: trimesh's own ray-triangle intersector, or Embree (``mesh.ray`` when
+    embreex is installed) only if ``Settings.ray_engine`` asks for it — embreex 4 segfaults on some large
+    multi-part GLBs, and a segfault cannot be caught: it takes the whole process and every parallel run down."""
+    from codeverse3d.config import get_settings
+
+    if get_settings().ray_engine == "embree":
+        return mesh.ray
+    return RayMeshIntersector(mesh)
 
 
 class LinkBody:
