@@ -176,6 +176,13 @@ caps:
     severity: error
     cap: 0.75
     note: measured bbox/part contract broken beyond tolerance
+  # a deterministic check the project registered (Spec.checks, tracks/project_checks.py) measured an error
+  - id: project_check
+    when: gate
+    gate: "project:*"
+    severity: error
+    cap: 0.6
+    note: the project's own measurement of the object failed
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
