@@ -5,7 +5,10 @@
 #
 # Does, in order: version checks (python 3.13, node >= 20.6) -> `pip install -e
 # harness[<extras>]` -> `npm ci` in runtime_js *only when the lockfile moved* ->
-# puppeteer chrome download (no-op when cached) -> `3dcodeverse doctor`.
+# puppeteer chrome download (no-op when cached) -> the coding-agent CLIs at their
+# latest release (`agy update`, or the installer when there is no agy; claude + codex via
+# `npm i -g` whenever the installed npm version differs from the registry's `latest`) ->
+# `3dcodeverse doctor`.
 # Re-running is safe: every step is a no-op when it is already satisfied.
 # Full guide: docs/INSTALL.md
 set -euo pipefail
@@ -25,6 +28,7 @@ EXTRAS="all,dev"
 DO_PYTHON=1
 DO_NODE=1
 DO_CHROME=1
+DO_CLIS=1
 DO_DOCTOR=1
 FORCE_NPM=0
 DOCTOR_ARGS=()
@@ -38,6 +42,8 @@ usage: setup.sh [options]
   --no-python       skip the pip install step
   --no-node         skip `npm ci` in runtime_js
   --no-chrome       skip the puppeteer chrome download
+  --no-clis         skip the coding-agent CLIs: agy update (or Google's installer: ~/.local/bin/agy
+                    + a PATH line in your shell profile), claude + codex via `npm i -g`
   --no-doctor       skip the final `3dcodeverse doctor`
   --force-npm       run `npm ci` even when node_modules looks up to date
                     (WARNING: npm ci deletes node_modules first — do not use
@@ -56,6 +62,7 @@ while [ $# -gt 0 ]; do
     --no-python) DO_PYTHON=0; shift ;;
     --no-node) DO_NODE=0; shift ;;
     --no-chrome) DO_CHROME=0; shift ;;
+    --no-clis) DO_CLIS=0; shift ;;
     --no-doctor) DO_DOCTOR=0; shift ;;
     --force-npm) FORCE_NPM=1; shift ;;
     --no-gpu) DOCTOR_ARGS+=(--no-gpu); shift ;;
@@ -160,6 +167,61 @@ if [ "$DO_NODE" -eq 1 ] && [ "$NODE_OK" -eq 1 ]; then
   fi
 else
   step "runtime_js (skipped: no usable node, or --no-node)"
+fi
+
+# ------------------------------------------------------------- coding-agent CLIs
+# The generators are vendor CLIs (docs/INSTALL.md §8.2): agy is the default generator's
+# (D103), claude and codex are optional.  Each is brought to its vendor's latest release on
+# every run — agy by its own updater (its installer when there is no binary at all), the two
+# npm globals whenever the installed version differs from the registry's `latest`.  A claude
+# or codex that is on PATH but not an npm global (a native installer, Homebrew) is left to
+# its own updater.  Nothing pins a version; the closing doctor prints the three it found.
+AGY_INSTALLER="https://antigravity.google/cli/install.sh"
+if [ "$DO_CLIS" -eq 1 ]; then
+  step "coding-agent CLIs at their latest (agy, claude, codex)"
+  AGY="$(command -v agy 2>/dev/null || true)"
+  if [ -z "$AGY" ] && [ -x "${HOME:-}/.local/bin/agy" ]; then   # installed; this shell has not re-read its profile
+    AGY="${HOME:-}/.local/bin/agy"
+    export PATH="${HOME:-}/.local/bin:$PATH"
+    info "agy is at $AGY but not on this shell's PATH — open a new shell after this"
+  fi
+  if [ -n "$AGY" ]; then
+    "$AGY" update || info "agy update failed (offline?) — keeping $("$AGY" --version 2>/dev/null || echo '?')"
+  elif command -v curl >/dev/null 2>&1; then
+    info "agy not found — running the Antigravity installer ($AGY_INSTALLER -> ~/.local/bin/agy + a PATH line in your shell profile)"
+    if curl -fsSL "$AGY_INSTALLER" | bash; then
+      export PATH="${HOME:-}/.local/bin:$PATH"   # for the closing doctor
+    else
+      info "agy install failed — install it by hand (docs/INSTALL.md §8.2)"
+    fi
+  else
+    info "agy not found and no curl — install it by hand (docs/INSTALL.md §8.2)"
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    for pkg in @anthropic-ai/claude-code @openai/codex; do
+      bin="${pkg##*/}"; bin="${bin%-code}"                    # the binaries: claude, codex
+      # `npm ls` prints `<path>:<name>@<version>[:<realpath>]`; keep the version field only
+      # (`--no-json`: a `json=true` in the user's npm config would turn both listings into JSON)
+      have="$(npm ls -g --depth=0 --long --parseable --no-json 2>/dev/null | sed -n "s|^[^:]*:$pkg@\([^:]*\).*$|\1|p" | head -n1 || true)"
+      if [ -z "$have" ] && command -v "$bin" >/dev/null 2>&1; then
+        info "$pkg  $(command -v "$bin") is not an npm install — left to its own updater"
+        continue
+      fi
+      latest="$(npm view "$pkg" version --no-json --fetch-retries=0 2>/dev/null || true)"
+      if [ -z "$latest" ]; then
+        info "$pkg  ${have:-not installed}  (npm registry unreachable — left as is)"
+      elif [ "$have" = "$latest" ]; then
+        info "$pkg  $have  (latest)"
+      else
+        info "$pkg  ${have:-not installed} -> $latest"
+        npm install -g "$pkg@$latest" || info "$pkg install failed — install it by hand (docs/INSTALL.md §8.2)"
+      fi
+    done
+  else
+    info "npm not found — claude and codex not installed (optional generators)"
+  fi
+else
+  step "coding-agent CLIs (skipped: --no-clis)"
 fi
 
 # ----------------------------------------------------------------------- doctor

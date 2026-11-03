@@ -335,7 +335,7 @@ def test_setup_verifies_the_interpreter_it_installed_into(tmp_path) -> None:
 
     env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}")
     proc = subprocess.run(
-        ["bash", str(SETUP), "--python", str(py), "--no-node", "--no-chrome", "--no-gpu", "--no-python"],
+        ["bash", str(SETUP), "--python", str(py), "--no-node", "--no-chrome", "--no-gpu", "--no-python", "--no-clis"],
         capture_output=True, text=True, timeout=300, env=env)
     assert "WRONG_INSTALL_ON_PATH" not in proc.stdout + proc.stderr, (
         "setup.sh verified the 3dcodeverse first on PATH instead of the --python interpreter")
@@ -354,7 +354,7 @@ def test_setup_names_the_remedy_when_the_interpreter_has_no_pip(tmp_path) -> Non
         f'exec {sys.executable} "$@"\n')
     nopip.chmod(0o755)
 
-    proc = subprocess.run(["bash", str(SETUP), "--python", str(nopip), "--no-node", "--no-chrome", "--no-doctor"],
+    proc = subprocess.run(["bash", str(SETUP), "--python", str(nopip), "--no-node", "--no-chrome", "--no-clis", "--no-doctor"],
                           capture_output=True, text=True, timeout=300)
     out = proc.stdout + proc.stderr
     assert proc.returncode != 0, "a python that cannot pip must not look like a successful install"

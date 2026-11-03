@@ -26,28 +26,33 @@ Once installed, read `docs/RUNBOOK.md` (how to run), `docs/ARCHITECTURE.md`
 git clone <repo> 3dcodeverse && cd 3dcodeverse
 python3 -m venv .venv && source .venv/bin/activate    # see §3 — a distro python3 is
                                                       # PEP 668 and pip will refuse it
-bash harness/setup.sh            # python + node deps + chrome + doctor
+bash harness/setup.sh            # python + node deps + chrome + the agy / claude / codex CLIs + doctor
 ```
 
 `setup.sh` is idempotent — it checks the interpreter versions, runs
 `pip install -e 'harness[all,dev]'`, runs `npm ci` in `runtime_js/` **only when the
-lockfile actually moved**, makes sure puppeteer's Chrome is downloaded, and
-finishes by printing `3dcodeverse doctor`.  Useful flags:
-`--extras cad,urdf`, `--python /path/to/python`, `--no-node`, `--no-chrome`,
-`--no-doctor`, `--no-gpu`, `--force-npm`, `--help`.
+lockfile actually moved**, makes sure puppeteer's Chrome is downloaded, brings the three
+coding-agent CLIs to their latest release (§8.2: `agy update`, or Google's installer when there
+is no agy; `npm i -g` for claude and codex whenever the installed npm version differs from the
+registry's `latest`), and finishes by printing `3dcodeverse doctor`.  Useful flags:
+`--extras cad,urdf`, `--python /path/to/python`, `--no-python`, `--no-node`, `--no-chrome`,
+`--no-clis`, `--no-doctor`, `--no-gpu`, `--force-npm`, `--help`.
 
 The manual equivalent:
 
 ```bash
 pip install -e 'harness[all,dev]'
 cd harness/runtime_js && npm ci && npx puppeteer browsers install chrome && cd ..
+curl -fsSL https://antigravity.google/cli/install.sh | bash       # agy (later: `agy update`)
+npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest    # the optional generators
 3dcodeverse doctor
 ```
 
 > **Running installs on a busy box.**  `npm ci` deletes `node_modules/` before
 > re-creating it, and `pip install -e` rewrites the entry points.  If benches or
-> renders are running against this checkout, use `setup.sh` (which skips `npm ci`
-> when the lockfile is unchanged) or wait for them to finish.
+> renders are running against this checkout, use `setup.sh --no-clis` (it skips `npm ci`
+> when the lockfile is unchanged, and `--no-clis` leaves the generators' CLIs alone) or
+> wait for them to finish.
 
 ---
 
@@ -383,22 +388,23 @@ Gemini keys (§8.1): one key from the harness's own pool per session, the 3dcode
 Gemini list price — no sign-in, no non-Gemini model.  Without keys an agy session fails at once
 (doctor row `agy gemini keys`).  The other two are needed only when you name them.
 
+`setup.sh` brings all three to their latest release on every run (`--no-clis` skips it): agy
+through its own `agy update` — or, when there is no agy at all, Google's checksum-verified
+installer into `~/.local/bin`, which also adds that directory to your shell profile — and the
+two npm globals whenever the installed version differs from the registry's `latest`.  A claude
+or codex installed another way (a native installer, Homebrew) is left to its own updater.
+Nothing pins a version; the closing `doctor` prints the three it found.  By hand:
+
 ```bash
-# agy — the Antigravity CLI (1.4.12 here): Google's installer, checksum-verified, into ~/.local/bin
-curl -fsSL https://antigravity.google/cli/install.sh | bash   # later upgrades: `agy update`
-# the other two are npm globals (re-run the same line to upgrade)
-npm i -g @anthropic-ai/claude-code   # claude   (2.1.317 here)
-npm i -g @openai/codex               # codex    (0.166.0 here)
-agy --version && claude --version && codex --version
+curl -fsSL https://antigravity.google/cli/install.sh | bash      # agy; later: `agy update`
+npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest   # claude, codex
+agy --version && claude --version && codex --version             # 1.4.12 / 2.1.317 / 0.166.0 here (2026-11-03)
 ```
 
 `claude` and `codex` authenticate against your local subscription
 (their own `login` flows) — test lightly.  The harness handles the per-CLI quirks for you
 (agy's per-session API-mode HOME, codex's MCP approval mode); what each one is and why it must
-not be undone: `docs/RUNBOOK.md` §3.  No version is pinned: the harness drives each CLI through
-its print / JSON interface, and the check after an upgrade is one small real session per CLI plus
-the skill-discovery probe — `pytest -m live tests/agents tests/skills/test_live_discovery.py`
-(last run 2026-11-03 on the versions above, D115).
+not be undone: `docs/RUNBOOK.md` §3.
 
 The spatial MCP server itself is the `mcp` extra (§4); check it with
 `python -m codeverse3d.spatial.mcp_server --workspace <ws> --list`.
@@ -615,7 +621,8 @@ cleanup.  On this machine `eval/bench/out/` is read-only reference material
 
 Uninstalling does not touch `~/.config/3dcodeverse/config.yaml`,
 `~/.config/astra3d/gemini_keys.env` or the globally installed CLIs — remove
-those by hand (`npm rm -g @anthropic-ai/claude-code @openai/codex`; agy: `rm ~/.local/bin/agy`).
+those by hand (`npm rm -g @anthropic-ai/claude-code @openai/codex`; agy: `rm ~/.local/bin/agy`
+and the `# Added by Antigravity CLI installer` PATH lines in `~/.bashrc` / `~/.profile`).
 
 ---
 
@@ -630,5 +637,5 @@ those by hand (`npm rm -g @anthropic-ai/claude-code @openai/codex`; agy: `rm ~/.
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
 | Blender | 5.2.2 LTS (build 2026-09-15; installed 2026-10-14, sha256-verified) | `~/.local/bin/blender-5.2` → `~/tools/blender-5.2.2-linux-x64` (any directory: the wrapper's `BLENDER_HOME`) |
 | git | 2.53.0 | `/usr/bin/git` |
-| agy / claude / codex | 1.4.12 / 2.1.317 / 0.166.0 (the latest releases on 2026-11-03; re-verified live, D115) | `~/.local/bin/agy` · npm global (`~/miniconda3/bin`) |
+| agy / claude / codex | 1.4.12 / 2.1.317 / 0.166.0 (the latest releases on 2026-11-03, D115; `setup.sh` keeps them there) | `~/.local/bin/agy` · npm global (`~/miniconda3/bin`) |
 | GPU (Chrome WebGL) | ANGLE · D3D12 · NVIDIA GeForce RTX 5090 Laptop GPU · OpenGL ES 3.1 | via `--use-angle=gl-egl` + Mesa d3d12 |

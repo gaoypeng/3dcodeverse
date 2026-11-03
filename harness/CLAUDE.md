@@ -67,13 +67,12 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   (`spatial.node.run_node(three_hook=True)`) — `NODE_PATH` alone does not work;
   that hook is `module.registerHooks` on node ≥ 22.15, `module.register` below.
   The `graphics` track renders with moderngl (d3d12 GPU context, llvmpipe fallback).
-- CLIs: `agy` 1.4.12 (Antigravity; gemini-cli was deleted in D103, 2026-10-13) — runs ONLY in
+- CLIs: `agy` (Antigravity; gemini-cli was deleted in D103, 2026-10-13) — runs ONLY in
   Gemini-API mode (Gemini models only, keys required; no subscription sign-in): one key from the
-  shared pool, a per-session HOME carrying `modelProvider: gemini` + the 3dcode MCP server, priced.  `codex` 0.166 (MCP needs
-  `default_tools_approval_mode="approve"`) and `claude` 2.1.317 run on local subscriptions: test
-  lightly.  No Anthropic/OpenAI API keys here.  All three re-verified live 2026-11-03 (D115) — after an
-  upgrade (`agy update`; `npm i -g @anthropic-ai/claude-code @openai/codex`) run
-  `pytest -m live tests/agents tests/skills/test_live_discovery.py`.
+  shared pool, a per-session HOME carrying `modelProvider: gemini` + the 3dcode MCP server, priced.  `codex` (MCP needs
+  `default_tools_approval_mode="approve"`) and `claude` run on local subscriptions: test
+  lightly.  No Anthropic/OpenAI API keys here.  `setup.sh` keeps all three at their latest release
+  (`--no-clis` skips); no version is pinned or required — `doctor` prints what it found (owner, 2026-11-03; D115).
 - DEFAULT generator: `agy:gemini-4-argon` (D103, 2026-10-13; `gemini-cli:gemini-3.7-flash` before); planner and
   captioner default to `gemini:gemini-4-argon` too.
   `gemini-3.7-flash` stays the cheap API model (single-shot / economy, flash judge — lenient; needs

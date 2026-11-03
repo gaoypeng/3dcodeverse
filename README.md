@@ -84,15 +84,14 @@ languages). Full guide: [harness/docs/INSTALL.md](harness/docs/INSTALL.md).
 
 ```bash
 cd harness
-bash setup.sh                                                # pip install -e . + runtime_js + headless Chrome, then `3dcode doctor`
-curl -fsSL https://antigravity.google/cli/install.sh | bash  # agy → ~/.local/bin (`agy update` to upgrade)
-export GEMINI_API_KEYS="key1,key2"                           # agy runs in Gemini-API mode on this key pool
-3dcode doctor                                                # every row OK or WARN; a FAIL row says what to fix
+bash setup.sh                       # pip install -e . + runtime_js + headless Chrome + the agy / claude-code / codex CLIs at their latest, then `3dcode doctor`
+export GEMINI_API_KEYS="key1,key2"  # agy runs in Gemini-API mode on this key pool
+3dcode doctor                       # every row OK or WARN; a FAIL row says what to fix
 3dcode make "a classic park bench" --track static_object --language threejs
-3dcode gallery serve                                         # browse every run at http://127.0.0.1:8765/
+3dcode gallery serve                # browse every run at http://127.0.0.1:8765/
 ```
 
-Optional generators: `npm i -g @anthropic-ai/claude-code @openai/codex`, then `--generator claude-code:<model>`
+The optional generators claude-code and codex use your local subscriptions: `--generator claude-code:<model>`
 or `--generator codex:<model>`. Tracks, languages and costs per track: [harness/README.md](harness/README.md) and
 [harness/docs/RUNBOOK.md](harness/docs/RUNBOOK.md); evaluation: [eval/README.md](eval/README.md).
 
