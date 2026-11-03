@@ -74,10 +74,13 @@ Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.m
 `ruff` run locally before every push.  See `docs/INSTALL.md` §2.1.
 
 ```bash
-bash setup.sh     # install everything + run doctor (idempotent; see docs/INSTALL.md)
+bash setup.sh     # python package + runtime_js + headless Chrome + doctor (idempotent; see docs/INSTALL.md)
 # ...or by hand:
 pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcode
 (cd runtime_js && npm ci)      # three@0.182 + puppeteer 24 (chrome → ~/.cache/puppeteer)
+curl -fsSL https://antigravity.google/cli/install.sh | bash   # agy 1.4.12, the default generator's CLI (`agy update` later)
+export GEMINI_API_KEYS="key1,key2"                             # agy runs in Gemini-API mode on this key pool (docs/INSTALL.md §8)
+npm i -g @anthropic-ai/claude-code @openai/codex               # optional generators claude-code / codex (local subscriptions)
 3dcode doctor
 3dcode make "a mid-century wooden dining chair" --track static_object --language blender
 3dcode make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender

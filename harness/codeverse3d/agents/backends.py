@@ -555,10 +555,16 @@ def parse_agy_json(stdout: str) -> dict[str, Any] | None:
     return find_json_object(stdout, lambda d: "response" in d or "status" in d)
 
 
-#: what agy prints on stderr when its own ``--print-timeout`` stops a turn in progress (1.3.4:
-#: ``[agy] print timeout after 8m0s with turn in progress; returning partial output``) — the
-#: envelope still says ``SUCCESS``, with whatever response there was (usually none)
+#: what agy prints on stderr when its own ``--print-timeout`` stops a turn in progress
+#: (``[agy] print timeout after 8m0s with turn in progress; returning partial output``; 1.3.4,
+#: still 1.4.12) — the envelope says ``SUCCESS`` with whatever response there was (usually none)
 AGY_PRINT_TIMEOUT = "print timeout after"
+#: since 1.4.11 the envelope also says WHY a turn ended early: ``print_timeout`` | ``interrupted``
+#: | ``error``, the field absent on a normal finish.  The typed verdict, read first; the stderr
+#: line is the fallback for an envelope without the field.  Live 1.4.12 (2026-11-03): the clock
+#: firing while agy retried a 503 gave ``status: ERROR, finished_reason: error`` AND the stderr
+#: line — an error, not a timeout.
+AGY_FINISHED_REASON = "finished_reason"
 #: the per-session CLI log agy writes into the trajectory dir (``--log-file``)
 AGY_LOG = "agy.log"
 #: where agy keeps each conversation under its HOME: one SQLite file named by the envelope's
@@ -571,7 +577,7 @@ AGY_CONVERSATIONS = Path(".gemini") / "antigravity-cli" / "conversations"
 #: Passed by name: the watchdog's walk skips ``.gemini``, and the rest of the dir (presence lock,
 #: updater, caches) is touched at start-up, not per step.
 AGY_STEP_DIRS = (Path(".gemini") / "antigravity-cli" / "brain", AGY_CONVERSATIONS)
-#: agy's Gemini-API mode (1.2+, checked live on 1.3.4, 2026-10-13): ``modelProvider: "gemini"``
+#: agy's Gemini-API mode (1.2+, checked live on 1.3.4, 2026-10-13, and 1.4.12, 2026-11-03): ``modelProvider: "gemini"``
 #: in its settings plus ``GEMINI_API_KEY`` in the env — no sign-in, billed to the key, and the
 #: catalogue is the API's.  Without the setting the key alone is ignored and the CLI asks for a
 #: login.  It is the ONLY way the harness runs agy (owner, 2026-10-13): no subscription sign-in,
@@ -589,7 +595,9 @@ AGY_API_EFFORT = "high"
 #: the model an ``agy`` generator with no model runs (owner, 2026-10-13)
 DEFAULT_AGY_MODEL = "gemini-4-argon"
 #: agy's ONLY MCP config is per user (``~/.gemini/config/mcp_config.json``, the shape
-#: ``agy mcp add`` writes) — so an API-key session gets a HOME of its own, and this file in it
+#: ``agy mcp add`` writes; still so on 1.4.12 — no scope flag, and its session-only
+#: ``--settings <json>`` covers settings, not MCP) — so an API-key session gets a HOME of its
+#: own, and this file in it
 AGY_MCP_CONFIG = Path(".gemini") / "config" / "mcp_config.json"
 #: a tool call inside a step payload is three consecutive strings — its id, the tool name,
 #: the JSON arguments (``call_4419682`` · ``view_file`` · ``{"AbsolutePath": ...}``), read out
@@ -648,8 +656,9 @@ def _pb_strings(buf: bytes, depth: int = 0) -> list[str]:
 def agy_tool_calls(db: Path) -> list[ToolCall]:
     """Every tool call recorded in one agy conversation database, once per call id.
 
-    agy 1.2.2 has no skill tool: its prompt lists the skills and the model opens
-    ``SKILL.md`` with ``view_file``, so the file path IS the activation record."""
+    agy has no skill tool (1.2.2, still 1.4.12): its prompt lists the skills and the model opens
+    ``SKILL.md`` with its file tool (``read_file{Path}`` on 1.4.x, ``view_file{AbsolutePath}``
+    before), so the file path IS the activation record — the walk below is name-agnostic."""
     calls: dict[str, ToolCall] = {}
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
@@ -701,7 +710,7 @@ def agy_retries(log_path: Path) -> list[tuple[float, float, str]]:
 
 
 def agy_error(stderr: str) -> dict[str, Any]:
-    """agy's own verdict on a turn that died (1.2.x, exit code 3): the ``AGY_ERROR: {...}`` line —
+    """agy's own verdict on a turn that died (1.2.x through 1.4.12, exit code 3): the ``AGY_ERROR: {...}`` line —
     ``status``, ``error_code``, ``retryable`` — typed, where the envelope has only prose."""
     for line in reversed(stderr.splitlines()):
         if line.startswith("AGY_ERROR:"):
@@ -712,11 +721,12 @@ def agy_error(stderr: str) -> dict[str, Any]:
 
 
 def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
-    """The envelope's tokens, priced at the Gemini list rate.  agy 1.3.4 splits
-    neither way the pricing convention does: ``input_tokens`` EXCLUDES ``cache_read_tokens`` (a
-    live 18-minute session, 2026-10-13: 582 179 input against 10 980 664 cache reads), so the total
-    prompt is their sum; and ``output_tokens`` CONTAINS ``thinking_tokens`` (``total == input +
-    output`` on every envelope), so the thinking share moves to ``thoughts_tokens``, billed once."""
+    """The envelope's tokens, priced at the Gemini list rate.  agy (1.3.4; the same on 1.4.12,
+    2026-11-03) splits neither way the pricing convention does: ``input_tokens`` EXCLUDES
+    ``cache_read_tokens`` (a live 18-minute session, 2026-10-13: 582 179 input against 10 980 664
+    cache reads), so the total prompt is their sum; and ``output_tokens`` CONTAINS
+    ``thinking_tokens`` (``total == input + output`` on every envelope), so the thinking share
+    moves to ``thoughts_tokens``, billed once."""
     u = env.get("usage") or {}
     thinking = int(u.get("thinking_tokens") or 0)
     cached = int(u.get("cache_read_tokens") or 0)
@@ -864,7 +874,8 @@ class AntigravityAgent(_CliAgent):
             died = agy_error(proc.stderr)
             said = (json.dumps(died), str((env or {}).get("error") or ""), proc.stderr)
             ok = False
-            if AGY_PRINT_TIMEOUT in proc.stderr:   # agy's own clock stopped a turn in progress
+            reason = str((env or {}).get(AGY_FINISHED_REASON) or "")   # 1.4.11+: why the turn ended early, "" = normally
+            if reason == "print_timeout" or (not reason and AGY_PRINT_TIMEOUT in proc.stderr):   # agy's own clock stopped a turn in progress
                 proc = dataclasses.replace(proc, timed_out=True, killed_reason="agy_print_timeout")
                 errors.append(f"agy's own --print-timeout stopped the turn after {proc.duration_s:.0f}s")
             elif proc.timed_out:
@@ -883,7 +894,7 @@ class AntigravityAgent(_CliAgent):
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=n_calls,
                 turns=int((env or {}).get("num_turns") or 0), errors=errors, transient=end.transient, quota=end.quota, stalled=end.stalled,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in retries], ended),
-                rc=proc.rc, killed_reason=proc.killed_reason, agy_error=died, effort=effort,
+                rc=proc.rc, killed_reason=proc.killed_reason, agy_error=died, effort=effort, finished_reason=reason,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
             )
         finally:

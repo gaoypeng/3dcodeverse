@@ -8,10 +8,14 @@ nicer file format without measuring reads would repeat that at a new price.
 **Ground truth first (2026-09-22).**  Every CLI backend now folds its session's tool
 calls into ``trajectories/<label>/transcript.jsonl`` (``agents/cli_common.record_tool_calls``:
 claude-code's ``Skill``/``Read`` from stream-json, codex's shell commands from
-``exec --json``, agy's ``view_file`` from its conversation database).  A
+``exec --json``, agy's ``read_file`` — ``view_file`` before 1.4 — from its conversation database).  A
 bundle is *surfaced* when a call activated it or named its ``SKILL.md``, *deep* when a
 call named a file under its ``references/``, and the control is read when a call touched
-it — ``SkillsUsage.evidence == "transcript"``.  Only when a session after the attach left
+it — ``SkillsUsage.evidence == "transcript"``.  A bundle the trace calls surfaced but not
+deep is still deep when a file under its ``references/`` was opened and the control's
+``references/`` were not (signal 3: nothing scanned references/ wholesale) — claude-code
+2.1.317 read them with ``cd …/<name> && … cat "$f"`` (live, 2026-11-03), a call that names
+no path to match.  Only when a session after the attach left
 no trace does the probe fall back to the atime signals below, which the control proved
 blind in 27 of 33 sessions (docs/SKILLS.md §9):
 
@@ -75,7 +79,7 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
     from codeverse3d.skills.materialize import CONTROL_NAME
 
     root = Path(ws_root)
-    control_present, control_read = _control_state(root)
+    control_present, control_read, control_refs_read = _control_state(root)
     trace = trace_reads(root, [*materialized.listed, CONTROL_NAME], since=materialized.attached_at)
     if trace is not None:
         control_read = control_present and any(trace[CONTROL_NAME])
@@ -86,6 +90,12 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
         refs = [f for b in bundles for f in sorted((b / "references").glob("*.md"))]
         if trace is not None:
             surfaced, deep = trace[name]
+            # a shell read names no path the trace can match (claude-code 2.1.317, live
+            # 2026-11-03: `cd …/<name> && for f in $(find references -type f); do cat "$f"; done`)
+            # but bumps the reference's atime — proof exactly while the control's references
+            # stay untouched, i.e. nothing scanned references/ wholesale (module doc, signal 3)
+            if not deep and not control_refs_read:
+                deep = any(_opened(f) for f in refs)
         else:
             surfaced = any(_opened(b / "SKILL.md") for b in bundles)
             deep = any(_opened(f) for f in refs)
@@ -161,20 +171,23 @@ def _called(name: str, calls: Sequence[dict[str, Any]]) -> tuple[bool, bool]:
     return surfaced or deep, deep
 
 
-def _control_state(root: Path) -> tuple[bool, bool]:
-    """(a control was materialised, something opened it) — the probe's own falsification."""
+def _control_state(root: Path) -> tuple[bool, bool, bool]:
+    """(a control was materialised, something opened it, something opened its ``references/``)
+    — the probe's own falsification.  The third is the stricter signal: a CLI's discovery scan
+    opens every ``SKILL.md`` (claude-code does, 2.1.317), nothing legitimate opens an unrouted
+    bundle's references."""
     from codeverse3d.skills.materialize import CONTROL_NAME
 
-    present = False
-    opened = False
+    present = opened = refs_opened = False
     for rel in (AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT):
         d = root / rel / CONTROL_NAME
         if not d.is_dir():
             continue
         present = True
-        for f in [d / "SKILL.md", *sorted((d / "references").glob("*.md"))]:
-            opened = opened or _opened(f)
-    return present, opened
+        opened = opened or _opened(d / "SKILL.md")
+        for f in sorted((d / "references").glob("*.md")):
+            refs_opened = refs_opened or _opened(f)
+    return present, opened or refs_opened, refs_opened
 
 
 def append_usage(ws_root: Path, usage: SkillsUsage, **context: Any) -> Path | None:

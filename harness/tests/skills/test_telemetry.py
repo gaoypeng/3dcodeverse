@@ -143,6 +143,31 @@ def test_the_cli_transcript_is_the_evidence_when_every_session_left_one(ws, libr
     assert usage.deep_read_rate == 1 / len(got.listed)
 
 
+def test_a_shell_read_the_trace_cannot_parse_counts_while_the_control_is_untouched(ws, library):
+    """claude-code 2.1.317 (live, 2026-11-03) read the references with `cd <bundle> && for f in
+    $(find references -type f); do cat "$f"; done`: no path to match, but the file's atime moved."""
+    import time
+
+    from codeverse3d.skills.materialize import CONTROL_NAME
+
+    got = _attach(ws, library)
+    a = got.listed[0]
+    cd_cat = f'cd {ws}/.claude/skills/{a} && for f in $(find references -type f); do cat "$f"; done'
+    _session(ws, "baseline", [{"tool": "Skill", "args": {"skill": a}, "skill": a},
+                              {"tool": "Bash", "args": {"command": cd_cat}}], t=time.time() + 1)
+    usage = probe_reads(ws, got)
+    assert usage.evidence == "transcript" and usage.surfaced == [a] and usage.deep == []   # the trace alone
+    _touch_read(ws / ".claude" / "skills" / a / "references" / "worked_example.md")
+    usage = probe_reads(ws, got)
+    assert usage.deep == [a] and usage.control_present and not usage.control_read
+    # once something opens the control's references too, the atime proves nothing again —
+    # and control_read stays the trace's verdict: the agent itself never named the control
+    for f in (ws / ".claude" / "skills" / CONTROL_NAME / "references").glob("*.md"):
+        _touch_read(f)
+    usage = probe_reads(ws, got)
+    assert usage.deep == [] and usage.surfaced == [a] and not usage.control_read
+
+
 def test_only_traced_sessions_after_the_attach_are_credited(ws, library):
     import time
 

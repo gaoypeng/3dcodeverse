@@ -585,6 +585,12 @@ settled against the binaries: gemini-cli skips BOTH workspace roots in an untrus
 avoids; and agy's `--disable-slash-commands`, which the harness passes, only stops `/name`
 expansion of the prompt — its model still reads the bundles.
 
+Re-checked 2026-11-03 on claude-code 2.1.317, codex 0.166.0 and agy 1.4.12 (`pytest -m live
+tests/skills/test_live_discovery.py`): same roots, all three surface and read deep.  claude-code
+now reads `references/` with a shell loop (`cd …/<name> && for f in $(find references -type f);
+do cat "$f"; done`) that names no path the trace can match; the probe credits such a read from
+the file's atime while the control's `references/` stay untouched (`telemetry.probe_reads`, D115).
+
 All four discover the library natively, with no injection from us. Two things this settled
 that had only been argued statically:
 

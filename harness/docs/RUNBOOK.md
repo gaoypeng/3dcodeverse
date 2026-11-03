@@ -2,7 +2,8 @@
 
 Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.2.2 LTS (since 2026-10-14; was 5.0.1),
 node 24, gemini-cli 0.53 (removed in D103), claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23;
-the agy rows re-checked on agy 1.3.4, 2026-10-13.  Paths
+the agy rows re-checked on agy 1.3.4, 2026-10-13, and the three CLI backends re-run live on
+agy 1.4.12 / claude 2.1.317 / codex 0.166.0 on 2026-11-03 (D115).  Paths
 are relative to the harness root (`harness/` in the checkout) unless absolute.  The CLI is
 `3dcodeverse` with short alias `3dcode` (used below).
 
@@ -102,8 +103,11 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 * Cost: priced at Gemini list price; agy's `output_tokens` already include `thinking_tokens`, so
   output = output − thinking, thoughts = thinking (billed once).
 * `--print-timeout` = `timeout_s` + the watchdog's `HARD_GRACE_S` (5 min) + 1 min, so the watchdog
-  decides; agy's own clock stopping a turn (stderr `[agy] print timeout after …`, envelope still
-  `SUCCESS` with an empty response) is booked `exit_reason=timeout`.  At `timeout_s + 1 min` it cut off
+  decides; agy's own clock stopping a turn (envelope `finished_reason: print_timeout` since 1.4.11 —
+  the typed verdict, read first — plus the stderr line `[agy] print timeout after …`, the envelope
+  still `SUCCESS` with an empty response) is booked `exit_reason=timeout`; a turn whose verdict is
+  `error` (the clock fired while agy was retrying a 503, live 2026-11-03) is booked an error.  The
+  verdict is on `result.json` as `finished_reason`.  At `timeout_s + 1 min` it cut off
   every argon scene asset/env session still working at 8 min (2026-10-13).
 * No retry loop in the backend: agy retries its own model calls (≤ 30 s waits since 1.3.4, stops
   at once on a spent daily quota); a transient death goes to the round loop's ONE transport retry,

@@ -53,9 +53,19 @@ if mode == "died":      # a turn that ended on the API: AGY_ERROR on stderr, exi
     print('AGY_ERROR: {"short_error":"generating: Error 503","status":"UNAVAILABLE","error_code":503,'
           '"code_kind":"http","retryable":true,"error_id":"x"}', file=sys.stderr)
     sys.exit(3)
-if mode == "print_timeout":   # agy 1.3.4's own clock: SUCCESS, no response, one stderr line
+if mode == "print_timeout":   # agy's own clock (1.4.12): SUCCESS, no response, `finished_reason` and one stderr line
+    print(json.dumps({"conversation_id": "c8", "status": "SUCCESS", "response": "", "num_turns": 1,
+                      "finished_reason": "print_timeout"}))
+    print("[agy] print timeout after 8m0s with turn in progress; returning partial output", file=sys.stderr)
+    sys.exit(0)
+if mode == "print_timeout_old":   # agy <= 1.4.10: the stderr line was the only signal
     print(json.dumps({"conversation_id": "c8", "status": "SUCCESS", "response": "", "num_turns": 1}))
     print("[agy] print timeout after 8m0s with turn in progress; returning partial output", file=sys.stderr)
+    sys.exit(0)
+if mode == "error_at_timeout":   # 1.4.12 live, 2026-11-03: the clock fired while agy retried a 503 — its verdict is `error`
+    print(json.dumps({"conversation_id": "c7", "status": "ERROR", "response": "", "num_turns": 1, "finished_reason": "error",
+                      "error": "API error (attempt 1): Error 503, Message: high demand, Status: UNAVAILABLE, Details: []"}))
+    print("[agy] print timeout after 2s with turn in progress; returning partial output", file=sys.stderr)
     sys.exit(0)
 if mode == "text":
     print("plain text answer")
@@ -115,12 +125,26 @@ def test_agy_says_itself_whether_a_dead_turn_is_worth_a_retry(tmp_ws: Workspace,
     assert rec["agy_error"]["retryable"] is True and rec["agy_error"]["error_code"] == 503
 
 
-def test_agys_own_print_timeout_is_a_timeout_not_an_empty_answer(tmp_ws: Workspace, fake_bin, monkeypatch):
+@pytest.mark.parametrize("mode", ["print_timeout", "print_timeout_old"])
+def test_agys_own_print_timeout_is_a_timeout_not_an_empty_answer(tmp_ws: Workspace, fake_bin, monkeypatch, mode):
     a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
-    monkeypatch.setenv("FAKE_MODE", "print_timeout")
+    monkeypatch.setenv("FAKE_MODE", mode)
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="pt", timeout_s=30))
     assert not res.ok and res.exit_reason == "timeout" and not res.transient
     assert "--print-timeout" in res.errors[0] and "empty response" not in " ".join(res.errors)
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["finished_reason"] == ("print_timeout" if mode == "print_timeout" else "")
+
+
+def test_the_envelopes_verdict_outranks_the_stderr_line(tmp_ws: Workspace, fake_bin, monkeypatch):
+    """rc 0, `status: ERROR`, `finished_reason: error` AND the print-timeout line (1.4.12, live): an error."""
+    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
+    monkeypatch.setenv("FAKE_MODE", "error_at_timeout")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="et", timeout_s=30))
+    assert not res.ok and res.exit_reason == "error"
+    assert "status=ERROR" in res.errors[0] and "--print-timeout" not in res.errors[0]
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["finished_reason"] == "error" and rec["killed_reason"] != "agy_print_timeout"
 
 
 @pytest.mark.live

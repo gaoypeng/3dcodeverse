@@ -35,8 +35,9 @@ class SkillRead(BaseModel):
     name: str
     surfaced: bool = Field(default=False, description="transcript: the agent activated the skill or opened its "
                            "SKILL.md; atime fallback: SKILL.md atime > mtime (a discovery scan counts)")
-    deep: bool = Field(default=False, description="transcript: the agent opened a file under its references/; "
-                       "atime fallback: a references/*.md atime > mtime")
+    deep: bool = Field(default=False, description="transcript: the agent opened a file under its references/ (or "
+                       "its atime says so while the control's references/ are untouched — a shell read the "
+                       "trace cannot parse); atime fallback: a references/*.md atime > mtime")
     deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
     reason: str = Field(default="", description="which route attached it, and which finding")

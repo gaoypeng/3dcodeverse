@@ -384,15 +384,21 @@ Gemini list price — no sign-in, no non-Gemini model.  Without keys an agy sess
 (doctor row `agy gemini keys`).  The other two are needed only when you name them.
 
 ```bash
-# agy (Antigravity CLI, 1.3.4 here): the Antigravity installer puts it in ~/.local/bin
-npm i -g @anthropic-ai/claude-code # claude   (2.1.241 here)
-npm i -g @openai/codex             # codex    (0.149.0 here)
+# agy — the Antigravity CLI (1.4.12 here): Google's installer, checksum-verified, into ~/.local/bin
+curl -fsSL https://antigravity.google/cli/install.sh | bash   # later upgrades: `agy update`
+# the other two are npm globals (re-run the same line to upgrade)
+npm i -g @anthropic-ai/claude-code   # claude   (2.1.317 here)
+npm i -g @openai/codex               # codex    (0.166.0 here)
+agy --version && claude --version && codex --version
 ```
 
 `claude` and `codex` authenticate against your local subscription
 (their own `login` flows) — test lightly.  The harness handles the per-CLI quirks for you
 (agy's per-session API-mode HOME, codex's MCP approval mode); what each one is and why it must
-not be undone: `docs/RUNBOOK.md` §3.
+not be undone: `docs/RUNBOOK.md` §3.  No version is pinned: the harness drives each CLI through
+its print / JSON interface, and the check after an upgrade is one small real session per CLI plus
+the skill-discovery probe — `pytest -m live tests/agents tests/skills/test_live_discovery.py`
+(last run 2026-11-03 on the versions above, D115).
 
 The spatial MCP server itself is the `mcp` extra (§4); check it with
 `python -m codeverse3d.spatial.mcp_server --workspace <ws> --list`.
@@ -451,28 +457,43 @@ cd harness && 3dcodeverse doctor        # add --live for one tiny Gemini call, -
 Real output on this box (exit code 0; any FAIL row makes it exit 1):
 
 ```
-                                  3dcode doctor
-┏━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ check         ┃ status ┃ detail                                              ┃
-┡━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ python        │ OK     │ 3.13.9 (~/miniconda3/bin/python3.13)                │
-│ python deps   │ OK     │ 23/23 importable                                    │
-│ blender       │ OK     │ Blender 5.2.2 LTS @ ~/.local/bin/blender-5.2        │
-│ node          │ OK     │ v24.14.0                                            │
-│ three         │ OK     │ 0.182.0 (…/harness/runtime_js/node_modules)         │
-│ puppeteer     │ OK     │ v24.43.1; chrome cache found (~/.cache/puppeteer)   │
-│ chrome webgl  │ OK     │ GPU: ANGLE (Microsoft Corporation, D3D12 (NVIDIA    │
-│               │        │ GeForce RTX 5090 Laptop GPU), OpenGL ES 3.1)        │
-│ gemini keys   │ OK     │ 22 key(s)                                           │
-│ anthropic key │ WARN   │ not set (anthropic:* backends unavailable)          │
-│ openai key    │ WARN   │ not set (openai:* backends unavailable)             │
-│ agy           │ OK     │ 1.3.4                                               │
-│ claude        │ OK     │ 2.1.241 (Claude Code)                               │
-│ codex         │ OK     │ codex-cli 0.149.0                                   │
-│ git           │ OK     │ git version 2.53.0                                  │
-│ agy gemini keys │ OK   │ 15-key pool (Gemini-API mode, 3dcode MCP, priced)   │
-│ mcp           │ OK     │ mcp + codeverse3d.spatial.mcp_server importable       │
-└───────────────┴────────┴─────────────────────────────────────────────────────┘
+                                   3dcode doctor
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ check             ┃ status ┃ detail                                             ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ python            │ OK     │ 3.13.9 (~/miniconda3/bin/python)                   │
+│ python deps       │ OK     │ 23/23 importable                                   │
+│ blender           │ OK     │ Blender 5.2.2 LTS @                                │
+│                   │        │ ~/.local/bin/blender-5.2                           │
+│ blender cycles    │ OK     │ CUDA: NVIDIA GeForce RTX 5090 Laptop GPU, 32 spp   │
+│                   │        │ 256x144 frame 348 ms (GPU OIDN + persistent data); │
+│                   │        │ judged frames: cycles 32 spp, device gpu, frame    │
+│                   │        │ cap 20s                                            │
+│ blender eevee     │ OK     │ GPU (Mesa d3d12 env): D3D12 (NVIDIA GeForce RTX    │
+│                   │        │ 5090 Laptop GPU)                                   │
+│ blender gpu slots │ OK     │ 0/2 busy machine-wide                              │
+│                   │        │ (~/.cache/codeverse3d/slots/blender_gp…            │
+│                   │        │ a render waits 60s, then the CPU                   │
+│ node              │ OK     │ v24.14.0                                           │
+│ three             │ OK     │ 0.182.0                                            │
+│                   │        │ (~/3dcodeverse/harness/runtime_js/node…            │
+│ puppeteer         │ OK     │ v24.43.1; chrome cache found                       │
+│                   │        │ (~/.cache/puppeteer)                               │
+│ chrome webgl      │ OK     │ GPU: ANGLE (Microsoft Corporation, D3D12 (NVIDIA   │
+│                   │        │ GeForce RTX 5090 Laptop GPU), OpenGL ES 3.1)       │
+│ gemini keys       │ OK     │ 30 key(s)                                          │
+│ in-flight slots   │ OK     │ 2/96 busy machine-wide                             │
+│                   │        │ (~/.cache/codeverse3d/slots/gemini;                │
+│                   │        │ docs/COST.md §23)                                  │
+│ anthropic key     │ WARN   │ not set (anthropic:* backends unavailable)         │
+│ openai key        │ WARN   │ not set (openai:* backends unavailable)            │
+│ agy               │ OK     │ 1.4.12                                             │
+│ claude            │ OK     │ 2.1.317 (Claude Code)                              │
+│ codex             │ OK     │ codex-cli 0.166.0                                  │
+│ git               │ OK     │ git version 2.53.0                                 │
+│ agy gemini keys   │ OK     │ 30-key pool (Gemini-API mode, 3dcode MCP, priced)  │
+│ mcp               │ OK     │ mcp + codeverse3d.spatial.mcp_server importable    │
+└───────────────────┴────────┴────────────────────────────────────────────────────┘
 ```
 
 `--live` adds one more row (real output here, and the cheapest possible proof
@@ -609,5 +630,5 @@ those by hand (`npm rm -g @anthropic-ai/claude-code @openai/codex`; agy: `rm ~/.
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
 | Blender | 5.2.2 LTS (build 2026-09-15; installed 2026-10-14, sha256-verified) | `~/.local/bin/blender-5.2` → `~/tools/blender-5.2.2-linux-x64` (any directory: the wrapper's `BLENDER_HOME`) |
 | git | 2.53.0 | `/usr/bin/git` |
-| agy / claude / codex | 1.3.4 / 2.1.241 / 0.149.0 | `~/.local/bin` / npm global |
+| agy / claude / codex | 1.4.12 / 2.1.317 / 0.166.0 (the latest releases on 2026-11-03; re-verified live, D115) | `~/.local/bin/agy` · npm global (`~/miniconda3/bin`) |
 | GPU (Chrome WebGL) | ANGLE · D3D12 · NVIDIA GeForce RTX 5090 Laptop GPU · OpenGL ES 3.1 | via `--use-angle=gl-egl` + Mesa d3d12 |
