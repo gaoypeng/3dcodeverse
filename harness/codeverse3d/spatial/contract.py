@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -16,6 +17,7 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
+from codeverse3d.contracts.spec import FixedPart
 from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     CONTACT_GAP_M,
@@ -335,3 +337,48 @@ def check_contract(measurement: Measurement, plan: StaticPlan, *, language: str,
     if not findings:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, message="all plan parts present and within tolerance"))
     return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
+
+
+# --------------------------------------------------------------------------- fixed parts
+FIXED_GATE = "contract_fixed"
+#: a fixed part is built by code the agent may not change, so its box must come out as declared: any face of
+#: it further than this from the declared box is an ERROR (the measured abuse moved one by 0.9 m)
+FIXED_TOL_M = 0.05
+
+
+def check_fixed_parts(measurement: Measurement, fixed: Sequence[FixedPart]) -> GateReport:
+    """The spec's fixed parts (``Spec.fixed_parts``) that build a part, measured in the GLB: present under
+    their name, and inside ``FIXED_TOL_M`` of the declared box.  The ``contract*`` cap applies to the
+    ERRORs and they become refine tasks; a part rescaled or moved in the entry file is caught here even
+    though the read-only file itself is untouched."""
+    t0 = time.time()
+    findings: list[GateFinding] = []
+    by_name = {to_snake(p.name): p for p in measurement.parts}
+    for f in fixed:
+        if not f.name:
+            continue
+        row = by_name.get(to_snake(f.name))
+        if row is None:
+            findings.append(GateFinding(
+                gate=FIXED_GATE, severity=Severity.ERROR, target=f.name,
+                message=f"fixed part '{f.name}' ({f.path}) is missing from the GLB",
+                fix_hint=f"import {f.export or 'its builder'} from {f.path} and add what it returns to the root, unchanged",
+                data={"kind": "fixed_part_missing"}))
+            continue
+        if f.bbox_min is None or f.bbox_max is None:
+            continue
+        lo = np.subtract(row.bbox_min, f.bbox_min)
+        hi = np.subtract(row.bbox_max, f.bbox_max)
+        worst = float(np.max(np.abs(np.concatenate([lo, hi]))))
+        if worst > FIXED_TOL_M:
+            findings.append(GateFinding(
+                gate=FIXED_GATE, severity=Severity.ERROR, target=f.name,
+                message=(f"fixed part '{f.name}' measures {fmt_vec(row.bbox_min)}..{fmt_vec(row.bbox_max)}, declared "
+                         f"{fmt_vec(f.bbox_min)}..{fmt_vec(f.bbox_max)} (off by {worst:.2f} m): it was moved, scaled or edited"),
+                fix_hint=f"add what {f.export or 'its builder'} returns to the root unchanged: no transform, no "
+                         "post-processing of its children; dress beside it",
+                data={"kind": "fixed_part_bbox", "off_m": round(worst, 3)}))
+    if not findings:
+        findings.append(GateFinding(gate=FIXED_GATE, severity=Severity.INFO,
+                                    message="fixed parts present and as declared"))
+    return GateReport.of(FIXED_GATE, findings, duration_ms=int((time.time() - t0) * 1000))

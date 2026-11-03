@@ -72,7 +72,7 @@ log = logging.getLogger(__name__)
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
     """Only the spec fields the PLAN depends on: hashing the whole Spec meant that"""
-    return {
+    inputs: dict[str, Any] = {
         "prompt": spec.prompt,
         "track": spec.track.value,
         "language": spec.language.value,
@@ -81,6 +81,9 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
         "planner": spec.backends.planner,
         "seed": spec.seed,
     }
+    if spec.fixed_parts:  # only when set, so every existing run's plan key stays put
+        inputs["fixed_parts"] = spec.fixed_parts
+    return inputs
 
 
 def plan_stage_key(spec: Spec, track: Track) -> dict[str, Any]:
@@ -145,7 +148,17 @@ def run_stages(track: BaseTrack, ctx: RunContext, runner: StageRunner, stages: S
 
 
 def _skeleton(track: BaseTrack, ctx: RunContext) -> list[str]:
+    # the project's fixed parts (Spec.fixed_parts) were seeded before the run: a language whose skeleton
+    # rewrites src/ must not replace them, and a run whose seed is missing must stop here, not later
+    fixed = {f.path: ctx.ws.root / f.path for f in ctx.spec.fixed_parts}
+    missing = [p for p, f in fixed.items() if not f.is_file()]
+    if missing:
+        raise FileNotFoundError(f"fixed parts not seeded in the workspace: {missing}")
+    kept = {p: f.read_bytes() for p, f in fixed.items()}
     paths = ctx.runtime.skeleton(ctx.ws, ctx.plan)
+    for p, data in kept.items():
+        if fixed[p].read_bytes() != data:
+            fixed[p].write_bytes(data)
     ctx.ws.commit("skeleton")
     return [str(Path(p).relative_to(ctx.ws.root)) if Path(p).is_absolute() else str(p) for p in paths]
 

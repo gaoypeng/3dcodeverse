@@ -101,7 +101,35 @@ def constraints_text(spec: Any) -> str:
         lines.append(f"MUST HAVE: {m}")
     for m in c.must_not:
         lines.append(f"MUST NOT: {m}")
+    lines += fixed_parts_lines(spec)
     return "\n".join(lines) or "(none)"
+
+
+def fixed_parts_lines(spec: Any) -> list[str]:
+    """The spec's fixed parts (``FixedPart``) for the planner and the agent: given files, never planned, never
+    edited, imported as they are.  Empty for a spec without any, so its prompts stay byte-identical."""
+    fixed = list(getattr(spec, "fixed_parts", None) or [])
+    if not fixed:
+        return []
+    out = ["FIXED PARTS (given by the project: never plan them as parts, never edit, move, scale, recolour or "
+           "rename them or what they return, never attach_to them, never assert their size in selfcheck; an edit "
+           "is reverted):"]
+    for f in fixed:
+        what = f"{f.path}"
+        if f.export:
+            what += f" exports {f.export}"
+        if f.name:
+            what += f", builds the part '{f.name}'"
+        if f.bbox_min is not None and f.bbox_max is not None:
+            (x0, y0, z0), (x1, y1, z1) = f.bbox_min, f.bbox_max
+            what += f" spanning x {x0:.2f}..{x1:.2f}, y {y0:.2f}..{y1:.2f}, z {z0:.2f}..{z1:.2f} m (GLB frame)"
+        out.append(f"- {what}" + (f": {f.note}" if f.note else ""))
+    return out
+
+
+def fixed_paths(spec: Any) -> list[str]:
+    """The workspace-relative paths of the spec's fixed parts (read-only for every session)."""
+    return [f.path.replace("\\", "/") for f in (getattr(spec, "fixed_parts", None) or [])]
 
 
 def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
@@ -238,7 +266,7 @@ def current_files(
     ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
 ) -> dict[str, str]:
     """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The"""
-    owned = set(HARNESS_OWNED_SRC.get(ctx.language, ()))
+    owned = set(HARNESS_OWNED_SRC.get(ctx.language, ())) | set(fixed_paths(ctx.spec))
     out: dict[str, str] = {}
     total = 0
     for rel in rels:
