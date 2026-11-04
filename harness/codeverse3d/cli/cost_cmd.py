@@ -6,7 +6,6 @@
     3dcode cost show runs/ --md report.md   # the same, explicit + full markdown
     3dcode cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
     3dcode cost prices [--stale] [--unverified]
-    3dcode cost profiles                    # the economy / balanced / quality dial
     3dcode cost estimate gemini:… --in 12000 --out 800
 
 Every run is read from its own ledger (``telemetry/cost.jsonl``) — one priced row per
@@ -24,7 +23,6 @@ import typer
 from typer.core import TyperGroup
 
 from codeverse3d.cli._common import console, ok, runs_root, warn
-from codeverse3d.config import get_settings
 
 #: a price row older than this needs re-checking against the provider's page
 STALE_AFTER_DAYS = 90
@@ -139,10 +137,10 @@ def prices(
         p = row.price
         assert p is not None
         rows.append((f"{prov}:{model}", f"{p.input:g}", f"{p.cached:g}", f"{p.output:g}",
-                     f"{p.image_usd:g}" if p.image_usd else "-", row.status, row.checked,
+                     row.status, row.checked,
                      "-" if age is None else str(age), ",".join(problems) or "-",
                      p.note[:52]))
-    header = ("model", "in/M", "cached/M", "out/M", "$/img", "status", "checked", "age_d", "flags", "note")
+    header = ("model", "in/M", "cached/M", "out/M", "status", "checked", "age_d", "flags", "note")
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))] if rows else \
         [len(h) for h in header]
     console.print("  ".join(h.ljust(w) for h, w in zip(header, widths, strict=True)), soft_wrap=True)
@@ -150,8 +148,8 @@ def prices(
         console.print("  ".join(str(c).ljust(w) for c, w in zip(r, widths, strict=True)), soft_wrap=True)
     if flagged:
         warn(f"{flagged} of {len(rows)} row(s) flagged: re-check them against the provider's pricing page")
-    elif rows:
-        ok(f"{len(rows)} price row(s), none older than {days} days or approximate")
+    elif rows or stale:  # --stale filters to the flagged rows: none left is the good answer
+        ok(f"{len(rows)} price row(s) shown, none older than {days} days or approximate")
 
 
 def _price_flags(row: object, age: int | None, days: int) -> list[str]:
@@ -207,22 +205,6 @@ def cache(
         console.print(f"  → {tot_cached:,} of {tot_in:,} input tokens cached ({tot_cached / tot_in if tot_in else 0:.0%}), "
                       f"saved ${sum(s.saved_usd for s in sessions):.4f}, "
                       f"cold heads cost ${sum(s.cold_usd for s in sessions):.4f}\n")
-
-
-# --------------------------------------------------------------------------- profiles
-@cost_app.command("profiles")
-def profiles() -> None:
-    """The economy / balanced / quality dial and what each is measured to cost."""
-    from codeverse3d.cost.profiles import profile_table
-
-    header = ("profile", "generator", "judge", "shape", "$/run", "measured quality")
-    rows = [tuple(str(c) for c in r) for r in profile_table()]
-    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(5)]
-    for r in [header, *rows]:
-        console.print("  ".join(c.ljust(w) for c, w in zip(r[:5], widths, strict=True)) + "  " + r[5],
-                      soft_wrap=True)
-    console.print(f"\n[dim]active profile: {get_settings().profile}  ·  "
-                  f"`3dcode make ... --profile quality` to switch one run[/dim]")
 
 
 # --------------------------------------------------------------------------- estimate

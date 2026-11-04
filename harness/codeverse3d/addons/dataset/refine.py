@@ -39,7 +39,7 @@ from codeverse3d.record.git_history import (
 from codeverse3d.record.record import effective_judgment, effective_score, iter_runs
 from codeverse3d.workspace import Workspace
 
-#: rounds that answer a judgment.  A texture or asset round is driven by its own pass, and
+#: rounds that answer a judgment.  An asset round is driven by its own pass, and
 #: a repair round by a build error the judge never saw.
 REFINE_KINDS: tuple[str, ...] = ("refine", "rewrite", "detail")
 #: a diff longer than this is truncated, with the untruncated size kept on the row

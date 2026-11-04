@@ -52,8 +52,7 @@ class LongContext:
 class Price:
     """USD per 1M tokens, and where the number came from.  ``cached`` = cache-read input;
     ``cache_write`` = cache creation (Anthropic explicit caching, 5-minute TTL);
-    ``thoughts`` are billed at the output rate.  ``image_usd`` = per generated 1024² image
-    for image-output models (their image tokens are billed per image, not per token).
+    ``thoughts`` are billed at the output rate.
 
     Provenance: ``source`` is a :data:`SOURCES` key ("" = the provider's own pricing page),
     ``checked`` the day it was last read there, and ``status``:
@@ -68,7 +67,6 @@ class Price:
     cached: float = 0.0
     cache_write: float | None = None
     approximate: bool = False
-    image_usd: float = 0.0
     long_context: LongContext | None = None
     source: str = ""
     checked: str = CHECKED
@@ -83,22 +81,13 @@ PRICES: dict[tuple[str, str], Price] = {
     # ($4.00 / $20.00 / $0.20).  Update then.  No >200k tier; output includes thinking.
     ("gemini", "gemini-4-argon"):             Price(2.00, 10.00, 0.10, checked="2026-10-13",
                                                     note="intro rate through 2026-11-30, then 4.00/20.00/0.20"),
-    # 3.6 / 3.7 / 3.8 flash: introductory rates valid through 2026-12-31; they double
+    # 3.8 flash: introductory rates valid through 2026-12-31; they double
     # on 2027-01-01 ($1.50 / $7.50 / $0.15).  Update then.  No >200k surcharge.
     ("gemini", "gemini-3.8-flash"):           Price(0.75, 3.75, 0.075, checked="2026-09-21",
                                                     note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
-    ("gemini", "gemini-3.7-flash"):           Price(0.75, 3.75, 0.075,
-                                                    note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
-    ("gemini", "gemini-3.6-flash"):           Price(0.75, 3.75, 0.075, note="intro rate through 2026-12-31"),
-    ("gemini", "gemini-3.5-flash"):           Price(1.50, 9.00, 0.15),
     ("gemini", "gemini-3.1-pro-preview"):     Price(2.00, 12.00, 0.20,
                                                     long_context=LongContext(200_000, 4.00, 18.00, 0.40),
                                                     note=">200k prompts: 4.00/18.00/0.40 (modelled)"),
-    ("gemini", "gemini-3.1-flash-lite"):      Price(0.25, 1.50, 0.025, note="audio input is 2x; text/image/video modelled"),
-    # image-output model: text/thinking output $3/M, IMAGE output $60/M ≈ $0.067
-    # per 1K image (1290 tokens); 0.5K $0.045, 2K $0.134, 4K $0.151.  No cache row.
-    ("gemini", "gemini-3.1-flash-image"):     Price(0.50, 3.00, 0.05, image_usd=0.067,
-                                                    note="image output $60/M ≈ $0.067 per 1K image; 0.5K $0.045, 4K $0.151"),
     ("gemini", "gemini-3-pro-preview"):       Price(2.00, 12.00, 0.20,
                                                     long_context=LongContext(200_000, 4.00, 18.00, 0.40),
                                                     note=">200k prompts: 4.00/18.00 (modelled)"),
@@ -108,9 +97,6 @@ PRICES: dict[tuple[str, str], Price] = {
                                                     note=">200k prompts: 2.50/15.00/0.25 (modelled)"),
     ("gemini", "gemini-2.5-flash"):           Price(0.30, 2.50, 0.03, note="cached was 0.075 here until 2026-08-23; published 0.03"),
     ("gemini", "gemini-2.5-flash-lite"):      Price(0.10, 0.40, 0.01, note="cached was 0.025 here until 2026-08-23; published 0.01"),
-    # image tokens are billed per image: 1024² = 1290 tokens = $0.039 ⇒ $30.23/M
-    ("gemini", "gemini-2.5-flash-image"):     Price(0.30, 30.00, 0.03, image_usd=0.039, status="inferred",
-                                                    note="output/M derived from $0.039 per 1290-token 1024² image"),
     # ------------------------------------------------------------- anthropic
     # Only the current generation is kept (owner, 2026-10-13): a model no longer
     # here prices at $0 with a warning; a recorded run keeps the cost it was booked at.
@@ -139,13 +125,6 @@ PRICES: dict[tuple[str, str], Price] = {
 }
 # fmt: on
 
-#: per-image USD by requested pixel size, for models whose image output is billed
-#: per image rather than per token (``Price.image_usd`` is the 1024² entry).
-IMAGE_USD_BY_SIZE: dict[tuple[str, str], dict[int, float]] = {
-    ("gemini", "gemini-3.1-flash-image"): {512: 0.045, 1024: 0.067, 2048: 0.134, 4096: 0.151},
-    ("gemini", "gemini-2.5-flash-image"): {512: 0.039, 1024: 0.039, 2048: 0.039, 4096: 0.039},
-}
-
 _warned: set[tuple[str, str]] = set()
 _warned_lock = threading.Lock()
 
@@ -154,7 +133,7 @@ def _normalise(model: str) -> str:
     return model.strip().lower()
 
 
-#: the reasoning efforts agy spells into its model ids (``gemini-3.7-flash-medium``): the same
+#: the reasoning efforts agy spells into its model ids (``gemini-3.8-flash-medium``): the same
 #: model at the same per-token rate — unmatched, every agy session was priced $0 (live, 2026-09-23)
 EFFORTS = ("low", "medium", "high")
 # words that may follow a priced model id without changing which model it is
@@ -188,7 +167,7 @@ def _match(provider: str, model: str) -> tuple[tuple[str, str], Price] | None:
 
 def lookup_price(provider: str, model: str) -> Price | None:
     """Exact match first, then the longest table key that ``model`` extends by a
-    pure version/date suffix (``claude-opus-5-20260301``, ``gemini-3.7-flash-preview-09``).
+    pure version/date suffix (``claude-opus-5-20260301``, ``gemini-3.8-flash-preview-09``).
     A different family name after the key (``gpt-6.1-sol-mini`` vs ``gpt-6.1-sol``) is NOT a
     match: unknown → ``None`` so the caller prices 0.0 and warns, never a sibling's rate."""
     found = _match(provider, model)
@@ -243,19 +222,6 @@ def unit_prices(provider: str, model: str, *, prompt_tokens: int = 0) -> tuple[f
     if lc is not None and prompt_tokens > lc.threshold:
         return (lc.input, lc.cached, lc.output)
     return (price.input, price.cached, price.output)
-
-
-def per_image_usd(provider: str, model: str, *, size: int = 1024) -> float:
-    """Per-generated-image price for image-output models (0.0 when the model
-    bills images as ordinary output tokens)."""
-    found = _match((provider or "").strip().lower(), model)
-    if not found:
-        return 0.0
-    key, price = found
-    by_size = IMAGE_USD_BY_SIZE.get(key)
-    if by_size:
-        return by_size.get(size, price.image_usd)
-    return price.image_usd
 
 
 def estimate_cost(provider: str, model: str, usage: Usage) -> float:

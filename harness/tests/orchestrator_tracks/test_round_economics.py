@@ -34,7 +34,7 @@ class _TurnAgent:
     """Burns turns; reports 'max_turns (N) reached' when it runs out."""
 
     kind = "fake"
-    model = "gemini:gemini-3.7-flash"
+    model = "gemini:gemini-3.8-flash"
 
     def __init__(self, *, writes_on: int = 2, cost: float = 0.2):
         self.jobs: list[AgentJob] = []

@@ -32,7 +32,7 @@ def text_response(
     text: str, *, finish: str = "STOP", thoughts: int = 3
 ) -> types.GenerateContentResponse:
     return types.GenerateContentResponse(
-        model_version="gemini-3.7-flash",
+        model_version="gemini-3.8-flash",
         candidates=[
             types.Candidate(
                 content=types.Content(role="model", parts=[types.Part.from_text(text=text)]),
@@ -73,7 +73,7 @@ def make_model(script: list[Any], keys=("k1", "k2", "k3"), pool: KeyPool | None 
     log: list[dict] = []
     pool = pool or KeyPool(list(keys), cooldown_s=30)
     m = GeminiModel(
-        "gemini-3.7-flash",
+        "gemini-3.8-flash",
         pool=pool,
         sleep=lambda s: None,
         client_factory=lambda key: FakeClient(script, key, log),
@@ -120,7 +120,7 @@ def test_text_usage_cost_and_raw():
     assert r.text == "hello" and r.finish_reason == "STOP" and r.parsed is None
     u = r.usage
     assert (u.input_tokens, u.output_tokens, u.thoughts_tokens, u.cached_tokens) == (100, 20, 3, 40)
-    assert u.cost_usd > 0 and u.backend == "gemini" and u.model == "gemini-3.7-flash"
+    assert u.cost_usd > 0 and u.backend == "gemini" and u.model == "gemini-3.8-flash"
     cfg = log[0]["config"]
     assert cfg.system_instruction == "sys" and cfg.temperature == 0.2
     assert cfg.thinking_config.thinking_budget == 4096
@@ -231,7 +231,7 @@ def test_to_contents_merges_same_role_and_requires_content():
 
 def test_no_keys_is_loud():
     with pytest.raises(ModelError):
-        GeminiModel("gemini-3.7-flash", keys=[])
+        GeminiModel("gemini-3.8-flash", keys=[])
 
 
 def test_max_token_failures_are_not_retried():
@@ -269,7 +269,7 @@ def test_a_charged_but_invalid_reply_carries_its_usage_on_the_error():
 def test_max_output_tokens_eaten_by_thinking_carries_the_thought_tokens():
     """A MAX_TOKENS failure reports the thinking tokens it consumed."""
     resp = types.GenerateContentResponse(
-        model_version="gemini-3.7-flash",
+        model_version="gemini-3.8-flash",
         candidates=[
             types.Candidate(
                 content=types.Content(role="model", parts=[]), finish_reason="MAX_TOKENS"

@@ -19,7 +19,7 @@ def test_health_threshold_requires_a_real_success_rate_and_names_the_reason():
         )
     # the doctor line carries the provider's reason
     h = Health(
-        "gemini:gemini-3.7-flash",
+        "gemini:gemini-3.8-flash",
         n_ok=0,
         n_tried=4,
         reasons=("ModelError: Gemini API error 504: Deadline expired",),
@@ -48,7 +48,7 @@ def test_probe_never_raises_when_every_call_fails(monkeypatch):
             raise RuntimeError("provider on fire")
 
     monkeypatch.setattr(health, "_bare_model", lambda *a, **k: Boom())
-    h = health.probe("gemini:gemini-3.7-flash", sample=3, timeout_s=1)
+    h = health.probe("gemini:gemini-3.8-flash", sample=3, timeout_s=1)
     assert not h.ok and h.n_ok == 0 and h.n_tried == 3
     assert h.reasons and "provider on fire" in h.reasons[0]
 
@@ -67,7 +67,7 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
     monkeypatch.setattr(gm, "rotate_with_retries", fake_rotate)
     # a non-live test must pass with no credentials (PORT-2)
     monkeypatch.setattr(gm, "_default_keys", lambda: ["fake-key-for-tests"])
-    m = _bare_model("gemini:gemini-3.7-flash", 30.0)
+    m = _bare_model("gemini:gemini-3.8-flash", 30.0)
     assert m.storm_attempts == 0 and m.max_attempts == 1
     import contextlib
 

@@ -1,4 +1,4 @@
-"""Fakes for the reference package: an image model (chat: the shared FakeChatModel)."""
+"""Fixtures for the reference package (chat: the shared FakeChatModel)."""
 
 from __future__ import annotations
 
@@ -6,42 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from PIL import Image, ImageDraw
 
-from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.spec import Constraints, Spec
-from codeverse3d.models.base import ModelError
-
-
-class FakeImageModel:
-    """ImageModel stand-in: paints a solid rectangle so the silhouette code has work."""
-
-    provider = "fake"
-    model = "fake-image"
-
-    def __init__(self, *, fail: bool = False, colour=(120, 80, 40)):
-        self.fail = fail
-        self.colour = colour
-        self.prompts: list[str] = []
-
-    @property
-    def id(self) -> str:
-        return "fake-image:fake-image"
-
-    def generate(self, prompt: str, **kw: Any) -> list[Image.Image]:
-        return self.generate_with_usage(prompt, **kw)[0]
-
-    def generate_with_usage(self, prompt: str, *, size: int = 1024, n: int = 1, seed: int | None = None,
-                            reference_images=()) -> tuple[list[Image.Image], Usage]:
-        self.prompts.append(prompt)
-        if self.fail:
-            raise ModelError("image model exploded", retryable=False)
-        out = []
-        for _ in range(n):
-            im = Image.new("RGB", (size, size), (240, 240, 238))
-            ImageDraw.Draw(im).rectangle([size * 0.3, size * 0.2, size * 0.7, size * 0.85], fill=self.colour)
-            out.append(im)
-        return out, Usage(backend="fake-image", model="fake-image", cost_usd=0.067 * n)
 
 
 def make_spec(**kw: Any) -> Spec:
@@ -53,20 +20,6 @@ def make_spec(**kw: Any) -> Spec:
     )
     base.update(kw)
     return Spec(**base)
-
-
-GOOD_GATE = {
-    "depicted_object": "hand-crank coffee grinder", "shows_requested_object": True, "single_object": True,
-    "plain_background": True, "no_text_or_watermark": True, "is_photo_collage": False,
-    "contradictions": [], "reason": "matches the brief",
-}
-
-PROMPT_PLAN = {
-    "object_name": "hand-crank coffee grinder",
-    "subject": "a hand-crank coffee grinder, square walnut box body, cast-iron cone hopper, steel crank",
-    "views": [{"view": "three_quarter", "view_note": "crank and hopper"},
-              {"view": "front", "view_note": "drawer front"}],
-}
 
 
 @pytest.fixture

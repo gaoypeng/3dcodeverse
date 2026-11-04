@@ -14,7 +14,7 @@ from codeverse3d.models import get_chat_model
 
 pytestmark = pytest.mark.live
 
-MODEL = "gemini:gemini-3.7-flash"
+MODEL = "gemini:gemini-3.8-flash"
 
 
 @pytest.fixture(scope="module")

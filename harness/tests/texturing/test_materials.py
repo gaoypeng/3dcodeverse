@@ -1,25 +1,13 @@
-"""materials.py: the family table, the keyword resolver and the plausibility bands."""
+"""materials.py: the family table and the keyword resolver."""
 
 from __future__ import annotations
 
 import pytest
 
-from codeverse3d.texturing.materials import (
-    BARE_METAL_FAMILIES,
-    COARSE_TO_FINE,
-    MATERIALS,
-    family_for,
-    is_warm_metal_hue,
-    looks_painted,
-    out_of_band,
-    pbr_for,
-    saturation,
-)
-from codeverse3d.texturing.plan import FAMILY_DEFAULTS
+from codeverse3d.texturing.materials import COARSE_TO_FINE, MATERIALS, family_for, pbr_for
 
 
-def test_coarse_families_of_the_texture_planner_all_resolve():
-    assert set(COARSE_TO_FINE) == set(FAMILY_DEFAULTS)
+def test_coarse_families_all_resolve():
     for coarse, fine in COARSE_TO_FINE.items():
         assert fine in MATERIALS, coarse
         assert pbr_for(coarse) is MATERIALS[fine]
@@ -47,22 +35,3 @@ def test_family_for_prefers_the_first_text_that_resolves():
     assert family_for("Unnamed", "SteamWand", "silicone tip").family == "rubber"
     assert family_for("", "", "") is None
     assert family_for("Widget42") is None
-
-
-def test_out_of_band_names_the_offending_factor():
-    chrome = MATERIALS["chrome"]
-    assert out_of_band(chrome, 0.95, 0.10) == []
-    assert out_of_band(chrome, 0.2, 0.10) == ["metallic"]
-    assert out_of_band(chrome, 0.95, 0.8) == ["roughness"]
-    assert out_of_band(MATERIALS["hardwood"], 0.9, 0.02) == ["metallic", "roughness"]
-
-
-def test_saturated_colour_means_paint_but_gold_still_means_metal():
-    assert saturation((0.5, 0.5, 0.5)) == 0.0
-    assert looks_painted("cast_iron", (0.10, 0.35, 0.18))     # dark green pump = painted iron
-    assert looks_painted("machined_steel", (0.85, 0.05, 0.05))
-    assert not looks_painted("cast_iron", (0.12, 0.12, 0.13))  # neutral: really is iron
-    assert not looks_painted("machined_steel", (0.85, 0.65, 0.28))  # titanium nitride is gold
-    assert not looks_painted("hardwood", (0.10, 0.35, 0.18))   # rule only applies to bare metals
-    assert is_warm_metal_hue((0.72, 0.40, 0.25)) and not is_warm_metal_hue((0.8, 0.1, 0.1))
-    assert set(MATERIALS) >= BARE_METAL_FAMILIES

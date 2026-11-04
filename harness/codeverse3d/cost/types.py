@@ -5,7 +5,7 @@ append-only (``ledger.py``) and aggregated into :class:`Summary` buckets
 (``ledger.summarise``).
 
 Nothing here imports the orchestrator or the tracks: the cost package is a
-leaf so any caller (track, judge, texturing, bench script) can use it.
+leaf so any caller (track, judge, bench script) can use it.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class Stage(StrEnum):
     RENDER = "render"
     JUDGE = "judge"
     PAIRWISE = "pairwise"
-    TEXTURE = "texture"
+    TEXTURE = "texture"  # historical: ledgers of runs that had a texture pass still carry it
     CAPTION = "caption"
     OTHER = "other"
 
@@ -48,13 +48,13 @@ STAGE_ORDER: tuple[str, ...] = tuple(s.value for s in Stage)
 
 
 class Role(StrEnum):
-    """Which job the model was doing (``Backends`` roles + the image model)."""
+    """Which job the model was doing (``Backends`` roles)."""
 
     PLANNER = "planner"
     GENERATOR = "generator"
     JUDGE = "judge"
     CAPTIONER = "captioner"
-    IMAGE = "image"
+    IMAGE = "image"  # historical: rows booked by the removed image model
     OTHER = "other"
 
 
@@ -88,7 +88,6 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("zone-layout", Stage.PLAN),
     ("plan", Stage.PLAN),
     ("judge", Stage.JUDGE),
-    ("texture", Stage.TEXTURE),
     ("caption", Stage.CAPTION),
 )
 
@@ -128,7 +127,6 @@ def role_for_stage(stage: Stage) -> Role:
 _BACKEND_PROVIDER: dict[str, str] = {
     "gemini": "gemini",
     "gemini-cli": "gemini",
-    "gemini-image": "gemini",
     "codex": "openai",
     "openai": "openai",
     "claude-code": "anthropic",
@@ -139,7 +137,7 @@ _BACKEND_PROVIDER: dict[str, str] = {
 
 
 def split_model_id(backend: str, model: str) -> tuple[str, str]:
-    """``("api-agent", "gemini:gemini-3.7-flash") -> ("gemini", "gemini-3.7-flash")``.
+    """``("api-agent", "gemini:gemini-3.8-flash") -> ("gemini", "gemini-3.8-flash")``.
 
     Falls back to the backend kind when the id carries no provider prefix
     (``("codex", "gpt-6.1-sol") -> ("openai", "gpt-6.1-sol")``); an unknown
@@ -148,7 +146,7 @@ def split_model_id(backend: str, model: str) -> tuple[str, str]:
     m = (model or "").strip()
     if ":" in m:
         provider, _, rest = m.partition(":")
-        while ":" in rest:  # api-agent:gemini:gemini-3.7-flash
+        while ":" in rest:  # api-agent:gemini:gemini-3.8-flash
             provider, _, rest = rest.partition(":")
         return provider.strip().lower(), rest.strip()
     kind = (backend or "").strip().lower()
@@ -159,13 +157,13 @@ def split_model_id(backend: str, model: str) -> tuple[str, str]:
 
 #: agent session kinds that are not themselves an API provider
 AGENT_KINDS = frozenset({"api-agent", "gemini-cli", "claude-code", "codex", "agy", "antigravity",
-                         "single-shot", "gemini-image"})
+                         "single-shot"})
 
 
 def normalise_ids(backend: str, model: str) -> tuple[str, str, str]:
     """``("gemini:gemini-3.1-pro-preview", "")`` → ``(backend, provider, model)`` with
-    one canonical spelling per model, so ``gemini:gemini-3.7-flash`` (judge id) and
-    ``gemini-3.7-flash`` (per-call usage) bucket together."""
+    one canonical spelling per model, so ``gemini:gemini-3.8-flash`` (judge id) and
+    ``gemini-3.8-flash`` (per-call usage) bucket together."""
     provider, bare = split_model_id(backend, model)
     kind = (backend or "").strip().lower()
     if ":" in kind:

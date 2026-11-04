@@ -98,7 +98,7 @@ and the zones, read by nothing in the harness.
 5. **Shadows are not jagged** (judged): a shadow texel ≤ ~0.05 m over the content.
    `sunRig({ bounds })` fits frustum, map size and bias to the radius it is given — pass the
    content radius, not the ground size; a hand-set `sun.shadow.*` must meet the same texel size.
-6. No {% if not (textures is defined and textures) %}textures, no {% endif %}DOM, no fetch, no Math.random.
+6. No textures, no DOM, no fetch, no Math.random.
 
 ## DON'T
 - No assets/zones here (they come from other modules). No cameras. No `scene.background` image loads.
@@ -116,10 +116,6 @@ table it prints: every authored camera must pass the exposure checks.
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if textures is defined and textures %}
-
-{{ textures }}
 {% endif %}
 {% if lib_interface is defined and lib_interface %}
 

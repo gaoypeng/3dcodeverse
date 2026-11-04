@@ -576,7 +576,7 @@ is why ab_plan refuses one.
 | `C3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |
 | `C3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
 | `C3D_AXIS_REPAIR` (upstream) | deterministic axis rewrite from the measured motion | on | upstream's, kept |
-| `C3D_SCENE_TEXTURES` | wire the scene texture pack into the loop: a stage before env/zones, and `texture_pack_prompt` in both prompts | **off** | added 2026-09-05 (D58) and NOT yet measured.  Four of five scored cells of the first scene battery complain the ground is a flat untextured colour, in near-identical words; the pack generator existed and had never been called from the loop.  Costs an image-model call per run (measured $0.15 for two 512 px textures, seam 0.001) |
+| `C3D_SCENE_TEXTURES` | the scene texture pack stage before env/zones | **off** | never measured; **removed from the tree 2026-11-03** with all image generation (owner: not a feature for now) |
 
 Not switched, because they are bug fixes rather than levers: the MCP verdict/failed split
 (§5.2), `<mimic>` support (§5.3), the provider-failure markers and retries (§5.4), the

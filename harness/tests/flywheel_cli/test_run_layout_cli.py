@@ -100,7 +100,7 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     tele = build_telemetry(ws, rec, write=False)
     assert tele.cost is not None and tele.cost.n_calls == 0 and tele.settings is not None
     ledger.write_text(json.dumps({"stage": "plan", "role": "planner", "label": "plan", "cost_usd": 0.5,
-                                  "model": "gemini-3.7-flash", "n_calls": 1}) + "\n")
+                                  "model": "gemini-3.8-flash", "n_calls": 1}) + "\n")
     tele = build_telemetry(ws, rec)
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
     assert {s.stage for s in tele.cost.by_stage} <= set(STAGE_ORDER)
@@ -129,34 +129,6 @@ def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_
         roles = {r.role: r for r in settings_snapshot(rec).roles}
         assert (roles["planner"].temperature, roles["planner"].source) == (want, "run"), language
         assert (roles["judge"].temperature, roles["judge"].thinking, roles["judge"].n_samples) == (0.2, "low", 3)
-
-
-def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
-    """Belt and braces: a stray canonical object_textured.glb from a rejected pass
-    is skipped by the deliverable AND by the gallery links (both gate on shipped)."""
-    from codeverse3d.texturing.run import report_path
-
-    ws, rec = fake_run
-    (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02" + b"\0" * 16)
-    report_path(ws).parent.mkdir(parents=True, exist_ok=True)
-
-    def texturing(shipped: bool) -> None:  # the pass report names the round GLB it started from
-        rec.extra["texturing"] = {"shipped": shipped, "glb_textured": "artifacts/object_textured.glb"}
-        ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
-
-    texturing(False)
-    build_deliverable(ws, rec, 1)
-    assert not (ws.deliverable / "object_textured.glb").exists()
-    entry = entry_from_record("runs", ws, rec)
-    assert "textured glb" not in {ln.label for ln in entry.links}
-    # ... and a SHIPPED pass is delivered and linked — with the round it textured, only
-    texturing(True)
-    build_deliverable(ws, rec, 0)
-    assert not (ws.deliverable / "object_textured.glb").exists()
-    build_deliverable(ws, rec, 1)
-    assert (ws.deliverable / "object_textured.glb").is_file()
-    entry = entry_from_record("runs", ws, rec)
-    assert "textured glb" in {ln.label for ln in entry.links}
 
 
 def test_a_cards_links_are_the_picked_rounds_never_the_last_builds(tmp_path):

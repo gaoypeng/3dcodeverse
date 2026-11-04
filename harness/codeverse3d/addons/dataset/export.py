@@ -126,10 +126,9 @@ def export_one(
         raise S.SampleError(f"entry file {ENTRY_FILE[record.spec.language]} missing at {code_source}")
     renders = S.copy_renders(ws, rnd, dest)
     meshes = S.copy_link_meshes(ws, rnd, dest) if record.spec.language is Language.URDF_BLENDER else []
-    textured = S.copy_textured(ws, record, rnd, dest)
     captions = load_captions(ws, record, captions_dir, slug=key)
     write_json_atomic(dest / "captions.json", _caption_texts(captions))
-    all_files = sorted(written + renders + meshes + textured + ["captions.json", "meta.json"])
+    all_files = sorted(written + renders + meshes + ["captions.json", "meta.json"])
     meta = S.build_meta(
         ws, record, key=key, entry=entry, files=all_files, renders=renders, rnd=rnd, code_source=code_source,
         code=files, captions=captions,

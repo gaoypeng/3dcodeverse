@@ -40,13 +40,13 @@ from tests.conftest import (  # noqa: E402
     fake_run_track,
 )
 
-ARMS = "harness:agy:gemini-3.6-flash,oneshot:claude-code,oneshot+repair:codex,oneshot:gemini:gemini-3.7-flash"
+ARMS = "harness:agy:gemini-3.8-flash,oneshot:claude-code,oneshot+repair:codex,oneshot:gemini:gemini-3.8-flash"
 
 
 def test_parse_arms():
     arms = parse_arms(ARMS)
     assert [a.kind for a in arms] == ["harness", "oneshot", "oneshot+repair", "oneshot"]
-    assert arms[0].target == "agy:gemini-3.6-flash" and arms[2].target == "codex"
+    assert arms[0].target == "agy:gemini-3.8-flash" and arms[2].target == "codex"
     assert arms[2].slug == "oneshot_plus_repair_codex"
     for bad in ("harness", "foo:bar", "oneshot:gemini-cli:x", "oneshot:nope"):
         with pytest.raises(ValueError):
@@ -57,10 +57,10 @@ def test_parse_arms():
 
 def test_spec_for_and_acceptance():
     b = Battery.load(BATTERY)
-    opts = CompareOptions(judge="gemini:gemini-3.1-pro-preview", loop_judge="gemini:gemini-3.7-flash")
+    opts = CompareOptions(judge="gemini:gemini-3.1-pro-preview", loop_judge="gemini:gemini-3.8-flash")
     harness = spec_for(b, b.prompts[0], parse_arm("harness:agy:gemini-4-argon"), opts)
     one = spec_for(b, b.prompts[0], parse_arm("oneshot:codex"), opts)
-    assert harness.backends.generator == "agy:gemini-4-argon" and harness.backends.judge == "gemini:gemini-3.7-flash"
+    assert harness.backends.generator == "agy:gemini-4-argon" and harness.backends.judge == "gemini:gemini-3.8-flash"
     assert harness.budget.max_rounds == 3
     assert one.backends.generator == "single-shot:codex" and one.constraints.must_have == b.prompts[0].must_have
 
@@ -82,7 +82,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     backends = {
         "claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"]),
         "codex": FakeBackend([BAD, BAD, GOOD.format(score=0.75)]),          # repair arm: 2 retries fix it
-        "gemini:gemini-3.7-flash": FakeBackend(["I refuse."]),              # unparseable → score 0
+        "gemini:gemini-3.8-flash": FakeBackend(["I refuse."]),              # unparseable → score 0
     }
     run_track = fake_run_track(0.9)
     deps = _deps(ev, backends, run_track)
@@ -91,7 +91,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     rows = run_matrix(BATTERY, out, parse_arms(ARMS), opts, deps)
     assert len(rows) == 8 and (out / "matrix.json").is_file()
     by = {(r.prompt_id, r.arm): r for r in rows}
-    h = by[("cmp_easy_stool", "harness:agy:gemini-3.6-flash")]
+    h = by[("cmp_easy_stool", "harness:agy:gemini-3.8-flash")]
     assert h.status == "scored" and h.score == pytest.approx(0.9) and h.passed and h.build_ok
     assert h.gen_cost_usd == pytest.approx(0.9) and h.harness_status == "max_rounds" and h.harness_loop_score == pytest.approx(0.8)
     assert h.judge_cost_usd == pytest.approx(0.01) and h.tris == 900 and Path(h.sheet).is_file()
@@ -102,7 +102,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     assert c.gen_cost_usd == pytest.approx(0.02) and c.kind == "oneshot"
     x = by[("cmp_easy_stool", "oneshot+repair:codex")]
     assert x.status == "scored" and x.score == pytest.approx(0.75) and x.attempts == 3 and x.gen_cost_usd == pytest.approx(0.06)
-    g = by[("cmp_easy_stool", "oneshot:gemini:gemini-3.7-flash")]
+    g = by[("cmp_easy_stool", "oneshot:gemini:gemini-3.8-flash")]
     assert g.status == "no_code" and g.score == 0.0 and g.passed is False and not g.build_ok and "unparseable" in g.error
     # the repair prompts carried the error report
     repairs = [c for c in backends["codex"].calls if "BUILD FAILED" in c]
@@ -112,7 +112,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     # pairwise: 1 harness arm × 3 one-shot arms × 2 prompts = 6 rows; the no-code arm is auto-decided
     pairs = list(latest(read_jsonl(out / "pairwise.jsonl", PairRow)).values())
     assert len(pairs) == 6
-    auto = [p for p in pairs if p.arm_b == "oneshot:gemini:gemini-3.7-flash"]
+    auto = [p for p in pairs if p.arm_b == "oneshot:gemini:gemini-3.8-flash"]
     assert all(p.winner == "a" and not p.judged for p in auto)
     judged = [p for p in pairs if p.judged]
     assert len(judged) == 4 and all(p.winner == "a" and p.cost_usd == pytest.approx(0.03) for p in judged)
@@ -123,11 +123,11 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     # the arm row is n | dropped | over budget | mean: the two loss columns stay blank when
     # nothing was lost, but must always be PRESENT so a drop can never hide (docs/EVAL.md §7)
     assert "| arm | kind | n | dropped | over budget | mean |" in md, md
-    assert "| harness:agy:gemini-3.6-flash | harness | 2 |  |  | 0.900 |" in md, md
+    assert "| harness:agy:gemini-3.8-flash | harness | 2 |  |  | 0.900 |" in md, md
     assert "| cmp_easy_stool | easy | 0.90✓ | 0.60 | 0.75✓ | 0.00 ✗build |" in md
-    assert "| harness:agy:gemini-3.6-flash | oneshot:claude-code | 2 | 2 | 0 | 0 | 100% |" in md
+    assert "| harness:agy:gemini-3.8-flash | oneshot:claude-code | 2 | 2 | 0 | 0 | 100% |" in md
     page = (out / "report.html").read_text()
-    assert "report_assets/cmp_easy_stool__harness_agy_gemini-3.6-flash.png" in page
+    assert "report_assets/cmp_easy_stool__harness_agy_gemini-3.8-flash.png" in page
     assert len(list((out / "report_assets").glob("*.png"))) == 6
 
     # ---- resume: nothing re-runs, nothing re-judged, results identical
@@ -155,10 +155,10 @@ def test_cell_errors_are_recorded_not_raised(tmp_path: Path):
 
     deps = CompareDeps(Exploding(), run_track=failing_track, oneshot_backend=lambda t: FakeBackend([GOOD.format(score=0.5)]),
                        pairwise_judge=FakePairwise)
-    rows = run_matrix(BATTERY, tmp_path / "o", parse_arms("harness:agy:gemini-3.6-flash,oneshot:codex"),
+    rows = run_matrix(BATTERY, tmp_path / "o", parse_arms("harness:agy:gemini-3.8-flash,oneshot:codex"),
                       CompareOptions(limit=1, parallel=1), deps)
     by = {r.arm: r for r in rows}
-    assert by["harness:agy:gemini-3.6-flash"].status == "error" and "planner down" in by["harness:agy:gemini-3.6-flash"].error
+    assert by["harness:agy:gemini-3.8-flash"].status == "error" and "planner down" in by["harness:agy:gemini-3.8-flash"].error
     assert by["oneshot:codex"].status == "error" and "blender missing" in by["oneshot:codex"].error
     assert (tmp_path / "o" / "report.md").is_file()
 
@@ -233,11 +233,11 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     deps = _deps(ev, {"claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"])}, run_track)
     out = tmp_path / "cmp"
     opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=2, pairwise=False)
-    rows = run_matrix(BATTERY, out, parse_arms("harness:agy:gemini-3.6-flash,oneshot:claude-code"),
+    rows = run_matrix(BATTERY, out, parse_arms("harness:agy:gemini-3.8-flash,oneshot:claude-code"),
                       opts, deps)
     assert len(rows) == 2
     cells = {r.arm: Path(r.workspace) for r in rows}
-    harness = cells["harness:agy:gemini-3.6-flash"]
+    harness = cells["harness:agy:gemini-3.8-flash"]
     assert [r.label for r in load_ledger(harness / "run")] == ["baseline"]
     assert [r.label for r in load_ledger(harness)] == ["judge:static_object:r00:s0"]
     oneshot = cells["oneshot:claude-code"]
@@ -256,7 +256,7 @@ def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):
         return inner(spec, ws, resume)
 
     out = tmp_path / "cmp"
-    arms = parse_arms("harness:agy:gemini-3.6-flash")
+    arms = parse_arms("harness:agy:gemini-3.8-flash")
     deps = _deps(ev, {}, run)
     opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=1, pairwise=False)
     cell = Path(run_matrix(BATTERY, out, arms, opts, deps)[0].workspace)

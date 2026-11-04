@@ -3,11 +3,9 @@ top of ``models/pricing.py``, and a pre-send cost guard.  (The audit of FINISHED
 its report are ``codeverse3d.addons.costreport``.)
 
 This package re-exports only the names other packages actually import through it.
-Everything else lives in — and is imported from — its own module: ``cost.profiles``
-(get_profile/PROFILES), ``cost.instrument`` (metered_chat_model/MeteredAgent),
-``cost.types`` (CallCost/CostBucket/Summary), ``cost.tally`` (the step clock).
-Reading the ledgers of finished runs back is ``codeverse3d.addons.costreport``.  Keeping the shim narrow also keeps profiles out of the eager import graph of
-``import codeverse3d.cost``.
+Everything else lives in — and is imported from — its own module: ``cost.instrument``
+(metered_chat_model/MeteredAgent), ``cost.types`` (CallCost/CostBucket/Summary), ``cost.tally`` (the step clock).
+Reading the ledgers of finished runs back is ``codeverse3d.addons.costreport``.
 
 Nothing here imports tracks/ or orchestrator/, so any layer may use it.
 """

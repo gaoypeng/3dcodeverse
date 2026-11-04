@@ -52,7 +52,7 @@ def captured(monkeypatch) -> dict[str, Any]:
 def _run(runs: Path, slug: str, language: Language, track: Track) -> None:
     ws = Workspace(runs / slug).create()
     ws.write_json(ws.spec_path, Spec(id=slug, track=track, language=language, prompt="a stool",
-                                     backends=Backends(generator="gemini-cli:gemini-3.6-flash")))
+                                     backends=Backends(generator="gemini-cli:gemini-3.8-flash")))
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00")
 
 

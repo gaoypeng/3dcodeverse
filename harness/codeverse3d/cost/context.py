@@ -5,11 +5,11 @@ role" for the call that is about to happen.  Precedence:
 
 1. what the caller passed explicitly (a judge knows it is judging) — always wins;
 2. a label that names a **job of its own** (``judge:…``, ``planner``,
-   ``texture_gate``, ``caption…``, ``pairwise:…`` — :data:`SELF_DESCRIBING`).
+   ``caption…``, ``pairwise:…`` — :data:`SELF_DESCRIBING`).
    Such a call is not the work of whatever agent session happens to surround it,
    so it outranks the ambient context.  This is the fix for a measured
    mis-attribution: an in-process tool that bills a model *inside* an agent
-   session (a texture pass, a captioner, a judge invoked as a tool) was filed
+   session (a captioner, a judge invoked as a tool) was filed
    under the session's ``stage=refine / role=generator``;
 3. the ambient context (:func:`call_context`) — set by
    :mod:`codeverse3d.cost.instrument` around an agent session.  It beats a
@@ -150,9 +150,6 @@ _LABEL_HINTS: tuple[tuple[str, Stage, Role], ...] = (
     ("plan", Stage.PLAN, Role.PLANNER),
     ("judge", Stage.JUDGE, Role.JUDGE),
     ("pairwise", Stage.PAIRWISE, Role.JUDGE),
-    ("texture_gate", Stage.TEXTURE, Role.JUDGE),
-    ("texture", Stage.TEXTURE, Role.OTHER),
-    ("scene_texture", Stage.TEXTURE, Role.OTHER),
     ("caption", Stage.CAPTION, Role.CAPTIONER),
     ("calibrate", Stage.JUDGE, Role.JUDGE),
 )
@@ -160,7 +157,7 @@ _LABEL_HINTS: tuple[tuple[str, Stage, Role], ...] = (
 
 def context_from_label(label: str) -> CallContext:
     """Best-effort attribution from a ``ChatRequest.label``: its head names the job
-    (``judge:…``, ``texture_plan``, a generation stage) and the judge's
+    (``judge:…``, a generation stage) and the judge's
     ``…:r<NN>:s<k>`` tag carries the round."""
     low = (label or "").strip()
     if not low:
@@ -192,11 +189,11 @@ def _round_from_label(label: str) -> int | None:
 
 
 #: Stages a label can name that describe a job of their own.  A call whose label
-#: says "judge" / "plan" / "texture" / "caption" / "pairwise" is doing that job
+#: says "judge" / "plan" / "caption" / "pairwise" is doing that job
 #: even when an agent session surrounds it, so it outranks the ambient context;
 #: a generation stage in a label does not (see the module docstring).
 SELF_DESCRIBING: frozenset[Stage] = frozenset(
-    {Stage.PLAN, Stage.JUDGE, Stage.PAIRWISE, Stage.TEXTURE, Stage.CAPTION})
+    {Stage.PLAN, Stage.JUDGE, Stage.PAIRWISE, Stage.CAPTION})
 
 
 def attribute(explicit: CallContext | None = None, *, label: str = "") -> CallContext:

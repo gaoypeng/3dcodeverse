@@ -8,11 +8,11 @@ backends.  **The coding agent is always a VENDOR's** — antigravity (`agy`, Goo
 models) / claude-code / codex — and the harness supplies the workspace, the prompt and the
 3D tools its track can use (over MCP; 16 in the registry, filtered per track — D48
 review), then reads the result.  The harness's OWN api use is planning,
-judging, single-shot file generation and the texture pass (Gemini/Anthropic/OpenAI).
+judging, and single-shot file generation (Gemini/Anthropic/OpenAI).
 It does not implement an agent loop: the in-process `api-agent` was deleted
 2026-08-28 (owner's call — reimplementing what the vendors already ship was never
-this project's job).  Plus an optional text-to-image texture pass and a
-data-flywheel record per run.
+this project's job).  Plus a data-flywheel record per run.  There is no
+image-generation step (owner, 2026-11-03: not a feature for now).
 
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
 really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
@@ -73,9 +73,9 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   `default_tools_approval_mode="approve"`) and `claude` run on local subscriptions: test
   lightly.  No Anthropic/OpenAI API keys here.  `setup.sh` keeps all three at their latest release
   (`--no-clis` skips); no version is pinned or required — `doctor` prints what it found (owner, 2026-11-03; D115).
-- DEFAULT generator: `agy:gemini-4-argon` (D103, 2026-10-13; `gemini-cli:gemini-3.7-flash` before); planner and
+- DEFAULT generator: `agy:gemini-4-argon` (D103, 2026-10-13); planner and
   captioner default to `gemini:gemini-4-argon` too.
-  `gemini-3.7-flash` stays the cheap API model (single-shot / economy, flash judge — lenient; needs
+  `gemini-3.8-flash` is the cheap API model (single-shot, flash judge — lenient; needs
   the defect checklist for range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.  The argon loop judges with
   `gemini:gemini-4-argon` at `judge.thinking=medium` (argon does not think at 'low'; D105) on rubric `scene`.
@@ -90,7 +90,6 @@ pip install -e harness   # once, from the 3dcodeverse checkout (entry points: 3d
 cd harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
-3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == C3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator agy:gemini-4-argon
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
@@ -101,14 +100,13 @@ cd harness
 3dcodeverse make "..." --variant argon      # per-model prompt/skill overlay: prompts/variants/<name>/ + skills/variants/<name>/ (D105; C3D_VARIANT, C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}')
 3dcodeverse make "..." --track scene --language scene_blender --variant argon_raw   # RAW mode (D113): no src/lib ships, argon writes every line of bpy ([knobs] scene_lib = false; C3D_SCENE_LIB)
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
-3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
+3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
-3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
+3dcode pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
 3dcode resume <slug> · 3dcode show <slug> [--section status] (`status` = its STATUS section) · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3 --thinking medium]
-3dcode texture pass <slug> [--no-judge] · 3dcode texture scene-pack <slug> · 3dcode texture show <slug>
 3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>
 3dcode cost <slug> · 3dcode cost --runs-dir ../eval/bench/out/<battery> · 3dcode cost cache <slug>
-3dcode cost prices [--stale] · 3dcode cost profiles · 3dcode cost estimate gemini:gemini-3.1-pro-preview --in 12000
+3dcode cost prices [--stale] · 3dcode cost estimate gemini:gemini-3.1-pro-preview --in 12000
 3dcode flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcode flywheel pairs runs/ pairs.jsonl
 3dcode flywheel caption <slug> [--out dir]   # the gallery is `3dcode gallery build --embed`
 3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
@@ -116,8 +114,8 @@ cd harness
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 (cd ../eval && python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon --languages scene_threejs,scene_blender --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 && python -m bench.loop generate --iter 0 && python -m bench.loop run --iter 0 && python -m bench.loop diagnose --iter 0)   # the argon loop (eval/docs/EVAL.md §10): then compare --iter N --against M · judge-calib --iter N · accept|rollback --iter N · status
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
-python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:agy:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
-python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §8): bless only a change a model is MEANT to see
+python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:agy:gemini-4-argon,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
+python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §7): bless only a change a model is MEANT to see
 python -m pytest tests -q -m "not live"            # the offline suite (real Blender + headless Chrome + CadQuery)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure python   (the bench tests: `cd ../eval && python -m pytest`)
 # (how many: `--collect-only`; a count written here drifts every commit)

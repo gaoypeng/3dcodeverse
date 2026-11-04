@@ -375,10 +375,6 @@ def _diff_enabled(flag: bool) -> bool:
     return flag and get_settings().reference_diff
 
 
-def _is_synth(note: str) -> bool:
-    return note.startswith("SYNTHESIZED")
-
-
 class ReferenceJudge(VlmJudge):
     """VlmJudge + reference images + measured silhouette + named mismatches."""
 
@@ -406,18 +402,11 @@ class ReferenceJudge(VlmJudge):
     # ------------------------------------------------------------------ hook
     def context(self, inp: JudgeInput) -> JudgeContext:
         refs = [r for r in inp.spec.references if Path(r.path).is_file()]
-        synth = bool(refs) and all(_is_synth(r.note) for r in refs)
         images: list[tuple[str, str]] = []
         for i, r in enumerate(refs[:3], 1):
-            tag = "SYNTHESIZED " if _is_synth(r.note) else ""
             note = f" — {r.note}" if r.note else ""
-            images.append((f"{tag}REFERENCE {i}/{min(len(refs), 3)} ({r.role}){note}", r.path))
+            images.append((f"REFERENCE {i}/{min(len(refs), 3)} ({r.role}){note}", r.path))
         blocks: list[str] = []
-        if synth:
-            blocks.append(
-                "NOTE ON THE REFERENCE: it was SYNTHESIZED from the brief by an image model, not photographed. "
-                "It is a shape/part-inventory target only. Where it disagrees with the brief or the stated "
-                "dimensions, the BRIEF is correct and the render must follow the brief.")
         conflict = self.dimension_conflict(inp, refs)
         note = conflict_note(conflict)
         if note:
@@ -435,7 +424,7 @@ class ReferenceJudge(VlmJudge):
             blocks.append(
                 f"MEASURED SILHOUETTE (harness): {match.view} render vs reference {Path(match.reference).name}: "
                 f"IoU {match.iou:.3f} → silhouette_match score {score:.2f}{why}. extra: {extra}")
-        diff = self.reference_diff(inp, refs, match, synthesized=synth) if refs else None
+        diff = self.reference_diff(inp, refs, match) if refs else None
         if diff is not None and diff.as_text():
             blocks.append(diff.as_text())
         return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images,
@@ -467,7 +456,7 @@ class ReferenceJudge(VlmJudge):
         return iou_to_score(match.iou), ""
 
     # ------------------------------------------------------------------ mismatch pass
-    def reference_diff(self, inp: JudgeInput, refs: list[Any], match: ReferenceMatch | None, *, synthesized: bool) -> Any | None:
+    def reference_diff(self, inp: JudgeInput, refs: list[Any], match: ReferenceMatch | None) -> Any | None:
         """One extra vision call naming concrete mismatches.  ``None`` when disabled;
         never raises (a failed diff simply contributes no text)."""
         if not _diff_enabled(self.diff):
@@ -478,7 +467,7 @@ class ReferenceJudge(VlmJudge):
                                                 "view": match.view, "reference": Path(match.reference).name}
         try:
             return compare(inp.spec, targets, renders, model=self._pick_diff_model(),
-                           part_names=inp.part_names, measured=measured, synthesized=synthesized)
+                           part_names=inp.part_names, measured=measured)
         except Exception as e:  # noqa: BLE001 — an advisory pass must never fail a verdict
             log.warning("reference diff pass failed: %s", e)
             return None

@@ -38,7 +38,7 @@ from codeverse3d.contracts.common import (
 )
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.record import git_history
-from codeverse3d.record.deliverable import deliverable_path, round_outputs, texture_shipped_for
+from codeverse3d.record.deliverable import round_outputs
 from codeverse3d.record.record import effective_judgment, round_summary, stop_reason
 from codeverse3d.workspace import Workspace
 
@@ -222,32 +222,6 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
         src = select.round_file(ws, rnd, name)
         if src is not None and src.stat().st_size < MAX_GLB_BYTES:
             _cp(src, name)
-    return out
-
-
-def copy_textured(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, dest: Path) -> list[str]:
-    """When a texture pass shipped from round ``rnd``'s own GLB (``texture_shipped_for``; a pack
-    made for another round is not this sample's): copy the generated ``textures/*.png`` and
-    ``object_textured.glb`` into the sample."""
-    tex = record.extra.get("texturing") or {}
-    if not texture_shipped_for(ws, record, round_outputs(ws, rnd)):
-        return []
-    out: list[str] = []
-    tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
-    if not tex_dir.is_dir() and (ws.deliverable / "textures").is_dir():
-        tex_dir = ws.deliverable / "textures"  # packaged copy (new layout)
-    if tex_dir.is_dir():
-        for p in sorted(tex_dir.glob("*.png")):
-            (dest / "textures").mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, dest / "textures" / p.name)
-            out.append(f"textures/{p.name}")
-    glb = ws.rebase(str(tex.get("glb_textured") or ""))
-    if not glb.is_file():
-        glb = deliverable_path(ws, "object_textured.glb")
-    if glb is not None and glb.stat().st_size < MAX_GLB_BYTES:
-        (dest / "renders").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(glb, dest / "renders" / "object_textured.glb")
-        out.append("renders/object_textured.glb")
     return out
 
 

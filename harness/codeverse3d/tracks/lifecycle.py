@@ -815,7 +815,7 @@ class BaseTrack:
             # in ``rounds``, so name them here (their dollars are in the ledger, the total).
             extra["aborted_rounds"] = ctx.extra["aborted_rounds"]
         # A resume rewrite must not drop what earlier sessions / other packages put on
-        # the record post-hoc (flywheel captions, texturing/run.record_texturing, prior
+        # the record post-hoc (flywheel captions, prior
         # sessions' aborted_rounds, prompt hashes of stages not re-executed): seed from
         # the prior record — unknown keys preserved, this session's values win.
         # the variant this session ran under (D105): name/version/hash beside the prompt hashes, so two

@@ -41,8 +41,8 @@ def test_estimate_is_within_15_percent_of_the_bill():
     from codeverse3d.models import get_chat_model
 
     text = _stable_text()[:20_000]
-    est = estimate_call("gemini:gemini-3.7-flash", prompt=text, output_tokens=40)
-    usage = _send(get_chat_model("gemini:gemini-3.7-flash"),
+    est = estimate_call("gemini:gemini-3.8-flash", prompt=text, output_tokens=40)
+    usage = _send(get_chat_model("gemini:gemini-3.8-flash"),
                   text + "\n\nReply with ONE JSON object {\"ok\": true}.")
     assert abs(est.input_tokens - usage.input_tokens) / usage.input_tokens < 0.15
 
@@ -63,7 +63,7 @@ def test_a_metered_run_reconciles_with_its_own_record(tmp_path: Path):
     runs = tmp_path / "runs"
     r = CliRunner().invoke(app, [
         "make", "a smooth grey ceramic bowl", "--track", "static_object", "--language", "blender",
-        "--generator", "single-shot:gemini:gemini-3.7-flash", "--judge", "gemini:gemini-3.7-flash",
+        "--generator", "single-shot:gemini:gemini-3.8-flash", "--judge", "gemini:gemini-3.8-flash",
         "--rounds", "0", "--max-minutes", "15",
         "--runs-dir", str(runs), "--slug", "cost_live_bowl"])
     assert r.exit_code in (0, 1), r.output  # a failed judge/build is still a metered run

@@ -177,20 +177,11 @@ def test_export_pairs_and_a_core_only_install_over_a_runs_dir(runs_dir: Path, tm
     assert len(runs) == 3 and bad == ["broken"]
 
 
-def test_export_of_one_run_with_captions_and_a_texture_pass_and_reexport(fake_run, tmp_path: Path):
-    from codeverse3d.texturing.run import report_path
-    from tests.flywheel_cli.conftest import tiny_png
-
+def test_export_of_one_run_with_captions_and_reexport(fake_run, tmp_path: Path):
     ws, rec = fake_run
     rec.extra["captions"] = {"detailed": "A chair.", "instruction": "Write a Blender Python script for a chair.",
                              "factory": "Build seat then legs.", "provenance": {"captioner": "gemini:x"}}
-    tiny_png(ws.artifacts / "textures" / "wood.png")
-    (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02\x00\x00\x00" + b"\0" * 8)
-    rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb",
-                              "textures_dir": "artifacts/textures"}
     ws.write_json(ws.record_path, rec)
-    # the pass's report names the GLB it started from: the exported round's (r01, the pick)
-    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
     out = tmp_path / "ds"
     export_samples(ws.root.parent, out)
     rep = export_samples(ws.root.parent, out)  # re-export overwrites, index stays at 1 row
@@ -198,18 +189,6 @@ def test_export_of_one_run_with_captions_and_a_texture_pass_and_reexport(fake_ru
     row = json.loads((out / "metadata.jsonl").read_text().splitlines()[0])
     assert row["captions"]["factory"] == "Build seat then legs."
     assert json.loads(row["meta_json"])["has_captions"] is True
-    sdir = next(out.rglob("meta.json")).parent
-    assert (sdir / "textures" / "wood.png").is_file()
-    assert (sdir / "renders" / "object_textured.glb").is_file()
-    meta = json.loads((sdir / "meta.json").read_text())
-    assert "textures/wood.png" in meta["files"] and "renders/object_textured.glb" in meta["files"]
-    # not shipped → nothing copied
-    rec.extra["texturing"]["shipped"] = False
-    ws.write_json(ws.record_path, rec)
-    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
-    export_samples(ws.root.parent, tmp_path / "ds2")
-    sdir2 = next((tmp_path / "ds2").rglob("meta.json")).parent
-    assert not (sdir2 / "textures").exists()
 
 
 # --------------------------------------------------------------------------- finding: repair pairs (pairs.py:115)

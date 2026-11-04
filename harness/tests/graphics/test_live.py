@@ -20,7 +20,7 @@ from codeverse3d.tracks.graphics import (
 from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.live
-MODEL = "gemini:gemini-3.7-flash"
+MODEL = "gemini:gemini-3.8-flash"
 
 
 @pytest.fixture(scope="module")

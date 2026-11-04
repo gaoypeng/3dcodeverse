@@ -10,7 +10,6 @@ from PIL import Image, ImageDraw
 
 import codeverse3d.spatial.tools  # noqa: F401  (registers every tool)
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
-from codeverse3d.reference import SYNTH_NOTE
 from codeverse3d.spatial.registry import ToolContext, get_tool
 from codeverse3d.workspace import Workspace
 from tests.spatial_tools.conftest import build_stool
@@ -29,7 +28,7 @@ def ctx(tmp_ws: Workspace, tmp_path: Path, monkeypatch) -> ToolContext:
     ref = _ref_png(tmp_path / "ref.png")
     tmp_ws.spec_path.write_text(json.dumps({
         "id": "t", "track": "static_object", "language": "blender", "prompt": "a stool",
-        "references": [{"path": str(ref), "role": "target", "note": f"{SYNTH_NOTE} [front view, x]"}]}))
+        "references": [{"path": str(ref), "role": "target", "note": "my photo"}]}))
 
     def fake_render(_ctx, glb, *, views, mode="shaded", size=512, **kw):
         out = []
@@ -54,7 +53,6 @@ def test_compare_reference_builds_a_side_by_side_sheet(ctx: ToolContext):
     with Image.open(obs.images[0]) as sheet:  # 3 tiles side by side
         assert sheet.width > sheet.height
     assert "part inventory" in obs.text and "counts" in obs.text
-    assert "SYNTHESIZED" in obs.text and "follow the BRIEF" in obs.text
 
 
 def test_usage_errors_are_didactic(ctx: ToolContext):

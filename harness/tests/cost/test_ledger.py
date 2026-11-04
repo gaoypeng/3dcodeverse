@@ -10,7 +10,7 @@ from codeverse3d.cost.ledger import existing_ledger_path, open_run_ledger
 
 
 def _usage(**kw: object) -> Usage:
-    base = {"backend": "gemini", "model": "gemini-3.7-flash", "input_tokens": 100_000,
+    base = {"backend": "gemini", "model": "gemini-3.8-flash", "input_tokens": 100_000,
             "cached_tokens": 80_000, "output_tokens": 1_000}
     base.update(kw)
     return Usage(**base)  # type: ignore[arg-type]

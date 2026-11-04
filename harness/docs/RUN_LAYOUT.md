@@ -7,7 +7,7 @@ three separate buckets:
 | bucket | question | contents |
 |---|---|---|
 | `deliverable/` | **what did I get?** | ONE round, the one a pick chose (`3dcode pick`; `3dcode make` picks by score after the run): its code snapshot, its artifact (`object.glb` / `robot.urdf` + `meshes/` / `frames/` + `preview.gif` / the scene bundle), its contact sheet, `captions.json`, `manifest.json` |
-| `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `textures/`, `tool_renders/` |
+| `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `tool_renders/` |
 | `telemetry/` | **what did it cost and how was it configured?** | `cost.jsonl` (the ledger), `settings.json`, `cost.json`, plus `events.jsonl`, `run_state.json`, `stages/`, `trajectories/` |
 
 The run's **identity** stays at the root, where every tool has always looked for it.
@@ -22,13 +22,11 @@ runs/<slug>/
                                              rounds/rNN.json + each round's commit); the JSONL event log
   src/            agent-authored RAW code, the live working tree (git; commits: spec, skeleton, pre:/agent:<label>
                   around every session, rNN <kind>; ends at the LAST round)
-  public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
+  public/         (scene) compiled assets public/assets/<snake>.glb
   deliverable/    (a) the hand-over — one round, written by a pick
   evidence/  ->  artifacts/                  (b) the proof
   artifacts/      the LAST round's build: object.glb object.stl|step robot.urdf meshes/ build.json census.json
-                  measurement.json …; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json;
-                  texturing (a pick's --texture): object_textured.glb textures/{<id>.png, texture_plan.json,
-                  texturing.json, gate/}
+                  measurement.json …; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json
     rNN/          each round's own build, copied when it built (below)
     renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png
                   metrics.json scenes; frame_t<t>.png metrics.json graphics — the round's own frame metrics)
@@ -60,7 +58,7 @@ Only **one** physical copy of anything exists; the second name is a relative
 symlink.  Which side is physical was not a matter of taste:
 
 * **`artifacts/` stays physical, `evidence/` is the alias.**  Six packages
-  (`spatial`, `languages`, `tracks`, `texturing`, `judges`, `flywheel`) write
+  (`spatial`, `languages`, `tracks`, `judges`, `flywheel`) write
   into `ws.artifacts`, and ~50 completed runs have absolute `artifacts/...`
   paths frozen inside `record.json`, `rounds/rNN.json` and `views.json`.
   Moving the bytes would either break those paths or force a rewrite of files
@@ -114,23 +112,22 @@ Built for ONE round by `codeverse3d.addons.select.package(run_dir, round)` →
 `record.deliverable.build_deliverable(ws, record, round)` — from that round's commit and its
 `artifacts/rNN/`, never a rebuild.  `3dcode make` / `resume` package `select.pick(by="score")`
 after the run (highest effective judged score, ties → fewer gate errors → the earlier round;
-`--no-pick` skips it); `3dcode pick <slug> [--by pairwise] [--round N] [--texture]` re-packages
+`--no-pick` skips it); `3dcode pick <slug> [--by pairwise] [--round N]` re-packages
 any round:
 
 ```
 deliverable/
   src/**            raw code at the round's commit (public/** too, for scenes)
-  object.glb  object.stl  object.step  object_textured.glb
+  object.glb  object.stl  object.step
   robot.urdf  meshes/<link>.glb                 (articulated)
   frames/*.png  frames_sheet.png  preview.gif   (graphics: the round's judged frames)
-  textures/<id>.png                              (when a texture pass of THIS round shipped)
   sheet.png         the round's contact sheet
   captions.json     {detailed, instruction, factory} when captioned
   manifest.json     every file with role, size, sha256
 ```
 
 Beside `record.json`, `selection.json` says which round that is and why: `{round, method
-(score | pairwise | round), scores (every round's effective score), textured, selected_at}`.
+(score | pairwise | round), scores (every round's effective score), selected_at}`.
 `addons.select.summarise` reads it, so every reader reports the round that was handed over.
 
 Every file is hashed with sha256 and is a real copy (never a hard link), so editing the
@@ -143,7 +140,7 @@ produces no diff.
 
 * **`settings.json`** (`SettingsSnapshot`) — model id, thinking level,
   temperature and judge sample count per role; rounds + budget; candidates;
-  seed; texture flag; rubric name **and its content hash**; prompt / skill
+  seed; rubric name **and its content hash**; prompt / skill
   hashes; tool versions (python, blender, node, three, chrome, puppeteer);
   harness version + git sha; key-pool size; **price-table hash**; resolved
   render and limit settings.  Sampling values are what the track stamped as it ran,
@@ -161,7 +158,7 @@ produces no diff.
   ledger's own `summarise`: the total (= `record.total_usage`, the ledger's sum at list
   price — post-run work a pick buys joins it the next time the run is packaged), tokens, per
   stage (`plan / assets / env / zones / baseline / refine / repair / judge / pairwise /
-  texture / …`), per role, per model, per round, and the run's minutes against
+  …`), per role, per model, per round, and the run's minutes against
   `max_minutes`.
 
 ## `record.json`

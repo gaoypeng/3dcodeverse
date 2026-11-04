@@ -136,7 +136,7 @@ class BenchOptions(BaseModel):
     ids: list[str] = Field(default_factory=list)
     tiers: list[str] = Field(default_factory=list)
     # No "start over" switch: --redo-status is the ONE way to re-run a recorded prompt,
-    # because it archives the old tree first (RUNBOOK 7.u).  The `resume` flag it replaced
+    # because it archives the old tree first (RUNBOOK 6.u).  The `resume` flag it replaced
     # skipped that archive and resumed the old workspace, spec and clock (dropped 2026-08-30).
     redo_status: list[str] = Field(default_factory=list,
                                    description="re-run prompts already recorded with one of these statuses "
@@ -424,7 +424,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "0 = all at once); a cell that starts when another finishes is staggered by itself")
     ap.add_argument("--rounds", type=int, default=4)
     ap.add_argument("--max-minutes", type=float, default=60.0,
-                    help="wall-clock budget per run; size it to the weather (RUNBOOK 7.x: 120 in a 503 storm, "
+                    help="wall-clock budget per run; size it to the weather (RUNBOOK 6.x: 120 in a 503 storm, "
                          "else runs burn the hour with no judged round)")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--id", dest="ids", action="append", default=[], help="only this prompt id (repeatable)")

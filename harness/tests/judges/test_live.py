@@ -17,7 +17,7 @@ from codeverse3d.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import make_measurement, make_renders, make_spec
 
 pytestmark = pytest.mark.live
-MODEL = "gemini:gemini-3.7-flash"
+MODEL = "gemini:gemini-3.8-flash"
 
 
 def _stool_glb(out: Path) -> Path:

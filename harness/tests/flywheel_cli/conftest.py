@@ -45,17 +45,17 @@ def tiny_png(path: Path, rgb: tuple[int, int, int] = (200, 30, 30), size: int = 
 
 def _judgment(score: float, passed: bool, plan: list[str]) -> Judgment:
     return Judgment(
-        rubric="static_object", judge_backend="gemini:gemini-3.7-flash",
+        rubric="static_object", judge_backend="gemini:gemini-3.8-flash",
         scores={"fidelity": score, "geometry": score}, overall=score, passed=passed, summary=f"score {score}",
         issues=[JudgeIssue(target="Leg", kind="geometry", severity="major", detail="legs too thin")] if not passed else [],
         improvement_plan=[ImprovementItem(target="Leg", kind="geometry", instruction=s, priority=1) for s in plan],
-        acceptance_results={"a1": passed}, usage=Usage(backend="gemini", model="gemini-3.7-flash", cost_usd=0.01),
+        acceptance_results={"a1": passed}, usage=Usage(backend="gemini", model="gemini-3.8-flash", cost_usd=0.01),
     )
 
 
 def make_fake_run(
     runs_dir: Path, slug: str = "wooden_chair_ab12cd34", *, prompt: str = "a wooden dining chair",
-    language: Language = Language.BLENDER, generator: str = "gemini-cli:gemini-3.6-flash",
+    language: Language = Language.BLENDER, generator: str = "gemini-cli:gemini-3.8-flash",
     scores: tuple[float, float] = (0.55, 0.80), with_repair: bool = False,
 ) -> tuple[Workspace, RunRecord]:
     ws = Workspace(runs_dir / slug).create()
@@ -88,7 +88,7 @@ def make_fake_run(
             gates=[GateReport(gate="lint", passed=True)],
             renders=RenderSet(views=views, contact_sheet=str(sheet)),
             judgment=_judgment(sc, sc >= 0.75, ["thicken the legs", "add a back rail"]),
-            usage=Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=1000, output_tokens=500, cost_usd=0.02),
+            usage=Usage(backend="gemini", model="gemini-3.8-flash", input_tokens=1000, output_tokens=500, cost_usd=0.02),
             duration_s=12.0, steps=[StepTime(step="generate", wall_s=12.0)],
         ))
     if with_repair:
@@ -110,7 +110,7 @@ def make_fake_run(
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + bytes([len(scores) - 1]) * 16)  # the last round
     # the ledger its calls wrote: the planner, then one session per round ($0.06, the record's total)
     ledger = ws.telemetry / "cost.jsonl"
-    record_call(Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=500, cost_usd=0.02),
+    record_call(Usage(backend="gemini", model="gemini-3.8-flash", input_tokens=500, cost_usd=0.02),
                 run=slug, stage="plan", label="planner", ledger=ledger)
     for r in rounds[:2]:
         record_call(r.usage, run=slug, round=r.index, stage=r.kind, label=r.kind, source="session", ledger=ledger)

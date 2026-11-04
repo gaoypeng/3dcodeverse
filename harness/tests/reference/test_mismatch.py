@@ -33,17 +33,16 @@ def test_compare_names_mismatches_and_builds_text(tmp_path: Path):
     ref, ren = _png(tmp_path / "ref.png"), _png(tmp_path / "ren.png")
     chat = FakeChatModel(by_label={"reference_diff": [ANSWER]})
     d = compare(make_spec(), [ref], [ren], model=chat, part_names=["Hopper", "Body"],
-                measured={"iou": 0.42, "aspect_ratio_err": 0.13, "reliable": True, "view": "front"},
-                synthesized=True)
+                measured={"iou": 0.42, "aspect_ratio_err": 0.13, "reliable": True, "view": "front"})
     assert len(d.mismatches) == 4 and d.iou == 0.42 and d.view == "front"
     text = d.as_text()
-    assert "IoU 0.420" in text and "8 flutes" in text and "SYNTHESIZED" in text
+    assert "IoU 0.420" in text and "8 flutes" in text
     assert "already matching: the crank handle is present" in text
     req = chat.requests[0]
     labels = [p.label for p in req.messages[0].parts if getattr(p, "label", None)]
     assert labels == ["REFERENCE 1", "RENDER 1 (ren)"]
     assert "Hopper, Body" in req.messages[0].parts[0].text
-    assert "the BRIEF wins" in req.messages[0].parts[0].text  # synthesized caveat
+    assert "Ignore anything the brief overrides" in req.messages[0].parts[0].text
     assert [m.severity for m in d.top(3)] == ["critical", "major", "minor"]
 
 

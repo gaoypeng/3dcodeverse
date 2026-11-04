@@ -95,17 +95,15 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     from codeverse3d.judges.vlm_judge import VlmJudge
 
     s = Settings()
-    s.apply_profile("economy", force=True)
     monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
     j = VlmJudge(rubric="static_object", model_id="fake:fake-1")
-    # no profile shrinks the payload (docs/COST.md §14, D47)
+    # nothing shrinks the payload (docs/COST.md §14, D47)
     assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 5
     # a caller that states a size still gets it — the dial is the default, not a cap
     explicit = VlmJudge(rubric="static_object", model_id="fake:fake-1", max_px=768, detail_crops=1)
     assert explicit.max_px == 768 and explicit.detail_crops == 1
     s2 = Settings(judge={"detail_crops": 0, "max_px": 512})
     monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s2)
-    s2.apply_profile("economy")  # a stated payload survives a profile
     assert VlmJudge(rubric="static_object", model_id="fake:fake-1").detail_crops == 0
     get_settings.cache_clear()
 

@@ -265,80 +265,6 @@ def check_backends(backends: Any) -> None:
             raise CliError(f"--{role} {value!r}: {e}", code=2) from None
 
 
-# --------------------------------------------------------------------------- cost profile
-def active_profile(settings: Any | None = None) -> Any:
-    """The :class:`~codeverse3d.cost.profiles.Profile` the current settings name."""
-    from codeverse3d.cost.profiles import get_profile
-
-    return get_profile((settings or get_settings()).profile)
-
-
-@dataclass(frozen=True)
-class ResolvedDial:
-    """Every profile-controlled value, after the profile and the user's own
-    settings/flags have been folded together.  This is what a run actually gets."""
-
-    profile: str
-    generator: str
-    planner: str
-    judge: str
-    captioner: str
-    judge_samples: int
-    judge_max_px: int
-    judge_montages: int
-    judge_detail_crops: int
-    agent_max_turns: int
-    rounds: int
-    candidates: int
-    texture: bool
-    max_minutes: float
-
-
-def resolve_dial(
-    settings: Any | None = None,
-    profile_flag: str | None = None,
-    *,
-    rounds: int | None = None,
-    candidates: int | None = None,
-    max_minutes: float | None = None,
-    texture: bool = False,
-) -> ResolvedDial:
-    """The single resolver for the cost dial — used by ``3dcode make`` and by the tests.
-
-    ``--profile X`` (``profile_flag``) *forces* the dial over anything the user
-    stated in ``config.yaml`` / ``C3D_*``; ``C3D_PROFILE=X`` set the same dial
-    as a *default* when :func:`codeverse3d.config.get_settings` built the settings.
-    With nothing else stated the two paths therefore resolve **identically** —
-    that equality is what ``tests/cost/test_profiles.py`` asserts, and it
-    is the bug this function exists to prevent: the run shape (candidates, the
-    texture pass) used to be read off the flag and so applied to only one path.
-
-    An explicit CLI flag (``--rounds`` / ``--candidates`` / ``--max-minutes`` /
-    ``--texture``) always wins over both.
-    """
-    settings = settings or get_settings()
-    try:
-        prof = settings.apply_profile(profile_flag, force=True) if profile_flag else active_profile(settings)
-    except ValueError as e:  # e.g. `--profile bogus`: a typed error, not a raw traceback
-        raise CliError(str(e), code=2) from e
-    return ResolvedDial(
-        profile=prof.name,
-        generator=settings.default_generator,
-        planner=settings.default_planner,
-        judge=settings.default_judge,
-        captioner=settings.default_captioner,
-        judge_samples=int(settings.judge.samples),
-        judge_max_px=int(settings.judge.max_px),
-        judge_montages=int(settings.judge.montages),
-        judge_detail_crops=int(settings.judge.detail_crops),
-        agent_max_turns=int(settings.limits.agent_max_turns),
-        rounds=prof.rounds if rounds is None else int(rounds),
-        candidates=int(settings.default_candidates if candidates is None else candidates),
-        texture=bool(texture or prof.texture),
-        max_minutes=prof.max_minutes if max_minutes is None else float(max_minutes),
-    )
-
-
 # --------------------------------------------------------------------------- the variant (D105)
 @dataclass(frozen=True)
 class ResolvedVariant:
@@ -357,7 +283,7 @@ class ResolvedVariant:
 
 
 def resolve_variant(settings: Any | None, generator: str, flag: str | None = None) -> ResolvedVariant:
-    """THE resolver for the variant (a sibling of :func:`resolve_dial`): ``--variant NAME`` (``flag``)
+    """THE resolver for the variant (): ``--variant NAME`` (``flag``)
     over ``settings.variant`` (``C3D_VARIANT``) over ``settings.variants[<generator>]`` — the id as
     typed, then by ``<kind>:<served model>`` — over the base.  An unknown name is the typed
     'bad configuration' refusal (exit 2) BEFORE a run directory exists, never a traceback after

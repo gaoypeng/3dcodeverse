@@ -188,7 +188,7 @@ class StepTime(BaseModel):
     Parallel work — fan-out sessions, judge samples, the scene's assets beside its env — is
     ONE step, so no second of the clock is counted twice."""
 
-    step: str = Field(description="plan | skeleton | textures | assets+env+layouts | zones | assemble | candidates"
+    step: str = Field(description="plan | skeleton | assets+env+layouts | zones | assemble | candidates"
                                   " | generate | build | gates | render | judge")
     round: int | None = Field(default=None, description="the round the step belongs to; None = a run-level stage")
     wall_s: float = 0.0
@@ -201,7 +201,7 @@ class StepTime(BaseModel):
 
 class RoundRecord(BaseModel):
     index: int
-    kind: str = Field(description="baseline | refine | repair | texture | asset:<name> ...")
+    kind: str = Field(description="baseline | refine | repair | asset:<name> ...")
     commit: str = Field(default="", description="git commit of src/ after this round")
     agent_backend: str = ""
     instructions: list[str] = Field(default_factory=list, description="what the agent was asked to change")
@@ -254,7 +254,6 @@ class SettingsSnapshot(BaseModel):
     roles: list[RoleSettings] = Field(default_factory=list)
     budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_minutes / max_repair_attempts")
     candidates: int | None = Field(default=None, description="best-of-N baseline width, resolved")
-    texture: bool = False
     seed: int = 0
     rubric: str = ""
     rubric_hash: str = Field(default="", description="content hash of the judge rubric YAML")

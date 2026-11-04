@@ -246,7 +246,7 @@ def test_hung_best_of_n_candidates_get_the_round_loops_retry(tmp_path, chair_pla
 
 
 def test_a_single_shot_refine_needs_only_the_judge_reserve(tmp_path, chair_plan, settings):
-    """The economy profile's refine is one API call, not a session: 270 s left (> the 240 s judge
+    """A single-shot refine is one API call, not a session: 270 s left (> the 240 s judge
     reserve, < the 420 s an agent session needs) still opens the round and gets it judged."""
     from tests.orchestrator_tracks.conftest import FAKE_CLOCK, fake_clock
 

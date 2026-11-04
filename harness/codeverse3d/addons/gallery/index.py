@@ -29,7 +29,7 @@ from codeverse3d.addons.gallery.model import (
 from codeverse3d.contracts.run import RunId, RunRecord
 from codeverse3d.conventions import views_by_preference
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.record.deliverable import round_outputs, texture_shipped_for
+from codeverse3d.record.deliverable import round_outputs
 from codeverse3d.record.record import (
     RecordError,
     battery_label,
@@ -137,11 +137,6 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
             own = [run_rel(ws, out / name)] if out is not None else []
         return _first_file(run, f"deliverable/{name}", *own, *extra)
 
-    # the texture pack is a link only when a pass SHIPPED from this round's GLB — a stray file
-    # from a rejected pass (or an older harness that leaked one), or another round's pack, is not
-    tex = (rec.extra.get("texturing") or {}) if rec is not None else {}
-    shipped = texture_shipped_for(ws, rec, out) if rnd is not None and rec is not None else bool(tex.get("shipped"))
-
     links = [RunLink(label="workspace", rel="", kind="dir"),
              RunLink(label="record.json", rel="record.json")]
     for name in ("spec.json", "plan.json"):
@@ -155,10 +150,6 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     glb = artifact("object.glb")
     if glb:
         links.append(RunLink(label="glb", rel=glb, kind="viewer"))
-    if shipped:
-        textured = _first_file(run, "deliverable/object_textured.glb", "artifacts/object_textured.glb")
-        if textured:
-            links.append(RunLink(label="textured glb", rel=textured, kind="viewer"))
     urdf = artifact("robot.urdf", "src/robot.urdf")
     if urdf:
         links.append(RunLink(label="robot.urdf", rel=urdf))
@@ -174,10 +165,6 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     frames_rel = next((f for f in frames if any((run / f).glob("f*_t*.png")) or any((run / f).glob("frame_t*.png"))), "")
     if frames_rel:
         links.append(RunLink(label="frames/", rel=frames_rel, kind="dir"))
-    for tex_rel in ("deliverable/textures", "artifacts/textures" if shipped else "", "public/textures"):
-        if tex_rel and (run / tex_rel).is_dir():
-            links.append(RunLink(label="textures/", rel=tex_rel, kind="dir"))
-            break
     if (run / "public" / "assets").is_dir():
         links.append(RunLink(label="assets/", rel="public/assets", kind="dir"))
     if (run / "telemetry" / "cost.json").is_file():

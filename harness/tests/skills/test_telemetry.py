@@ -221,7 +221,7 @@ def test_the_report_counts_exact_sessions_and_drops_only_blind_ones(tmp_path):
     tele = root / "run" / TELEMETRY_DIR
     tele.mkdir(parents=True)
     rows = [  # exact, the agent opened the control too: counted, and said so
-        {"agent": "gemini-cli:gemini-3.7-flash", "listed": ["c3d-a"], "evidence": "transcript",
+        {"agent": "gemini-cli:gemini-3.8-flash", "listed": ["c3d-a"], "evidence": "transcript",
          "control_present": True, "control_read": True, "reads": [{"name": "c3d-a", "surfaced": True, "deep": True}]},
         # atime, control fired: blind, dropped
         {"agent": "codex:gpt-6-luna", "listed": ["c3d-a"], "control_present": True, "control_read": True,

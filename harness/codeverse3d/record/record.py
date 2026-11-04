@@ -228,7 +228,7 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
     """Read the run's total off its ledger, materialise ``telemetry/`` and mirror it onto the
     record.  ``record.total_usage`` is the sum of ``telemetry/cost.jsonl`` at list price — every
     billed row once: the planner, an aborted round, a retried session, a round-trip the
-    provider billed and the call discarded, and post-run work (a pick's texture pass) once it
+    provider billed and the call discarded, and post-run work (a pairwise pick) once it
     joined the ledger.  A run with no ledger keeps what it has.
 
     Best-effort by contract: a failure is logged and the run still gets its
@@ -264,7 +264,7 @@ def repackage(ws: Workspace) -> RunRecord | None:
 
 @contextmanager
 def join_post_run(ws: Workspace) -> Iterator[None]:
-    """Work on a FINISHED run that may spend money (a re-judge, a texture pass or pack, a pairwise
+    """Work on a FINISHED run that may spend money (a re-judge, a pairwise
     pick): its rows join the run's ledger when it keeps one (``run_ledger(create=False)``), and
     on the way out — also when the work raised after paying — the record is re-packaged, so
     ``record.total_usage`` stays the ledger's sum (D84)."""

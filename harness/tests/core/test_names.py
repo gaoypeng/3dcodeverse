@@ -115,15 +115,9 @@ def test_one_instance_rule_for_every_reader():
     assert _canon_target("leg_1", {"leg": "Leg"}) == "Leg_1"
 
 
-def test_one_part_rule_for_the_texture_pass_and_the_normaliser():
-    """N4: the texture pass stripped an instance suffix only when 2+ copies existed and the
-    normaliser never did, so a single ``Arm-2`` the contract gate accepts went untextured and
-    instanced legs kept their default factors.  Both read ``conventions.part_key`` now."""
-    from codeverse3d.texturing.apply import node_part_lookup
-
+def test_one_part_rule_strips_an_instance_suffix_even_for_a_single_copy():
+    """N4: a single ``Arm-2`` the contract gate accepts maps to its plan part too — ``conventions.part_key``."""
     plan = {"leg", "seat", "arm", "handle", "link", "cpu_2"}
     rows = {"Leg_0": "leg", "Arm-2": "arm", "Handle.001": "handle", "Link__2": "link", "Leg_0__1": "leg",
             "Seat": "seat", "CPU_2": "cpu_2", "Shelf": None}
     assert {n: part_key(n, plan) for n in rows} == rows
-    parts = {k: k.upper() for k in plan}
-    assert node_part_lookup(list(rows), parts)["Arm-2"] == "ARM"

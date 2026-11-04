@@ -56,18 +56,10 @@ def test_each_runtime_states_which_file_owns_what(chair_plan):
     assert scene.files_for(plan, "Quay/Bollard") == ["src/zones/quay.js"] and scene.files_for(plan, "overall") == []
 
 
-# --------------------------------------------------------------------- (f) no texture pass in the run
-def test_the_run_itself_never_textures_even_when_asked(tmp_path, chair_plan, settings, monkeypatch):
-    """D31: the texture pass belongs to the hand-over of the PICKED round, not to finalise.  The same
-    run shows the track handing the plan's attach_to pairs to the connectivity gate, spelled in the
+# --------------------------------------------------------------------- (f) connectivity edges
+def test_the_track_hands_the_plans_attach_to_pairs_to_the_connectivity_gate(tmp_path, chair_plan, settings):
+    """The track hands the plan's attach_to pairs to the connectivity gate, spelled in the
     GLB's part names (the gate's contact ledger is the judge's assembly_fit ground truth)."""
-    import codeverse3d.texturing.run as trun
-
-    def boom(*a, **kw):
-        raise AssertionError("texture_pass must not run inside a run")
-
-    monkeypatch.setattr(trun, "texture_pass", boom)
-    rec, _ws, _judge, services = _static_run(tmp_path, chair_plan, settings, tags=["texture"])
-    assert "texturing" not in rec.extra
+    _rec, _ws, _judge, services = _static_run(tmp_path, chair_plan, settings)
     # the fake build exports one node per plan part under the plan's own name (no instance copies)
     assert services.planned_edges == [[("FrontLeg", ("Seat",)), ("BackLeg", ("Seat",)), ("Backrest", ("BackLeg",)), ("Armrest", ("BackLeg",))]]

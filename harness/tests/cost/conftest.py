@@ -18,10 +18,10 @@ def fake_run(tmp_path: Path) -> Path:
     """plan + one gemini-cli baseline session + one judge verdict, each a ledger row."""
     ws = tmp_path / "fake_run"
     ledger = ws / "telemetry" / "cost.jsonl"
-    flash = {"backend": "gemini", "model": "gemini-3.7-flash"}
+    flash = {"backend": "gemini", "model": "gemini-3.8-flash"}
     record_call(Usage(**flash, input_tokens=4_000, output_tokens=900, latency_ms=12_000), run=ws.name,
                 stage="plan", label="planner", ledger=ledger)
-    record_call(Usage(backend="gemini-cli", model="gemini-3.7-flash", input_tokens=30_000, cached_tokens=10_000,
+    record_call(Usage(backend="gemini-cli", model="gemini-3.8-flash", input_tokens=30_000, cached_tokens=10_000,
                       output_tokens=300, latency_ms=30_000), run=ws.name, round=0, stage="baseline",
                 label="baseline", source="session", n_calls=2, ledger=ledger)
     record_call(Usage(backend="gemini", model="gemini-3.1-pro-preview", input_tokens=12_000, output_tokens=1_000,

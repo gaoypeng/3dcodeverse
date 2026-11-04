@@ -558,7 +558,7 @@ directory so you do not mix it into real data:
 cd harness
 3dcode make "a slow rotating neon hex grid" \
     --track graphics --language glsl_shader \
-    --generator single-shot:gemini:gemini-3.7-flash \
+    --generator single-shot:gemini:gemini-3.8-flash \
     --rounds 0 --max-minutes 20 \
     --runs-dir /tmp/c3d_smoke
 3dcode status <slug> --runs-dir /tmp/c3d_smoke
@@ -566,7 +566,7 @@ cd harness
 
 If node and Blender are installed, the equivalent object-track smoke is
 `3dcode make "a simple wooden stool" --track static_object --language blender
---generator single-shot:gemini:gemini-3.7-flash --rounds 0` (~$0.1, a few
+--generator single-shot:gemini:gemini-3.8-flash --rounds 0` (~$0.1, a few
 minutes).
 
 Artifacts land in `<runs-dir>/<slug>/`:
@@ -609,9 +609,7 @@ rm -rf harness/3dcodeverse.egg-info harness/.pytest_cache harness/.ruff_cache
 ```
 
 `~/.cache/codeverse3d` (or `cache_dir` / `C3D_CACHE_DIR`) holds only regenerable
-things: `renders/` and `judge_images/` (render + montage cache), `textures/` and
-`texture_plans/` (texture-pass cache — deleting these costs real money to
-regenerate), `gpu_probe.json`, `browser_*.lock` (the shared
+things: `renders/` and `judge_images/` (render + montage cache), `gpu_probe.json`, `browser_*.lock` (the shared
 headless-Chrome endpoint file — do not delete it while renders are running).
 
 **Your data is not in either cache.**  `runs/`, `eval/bench/out/` and any exported

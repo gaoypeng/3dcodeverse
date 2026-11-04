@@ -108,7 +108,7 @@ So `{{ zone_file }}` exports `export function build(ctx) → THREE.Group` named 
 - Sun, sky, ground and cameras are the env's.  This zone may add the practical lights its setting
   contains (a lantern, a neon sign, a forge, a campfire), within the exposure band and the perf
   budget — a shadow-casting light per practical is the usual budget blow-out.
-- No DOM, {% if not (textures is defined and textures) %}no textures, {% endif %}no fetch, no Math.random (`mulberry32(seed)` from `lib/noise.js`).
+- No DOM, no textures, no fetch, no Math.random (`mulberry32(seed)` from `lib/noise.js`).
 - Do not import assets marked NOT AVAILABLE; do not edit other files.
 {% if tool_cards and not single_shot %}
 
@@ -124,10 +124,6 @@ STATIC, double the amplitude and render again.
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if textures is defined and textures %}
-
-{{ textures }}
 {% endif %}
 
 ## Output

@@ -32,7 +32,7 @@
      "output_tokens": 66902,
      "cached_tokens": 2167020,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "baseline_r00",
@@ -47,7 +47,7 @@
      "output_tokens": 59,
      "cached_tokens": 8119,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine.a2_r01",
@@ -62,7 +62,7 @@
      "output_tokens": 15943,
      "cached_tokens": 1258366,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine.a2_r03",
@@ -77,7 +77,7 @@
      "output_tokens": 51036,
      "cached_tokens": 1745205,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_r01",
@@ -92,7 +92,7 @@
      "output_tokens": 79,
      "cached_tokens": 48796,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_r02",
@@ -107,7 +107,7 @@
      "output_tokens": 20677,
      "cached_tokens": 654722,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_r03",
@@ -122,7 +122,7 @@
      "output_tokens": 46718,
      "cached_tokens": 2132151,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     }
    ],
    "judges": [
@@ -184,7 +184,7 @@
      "output_tokens": 39110,
      "cached_tokens": 2705383,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_assembly_r02",
@@ -199,7 +199,7 @@
      "output_tokens": 5733,
      "cached_tokens": 470929,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_drill_bit.a2_r01",
@@ -214,7 +214,7 @@
      "output_tokens": 657,
      "cached_tokens": 4056,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_drill_bit_r01",
@@ -229,7 +229,7 @@
      "output_tokens": 597,
      "cached_tokens": 20253,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_drill_bit_r02",
@@ -244,7 +244,7 @@
      "output_tokens": 676,
      "cached_tokens": 117672,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_main_housing.a2_r01",
@@ -259,7 +259,7 @@
      "output_tokens": 3374,
      "cached_tokens": 206972,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_main_housing_r01",
@@ -274,7 +274,7 @@
      "output_tokens": 2065,
      "cached_tokens": 170369,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_main_housing_r02",
@@ -289,7 +289,7 @@
      "output_tokens": 2745,
      "cached_tokens": 69091,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_overall.a2_r01",
@@ -304,7 +304,7 @@
      "output_tokens": 7017,
      "cached_tokens": 755220,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_overall_r01",
@@ -319,7 +319,7 @@
      "output_tokens": 49693,
      "cached_tokens": 2784983,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_rubber_overmold.a2_r01",
@@ -334,7 +334,7 @@
      "output_tokens": 22979,
      "cached_tokens": 2022413,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_rubber_overmold_r01",
@@ -349,7 +349,7 @@
      "output_tokens": 25188,
      "cached_tokens": 1923276,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_rubber_overmold_r02",
@@ -364,7 +364,7 @@
      "output_tokens": 23083,
      "cached_tokens": 2295740,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     }
    ],
    "judges": [
@@ -414,7 +414,7 @@
      "output_tokens": 21382,
      "cached_tokens": 1870162,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_desk_top_r02",
@@ -429,7 +429,7 @@
      "output_tokens": 1315,
      "cached_tokens": 0,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_drawer_front_r02",
@@ -444,7 +444,7 @@
      "output_tokens": 3576,
      "cached_tokens": 320173,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_leather_inlay_r01",
@@ -459,7 +459,7 @@
      "output_tokens": 1460,
      "cached_tokens": 20284,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_overall_r01",
@@ -474,7 +474,7 @@
      "output_tokens": 504,
      "cached_tokens": 133228,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     },
     {
      "dir": "refine_overall_r02",
@@ -489,7 +489,7 @@
      "output_tokens": 309,
      "cached_tokens": 4041,
      "backend": "api-agent",
-     "model": "gemini:gemini-3.7-flash"
+     "model": "gemini:gemini-3.8-flash"
     }
    ],
    "judges": [

@@ -29,13 +29,13 @@ def test_the_slug_rule_and_the_battery_layouts():
     # ab_plan: slug, arm, cell and the attempt suffix
     rid = RunId(battery="plan_loop",
                 rel="C0/arms/control/cells/arch_hard_bay_window/"
-                    "harness_api-agent_gemini_gemini-3.7-flash/run")
-    assert rid.slug == "C0__control__arch_hard_bay_window__harness_api-agent_gemini_gemini-3.7-flash"
+                    "harness_api-agent_gemini_gemini-3.8-flash/run")
+    assert rid.slug == "C0__control__arch_hard_bay_window__harness_api-agent_gemini_gemini-3.8-flash"
     assert rid.arm == "control" and rid.cell == "arch_hard_bay_window"
     retry = RunId(battery="plan_loop",
                   rel="heldout/arms/control/cells/comp_hard_drafting_table/"
-                      "harness_api-agent_gemini_gemini-3.7-flash.attempt1/run")
-    assert retry.slug.endswith("harness_api-agent_gemini_gemini-3.7-flash.attempt1")
+                      "harness_api-agent_gemini_gemini-3.8-flash.attempt1/run")
+    assert retry.slug.endswith("harness_api-agent_gemini_gemini-3.8-flash.attempt1")
 
 
 def test_unique_files_skips_subruns_below_the_root_not_above_it(tmp_path: Path):

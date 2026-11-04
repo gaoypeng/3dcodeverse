@@ -643,11 +643,6 @@ CHECKLIST = (
     "5) materials — per-part colour and finish."
 )
 
-_SYNTH_WARNING = ("This reference was SYNTHESIZED from the brief by an image model, not photographed: it is a "
-                  "shape and part-inventory target only. Where it disagrees with the brief or the stated "
-                  "dimensions, follow the BRIEF.")
-
-
 class CompareReferenceArgs(BaseModel):
     view: str = Field(default="front_right_high", description="view to render for the comparison")
     reference_index: int = Field(default=0, ge=0, description="index into spec.references")
@@ -684,8 +679,6 @@ def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observati
         f"{res['ref_aspect']:.2f} (err {res['aspect_ratio_err']:.0%}).",
         f"Look at the sheet and check, in this order: {CHECKLIST}",
     ]
-    if str(ref.get("note", "")).startswith("SYNTHESIZED"):
-        lines.append(_SYNTH_WARNING)
     lines.append(fmt_numbers({k: v for k, v in res.items() if k != "diff_png_path"}))
     images = image_budget([str(sheet), str(diff_png), shaded.views[0].path])
     return Observation(ok=True, text="\n".join(lines),

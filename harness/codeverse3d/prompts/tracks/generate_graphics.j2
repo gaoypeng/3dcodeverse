@@ -1,6 +1,6 @@
 # Build `{{ title }}` in raw {{ language }}
 
-You write the COMPLETE code for one animated real-time effect from the plan below. A headless harness
+{% if single_shot %}You write the COMPLETE code{% else %}You write the code{% endif %} for one animated real-time effect from the plan below. A headless harness
 compiles/runs it with moderngl, renders frames at t = {{ judge_times }} at {{ resolution }}, measures them
 (luminance, colourfulness, detail, motion between frames, NaN pixels) and shows a labelled contact sheet
 to a judge. You never see the harness: make the code correct by construction and MAKE IT MOVE.

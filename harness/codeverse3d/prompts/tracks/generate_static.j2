@@ -1,6 +1,6 @@
 # Build `{{ object_name }}` in raw {{ language }}
 
-You write the COMPLETE code for one static 3D object from the plan below. A harness will execute
+{% if single_shot %}You write the COMPLETE code{% else %}You write the code{% endif %} for one static 3D object from the plan below. A harness will execute
 your code, export a GLB, measure every part against the plan and render it for a judge. You never
 see the harness: make the code correct by construction, with the plan's exact numbers.
 
@@ -38,13 +38,6 @@ part gets detail: a session can be stopped at its window, and what it leaves mus
 object.  Measured: a part still the skeleton's box (≤ 12 triangles, a closed solid filling its
 box, within 1 mm of the plan box) is a `placeholder_part` ERROR in `check_contract`; a part not joined
 to the ground-touching component is a floating ERROR in `check_connectivity`.
-{% if not single_shot %}
-
-Every file already exists (the skeleton).  Replace a file's placeholder in one write, then change it
-only with targeted edits — never rewrite a whole file to change a few lines.  Measured on this harness:
-a dining chair whose files were rewritten whole (8 rewrites over 9 files) wrote ~136k characters,
-drafted with each file written once ~49k, and a session's time follows the tokens it generates.
-{% endif %}
 
 ## DO
 - Place each part so its bounding box CENTRE and EXTENTS equal the plan row. Compute

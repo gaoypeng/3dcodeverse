@@ -1,4 +1,4 @@
-"""ReferenceJudge: the synthesized labelling, the mismatch pass, best-view IoU."""
+"""ReferenceJudge: the reference labelling, the mismatch pass, best-view IoU."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from codeverse3d.contracts.spec import ReferenceImage
 from codeverse3d.judges.base import JudgeInput
 from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.judges.vlm_judge import ReferenceJudge
-from codeverse3d.reference import SYNTH_NOTE
 from tests.judges.conftest import (
     FakeChatModel,
     draw_chair,
@@ -31,7 +30,7 @@ DIFF = {"mismatches": [{"kind": "wrong_part_count", "target": "Legs",
 def ref_input(tmp_path):
     png = draw_chair(tmp_path / "ref.png", legs=4, color=(30, 30, 30))
     spec = make_spec(references=[ReferenceImage(path=str(png), role="target",
-                                                note=f"{SYNTH_NOTE} [front view, x]")])
+                                                note="my photo")])
     return JudgeInput(
         spec=spec, renders=make_renders(tmp_path / "renders"), measurement=make_measurement(),
         acceptance=[AcceptanceItem(id="A1", text="four legs", how="measure", priority="must"),
@@ -45,15 +44,14 @@ def _judge(model, **kw):
                           **kw)
 
 
-def test_the_diff_and_the_synthesized_caveat_reach_the_scoring_call(ref_input, cache_dir):
+def test_the_diff_reaches_the_scoring_call(ref_input, cache_dir):
     model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
     assert _judge(model, cache_dir=cache_dir).judge(ref_input).overall > 0
     scoring = [r for r in model.requests if r.label.startswith("judge")][0]
     text = scoring.messages[0].parts[0].text
     assert "REFERENCE DIFF" in text and "reference shows 4 legs, render shows 2" in text
     assert "already matching: the backrest slats are right" in text
-    assert image_parts(scoring)[0].label.startswith("SYNTHESIZED REFERENCE 1/1 (target)")
-    assert "SYNTHESIZED from the brief" in text and "the BRIEF is correct" in text
+    assert image_parts(scoring)[0].label.startswith("REFERENCE 1/1 (target)")
 
 
 def test_a_failing_diff_never_breaks_the_verdict(ref_input, cache_dir):
@@ -78,7 +76,7 @@ def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir
     from codeverse3d.judges.vlm_judge import NEUTRAL_SCORE
 
     png = draw_chair(tmp_path / "wide.png", legs=4)  # ~2:1 wide silhouette
-    spec = make_spec(references=[ReferenceImage(path=str(png), role="target", note=f"{SYNTH_NOTE} [front, x]")],
+    spec = make_spec(references=[ReferenceImage(path=str(png), role="target", note="my photo")],
                      constraints=Constraints(dimensions_m={"width": 0.45, "height": 2.0}))  # implies 0.22 w/h
     inp = JudgeInput(spec=spec, renders=make_renders(tmp_path / "r"), measurement=make_measurement(),
                      acceptance=[AcceptanceItem(id="A1", text="t", how="visual", priority="must")])

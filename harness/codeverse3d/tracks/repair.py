@@ -137,7 +137,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
     while not outcome.ok and (attempt < max_attempts or build.harness_failure):
         # A build that failed because the HARNESS could not run it is not a defect the
         # agent can fix, and handing it over costs the round its whole repair budget on
-        # working code.  Measured 2026-09-05 (scene_textures/japanese_garden): three
+        # working code.  Measured 2026-09-05 (japanese_garden): three
         # repairs against "scene probe produced no result (driver output lost)" rewrote
         # 5, then 14, then 3 files — the 14 included env.js and every zone — and deleted
         # the texture use the arm existed to measure, before the fourth build passed on

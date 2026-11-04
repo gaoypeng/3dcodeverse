@@ -32,14 +32,10 @@ class RunOptions(BaseModel):
     """Run-shape options frozen on the spec (distinct from Budget and Backends).
 
     ``None`` / ``False`` means "not stated": the resolver falls through to its
-    ``Settings`` default (``BaseTrack._resolve_candidates``, ``cost.profiles``).
+    ``Settings`` default (``BaseTrack._resolve_candidates``).
     """
 
     candidates: int | None = Field(default=None, ge=1, description="best-of-N baseline candidates")
-    texture: bool = Field(default=False, description="run the derived texture pass after the loop")
-    profile: str = Field(default="", description="cost/quality dial this run was created with "
-                         "(codeverse3d/cost/profiles.py); '' = the settings default, and a resume "
-                         "re-applies it so judge samples / montage size / turn cap survive")
     variant: str = Field(default="", description="per-model prompt/skill variant this run was created with "
                          "(codeverse3d/prompts/variants/<name>/, D105); '' = the base prompts and skills; "
                          "frozen here so a resume and the record name the same overlay")

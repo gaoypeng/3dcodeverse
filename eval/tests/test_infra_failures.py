@@ -136,7 +136,7 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
 
     def verdicts(outage: Exception, out: Path) -> dict[str, tuple[str, float | None]]:
         class DeadModel:  # the real ApiOneShot around a model that raises the outage
-            provider, model = "gemini", "gemini-3.7-flash"
+            provider, model = "gemini", "gemini-3.8-flash"
 
             def generate(self, request):
                 raise outage
@@ -146,10 +146,10 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
 
         battery = Battery.load(BATTERY)
         deps = CompareDeps(FakeEvaluator(), run_track=dying_track,
-                           oneshot_backend=lambda t: ApiOneShot("gemini:gemini-3.7-flash", chat_model=DeadModel()))
+                           oneshot_backend=lambda t: ApiOneShot("gemini:gemini-3.8-flash", chat_model=DeadModel()))
         opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
         got = {}
-        for raw in ("harness:agy:gemini-3.6-flash", "oneshot:gemini:gemini-3.7-flash"):
+        for raw in ("harness:agy:gemini-3.8-flash", "oneshot:gemini:gemini-3.8-flash"):
             arm = parse_arm(raw)
             r = run_cell(battery, battery.prompts[0], arm, out, opts, deps)
             got[arm.kind] = (r.status, r.score)
@@ -241,7 +241,7 @@ def test_a_repair_lost_to_an_outage_drops_the_cell_instead_of_scoring_the_pre_re
 
     battery = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x", repair_attempts=1)
-    arm = parse_arm("oneshot+repair:gemini:gemini-3.7-flash")
+    arm = parse_arm("oneshot+repair:gemini:gemini-3.8-flash")
 
     ev = FakeEvaluator()
     r = run_cell(battery, battery.prompts[0], arm, tmp_path / "storm", opts,
@@ -270,7 +270,7 @@ def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
 
     battery = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
-    r = run_cell(battery, battery.prompts[0], parse_arm("harness:agy:gemini-3.6-flash"), tmp_path, opts,
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:agy:gemini-3.8-flash"), tmp_path, opts,
                  CompareDeps(FakeEvaluator(), run_track=no_plan))
     assert (r.status, r.score, r.passed, r.build_ok) == ("no_code", 0.0, False, False)
     assert r.error.startswith("PlanningError:")
@@ -297,7 +297,7 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path):
         raise ClassifierTrap("planner died")
 
     battery = Battery.load(BATTERY)
-    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:agy:gemini-3.6-flash"), tmp_path,
+    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:agy:gemini-3.8-flash"), tmp_path,
                     cb.CompareOptions(judge="gemini:x", loop_judge="gemini:x"), cb.CompareDeps(FakeEvaluator(), run_track=boom))
     assert r.status == "error" and "planner died" in r.error
     assert (Path(r.workspace) / "cell.json").is_file()

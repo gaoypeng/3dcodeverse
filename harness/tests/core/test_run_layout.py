@@ -76,7 +76,7 @@ def _moved_run(tmp_path: Path):
     sheet_a = a / "artifacts" / "renders" / "r01" / "sheet.png"
     sheet_a.write_bytes(b"PNG")
     spec = Spec(id="run1", track=Track.STATIC_OBJECT, language=Language.BLENDER,
-                prompt="a wooden chair", backends=Backends(generator="gemini-cli:gemini-3.6-flash"))
+                prompt="a wooden chair", backends=Backends(generator="gemini-cli:gemini-3.8-flash"))
     rec = RunRecord(spec=spec, workspace=str(a), status=RunStatus.MAX_ROUNDS,
                     rounds=[RoundRecord(index=0, kind="generate",
                                         judgment=Judgment(rubric="r", scores={}, overall=0.6, passed=False),

@@ -21,7 +21,7 @@ REQ = ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object:r
 
 
 def test_a_tally_holds_exactly_the_ledger_rows_booked_inside_it(tmp_path: Path):
-    u = Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=1_000, output_tokens=10)
+    u = Usage(backend="gemini", model="gemini-3.8-flash", input_tokens=1_000, output_tokens=10)
     with run_ledger(tmp_path, run="r"), tally() as outer:
         record_call(u, stage="plan")
         with tally() as inner:
@@ -81,7 +81,7 @@ def test_a_timed_step_is_one_row_with_its_wall_and_what_it_lost():
 class SinkChat:
     """A backend that reports its round-trips like ``GeminiModel`` does."""
 
-    provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
+    provider, model, id = "gemini", "gemini-3.8-flash", "gemini:gemini-3.8-flash"
 
     def __init__(self, trips: list[tuple[str, int, float]]):
         self.trips = trips  # (outcome, answered latency ms, seconds the round-trip holds)
@@ -115,7 +115,7 @@ def test_a_clean_call_loses_nothing_and_a_503_before_the_answer_is_lost(tmp_path
 
 def test_an_agent_session_books_what_its_cli_lost_to_the_provider(tmp_path: Path):
     class Cli:
-        kind, model, id = "gemini-cli", "gemini-3.7-flash", "gemini-cli:gemini-3.7-flash"
+        kind, model, id = "gemini-cli", "gemini-3.8-flash", "gemini-cli:gemini-3.8-flash"
 
         def run(self, job: AgentJob) -> AgentResult:
             time.sleep(0.02)

@@ -9,7 +9,7 @@ rows, islands, ground gap, footprint offset, materials).  Degenerate input
 world-space ``trimesh.Trimesh`` per top-level node (all child meshes merged).
 ``cached_parts`` is the memoized front door for gates that re-read the same
 GLB (keyed on path + size + mtime_ns; ``load_scene`` itself is never cached —
-texturing mutates scenes), and ``solid_parts`` is that front door minus the
+a caller mutating a scene), and ``solid_parts`` is that front door minus the
 empty parts — what connectivity / sections want.
 
 ``Measurement.extra["complexity"]`` carries the objective complexity vector

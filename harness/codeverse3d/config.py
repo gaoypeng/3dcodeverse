@@ -119,8 +119,8 @@ class Render(BaseModel):
         default=20.0, ge=0, description="Cycles time cap per judged frame, seconds (0 = none): a heavy scene stops "
         "sampling early instead of eating the render timeout (C3D_RENDER__BLENDER_FRAME_TIME_LIMIT_S)")
     blender_samples: int = Field(
-        default=32, ge=1, description="Cycles samples (adaptive + OIDN) / EEVEE TAA samples; the profile dial sets "
-        "economy 16 · balanced 32 · quality 64 (C3D_RENDER__BLENDER_SAMPLES)")
+        default=32, ge=1, description="Cycles samples (adaptive + OIDN) / EEVEE TAA samples "
+        "(C3D_RENDER__BLENDER_SAMPLES)")
     blender_device: Annotated[Literal["gpu", "cpu"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="gpu", description="'gpu' takes a machine-wide GPU slot and falls back to the CPU when none frees "
         "within blender_gpu_wait_s or the GPU render dies; 'cpu' never touches the GPU")
@@ -291,8 +291,6 @@ class Settings(BaseSettings):
     default_captioner: str = Field(default_factory=lambda: Backends().captioner)
     default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
 
-    # Cost dial: one name that sets model-per-role, judge samples, rounds, candidates
-    # and the texture pass together (codeverse3d/cost/profiles.py).
     model_timeout_s: float = Field(
         default=1200.0,
         description="HTTP read timeout for ONE API model call (per attempt).  It is a CEILING: the "
@@ -301,7 +299,6 @@ class Settings(BaseSettings):
         "65 536 ceiling — measured 2026-08-27, output streams at 145 tok/s p50 and 60 tok/s p10, so "
         "a 55 800-token plan needs ~930 s and died at the socket, its tokens billed and discarded. "
         "Owner's rule 2026-08-27: time may be generous, errors may not.")
-    profile: str = Field(default="balanced", description="economy | balanced | quality")
 
     # Per-model prompt/skill variants (D105, 2026-10-14): an overlay directory
     # codeverse3d/prompts/variants/<name>/ (prompt files that shadow the base ones) plus
@@ -341,10 +338,6 @@ class Settings(BaseSettings):
                             "(D113): no library ships, `lib.*` imports are lint ERRORs and the model writes "
                             "every mesh, material, light, world and motion in raw bpy / bmesh (variant "
                             "argon_raw sets it through its [knobs])")
-    scene_textures: Flag = Field(default=False, description="scene track: generate a texture pack before "
-                                 "env/zones and describe it in both prompts.  OFF: an image-model call per "
-                                 "run, unmeasured — though 4 of 5 scored cells of scene_baseline "
-                                 "(2026-09-05) complained about a flat, untextured ground")
     axis_repair: Flag = Field(default=True, description="articulated track: rewrite a joint axis the "
                               "measured motion proves wrong, before the sweep renders")
     settle: Flag = Field(default=True, description="scene driver: the boot-time auto-seat")
@@ -378,54 +371,6 @@ class Settings(BaseSettings):
             if value:
                 base[role] = value
         return Backends(**base)
-
-    def apply_profile(self, name: str | None = None, *, force: bool = False) -> Any:
-        """Set every profile-controlled default on this Settings object and return
-        the :class:`~codeverse3d.cost.profiles.Profile`.
-
-        A field the user stated themselves (config file / ``C3D_*`` env) is left
-        alone unless ``force`` — so a profile is a *default* dial, while
-        ``3dcode make --profile X`` (which forces) is an instruction.  The CLI's own
-        flags are applied after this and always win."""
-        from codeverse3d.cost.profiles import get_profile
-
-        p = get_profile(name or self.profile)
-        stated = set() if force else set(self.model_fields_set)
-
-        def put(field: str, value: Any) -> None:
-            if field not in stated and value not in (None, ""):
-                setattr(self, field, value)
-
-        def put_section(section: str, values: dict[str, Any]) -> None:
-            """Per-FIELD statedness inside a sub-model.
-
-            ``Settings.model_fields_set`` is SECTION-granular — pydantic marks the whole
-            ``judge`` sub-model as set when any ``C3D_JUDGE__*`` is present — so testing
-            it here let one stated field suppress the profile's every other dial:
-            ``C3D_PROFILE=quality C3D_JUDGE__MAX_PX=800`` judged at n=1 instead of n=3,
-            silently, while `3dcode make` printed "judge sigma 0.017 at n=3".  The sub-model
-            has its own ``model_fields_set``, which is the per-field answer.  The values a
-            profile writes are DEFAULTS, not statements, so the field-set is restored
-            afterwards and re-applying a profile stays idempotent.
-            """
-            sub = getattr(self, section)
-            keep = set() if force else set(sub.model_fields_set)
-            update = {k: v for k, v in values.items() if k not in keep}
-            if not update:
-                return
-            new_sub = sub.model_copy(update=update)
-            new_sub.__pydantic_fields_set__ = keep
-            setattr(self, section, new_sub)
-
-        self.profile = p.name
-        put("default_generator", p.generator)
-        put("default_planner", p.planner)
-        put("default_judge", p.judge)
-        put("default_captioner", p.captioner)
-        put("default_candidates", p.candidates)
-        put_section("judge", {"samples": p.judge_samples})
-        put_section("render", {"blender_samples": p.blender_samples})
-        return p
 
     def resolve_blender(self) -> str:
         """The configured binary (a path or a name on PATH), else the first Blender on PATH.  A
@@ -524,8 +469,4 @@ def get_settings() -> Settings:
     # de-dupe keys preserving order
     seen: set[str] = set()
     s.gemini_api_keys = [k for k in s.gemini_api_keys if not (k in seen or seen.add(k))]
-    # the dial named in config.yaml / C3D_PROFILE, applied as a *default*: a value the
-    # user stated themselves survives it.  `3dcode make --profile X` forces the same dial
-    # (codeverse3d.cli._common.resolve_dial is the one resolver both paths go through).
-    s.apply_profile(s.profile)
     return s

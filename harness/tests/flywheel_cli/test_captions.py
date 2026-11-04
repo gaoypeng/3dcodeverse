@@ -71,7 +71,7 @@ def test_caption_live_gemini(fake_run):
     if not get_settings().gemini_api_keys:
         pytest.skip("no gemini keys")
     ws, rec = fake_run
-    caps = caption_sample(ws, rec, "gemini:gemini-3.7-flash")
+    caps = caption_sample(ws, rec, "gemini:gemini-3.8-flash")
     assert len(caps.detailed) > 20 and "blender" in caps.instruction.lower()
 
 

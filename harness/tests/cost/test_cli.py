@@ -24,10 +24,10 @@ def test_cost_show_on_an_empty_tree_fails_cleanly(tmp_path: Path):
 
 def test_cost_prices_and_estimate():
     r = runner.invoke(app, ["cost", "prices", "--provider", "gemini"])
-    assert r.exit_code == 0 and "gemini:gemini-3.7-flash" in r.stdout and "verified" in r.stdout
-    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.7-flash", "--in", "100000", "--out", "1000"])
+    assert r.exit_code == 0 and "gemini:gemini-3.8-flash" in r.stdout and "verified" in r.stdout
+    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.8-flash", "--in", "100000", "--out", "1000"])
     assert r.exit_code == 0 and "$0.0788" in r.stdout
-    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.7-flash", "--in", "12000", "--images", "8"])
+    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.8-flash", "--in", "12000", "--images", "8"])
     assert r.exit_code == 0 and "~22,320 in" in r.stdout, r.stdout  # 12 000 + 8 x 1 290
 
 
@@ -52,7 +52,7 @@ def test_the_ledger_is_the_money(fake_run: Path):
     """The ledger rows are the money, whatever the record says (D84)."""
     _live_ledger(fake_run, [
         {"run": fake_run.name, "round": 0, "stage": "baseline", "role": "generator",
-         "backend": "gemini", "provider": "gemini", "model": "gemini-3.7-flash",
+         "backend": "gemini", "provider": "gemini", "model": "gemini-3.8-flash",
          "input_tokens": 30_000, "cached_tokens": 10_000, "output_tokens": 300,
          "cost_usd": 0.0201, "price_source": "exact"},
         {"run": fake_run.name, "round": 0, "stage": "judge", "role": "judge",
@@ -66,7 +66,7 @@ def test_the_ledger_is_the_money(fake_run: Path):
 
 def test_cost_reports_the_calls_per_key_when_the_ledger_recorded_them(fake_run: Path, tmp_path: Path):
     base = {"run": fake_run.name, "round": 0, "stage": "baseline", "role": "generator", "backend": "gemini",
-            "provider": "gemini", "model": "gemini-3.7-flash", "input_tokens": 1_000, "output_tokens": 10,
+            "provider": "gemini", "model": "gemini-3.8-flash", "input_tokens": 1_000, "output_tokens": 10,
             "cost_usd": 0.001, "price_source": "exact"}
     _live_ledger(fake_run, [dict(base, key="…k1", attempts=1), dict(base, key="…k1", attempts=3),
                             dict(base, key="…k2", attempts=1)])
@@ -80,10 +80,10 @@ def test_cost_reports_the_calls_per_key_when_the_ledger_recorded_them(fake_run: 
 def test_cost_cache_reports_the_cold_head_of_every_session(fake_run: Path):
     _live_ledger(fake_run, [
         {"run": "x", "round": 0, "stage": "baseline", "label": "api-agent:baseline:t0",
-         "provider": "gemini", "model": "gemini-3.7-flash", "input_tokens": 12_000,
+         "provider": "gemini", "model": "gemini-3.8-flash", "input_tokens": 12_000,
          "cached_tokens": 0, "cost_usd": 0.009, "price_input": 0.75, "price_cached": 0.075},
         {"run": "x", "round": 0, "stage": "baseline", "label": "api-agent:baseline:t1",
-         "provider": "gemini", "model": "gemini-3.7-flash", "input_tokens": 20_000,
+         "provider": "gemini", "model": "gemini-3.8-flash", "input_tokens": 20_000,
          "cached_tokens": 12_000, "cost_usd": 0.007, "price_input": 0.75, "price_cached": 0.075},
     ])
     r = runner.invoke(app, ["cost", "cache", str(fake_run)])

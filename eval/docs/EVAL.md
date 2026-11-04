@@ -14,7 +14,7 @@ fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
 1. **Fixed judge.**  One judge model + rubric + `n_samples` for every arm of a
    comparison, never the in-loop judge's own score.  Default for decisive runs:
    `gemini:gemini-3.1-pro-preview` (the settings default), `n_samples≥2`;
-   `gemini-3.7-flash` is fine for the loop but is lenient/noisy on fine
+   `gemini-3.8-flash` is fine for the loop but is lenient/noisy on fine
    distinctions (overall std ≈ 0.08–0.12 at n=3) — its dynamic range comes from
    the rubric defect checklist, not the criteria.
 2. **Same evidence for every arm.**  The evaluator rebuilds from code: lint+build →
@@ -110,9 +110,9 @@ cheaply.
 
 ```bash
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-4-argon,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
+    --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-4-argon,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.8-flash,oneshot+repair:gemini:gemini-3.8-flash \
     --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
-    [--rounds 3] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
+    [--rounds 3] [--loop-judge gemini:gemini-3.8-flash] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]
 ```
 Arms:

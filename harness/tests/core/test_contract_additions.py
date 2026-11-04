@@ -12,7 +12,7 @@ def test_spec_options_do_not_change_the_plan_stage_hash():
     from codeverse3d.tracks.lifecycle import plan_stage_inputs
 
     plain = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
-    opted = plain.model_copy(update={"options": RunOptions(candidates=4, texture=True)})
+    opted = plain.model_copy(update={"options": RunOptions(candidates=4)})
     assert hash_inputs(plan_stage_inputs(plain)) == hash_inputs(plan_stage_inputs(opted))
 
 
@@ -24,7 +24,7 @@ def test_records_written_before_the_2026_08_30_field_retirements_still_load():
     d = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair").model_dump(mode="json")
     d.pop("options")
     s2 = Spec(**d)  # old spec.json without options still parses
-    assert s2.options.candidates is None and s2.options.texture is False
+    assert s2.options.candidates is None
 
     rs = RenderSet.model_validate({"renderer": "blender", "turntable": "renders/turntable.mp4",
                                    "contact_sheet": "renders/sheet.png"})

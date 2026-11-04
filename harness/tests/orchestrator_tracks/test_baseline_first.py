@@ -53,7 +53,6 @@ def test_round0_is_one_session_owning_every_part_file_and_the_entry(tmp_path, se
     # the object tasks ask for no effort: the session runs at the backend's default (agy: high)
     assert draft.thinking == "" and session_effort(draft) is None
     assert "The whole object first" in draft.prompt and "placeholder_part" in draft.prompt
-    assert "targeted edits" in draft.prompt
 
 
 def _last(plan) -> RoundRecord:
@@ -86,7 +85,7 @@ def test_refine_round_is_one_whole_object_session_with_placeholder_errors_first(
     assert "bolt heads" in lines[2] and "darker steel" in lines[3]
     body = refine.prompt
     assert body.index("placeholder box") < body.index("floats 12 mm") < body.index("bolt heads")
-    assert "Edit in place" in body and "never rewrite a whole file" in body
+    assert "Edit in place" in body
     assert "Measured vs planned" in body
 
 

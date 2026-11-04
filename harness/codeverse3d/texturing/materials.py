@@ -15,14 +15,8 @@ almost always one of two sentences:
 The numbers below are the ones a materials artist would type — measured
 dielectric IORs, the metallic/roughness pairs the glTF and Disney/Substance
 guides publish, and the clear-coat that separates lacquered wood from raw
-timber.  They are used two ways:
-
-1. as the target of the **post-build normaliser**
-   (:mod:`codeverse3d.texturing.apply`), which fixes a material whose numbers
-   are an untouched framework default or are impossible for the finish its own
-   name claims;
-2. as the PBR factors the **texture pass** writes next to a generated albedo
-   (:mod:`codeverse3d.texturing.apply`).
+timber.  ``languages/blender`` reads them (``family_for`` / ``pbr_for``) to give a
+part whose name or material names a finish its PBR factors.
 
 Everything here is data + pure functions; nothing imports a model or touches a file.
 """
@@ -34,18 +28,6 @@ from typing import NamedTuple
 from pydantic import BaseModel, Field
 
 from codeverse3d.conventions import to_snake
-
-#: glTF/Blender/three framework defaults, and the factors the harness's own writers put
-#: on a material nobody authored.  A material sitting exactly on one of these pairs was
-#: never authored — see ``is_framework_default``.  The two harness rows are pinned to their
-#: writers by ``tests/texturing/test_normalise.py``.
-FRAMEWORK_DEFAULTS: tuple[tuple[float, float], ...] = (
-    (1.0, 1.0),   # glTF 2.0 material default (metallic 1, roughness 1) — renders as dark mud
-    (0.0, 1.0),   # three.js MeshStandardMaterial default
-    (0.0, 0.5),   # Blender Principled BSDF default
-    (0.0, 0.6),   # languages/wrappers/run_cq.py: every CadQuery part's exported material
-    (0.05, 0.6),  # the three.js part stub's placeholder before D107 (runs recorded before it carry it)
-)
 
 
 class Pbr(BaseModel):
@@ -86,7 +68,7 @@ def _m(
                roughness_band=rband, metallic_band=mband, note=note)
 
 
-#: family -> factors (the texture pass's normaliser bands).  Metals, woods, polymers, rest.
+#: family -> PBR factors (with the plausible bands each value may take).  Metals, woods, polymers, rest.
 MATERIALS: dict[str, Pbr] = {
     "painted_metal": _m("painted_metal", 0.0, 0.35, clearcoat=0.35, ccr=0.10, base=(0.30, 0.32, 0.36),
                         rband=(0.08, 0.7), mband=(0.0, 0.35),
@@ -207,8 +189,7 @@ _FINISH_ONLY: dict[str, str] = {
     "gloss": "glossy_plastic",
 }
 
-#: the coarse families :mod:`codeverse3d.texturing.plan` speaks -> a representative
-#: fine family here, so the texture pass and the normaliser agree on the numbers.
+#: the coarse families (wood, metal, ...) -> a representative fine family, for ``pbr_for``.
 COARSE_TO_FINE: dict[str, str] = {
     "wood": "hardwood", "metal": "machined_steel", "fabric": "fabric", "stone": "stone",
     "plastic": "rough_plastic", "leather": "leather", "glass": "glass", "ceramic": "ceramic",
@@ -300,64 +281,4 @@ def pbr_for(family: str) -> Pbr | None:
     return MATERIALS.get(fine) if fine else None
 
 
-def is_framework_default(metallic: float | None, roughness: float | None, *, eps: float = 1e-3) -> bool:
-    """True when (metallic, roughness) sits exactly on a framework default pair.
-
-    ``None`` means the glTF exporter omitted the factor, which means the glTF
-    default (1.0) — that is precisely the untouched case.
-    """
-    m = 1.0 if metallic is None else float(metallic)
-    r = 1.0 if roughness is None else float(roughness)
-    return any(abs(m - dm) <= eps and abs(r - dr) <= eps for dm, dr in FRAMEWORK_DEFAULTS)
-
-
-def out_of_band(pbr: Pbr, metallic: float | None, roughness: float | None) -> list[str]:
-    """Which of (metallic, roughness) are impossible for ``pbr``'s family."""
-    m = 1.0 if metallic is None else float(metallic)
-    r = 1.0 if roughness is None else float(roughness)
-    bad: list[str] = []
-    if not (pbr.metallic_band[0] - 1e-6 <= m <= pbr.metallic_band[1] + 1e-6):
-        bad.append("metallic")
-    if not (pbr.roughness_band[0] - 1e-6 <= r <= pbr.roughness_band[1] + 1e-6):
-        bad.append("roughness")
-    return bad
-
-
-#: families that describe BARE metal.  A strongly chromatic base colour contradicts
-#: them — real cast iron, steel and chrome are neutral (or warm, for brass/copper);
-#: "DarkGreenCastIron" is cast iron with PAINT on it, and paint is a dielectric.
-BARE_METAL_FAMILIES = frozenset({"cast_iron", "machined_steel", "brushed_metal", "chrome"})
-#: saturation above which a base colour cannot be a bare metal
-PAINT_SATURATION = 0.30
-
-
-def saturation(rgb: tuple[float, float, float]) -> float:
-    """HSV saturation of a 0..1 RGB triple."""
-    hi, lo = max(rgb), min(rgb)
-    return 0.0 if hi <= 1e-6 else (hi - lo) / hi
-
-
-def is_warm_metal_hue(rgb: tuple[float, float, float]) -> bool:
-    """Gold / brass / copper / titanium-nitride hue: warm, with green sitting between
-    red and blue rather than collapsing onto blue the way a red paint does."""
-    r, g, b = rgb
-    if not (r > g > b):
-        return False
-    span = r - b
-    return span > 1e-6 and 0.28 <= (g - b) / span <= 0.88
-
-
-def looks_painted(family: str, rgb: tuple[float, float, float] | None) -> bool:
-    """Does this base colour rule out the bare-metal family it claims?"""
-    if rgb is None or family not in BARE_METAL_FAMILIES:
-        return False
-    return saturation(rgb) > PAINT_SATURATION and not is_warm_metal_hue(rgb)
-
-
-__all__ = [
-    "COARSE_TO_FINE", "FINISH_KEYWORDS", "FRAMEWORK_DEFAULTS", "MATERIALS", "SUBSTRATE_KEYWORDS",
-    "FamilyMatch", "Pbr",
-    "BARE_METAL_FAMILIES", "family_for", "is_framework_default",
-    "is_warm_metal_hue",
-    "looks_painted", "out_of_band", "pbr_for", "saturation",
-]
+__all__ = ["COARSE_TO_FINE", "FINISH_KEYWORDS", "MATERIALS", "SUBSTRATE_KEYWORDS", "FamilyMatch", "Pbr", "family_for", "pbr_for"]

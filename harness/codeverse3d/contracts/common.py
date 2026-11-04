@@ -46,7 +46,7 @@ class TrackInfo(BaseModel):
     """Per-track registry row: default judge rubric + human label.
 
     THE single source for what used to be restated as ``TRACK_RUBRIC`` /
-    ``RUBRIC_BY_TRACK`` / ``TYPE_LABEL`` in judges, texturing, flywheel and cli.
+    ``RUBRIC_BY_TRACK`` / ``TYPE_LABEL`` in judges, flywheel and cli.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -193,10 +193,6 @@ class Backends(BaseModel):
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"
     captioner: str = "gemini:gemini-4-argon"
-
-
-#: The text-to-image model (texture pass, scene texture pack, synthetic references) when none is named.
-DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 
 
 # ------------------------------------------------------------------ joint coupling

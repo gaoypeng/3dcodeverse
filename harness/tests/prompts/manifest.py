@@ -26,8 +26,7 @@ saying why::
     python -m tests.prompts.manifest --dump DIR    # every payload as a file: diff two trees' dumps
 
 Not covered (the fakes cannot drive it): reference-image runs (reference and likeness judges, the
-silhouette gate), the texture pack's own planner (``texturing/scene_pack.md``: the scene is handed
-a canned pack) and the texture pass (``texturing/material_plan.md``), replays (``3dcode judge``),
+silhouette gate), replays (``3dcode judge``),
 the budget-stop salvage (the clock is frozen), the node asset checker (a python stand-in answers)
 and each vendor CLI's own framing of a session (only agy's workspace files are built).
 """
@@ -71,7 +70,6 @@ from codeverse3d.models.base import ModelError
 from codeverse3d.orchestrator import BudgetGuard
 from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
 from codeverse3d.spatial.registry import list_tools
-from codeverse3d.texturing.plan import PackEntry, ScenePack
 from codeverse3d.tracks import get_track, scene_assets
 from codeverse3d.tracks.common import Services
 from codeverse3d.tracks.planner import plan_example
@@ -91,7 +89,7 @@ from tests.orchestrator_tracks.fakes import (
 
 MANIFEST = Path(__file__).with_name("manifest.json")
 AGENT = "agy:gemini-4-argon"                        # the default generator (a vendor CLI; FakeAgent answers)
-SINGLE_SHOT = "single-shot:gemini:gemini-3.7-flash"
+SINGLE_SHOT = "single-shot:gemini:gemini-3.8-flash"
 #: what each track is asked for
 REQUESTS = {Track.STATIC_OBJECT: ("a mid-century wooden dining chair", Constraints(dimensions_m={"height": 0.82}, must_have=["armrests"])),
           Track.ARTICULATED_OBJECT: ("a bedside cabinet with one drawer", Constraints(must_have=["a round knob"])),
@@ -382,23 +380,9 @@ def _example(track: Track) -> Plan:
 REBUILD = frozenset({"baseline", "r00_baseline_repair1", "r00_baseline_repair2"})   # round 0 never builds
 
 
-def _textures(scene_plan: Any, out_dir: Path, image_model: Any, model_id: str = "", **kw: Any) -> ScenePack:
-    """The texture pack's generator, canned: the env and zone prompts see a two-texture pack."""
-    entries = {n: PackEntry(name=n, material_family=fam, subject=n, tile_size_m=1.2, role=role, file=f"{n}.png")
-               for n, fam, role in (("cobblestone", "stone", "path"), ("pond_bed", "stone", "water_bed"))}
-    return ScenePack(out_dir=str(out_dir), entries=entries, source="default")
-
-
 def _switch(name: str, value: str) -> None:
     os.environ[name] = value           # isolated() restores the environment
     config.get_settings.cache_clear()
-
-
-def _scene_textures(rig: Rig) -> None:
-    _switch("C3D_SCENE_TEXTURES", "on")
-    with mock.patch("codeverse3d.texturing.plan.scene_texture_pack", _textures), mock.patch("codeverse3d.reference.get_image_model"):
-        rig.run(rounds=0)
-        rig.run(rounds=1, resume=True)
 
 
 def _two_runs(first: int, then: int) -> Callable[[Rig], None]:
@@ -434,7 +418,6 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
                                                           lambda r: r.run(rounds=1, single_shot=True)),
     "scene.scene_threejs.agent.fresh": (SC, Language.SCENE_THREEJS, {"plan": small_scene(), "broken_assets": frozenset({"Bollard"})},
                                         _two_runs(1, 2)),
-    "scene.scene_threejs.agent.textures": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _scene_textures),
     "scene.scene_threejs.agent.no_layouts": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _switched("C3D_ZONE_LAYOUTS", "off", 0)),
     # the argon variant (D105) ships EMPTY overlays: every payload equals the fresh scene's, only the
     # plan stage key carries the variant name — iteration 0 of the loop measures exactly this
@@ -607,7 +590,7 @@ PAYLOAD_HINT = ("A code-only change leaves every payload byte-identical.  To rea
                 "A change a model is meant to see (a bug fix): re-bless in the same commit and say why — "
                 "`python -m tests.prompts.manifest --bless`.")
 STAGE_HINT = ("A stage key names a stage's inputs: when it moves, a resumed run re-runs that stage (and every recorded "
-              "run dir with it).  The default run's keys (textures off, zone layouts on) must never move; any other move is "
+              "run dir with it).  The default run's keys (zone layouts on) must never move; any other move is "
               "re-blessed on purpose (`python -m tests.prompts.manifest --bless`), saying why.")
 
 

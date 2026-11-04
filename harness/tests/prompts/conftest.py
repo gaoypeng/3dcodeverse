@@ -28,9 +28,9 @@ PROMPT_FILES = sorted(p.relative_to(PROMPTS_DIR).as_posix() for p in PROMPTS_DIR
 
 
 def is_template(rel: str) -> bool:
-    """Rendered with a context (jinja): the ``.j2`` files, each language's ``system.md`` and the
-    texturing prompts.  Every other file is quoted verbatim and must stay jinja-inert."""
-    return rel.endswith(".j2") or rel.startswith("texturing/") or (rel.endswith("/system.md") and not rel.startswith("system/"))
+    """Rendered with a context (jinja): the ``.j2`` files and each language's ``system.md``.
+    Every other file is quoted verbatim and must stay jinja-inert."""
+    return rel.endswith(".j2") or (rel.endswith("/system.md") and not rel.startswith("system/"))
 
 
 _FENCE = re.compile(r"```(\w[\w-]*)\n(.*?)```", re.DOTALL)

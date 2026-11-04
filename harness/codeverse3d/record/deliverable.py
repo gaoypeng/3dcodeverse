@@ -6,7 +6,7 @@ be zipped and sent on its own:
 
 * ``src/**`` (+ ``public/**`` for scenes, their GLB assets included) — the raw code at the
   round's commit;
-* the round's artifact — ``object.glb`` (+ ``.stl`` / ``.step`` / textured GLB), or
+* the round's artifact — ``object.glb`` (+ ``.stl`` / ``.step``), or
   ``robot.urdf`` + ``meshes/*.glb``, or ``frames/*.png`` (the judged frames) +
   ``frames_sheet.png`` + ``preview.gif`` — from ``artifacts/rNN/`` (:func:`keep_round_artifacts`);
 * ``sheet.png`` — the round's contact sheet (one picture of the result);
@@ -32,7 +32,7 @@ from pathlib import Path
 
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
-from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic
+from codeverse3d.proc import sha256_file, write_json_atomic
 from codeverse3d.record import git_history
 from codeverse3d.workspace import Workspace
 
@@ -149,30 +149,6 @@ def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
     return kept if kept.is_dir() else None
 
 
-def texture_report_for(ws: Workspace, glb: Path) -> dict | None:
-    """The texture report (raw ``artifacts/textures/texturing.json``) of a pass that started
-    from these exact GLB bytes, else None.  The report names the GLB it consumed; a pack made
-    mid-round, or for another round, is not this round's."""
-    from codeverse3d.texturing.run import report_path
-
-    rep = read_json_or_none(report_path(ws)) or {}
-    src = ws.rebase(str(rep["glb_in"])) if rep.get("glb_in") else None
-    if src is None or not src.is_file() or not glb.is_file() or sha256_file(src) != sha256_file(glb):
-        return None
-    return rep
-
-
-def texture_shipped_for(ws: Workspace, record: RunRecord, out: Path | None) -> bool:
-    """Did a SHIPPED texture pass start from the round whose build outputs are ``out``
-    (``round_outputs``)?  Old layout (``out`` is ``artifacts/``): the one canonical pack
-    belonged to the one round finalise rebuilt, so the record's flag answers."""
-    if out is None:
-        return False
-    if out == ws.artifacts:
-        return bool((record.extra.get("texturing") or {}).get("shipped"))
-    return bool((texture_report_for(ws, out / "object.glb") or {}).get("shipped"))
-
-
 def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, out: Path | None, w: _Writer) -> None:
     if out is None:
         return
@@ -185,12 +161,6 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, o
         for v in rnd.renders.views:  # the judged frames (renders/rNN), one per sampled time
             src = ws.rebase(v.path)
             w.add_file(src, f"frames/{src.name}", "frames")
-    tex = record.extra.get("texturing") or {}
-    if texture_shipped_for(ws, record, out):
-        w.add_file(ws.artifacts / "object_textured.glb", "object_textured.glb", "model")
-        tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
-        for p in sorted(tex_dir.glob("*.png")) if tex_dir.is_dir() else []:
-            w.add_file(p, f"textures/{p.name}", "texture")
 
 
 def _copy_sheet(ws: Workspace, rnd: RoundRecord | None, w: _Writer) -> None:

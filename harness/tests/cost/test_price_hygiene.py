@@ -14,14 +14,8 @@ from codeverse3d.models.pricing import (
 #: model ids exposed by defaults, routes, CLI examples, and public backend contracts.
 #: They must stay priceable even when no recorded run happens to mention them.
 SUPPORTED_MODEL_IDS = (
-    "gemini:gemini-3.7-flash",
-    "gemini:gemini-3.6-flash",
-    "gemini:gemini-3.5-flash",
-    "gemini:gemini-3.1-pro-preview",
-    "gemini:gemini-3.1-flash-lite",
-    "gemini:gemini-3.1-flash-image",
-    "gemini:gemini-2.5-flash-image",
     "gemini:gemini-3.8-flash",
+    "gemini:gemini-3.1-pro-preview",
     "gemini:gemini-4-argon",
     "openai:gpt-6-astra",
     "openai:gpt-6.1-sol",
@@ -44,7 +38,7 @@ def test_long_context_tier_is_applied():
     assert estimate_cost("gemini", "gemini-3.1-pro-preview", big) > \
         3 * estimate_cost("gemini", "gemini-3.1-pro-preview", small)
     # flash has no long-context tier
-    assert unit_prices("gemini", "gemini-3.7-flash", prompt_tokens=900_000)[0] == 0.75
+    assert unit_prices("gemini", "gemini-3.8-flash", prompt_tokens=900_000)[0] == 0.75
 
 
 def test_supported_model_ids_resolve_to_a_price():

@@ -21,7 +21,6 @@ def test_label_tells_stage_role_and_round():
     assert c.stage is Stage.JUDGE and c.role is Role.JUDGE and c.round == 2
     assert context_from_label("planner-retry").stage is Stage.PLAN
     assert context_from_label("pairwise:0v1:fwd").stage is Stage.PAIRWISE
-    assert context_from_label("texture_plan").stage is Stage.TEXTURE
     assert context_from_label("captioner").role is Role.CAPTIONER
     assert context_from_label("").stage is None
     assert context_from_label("baseline_repair1").stage is Stage.REPAIR  # repair wins
@@ -40,10 +39,6 @@ def test_session_beats_a_generation_label_a_named_job_beats_the_session_explicit
         assert forced.stage is Stage.REPAIR and forced.round == 9
     # a spatial tool that bills a model inside a refine session is not a refine call
     with call_context(round=2, stage=Stage.REFINE, role=Role.GENERATOR, label="refine_seat"):
-        tex = attribute(label="texture_plan")
-        assert tex.stage is Stage.TEXTURE and tex.role is Role.OTHER and tex.round == 2
-        gate = attribute(label="texture_gate")
-        assert gate.stage is Stage.TEXTURE and gate.role is Role.JUDGE
         verdict = attribute(label="judge:static_object:r02:s0")
         assert verdict.stage is Stage.JUDGE and verdict.role is Role.JUDGE and verdict.round == 2
         cap = attribute(label="caption:best")

@@ -53,7 +53,7 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
     out = tmp_path / "bench_out"
     scores = {"furn_easy_stool": (0.6, 0.85), "furn_med_dining_chair": (0.5, 0.7), "furn_hard_rolltop_desk": (0.4, 0.6)}
-    opts = BenchOptions(parallel=2, limit=4, judge="gemini:gemini-3.7-flash", generator="agy:gemini-3.6-flash")
+    opts = BenchOptions(parallel=2, limit=4, judge="gemini:gemini-3.8-flash", generator="agy:gemini-3.8-flash")
     res = run_battery(battery, out, opts, run_fn=_fake_run_fn(scores, fail_ids={"veh_easy_toy_car"}))
     assert len(res) == 4
     by_id = {r.id: r for r in res}
@@ -65,7 +65,7 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     assert (out / "results.csv").is_file() and len(load_results(out)) == 4
     assert (out / "runs" / "furn_easy_stool" / "spec.json").is_file()
     spec = json.loads((out / "runs" / "furn_easy_stool" / "spec.json").read_text())
-    assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash" and "bench" in spec["tags"]
+    assert spec["backends"]["judge"] == "gemini:gemini-3.8-flash" and "bench" in spec["tags"]
     # resume: already-done prompts are not re-run; the failed one is re-run (it is in results → also skipped)
     calls = []
 

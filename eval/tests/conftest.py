@@ -65,12 +65,12 @@ def _score_of(code: str) -> float:
 
 
 class GeminiChat:
-    """A chat model that bills like gemini-3.7-flash (1 000 tokens in, 10 out): a priced ledger row."""
+    """A chat model that bills like gemini-3.8-flash (1 000 tokens in, 10 out): a priced ledger row."""
 
-    provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
+    provider, model, id = "gemini", "gemini-3.8-flash", "gemini:gemini-3.8-flash"
 
     def generate(self, request: ChatRequest) -> ChatResponse:
-        return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=1000, output_tokens=10))
+        return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.8-flash", input_tokens=1000, output_tokens=10))
 
 
 class FakeEvaluator:

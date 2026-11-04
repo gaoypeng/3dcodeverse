@@ -58,7 +58,7 @@ def price_table_version() -> str:
 
 
 def backend_kind(model_id: str) -> str:
-    """``api-agent:gemini:gemini-3.7-flash`` → ``api-agent``; ``gemini:x`` → ``gemini``."""
+    """``api-agent:gemini:gemini-3.8-flash`` → ``api-agent``; ``gemini:x`` → ``gemini``."""
     return model_id.split(":", 1)[0] if ":" in model_id else model_id
 
 
@@ -114,7 +114,6 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
         roles=_role_settings(record),
         budget=spec.budget.model_dump(mode="json"),
         candidates=spec.options.candidates,
-        texture=bool(spec.options.texture),
         seed=spec.seed,
         rubric=rubric,
         rubric_hash=rubric_hash(rubric),

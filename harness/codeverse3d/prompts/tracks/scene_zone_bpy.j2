@@ -103,7 +103,7 @@ Animation is DATA: keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)` and simple d
 ## DON'T
 - No world, no sun, no cameras, no ground here (the env's; the lint rejects a world in a zone); the local
   lights the brief's place has are yours.
-- No file IO, {% if not (textures is defined and textures) %}no image textures, {% endif %}no `random.*` (`ctx.rng(seed)`), no Python drivers, no `scene.*` settings.
+- No file IO, no image textures, no `random.*` (`ctx.rng(seed)`), no Python drivers, no `scene.*` settings.
 - Do not place assets marked NOT AVAILABLE; do not edit other files.
 {% if tool_cards and not single_shot %}
 
@@ -118,12 +118,6 @@ STATIC means this zone's motion is below the threshold.
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if textures is defined and textures %}
-
-{{ textures }}
-(These are PNG files under `public/textures/`: load one with `bpy.data.images.load("public/textures/<file>",
-check_existing=True)` into an Image Texture node; the build runs with the workspace root as its working directory.)
 {% endif %}
 
 ## Output

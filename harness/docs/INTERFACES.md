@@ -18,18 +18,13 @@ test-pinned (`tests/core/test_interfaces_names.py`).
 * **Δ** Single-shot generation ids: `single-shot:<provider>:<model>` — handled only
   inside `tracks/generation.py` (`is_single_shot`, `single_shot_model_id`); never
   registered in `agents/`.  `Spec.backends.generator` accepts any of the three.
-* Image models: `models/gemini.py::GeminiImageModel` (default
-  `gemini-3.1-flash-image`, fallback `gemini-2.5-flash-image`); the one entry point
-  is `generate_with_usage(prompt, *, size=1024, n=1, seed=None, reference_images=(),
-  max_wait_s=None) -> (images, Usage)`, priced per GENERATED image via
-  `pricing.per_image_usd(size=<generated px>)` (no `ImageModel` protocol, no `generate`).
 
 ## core (contracts · config · proc)
 
 ```python
 from codeverse3d.contracts.common import TRACK_INFO, TrackInfo   # {Track: TrackInfo(rubric, label, best_of_n, likeness_refs)} — THE track registry
 from codeverse3d.contracts.common import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Language: "src/<entry>"}; code_file(lang) -> "code.<ext>"
-from codeverse3d.contracts.spec import RunOptions                # Spec.options: candidates (int|None, ≥1), texture (bool)
+from codeverse3d.contracts.spec import RunOptions                # Spec.options: candidates (int|None, ≥1), variant (str)
 GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
     # "GATE <gate>: [<sev>] <message> [<target>] FIX: <hint>" — flags opt in; no leading "- "
 GateReport.of(gate, findings=(), *, duration_ms=0) -> GateReport   # passed iff no ERROR — every gate whose verdict IS its findings
@@ -112,7 +107,7 @@ Rules that callers must know:
   (`-nano`, `-mini`, `-codex`, `-lite`) never inherit the parent's price — they are
   unknown (0.0 + warning) unless a row exists.
 
-## cost/  (ledger · profiles · price provenance)
+## cost/  (ledger · price provenance)
 ```python
 from codeverse3d.cost import record_call, load_ledger
 from codeverse3d.cost.ledger import summarise
@@ -138,7 +133,7 @@ with run_ledger(ws.root, run=slug):        # binds the run, points record_call a
     # agents.get_coding_agent returns a MeteredAgent (registry wrap, from the first call) → ambient
     #   round/stage for the session and one source='session' row (n_calls, latency, outcome,
     #   AgentResult.turns) — every backend is a vendor CLI whose calls the harness cannot see.
-    #   These two (+ the image model's own row) are the ONLY ledger writers; BudgetGuard keeps no money.
+    #   These two are the ONLY ledger writers; BudgetGuard keeps no money.
     #   The rule is the BACKEND, never "did a row get written while it ran": a CLI session with one
     #   in-process tool call used to be dropped entirely.
 from codeverse3d.cost.context import CallContext, call_context, bound_run, context_from_label, SELF_DESCRIBING
@@ -146,21 +141,13 @@ from codeverse3d.cost.ledger import bound_ledger, process_ledger_path   # (Δ 20
     #   managers holding a ContextVar token; there is no process-wide default any more — a thread that
     #   may bill a model is spawned through proc.fan_out (which copies context), never a bare pool.
     # precedence: explicit > a label naming a job of its OWN (SELF_DESCRIBING = plan/judge/pairwise/
-    #   texture/caption) > ambient (call_context) > the rest of the label > nothing.  A judge or a
-    #   texture pass that bills a model INSIDE an agent session is filed under its own stage, not the
+    #   caption) > ambient (call_context) > the rest of the label > nothing.  A judge or a
+    #   captioner that bills a model INSIDE an agent session is filed under its own stage, not the
     #   session's; a generation label yields to the session (best-of-N: kind="candidate" beats
     #   label="baseline"); Stage.OTHER means "the label said nothing" and displaces nothing.
-    # labels understood: judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · texture… · caption… (api-agent:<label>:t<turn> in historical ledgers only)
+    # labels understood: judge:<rubric>:r<NN>:s<k> · planner · pairwise:… · caption… (api-agent:<label>:t<turn> in historical ledgers only)
 from codeverse3d.addons.costreport.caching import session_cache, session_key
 session_cache(rows) -> [SessionCache]      # per session: cold first call, cached share, saved_usd, cold_usd
-from codeverse3d.cost.profiles import get_profile, PROFILES   # economy | balanced | quality
-get_settings().apply_profile(name, *, force=False) -> Profile
-    # sets default_{generator,planner,judge,captioner}, default_candidates and Settings.judge.samples
-    # (never the judge payload or the turn cap); a value the user stated in
-    # config.yaml / C3D_* survives unless force (3dcode make --profile forces).
-from codeverse3d.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcode make`
-resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None,
-             max_minutes=None, texture=False) -> ResolvedDial
 from codeverse3d.cli._common import resolve_variant, ResolvedVariant, record_variant, replay_variant   # D105
 resolve_variant(settings, generator, flag=None) -> ResolvedVariant{name, version, hash, source, label}
     # `--variant` > settings.variant (C3D_VARIANT) > settings.variants[<generator>] (as typed, then by the served
@@ -191,15 +178,10 @@ select(track, language, kind, *, signals=None, findings=(), library=None, max_sk
     # boosts: skill -> priority delta, clamped by effective_priority (a standing row stays below 90, a gate-fired
     # row never drops under it); disabled: rule ids skipped.  SkillsMaterialized.variant, the skills.attached
     # event and the telemetry/skills.jsonl row name the variant the attach ran under
-    # profile/generator/planner/judge/captioner, judge_samples/judge_max_px/judge_montages/
-    # judge_detail_crops, agent_max_turns, rounds, candidates, texture, max_minutes.
-    # `--profile X` and `C3D_PROFILE=X` resolve to the SAME dial (they used to disagree on
-    # candidates + texture); an explicit flag beats both.  Spec.options.profile always records the
-    # resolved name so `3dcode resume` re-applies it.
 from codeverse3d.models.pricing import price_provenance    # (provider, model) -> PriceRow(price, match, status, checked)
 ```
 `3dcode cost <slug|path>…` · `3dcode cost --runs-dir <root>` · `3dcode cost cache <slug>` ·
-`3dcode cost prices [--stale] [--days N] [--unverified]` · `3dcode cost profiles` · `3dcode cost estimate`.
+`3dcode cost prices [--stale] [--days N] [--unverified]` · `3dcode cost estimate`.
 Every run is read from its ledger alone (`addons.costreport.audit.read_run` / `read_cell` /
 `find_runs`); `cost/reconstruct.py` and its rebuild of pre-ledger runs went on 2026-09-22.
 
@@ -394,7 +376,7 @@ are the pure helpers `3dcode doctor` reuses for its `node` row.
 `tool_common.glb_path` refuses (`ToolUsageError`) when `artifacts/build.json` says the last
 build failed — the one build status: every runtime publishes its final BuildResult there and
 a tool's lint refusal writes a `LintError` one (`build_last.json` is gone, 2026-09-22).  Tools
-never measure or texture a stale GLB; missing/unreadable status stays permissive (hand-placed GLBs).
+never measure a stale GLB; missing/unreadable status stays permissive (hand-placed GLBs).
 ```python
 from codeverse3d.spatial.render import render_glb
 from codeverse3d.contracts.artifacts import RENDER_MODES   # ('shaded','wire','normals','silhouette','clay') — THE mode tuple (no 'depth')
@@ -543,7 +525,6 @@ round_input(spec, plan, rnd, *, renders, gates, previous, extra_context, geometr
     # SLICE_TRACKS; eval's fixed judge (eval/bench/_fixed_eval.fixed_input, plan=None, acceptance = the brief's must_have) too.  Δ 2026-09-22: replays used a dict digest of plan.json (a Z-up object read W×D×H, a shader lost
     # style / passes / key visuals / motion); cli/_judge.stored_plan types plan.json when record.json has no plan
 plan_summary(plan, language) -> str   # the digest for every track (object: "Overall W×H×D m" in the GLB frame);
-    # also the texture gate's (texturing/generate.judge_gate)
 from codeverse3d.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤5 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace the sheet + the 14-view rig (D47); clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
     # Δ 2026-10-14 (scene): plan_montages(…, gates=()) / plan_detail_crops(shaded, *, scene, gates=(), limit) — a scene sends the
@@ -730,24 +711,10 @@ post-render gates → the build's own `BuildResult.gates` (also when the build f
 `ReferenceJudge` (rubric `reference` for static_object; `LikenessJudge` on graphics/scene —
 `vlm_judge.judge_for`) and images attached to generation prompts.
 
-## texturing/  (derived asset pack; code stays truth — object.glb is never touched)
+## texturing/  (the PBR table only)
 ```python
-from codeverse3d.texturing.run import texture_pass, texture_requested, load_report
-texture_requested(spec) -> bool   # Uses Spec.options.texture and the supported track.
-    # Asked by the CLI hand-over after the run (make/resume → addons.select.package(
-    # texture=…), which textures the PICKED round — Δ 2026-09-22, finalise no longer does).  No agent session can
-    # buy a pass: the texture_pass / texture_preview tools were deleted 2026-09-22.
-texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_obj=None, judge_model_id=None, rubric=None,
-             glb_in=None, sheet=None, views=OBJECT_VIEWS_QUICK, size=1024, plan_model=None, render=None, cache_dir=None,
-             events=None, normalise=True) -> TextureReport   # always writes record.json extra["texturing"] when a record exists
-# 1 vision call material plan (cacheable) → tileable textures (mirror cross-fade, seam_score ≤ 0.08) → world-metre UV
-# unwrap (planar/box/cylinder per part, tile_size_m) → artifacts/object_textured.glb → seam gate + before/after judge
-# gate (ship iff Δoverall ≥ −0.01 AND materials criterion improved); record.extra["texturing"], events texture.*
-from codeverse3d.texturing.plan import material_plan, default_plan, TexturePlan
-from codeverse3d.texturing.generate import generate_textures   # (Δ) FakeImageModel / procedural_texture
-    # moved to tests/texturing/conftest.py 2026-08-30 — no production path could construct them
-from codeverse3d.texturing.plan import scene_texture_pack, texture_pack_prompt   # 6–12 named tiles + manifest.json
-# under public/textures/ for scene prompts (URL /public/textures/<name>.png)
+from codeverse3d.texturing.materials import family_for, pbr_for, MATERIALS   # family_for(*texts) -> FamilyMatch | None; pbr_for(family) -> Pbr | None
+    # read by languages/blender; no texture is generated anywhere (the image-generation pass was removed 2026-11-03)
 ```
 
 ## record/ + addons/ + cli/
@@ -761,8 +728,7 @@ from codeverse3d.record.deliverable import keep_round_artifacts, round_outputs, 
     # round_outputs(ws, rnd) -> Path | None: artifacts/rNN/, else artifacts/ for the best round a pre-2026-09-22
     #   record.json names, else None
     # build_deliverable(ws, record, round_index, *, clean=True) -> RunDeliverable: deliverable/ for ONE round —
-    #   its commit's code + its kept files + its sheet (+ graphics: its judged frames; + a shipped texture pack
-    #   whose report names this round's GLB); never rebuilds.  Only addons.select.package calls it.
+    #   its commit's code + its kept files + its sheet (+ graphics: its judged frames); never rebuilds.  Only addons.select.package calls it.
 from codeverse3d.addons import select       # which round of a FINISHED run to hand over (cli/ + addons only)
 select.round_rows(run_dir, *, record=None) -> [RoundRow{index, kind, score (effective), passed (the judge's own
     # verdict for THAT round), gate_errors, build_ok, commit, cost_usd, minutes}]
@@ -772,11 +738,10 @@ select.pick(run_dir, *, by="score"|"pairwise", pairwise_model=None, record=None,
     # wins at confidence ≥ 0.6; one paid verdict per (pair, model), cached at artifacts/judge/rAA_vs_rBB_pairwise.json
 select.summarise(run_dir, *, record=None) -> RunSummary{rounds, stop_reason, baseline_score (r00's effective
     # score), picked_round, picked_score, delta, method}: selection.json's round when the run was packaged, else pick()
-select.package(run_dir, round_index, *, texture=False, method="round", image_model=None) -> Path (deliverable/)
-    # + selection.json {round, method, scores, textured, selected_at}; texture=True runs the pass on that round's
-    # kept GLB unless a report already covers those bytes; a failed pass never fails the hand-over
+select.package(run_dir, round_index, *, method="round") -> Path (deliverable/)
+    # + selection.json {round, method, scores, selected_at}
 select.round_file(ws, rnd, name="object.glb") -> Path | None   # the round's OWN output (round_outputs), never the
-    # canonical artifacts/<name> (the last build's): calibration, `3dcode judge`, `texture pass`, export, eval/bench
+    # canonical artifacts/<name> (the last build's): calibration, `3dcode judge`, export, eval/bench
 select.round_complexity_block(ws, rnd) -> dict | None   # its own measurement's vector (legacy: measurement.json only
     # when the canonical build is this round's); gallery cards and dataset meta.  Never record.extra["complexity"]
 from codeverse3d.addons.gallery.index import hero_view          # (ws, rec, picked) -> (rel, label, n_views): the card image
@@ -827,8 +792,8 @@ from codeverse3d.addons.gallery.urls import safe_join          # (root, rel) -> 
 from codeverse3d.addons.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
 from codeverse3d.addons.dataset.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
-3dcodeverse make [--profile economy|balanced|quality] [--no-pick]|resume [--no-pick]|pick|status|show|render|judge|tools|mcp
-             |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
+3dcodeverse make [--no-pick]|resume [--no-pick]|pick|status|show|render|judge|tools|mcp
+             |cost {<slug>,show,cache,prices,estimate}
              |flywheel {export,pairs,refine,caption,index}|gallery {serve,build}
              |skills {list,show,validate,report}|doctor    # alias: 3dcode; batteries: eval/ (python -m bench.run_bench)
 ```
@@ -842,9 +807,9 @@ Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materializ
 `zones.done`, `assemble.done`, `round.no_change`, `candidates.start`,
 `candidate.start/done/failed/retry/selected`, `resume.reconciled` (rounds, dropped, `restored_last_round`; Δ 2026-09-22 no
 `state_was_stale`: run_state.json keeps no copy of the round journal to go stale),
-`texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,
+`budget.exceeded`,
 `finalise.rebuild`, `stop` (reason, rounds), `run.done` (status, rounds, last_score) / `run.failed`;
-after the run: `pick.pairwise`, `pick.packaged`, `texture.skipped` / `texture.failed` (addons.select).
+after the run: `pick.pairwise`, `pick.packaged` (addons.select).
 Cost events: `judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd);
 `run.done` carries the run's `cost_usd` (the ledger's) and `minutes`.  Δ 2026-09-22: `cost.round` is
 gone — no reader, and its per-round {stage → $} restated the ledger (`summarise(rows)` by round and stage).
@@ -855,9 +820,9 @@ rNN.json that carries one still loads, the key ignored).  `PairwiseNote` lives i
 total_usage, environment, steps (run-level StepTime rows; `minutes` = the property over all of them),
 prompt_hashes{contract, generate, refine, …} (Δ D107: no cookbook key), error, extra{stop_reason,
 rubric, budget{elapsed_min, max_minutes} (the clock), aborted_rounds?, candidates? (the
-rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the sum of telemetry/cost.jsonl at
+rounds/candidates.json payload), captions?}.  `total_usage` is the sum of telemetry/cost.jsonl at
 list price — every billed row once, aborted rounds, retried sessions and billed-but-discarded round-trips
-included; a texture pass a pick buys joins it when `select.package` re-packages the run.
+included; what a pick buys (a pairwise verdict) joins it when `select.package` re-packages the run.
 Selection is stored separately; `RunRecord` carries no `best_round` field. Round outputs
 are read from `artifacts/rNN/`, and minutes come from `StepTime` rows. Historical status,
 manifest and timing migration is unsupported. A completed `status` names its stop reason:

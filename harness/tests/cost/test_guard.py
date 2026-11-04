@@ -17,8 +17,3 @@ def test_estimate_from_text_and_images():
     # a token count and images add up: `cost estimate --in 12000 --images 8` dropped the images
     est = estimate_call("gemini:gemini-3.1-pro-preview", input_tokens=12_000, n_images=8)
     assert est.input_tokens == 12_000 + image_tokens(8)
-
-
-def test_estimate_of_an_image_model_uses_the_per_image_price():
-    est = estimate_call("gemini:gemini-3.1-flash-image", input_tokens=500, n_images_out=2)
-    assert est.usd == pytest.approx(500 * 0.5 / 1e6 + 2 * 0.067)

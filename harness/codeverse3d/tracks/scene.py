@@ -45,7 +45,6 @@ from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instruct
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
 from codeverse3d.spatial.scene_placement import placement_gate
-from codeverse3d.texturing.plan import texture_pack_prompt
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for, single_shot_ctx
 from codeverse3d.tracks.generation import GenerationResult, GenerationTask
@@ -206,11 +205,6 @@ def _plan_agent(ctx: RunContext) -> dict[str, Any]:
     return {"plan": ctx.plan, "agent": ctx.agent_id}
 
 
-def _pack(ctx: RunContext) -> dict[str, Any]:
-    # the texture pack is part of a key only when it has files: a run without one keeps its keys
-    return {"textures": ctx.extra["textures"]} if ctx.extra.get("textures") else {}
-
-
 class SceneTrack(BaseTrack):
     track = Track.SCENE
     rubric = TRACK_INFO[Track.SCENE].rubric
@@ -218,20 +212,17 @@ class SceneTrack(BaseTrack):
     #: the pre-round graph writes the whole baseline; round 0 builds, renders and judges it
     stages = (
         SKELETON, MATERIALIZE,
-        # first and alone: env and zones name its files (Settings.scene_textures: off by default, and why)
-        StageNode("textures", lambda t, c: t._textures_stage(c), key=lambda c: {"plan": c.plan}, when=lambda s: s.scene_textures),
         # side by side (2026-08-30): the env brief reads no asset output — la_boulevard's 15 + 12 min ran
         # in max(15, 12), a whole refine round saved.  Each is its OWN cached stage (2026-08-31): a failing
         # sibling never costs a succeeded one its paid result.  Layouts: L2 zone layouts, an accelerator
         # (C3D_ZONE_LAYOUTS, default on), riding along at no wall clock (beb6605)
         (StageNode("assets", lambda t, c: run_asset_stage(c), key=_plan_agent),
-         StageNode("env", lambda t, c: t._env_stage(c), key=lambda c: {**_plan_agent(c), **_pack(c)}),
+         StageNode("env", lambda t, c: t._env_stage(c), key=_plan_agent),
          StageNode("layouts", lambda t, c: t._layouts_stage(c), key=_plan_agent, when=lambda s: s.zone_layouts)),
         StageNode("asset_api", lambda t, c: t._asset_api(c)),
         # ONE session writes every zone (D70)
         StageNode("zones", lambda t, c: t._zones_stage(c), key=lambda c: {
-            "plan": c.plan, "asset_api": c.extra["asset_api"], "layouts": c.extra.get("layouts", {}), "agent": c.agent_id,
-            **_pack(c)}),
+            "plan": c.plan, "asset_api": c.extra["asset_api"], "layouts": c.extra.get("layouts", {}), "agent": c.agent_id}),
         # after the zones are recorded: a run the clock stops here keeps them (salvage assembles
         # them; a resume serves them instead of paying the session again)
         CLOCK,
@@ -328,27 +319,6 @@ class SceneTrack(BaseTrack):
         finally:
             skills_hook.record_usage(gen, index=0, kind=kind)
             ctx.ws.commit(stage)
-
-    def _textures_stage(self, ctx: RunContext) -> dict[str, Any]:
-        """Generate the scene's tileable texture pack into ``public/textures/``.
-
-        Runs BEFORE env / zones, because its whole point is that those prompts can name
-        the files.  Advisory: a pack that cannot be generated leaves the run exactly as it
-        was before this stage existed (an empty manifest renders no prompt block)."""
-        from codeverse3d.reference import get_image_model
-        from codeverse3d.texturing.plan import scene_texture_pack
-
-        plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        try:
-            pack = scene_texture_pack(plan, ctx.ws.public / "textures", get_image_model(),
-                                      ctx.spec.backends.planner, cache_dir=ctx.settings.cache_dir / "textures")
-        except Exception as e:  # noqa: BLE001 — textures accelerate, they must never kill a run
-            ctx.events.emit("textures.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
-            return {}
-        manifest = pack.manifest()
-        ctx.ws.commit("textures")
-        ctx.events.emit("textures.done", n=len(manifest), cost_usd=round(pack.usage.cost_usd, 4), source=pack.source)
-        return manifest
 
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
         """The env session, honest (D111): ``ok`` only when the env module ITSELF was written in this
@@ -641,7 +611,6 @@ class SceneTrack(BaseTrack):
             interior=plan.interior, glazed=plan.glazed,
             zones_table=zones_table, cameras=cameras, effects=effects, animation="; ".join(plan.animation) or "(none)",
             asset_api=ctx.extra.get("asset_api", "(no assets)"),
-            textures=texture_pack_prompt(ctx.extra.get("textures") or {}),
             env_file=env_file(ctx), entry_file=ENTRY_FILE[lang], **extra)
 
 

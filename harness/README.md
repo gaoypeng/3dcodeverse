@@ -2,7 +2,7 @@
 
 A backend harness in which LLMs write **raw, executable 3D code** — Blender `bpy`,
 CadQuery, Three.js, URDF, GLSL / OpenGL — and the harness plans, builds, measures,
-renders, judges, refines, textures and records every run as data-flywheel material.
+renders, judges, refines and records every run as data-flywheel material.
 
 * **Tracks:** `static_object` · `articulated_object` · `scene` · `graphics`
 * **Languages:** `blender` · `cadquery` · `threejs` · `urdf_blender` ·
@@ -17,9 +17,6 @@ renders, judges, refines, textures and records every run as data-flywheel materi
   montages with binary defect checklists; code-computed scores, floors and caps from
   deterministic gates; pairwise, reference and likeness judges; best-of-N candidates;
   a calibration harness (`addons/calibration.py`).
-* **Texturing:** optional text-to-image pass — VLM material plan → seamless tiles →
-  world-metre UVs → `object_textured.glb`, shipped only when a before/after judge
-  gate agrees; scene texture packs for prompts.
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/cross-backend
   pairs, captions, sqlite index, HTML gallery.
@@ -32,8 +29,7 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 ## Architecture
 
 Every run is **spec → plan → skeleton → [scene stages] → baseline round (best-of-N
-optional) → refine rounds → finalise → record**, with an optional post-hoc texture
-pass.  The package tree:
+optional) → refine rounds → finalise → record**.  The package tree:
 
 ```
 codeverse3d/
@@ -53,9 +49,9 @@ codeverse3d/
                    streaming with stall detection, IPv4-pinned transport, pricing, health
   spatial/         the measurement/render toolbox behind every gate and MCP tool
   judges/          rubric VLM judge on labelled montages, pairwise, reference/likeness
-  reference.py     reference grounding: synthesis, plausibility gate, proportions, diff
-  texturing/       material plan → seamless tiles → world-metre UVs → object_textured.glb
-  cost/            append-only ledger, metering, per-block tallies, profiles, pre-call estimates
+  reference.py     a user `--image` against the render: proportion check, mismatch diff
+  texturing/       the PBR material-family table (languages/blender reads it)
+  cost/            append-only ledger, metering, per-block tallies, pre-call estimates
   skills/          typed skill routes + materialisation + read telemetry
   record/          what every run writes: record.json, deliverable/, telemetry
   addons/          optional tools that READ finished runs — nothing a run needs:
@@ -91,7 +87,7 @@ python -m pytest tests -q -m "not live"
 ```
 
 Expected cost and time per track: `docs/RUNBOOK.md` §2. Inspect actual run costs with
-`3dcode cost <slug>` and configured profiles with `3dcode cost profiles`.
+`3dcode cost <slug>` and a call's expected price with `3dcode cost estimate`.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`

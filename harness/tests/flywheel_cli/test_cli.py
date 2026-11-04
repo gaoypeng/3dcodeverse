@@ -10,7 +10,6 @@ import pytest
 from typer.testing import CliRunner
 
 from codeverse3d.cli.main import app
-from codeverse3d.cli.main import make as make_cmd
 from codeverse3d.contracts.spec import Spec
 
 runner = CliRunner()
@@ -58,7 +57,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a wooden dining chair", "--track", "static_object", "--language", "blender",
                             "--runs-dir", str(runs), "--no-run", "--dim", "width=0.5", "--must", "four legs",
-                            "--rounds", "2", "--generator", "agy:gemini-3.7-flash"])
+                            "--rounds", "2", "--generator", "agy:gemini-3.8-flash"])
     assert r.exit_code == 0, r.output
     # `.locks/` (runlock.exclusive) lives beside the run dirs on purpose — a lock inside
     # the directory a --force wipe deletes is no lock
@@ -69,7 +68,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
     assert spec.constraints.dimensions_m == {"width": 0.5} and spec.constraints.must_have == ["four legs"]
     assert spec.budget.max_rounds == 2 and spec.budget.max_minutes == 60.0
-    assert spec.backends.generator == "agy:gemini-3.7-flash"
+    assert spec.backends.generator == "agy:gemini-3.8-flash"
     assert (ws / "src").is_dir() and (ws / "artifacts" / "renders").is_dir()
     # same prompt again → same slug → refuse without --force
     r2 = runner.invoke(app, ["make", "a wooden dining chair", "--runs-dir", str(runs), "--no-run"])
@@ -195,21 +194,16 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
     assert r.exit_code == 1
     assert "judge failed" in r.output + str(getattr(r, "stderr", "") or "") and "Traceback" not in r.output
 
-    # status shows candidates and texturing
+    # status shows candidates
     (ws.root / "rounds").mkdir(exist_ok=True)
     (ws.root / "rounds" / "candidates.json").write_text(json.dumps({
         "n": 2, "selected": 1,
         "candidates": [{"index": 0, "label": "c0", "score": 0.51, "build_ok": True},
                        {"index": 1, "label": "c1", "score": 0.63, "build_ok": True}],
         "pairwise": {"a": "c0", "b": "c1", "winner": "b", "confidence": 0.8}}))
-    rec = json.loads(ws.record_path.read_text())
-    rec.setdefault("extra", {})["texturing"] = {"shipped": True, "delta": 0.01, "reason": "", "n_textures": 3,
-                                                "glb_textured": "artifacts/object_textured.glb"}
-    ws.record_path.write_text(json.dumps(rec))
     r = runner.invoke(app, ["status", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
     assert r.exit_code == 0, r.output
     assert "candidates" in r.output and "c1" in r.output and "pairwise" not in r.output
-    assert "texturing" in r.output and "shipped" in r.output
 
 
 def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
@@ -313,79 +307,8 @@ def test_render_graphics_regenerates_frames(tmp_path: Path, monkeypatch):
     assert "fake-gl" in r.output
 
 
-def test_reference_with_no_run_says_it_is_about_to_spend_money(tmp_path: Path, monkeypatch):
-    """Reference preprocessing under --no-run must disclose its paid work."""
-    import codeverse3d.reference as REF
-
-    calls = []
-
-    def fake_ground_spec(spec, ws, *, n_views=2, events=None, **kw):
-        calls.append(n_views)
-        raise SystemExit(7)  # stop before any real model work
-
-    monkeypatch.setattr(REF, "ground_spec", fake_ground_spec)
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a wooden stool", "--reference", "--no-run",
-                            "--runs-dir", str(runs), "--slug", "refnorun"])
-    out = " ".join(r.output.split())
-    assert calls == [2], "the grounding pass still runs: the grounded spec is the artifact"
-    assert "--reference makes model calls now" in out and "$0.15" in out
-    import typing
-
-    help_text = typing.get_type_hints(make_cmd, include_extras=True)["no_run"].__metadata__[0].help
-    assert "with --reference the reference pass still runs first" in help_text
-
-
-def test_an_unknown_profile_is_a_clean_error_not_a_traceback(tmp_path: Path):
-    """An unknown profile is a clean user error."""
-    r = runner.invoke(app, ["make", "a chair", "--profile", "turbo", "--no-run",
-                            "--runs-dir", str(tmp_path / "runs"), "--slug", "prof"])
-    assert r.exit_code == 2, "the CLI's typed configuration-error code (see SM-10)"
-    assert "unknown profile" in r.output and "economy, balanced, quality" in r.output
-    assert "Traceback" not in r.output and "ValueError" not in r.output
-    assert not (tmp_path / "runs" / "prof").exists(), "no workspace for a rejected flag"
-
-
-def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
-    """Impossible explicit texturing fails early; profiles degrade cleanly by track."""
-    from codeverse3d.contracts.common import Track
-    from codeverse3d.texturing.run import texture_requested, texture_supported
-
-    runs = tmp_path / "runs"
-    # profile-implied: quality still works, it just has no texture pass on this track
-    r = runner.invoke(app, ["make", "a plasma shader", "--track", "graphics", "--profile", "quality",
-                            "--no-run", "--runs-dir", str(runs), "--slug", "gfxq"])
-    assert r.exit_code == 0
-    opts = json.loads((runs / "gfxq" / "spec.json").read_text())["options"]
-    assert opts["texture"] is False, "a run must not record a pass it cannot run"
-    assert opts["profile"] == "quality", "the rest of the dial still applies"
-
-    # explicit: refused, and pointed at the command that does work
-    r = runner.invoke(app, ["make", "a kitchen", "--track", "scene", "--texture",
-                            "--no-run", "--runs-dir", str(runs), "--slug", "scnx"])
-    assert r.exit_code == 1 and "texture scene-pack" in r.output.replace("\n", "")
-    assert not (runs / "scnx").exists()
-
-    # the object tracks are untouched
-    r = runner.invoke(app, ["make", "a chair", "--profile", "quality",
-                            "--no-run", "--runs-dir", str(runs), "--slug", "objq"])
-    assert r.exit_code == 0
-    assert json.loads((runs / "objq" / "spec.json").read_text())["options"]["texture"] is True
-
-    # and the single owner of the decision knows the track scope, so a spec that already
-    # carries texture=True on a scene track (recorded before this fix) is a no-op too
-    assert texture_supported(Track.STATIC_OBJECT) and not texture_supported(Track.SCENE)
-    stale = Spec.model_validate(json.loads((runs / "objq" / "spec.json").read_text()))
-    assert texture_requested(stale)
-    tagged = stale.model_copy(deep=True)
-    tagged.options.texture = False
-    tagged.tags = ["texture"]
-    assert not texture_requested(tagged), "tags cannot enable the texture pass"
-    assert not texture_requested(stale.model_copy(update={"track": Track.GRAPHICS}))
-
-
 def test_best_of_n_is_not_offered_on_a_scene(tmp_path: Path):
-    """F1: explicit --candidates N on a scene is refused, a profile's is 1, a stale spec runs one."""
+    """F1: explicit --candidates N on a scene is refused, the default is 1, a stale spec runs one."""
     from codeverse3d.config import get_settings
     from codeverse3d.contracts.common import Track
     from codeverse3d.tracks.scene import SceneTrack
@@ -394,7 +317,7 @@ def test_best_of_n_is_not_offered_on_a_scene(tmp_path: Path):
     r = runner.invoke(app, ["make", "a kitchen", "--track", "scene", "--candidates", "2",
                             "--no-run", "--runs-dir", str(runs), "--slug", "scn2"])
     assert r.exit_code == 1 and "--candidates" in r.output and not (runs / "scn2").exists()
-    r = runner.invoke(app, ["make", "a kitchen", "--track", "scene", "--profile", "quality",
+    r = runner.invoke(app, ["make", "a kitchen", "--track", "scene",
                             "--no-run", "--runs-dir", str(runs), "--slug", "scnq"])
     assert r.exit_code == 0
     spec = Spec.model_validate(json.loads((runs / "scnq" / "spec.json").read_text()))
@@ -439,7 +362,7 @@ def test_render_only_labels_the_working_tree_round(tmp_path: Path):
 
 
 @pytest.mark.parametrize("flag,value", [
-    ("--generator", "antigravity:gemini-3.7-flash"), ("--generator", "gemini-cli:gemini-3.7-flash"), ("--generator", "nocolon"), ("--generator", "single-shot:nope"),
+    ("--generator", "antigravity:gemini-3.8-flash"), ("--generator", "gemini-cli:gemini-3.8-flash"), ("--generator", "nocolon"), ("--generator", "single-shot:nope"),
     ("--generator", "single-shot:gemini:"), ("--planner", "gemini"), ("--judge", "bogus:model"),
     ("--captioner", "gemini:"),
 ], ids=lambda v: v.strip("-"))
@@ -471,7 +394,7 @@ def test_a_config_file_that_is_not_a_mapping_is_a_bad_configuration(tmp_path: Pa
     monkeypatch.chdir(tmp_path)
     config.get_settings.cache_clear()
     try:
-        r = runner.invoke(app, ["cost", "profiles"])
+        r = runner.invoke(app, ["make", "a chair", "--no-run", "--runs-dir", str(tmp_path / "runs")])
     finally:
         config.get_settings.cache_clear()
     assert r.exit_code == 2 and "bad configuration" in r.output and "3dcodeverse.yaml" in r.output
@@ -620,12 +543,10 @@ def test_a_reference_that_is_not_an_image_is_refused_before_the_run_exists(tmp_p
 
 
 def test_an_option_that_would_be_dropped_is_refused(tmp_path: Path, runs_dir: Path):
-    """--reference-views without --reference, pick --judge without a pairwise verdict to buy, and
-    render --width/--height on a graphics run were accepted and silently did nothing."""
+    """pick --judge without a pairwise verdict to buy, and render --width/--height on a graphics
+    run were accepted and silently did nothing."""
     runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a cup", "--reference-views", "1", "--no-run", "--runs-dir", str(runs), "--slug", "rv"])
-    assert r.exit_code == 2 and "--reference-views needs --reference" in r.output and not (runs / "rv").exists()
-    for extra in (["--judge", "gemini:gemini-3.7-flash"], ["--by", "pairwise", "--round", "0", "--judge", "gemini:x"]):
+    for extra in (["--judge", "gemini:gemini-3.8-flash"], ["--by", "pairwise", "--round", "0", "--judge", "gemini:x"]):
         r = runner.invoke(app, ["pick", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), *extra])
         assert r.exit_code == 2 and "--judge is the pairwise judge" in r.output
     assert runner.invoke(app, ["make", "a shader", "--track", "graphics", "--no-run", "--runs-dir", str(runs),
@@ -679,7 +600,7 @@ def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_
     ledger = ws.telemetry / "cost.jsonl"
 
     def paid(cost: float) -> float:   # a paid call booked into the run's ledger; returns the ledger total
-        record_call(Usage(backend="gemini", model="gemini-3.7-flash", cost_usd=cost), stage="judge", label="t", ledger=ledger)
+        record_call(Usage(backend="gemini", model="gemini-3.8-flash", cost_usd=cost), stage="judge", label="t", ledger=ledger)
         return ledger_usage(load_ledger(ws.root)).cost_usd
 
     total = paid(0.03)                # a pairwise verdict `pick` paid: the pick re-packages the record

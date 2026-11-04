@@ -1,7 +1,7 @@
 """``3dcode show`` — THE single-run view, in four sections (docs/RUN_LAYOUT.md):
 
 * **STATUS** — where the run stands: the run, the rounds, the process holding the run
-  lock, run_state, best-of-N candidates, a texture pass, the latest events.  It needs no
+  lock, run_state, best-of-N candidates, the latest events.  It needs no
   record.json, so it works mid-run; ``3dcode status`` is ``show --section status``;
 * **DELIVERABLE** — what the run produced and where to find it;
 * **QUALITY EVIDENCE** — why we believe it is good (score, rubric, gates, acceptance);
@@ -84,10 +84,6 @@ def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None
             rows[f"{c.get('label', c.get('index'))}{' *' if c.get('index') == cands.get('selected') else ''}"] = (
                 f"score {score if score is None else round(score, 3)}  build_ok={c.get('build_ok')}")
         console.print(kv_table("candidates (best-of-N, * = selected)", rows))
-    if record is not None and (t := record.extra.get("texturing")):
-        console.print(kv_table("texturing", {
-            "shipped": t.get("shipped"), "delta": t.get("delta"), "reason": t.get("reason", ""),
-            "textures": t.get("n_textures", len(t.get("textures", {}) or {})), "glb": t.get("glb_textured", "") or "-"}))
     evs = EventLog(ws.events_path).read()
     if evs:
         console.print(f"[dim]last {min(n_events, len(evs))} of {len(evs)} events:[/dim]")
@@ -132,7 +128,7 @@ def _deliverable_table(d: RunDeliverable) -> Table:
 def _unpackaged_artifact_rows(ws: Workspace) -> dict[str, Any]:
     """A run not yet packaged: show physical artifacts instead of ``deliverable/``."""
     rows: dict[str, Any] = {}
-    for name in ("object.glb", "object.stl", "object.step", "robot.urdf", "object_textured.glb", "preview.gif"):
+    for name in ("object.glb", "object.stl", "object.step", "robot.urdf", "preview.gif"):
         p = ws.artifacts / name
         if p.is_file():
             rows[name] = f"{p}  ({_human_bytes(p.stat().st_size)})"
@@ -252,7 +248,6 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
         console.print(kv_table("settings", {
             "budget": " · ".join(f"{k}={v}" for k, v in settings.budget.items()),
             "candidates": settings.candidates or 1,
-            "texture pass": settings.texture,
             "seed": settings.seed,
             "rubric": f"{settings.rubric} (hash {settings.rubric_hash or '-'})",
             "prompt hashes": " · ".join(f"{k}={v}" for k, v in settings.prompt_hashes.items()) or "-",

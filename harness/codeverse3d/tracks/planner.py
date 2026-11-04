@@ -74,8 +74,8 @@ def brief_cache_dir() -> Path:
 def _reference_digest(spec: Spec) -> list[dict[str, str]]:
     """Identify the reference images by path AND content hash.
 
-    ``--reference`` synthesises a NEW image per run under the same spec fields, so
-    the path alone does not separate two runs; the bytes do.  An unreadable file
+    The same path can hold different bytes from one run to the next, so the path
+    alone does not separate two runs; the bytes do.  An unreadable file
     still contributes its path, so it can never collapse onto "no references"."""
     out: list[dict[str, str]] = []
     for r in spec.references:

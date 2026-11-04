@@ -18,7 +18,7 @@ FIXTURES = json.loads((Path(__file__).parent / "data" / "offrecord_runs.json").r
 
 
 def _usage(row: dict) -> Usage:
-    return Usage(backend=row.get("backend") or "api-agent", model=row.get("model") or "gemini:gemini-3.7-flash",
+    return Usage(backend=row.get("backend") or "api-agent", model=row.get("model") or "gemini:gemini-3.8-flash",
                  cost_usd=row["cost_usd"], input_tokens=row["input_tokens"], output_tokens=row["output_tokens"],
                  cached_tokens=row.get("cached_tokens", 0))
 
@@ -27,7 +27,7 @@ class _RecordedAgent:
     """Replays the recorded sessions of one task, attempt by attempt."""
 
     kind = "api-agent"
-    model = "gemini:gemini-3.7-flash"
+    model = "gemini:gemini-3.8-flash"
 
     def __init__(self, sessions: list[dict]):
         self.sessions = list(sessions)

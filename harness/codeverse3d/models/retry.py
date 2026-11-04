@@ -591,7 +591,7 @@ def rotate_with_retries[T](
 ) -> T:
     """Run ``call(key)`` against a rotating :class:`KeyPool` until it succeeds.
 
-    The state machine (shared by ``GeminiModel`` / ``GeminiImageModel``):
+    The state machine (used by ``GeminiModel``):
 
     * success → ``pool.report(key, "ok")``; keys that looked dead during this call are
       benched (another key proved the request itself is fine) and the result is returned.
@@ -632,8 +632,7 @@ def rotate_with_retries[T](
     storm streaks averaged **4.7 attempts** — racing two keys cuts the expected number
     of rounds to ~1.7.  A 503 bills nothing, so while it is storming the hedge is free;
     the price is paid only when BOTH keys answer: the second success is discarded and
-    that call's tokens are wasted (a few cents for a chat turn — which is why
-    ``GeminiImageModel`` passes ``hedge=1``: an image is billed per image).
+    that call's tokens are wasted (a few cents for a chat turn).
     Mechanics: the attempt's first key is acquired as usual (it may wait for a slot or
     a cooldown); the extra keys come from :meth:`KeyPool.try_acquire` and are simply
     skipped when no fresh key or ``max_in_flight`` slot is free *right now*, so a hedge

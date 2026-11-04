@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.types import normalise_ids
-from codeverse3d.models.pricing import estimate_cost, per_image_usd, price_provenance
+from codeverse3d.models.pricing import estimate_cost, price_provenance
 
 #: characters per token — Gemini/OpenAI English prose and code both sit near 4
 CHARS_PER_TOKEN = 4.0
@@ -50,7 +50,6 @@ class CostEstimate:
     input_tokens: int
     cached_tokens: int
     output_tokens: int
-    n_images_out: int = 0
     usd: float = 0.0
     price_source: str = "unknown"
     approximate: bool = True
@@ -69,12 +68,11 @@ def estimate_call(
     cached_tokens: int = 0,
     prompt: str | Sequence[str] = "",
     n_images: int = 0,
-    n_images_out: int = 0,
 ) -> CostEstimate:
     """Price a call that has not happened yet.
 
-    ``model_id`` is any harness id (``gemini:gemini-3.7-flash``,
-    ``api-agent:gemini:gemini-3.7-flash``).  Give either token counts or the
+    ``model_id`` is any harness id (``gemini:gemini-3.8-flash``,
+    ``api-agent:gemini:gemini-3.8-flash``).  Give either token counts or the
     ``prompt`` text, plus ``n_images`` vision parts (1024 px) either way."""
     kind, provider, model = normalise_ids("", model_id)
     if not provider:
@@ -82,11 +80,9 @@ def estimate_call(
     tokens_in = (input_tokens or text_tokens(prompt)) + image_tokens(n_images)
     cached = max(0, min(cached_tokens, tokens_in))
     usd = estimate_cost(provider, model, Usage(input_tokens=tokens_in, cached_tokens=cached, output_tokens=output_tokens))
-    if n_images_out:
-        usd += n_images_out * per_image_usd(provider, model)
     row = price_provenance(provider, model)
     return CostEstimate(model_id=model_id, provider=provider, model=model, input_tokens=tokens_in,
-                        cached_tokens=cached, output_tokens=output_tokens, n_images_out=n_images_out,
+                        cached_tokens=cached, output_tokens=output_tokens,
                         usd=usd, price_source=row.match if row.price else "unknown",
                         approximate=row.approximate)
 

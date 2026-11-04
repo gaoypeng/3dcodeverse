@@ -4,7 +4,7 @@ Thin by design: every command builds typed inputs and calls into the harness
 packages through function-local imports, so ``3dcode --help`` loads none of them.
 
 Owns the typer app and every registration, the run-starting commands ``make`` /
-``resume`` (spec building, reference grounding, track dispatch, budget raising, and the
+``resume`` (spec building, track dispatch, budget raising, and the
 hand-over after the run), ``pick`` and ``mcp``.  ``render`` / ``judge`` live in the sibling
 ``cli/inspect_cmd.py``, the single-run view ``show`` (and its ``status`` alias) in
 ``cli/layout_cmd.py``; all are registered here.
@@ -39,7 +39,6 @@ from codeverse3d.cli.cost_cmd import cost_app
 from codeverse3d.cli.doctor import doctor_app
 from codeverse3d.cli.flywheel_cmd import flywheel_app
 from codeverse3d.cli.skills_cmd import skills_app
-from codeverse3d.cli.texture_cmd import texture_app
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import TRACK_INFO, TRACK_LANGUAGES, Budget, Language, Track
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
@@ -188,9 +187,6 @@ app.add_typer(doctor_app, name="doctor", help="Environment checks.")
 app.add_typer(
     skills_app, name="skills", help="The skill library: list / show / validate / read-rate report."
 )
-app.add_typer(
-    texture_app, name="texture", help="Text-to-image texturing: object pass / scene pack."
-)
 app.command(
     "tools",
     help="List spatial tools or run one: `3dcode tools list` | `3dcode tools <name> --json '{...}' --workspace ws`.",
@@ -247,35 +243,6 @@ def make(
     judge: Annotated[str | None, typer.Option()] = None,
     captioner: Annotated[str | None, typer.Option()] = None,
     image: Annotated[list[Path] | None, typer.Option("--image", help="reference image(s)")] = None,
-    reference: Annotated[
-        bool,
-        typer.Option(
-            "--reference/--no-reference",
-            help="reference grounding: synthesize a "
-            "neutral studio product shot of the prompt with the image model, validate it, and use it as "
-            "the fidelity anchor for planning, the compare_reference tool, the silhouette gate and the "
-            "judge. Ignored when --image is given (your own references always win); ~$0.15 for 2 views",
-        ),
-    ] = False,
-    reference_views: Annotated[
-        int | None,
-        typer.Option(
-            "--reference-views",
-            min=1,
-            max=4,
-            help="how many reference views to "
-            "synthesize (1 = 3/4 only, 2 = + straight front elevation; default 2); needs --reference",
-        ),
-    ] = None,
-    profile: Annotated[
-        str | None,
-        typer.Option(
-            "--profile",
-            help="cost/quality dial: economy | balanced | quality "
-            "(sets models, judge samples, rounds, candidates, turn cap, "
-            "montage size and the texture pass together)",
-        ),
-    ] = None,
     variant: Annotated[
         str,
         typer.Option(
@@ -288,7 +255,7 @@ def make(
     rounds: Annotated[
         int | None,
         typer.Option(
-            "--rounds", min=0, help="refine rounds after the baseline (default: the profile's)"
+            "--rounds", min=0, help="refine rounds after the baseline (default: 4)"
         ),
     ] = None,
     max_minutes: Annotated[float | None, typer.Option("--max-minutes", min=0)] = None,
@@ -311,13 +278,6 @@ def make(
     must_not: Annotated[list[str] | None, typer.Option("--must-not")] = None,
     style: Annotated[str, typer.Option("--style")] = "",
     tag: Annotated[list[str] | None, typer.Option("--tag")] = None,
-    texture: Annotated[
-        bool,
-        typer.Option(
-            "--texture",
-            help="texture the picked round after the run (frozen on spec.options)",
-        ),
-    ] = False,
     no_pick: Annotated[
         bool,
         typer.Option(
@@ -330,9 +290,8 @@ def make(
         int,
         typer.Option(
             "--seed",
-            help="a run label, not a sampling seed: another value re-plans (it keys the plan cache) and "
-            "re-draws the --reference images; the models, the coding agent, the judge and the builds "
-            "(always seed 0) do not read it",
+            help="a run label, not a sampling seed: another value re-plans (it keys the plan cache); "
+            "the models, the coding agent, the judge and the builds (always seed 0) do not read it",
         ),
     ] = 0,
     force: Annotated[bool, typer.Option("--force", help="overwrite an existing run dir")] = False,
@@ -340,9 +299,7 @@ def make(
         bool,
         typer.Option(
             "--no-run",
-            help="only create the workspace + spec.json and stop "
-            "(with --reference the reference pass still runs first: it makes model calls and writes "
-            "the grounded spec)",
+            help="only create the workspace + spec.json and stop",
         ),
     ] = False,
 ) -> None:
@@ -351,9 +308,6 @@ def make(
     if not prompt.strip():  # a blank prompt was planned, generated and judged as is
         raise C.CliError("the prompt is empty: say what to build", code=2)
     C.check_minutes(max_minutes)
-    if reference_views is not None and not reference:  # it was dropped without a word
-        raise C.CliError("--reference-views needs --reference", code=2)
-    reference_views = reference_views or 2
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
@@ -368,36 +322,10 @@ def make(
         language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
     settings = get_settings()
-    texture_arg, candidates_arg = texture, candidates  # the dial folds the profile in below; remember what the USER asked
-    # ONE resolver for the whole dial, so `--profile X` and `C3D_PROFILE=X` land the same
-    # values (they used to disagree on candidates + texture); an explicit flag beats both.
-    dial = C.resolve_dial(
-        settings,
-        profile,
-        rounds=rounds,
-        candidates=candidates,
-        max_minutes=max_minutes,
-        texture=texture,
-    )
-    rounds, max_minutes = dial.rounds, dial.max_minutes
-    candidates, texture = dial.candidates, dial.texture
-    # A run must not record and display a pass it cannot run.  `3dcode texture pass` already
-    # refuses non-object tracks; `3dcode make` accepted --texture (and --profile quality,
-    # which forces it) on scene/graphics, froze it on the spec, printed "texture True",
-    # and then emitted a spurious texture.failed at finalise because there is no GLB.
-    from codeverse3d.texturing.run import texture_supported
-
-    if texture and not texture_supported(track):
-        if texture_arg:  # the user asked for it explicitly: say no, and say where to go
-            hint = " — use `3dcode texture scene-pack`" if track is Track.SCENE else ""
-            raise C.CliError(
-                f"--texture is for object tracks; {track.value} runs have no GLB to texture{hint}"
-            )
-        texture = False  # profile-implied: quality simply has no texture pass on this track
+    if candidates is None:
+        candidates = settings.default_candidates
     if candidates > 1 and not TRACK_INFO[track].best_of_n:  # the same rule for best-of-N
-        if candidates_arg:
-            raise _no_best_of_n(track)
-        candidates = 1
+        raise _no_best_of_n(track)
     backends = settings.backends(
         generator=generator, planner=planner, judge=judge, captioner=captioner
     )
@@ -420,19 +348,17 @@ def make(
                 must_not=must_not,
                 style=style,
             ),
-            budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
-            # options.profile records the dial this run resolved to, whichever way it was
-            # named (flag, C3D_PROFILE, config.yaml), so `3dcode resume` re-applies it
+            budget=Budget(**{k: v for k, v in
+                             {"max_rounds": rounds, "max_minutes": max_minutes}.items() if v is not None}),
             backends=backends,
-            options=RunOptions(candidates=candidates, texture=texture, profile=dial.profile,
-                               variant=chosen.name),
+            options=RunOptions(candidates=candidates, variant=chosen.name),
             seed=seed,
             tags=tag,
         )
     except ValueError as e:
         raise C.CliError(f"invalid run spec: {e}") from e
     # THE run mutex, taken BEFORE the workspace is created (or --force wipes one) and
-    # held through the paid reference call and the run itself: everything below mutates
+    # held through the run itself: everything below mutates
     # this run directory, and two 3dcode on one slug corrupt each other (runlock.py).
     with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcode make {run_slug}", action="create"):
         ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
@@ -447,63 +373,18 @@ def make(
                     "track": track.value,
                     "language": language.value,
                     "generator": backends.generator,
-                    "profile": f"{dial.profile} ({C.active_profile(settings).expectation()})",
-                    "judge": f"{backends.judge} n={dial.judge_samples} "
-                    f"({dial.judge_max_px}px/{dial.judge_detail_crops}crop)",
-                    "rounds": rounds,
+                    "judge": f"{backends.judge} n={settings.judge.samples} "
+                    f"({settings.judge.max_px}px/{settings.judge.detail_crops}crop)",
+                    "rounds": spec.budget.max_rounds,
                     "candidates": candidates,
-                    "texture": texture,
                     "variant": chosen.label,
                 },
             )
         )
-        if reference:
-            # --reference runs even under --no-run, because the grounded spec IS the artifact
-            # it produces (reference/run.py writes it back to spec.json) — but the combination
-            # is otherwise read as "filesystem only", so say out loud that this part spends
-            # money and can block on a degraded provider before anything is written.
-            if no_run:
-                warn(
-                    f"--reference makes model calls now (1 planner call + {reference_views} image generation(s) "
-                    f"+ {reference_views} vision check(s), ~$0.15 for 2 views) — --no-run stops after that"
-                )
-            spec = _ground_in_reference(spec, ws, n_views=reference_views)
         if no_run:
             ok(f"spec written: {ws.spec_path} (not run; `3dcode resume {run_slug}` to start)")
             return
         _run_track(spec, ws, resume=False, candidates=candidates, pick=not no_pick)
-
-
-def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
-    """`--reference`: synthesize + validate a reference image and attach it to the spec.
-
-    Never fatal — a run that cannot get a usable reference simply runs without one.
-    """
-    from codeverse3d.cost import Role, Stage, call_context
-    from codeverse3d.cost.instrument import run_ledger
-    from codeverse3d.proc import EventLog
-    from codeverse3d.reference import ground_spec
-
-    events = EventLog(ws.events_path)
-    with (
-        run_ledger(ws.root, run=ws.root.name),
-        call_context(stage=Stage.PLAN, role=Role.PLANNER, label="reference"),
-    ):
-        grounded, refset, why = ground_spec(spec, ws, n_views=n_views, events=events)
-    (ok if grounded is not spec else warn)(f"reference grounding: {why}")
-    for v in refset.views:
-        detail = (
-            v.verdict.failure()
-            if v.verdict and not v.accepted
-            else (Path(v.path).name if v.path else "-")
-        )
-        if v.accepted and v.dimension_conflict:
-            got = f"{v.aspect:.2f}" if v.aspect else "?"
-            detail += f"  (aspect {got} disagrees with the stated dimensions — shape target only)"
-        console.print(f"  {'KEPT    ' if v.accepted else 'REJECTED'} {v.view}: {detail}")
-    if refset.usage.cost_usd:
-        console.print(f"  reference cost ${refset.usage.cost_usd:.4f} ({refset.source})")
-    return grounded
 
 
 def _no_best_of_n(track: Track) -> C.CliError:
@@ -543,21 +424,15 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
         raise C.CliError(
             f"run failed: {type(e).__name__}: {e} (workspace {ws.root}; see events.jsonl)"
         ) from e
-    if pick:  # the hand-over: the best-scored round → deliverable/ (+ its texture pass)
+    if pick:  # the hand-over: the best-scored round → deliverable/
         with run_ledger(ws.root, run=ws.root.name):
-            _pick_and_package(ws, by="score", texture=_texture_requested(spec))
+            _pick_and_package(ws, by="score")
     print_record_summary(record, ws.root)
     if record.status.value == "failed":
         raise typer.Exit(code=1)
 
 
-def _texture_requested(spec: Spec) -> bool:
-    from codeverse3d.texturing.run import texture_requested
-
-    return texture_requested(spec)
-
-
-def _pick_and_package(ws, *, by: str, texture: bool, round_index: int | None = None,
+def _pick_and_package(ws, *, by: str, round_index: int | None = None,
                       judge_model: str | None = None) -> int | None:
     """``codeverse3d.addons.select``: choose the round (or take ``round_index``) and package it."""
     from codeverse3d.addons import select
@@ -567,13 +442,10 @@ def _pick_and_package(ws, *, by: str, texture: bool, round_index: int | None = N
         warn("no round was judged, so none was picked: name one with `3dcode pick <slug> --round N`")
         return None
     try:
-        select.package(ws.root, idx, texture=texture, method="round" if round_index is not None else by)
+        select.package(ws.root, idx, method="round" if round_index is not None else by)
     except ValueError as e:
         raise C.CliError(str(e), code=2) from e
     ok(f"picked round {idx} ({'named' if round_index is not None else f'by {by}'}) → {ws.deliverable}")
-    sel = select.load_selection(ws)
-    if texture and sel is not None and not sel.textured:
-        warn("the texture pass did not ship a pack for this round (see `3dcode texture show` / events.jsonl)")
     return idx
 
 
@@ -669,13 +541,6 @@ def resume(
         spec = C.load_spec(ws)
         if candidates and candidates > 1 and not TRACK_INFO[spec.track].best_of_n:
             raise _no_best_of_n(spec.track)
-        if (
-            spec.options.profile
-        ):  # the dial the run was created with (judge samples, montage px, turn cap)
-            try:
-                get_settings().apply_profile(spec.options.profile, force=True)
-            except ValueError as e:  # a spec.json naming a profile this build no longer has
-                raise C.CliError(f"{ws.spec_path}: {e}", code=2) from e
         raised = {
             k: v
             for k, v in {"max_minutes": max_minutes, "max_rounds": rounds}.items()
@@ -705,7 +570,6 @@ def pick(
     by: Annotated[str, typer.Option("--by", help="score | pairwise (the pairwise judge decides "
                                                  "between the top two when they are within judge noise)")] = "score",
     round_index: Annotated[int | None, typer.Option("--round", min=0, help="hand over this round instead")] = None,
-    texture: Annotated[bool, typer.Option("--texture", help="texture the picked round first (object tracks)")] = False,
     judge: Annotated[str | None, typer.Option("--judge", help="pairwise judge model (default: the run's judge)")] = None,
     runs_dir: RunsDirOpt = None,
 ) -> None:
@@ -719,12 +583,12 @@ def pick(
     if judge and (by != "pairwise" or round_index is not None):  # no pairwise verdict is bought: it was dropped
         raise C.CliError("--judge is the pairwise judge: it goes with --by pairwise (and no --round)", code=2)
     ws = C.open_workspace(slug, runs_dir)
-    # writes deliverable/ + selection.json (a texture pass or a pairwise verdict is paid):
+    # writes deliverable/ + selection.json (a pairwise verdict is paid):
     # one writer per run dir, and the money joins the run's ledger
     with (C.mutating(ws, what=f"3dcode pick {ws.root.name}", action="pick"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         try:
-            idx = _pick_and_package(ws, by=by, texture=texture, round_index=round_index, judge_model=judge)
+            idx = _pick_and_package(ws, by=by, round_index=round_index, judge_model=judge)
             rows = select.round_rows(ws.root)
         except RecordError as e:
             raise C.CliError(str(e), code=2) from e

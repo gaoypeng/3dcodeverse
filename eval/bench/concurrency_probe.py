@@ -164,7 +164,7 @@ def run_level(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", default="gemini-3.7-flash")
+    ap.add_argument("--model", default="gemini-3.8-flash")
     ap.add_argument("--levels", default="4,8,16,32,64")
     ap.add_argument("--calls", type=int, default=48, help="calls per level (the fixed workload)")
     ap.add_argument("--in-tokens", type=int, default=12000, help="prompt size (a generator call)")

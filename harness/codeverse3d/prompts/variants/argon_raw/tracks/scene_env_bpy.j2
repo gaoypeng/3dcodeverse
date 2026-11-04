@@ -83,7 +83,7 @@ fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
    leaf or needle cards, far rocks and hills are irregular masses — never cones, balls on sticks or cubes
    standing in for them (`asset_quality_detail`), and never one shape stamped in a ring (`stamped_ring`,
    `monotonous_vegetation`).
-7. No {% if not (textures is defined and textures) %}image textures, no {% endif %}file IO, no unseeded randomness (`ctx.rng(seed)`); the lint warns on `bpy.ops.mesh.primitive_*` in a loop.
+7. No image textures, no file IO, no unseeded randomness (`ctx.rng(seed)`); the lint warns on `bpy.ops.mesh.primitive_*` in a loop.
 
 ## DON'T
 - No assets or zones here (they come from other modules).  No cameras.  No `scene.*` render / view settings.
@@ -104,12 +104,6 @@ and the atmosphere were found.
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if textures is defined and textures %}
-
-{{ textures }}
-(These are PNG files under `public/textures/`: load one with `bpy.data.images.load("public/textures/<file>",
-check_existing=True)` into an Image Texture node; the build runs with the workspace root as its working directory.)
 {% endif %}
 {% if lib_interface is defined and lib_interface %}
 

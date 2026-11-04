@@ -33,7 +33,7 @@ Every run is: **spec → plan → skeleton → [scene stages] → baseline round
 (optionally best-of-N candidates) → `max_rounds` refine rounds → finalise → record**.
 Which round to hand over is decided AFTER the run, by the `addons/select` reader
 (`3dcode pick`; `3dcode make` calls it by score): it writes `deliverable/` for that
-round and runs the optional **texture pass** on it.  The record (plus git history of
+round.  The record (plus git history of
 `src/` and every round's kept build) is the flywheel unit.
 
 ## 1. Design laws (from the reference post-mortems)
@@ -41,8 +41,7 @@ round and runs the optional **texture pass** on it.  The record (plus git histor
 1. **Code is truth; artifacts are derived.**  Raw code in `src/` is the
    deliverable; GLB/renders are regenerated from it.  Every round is a commit and
    keeps its own built files under `artifacts/rNN/`, so any round can be handed over
-   without a rebuild; the workspace ends at the last round.  Textures are a *derived asset pack*
-   (`object_textured.glb` + `artifacts/textures/`); `object.glb` is never touched.
+   without a rebuild; the workspace ends at the last round.
 2. **Requirements, never templates (D106 scene track, D107 every track, owner 2026-10-15).**
    The harness states what must be true, where, and how it is measured — interface (the files and
    functions the wrapper calls, frames / units / naming), sandbox rules, and measured requirements
@@ -109,7 +108,7 @@ codeverse3d/
                       (fan_out); sha256_file and version_line live here too — still a leaf:
                       imports nothing from codeverse3d
   models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
-                      request/response shapes, dead-key + free 429 rotation, the image model);
+                      request/response shapes, dead-key + free 429 rotation);
                       anthropic.py openai.py (each with its own request/response shapes);
                       retry.py (the scheduling machine: KeyPool with outcomes ok | 429 | 5xx |
                       error | dead | skip and the max_in_flight cap as machine-wide flock'd
@@ -182,27 +181,20 @@ codeverse3d/
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
-                      profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
-                      tally.py (a block's money = its ledger rows, its lost seconds → StepTime; COST §31)
+                       tally.py (a block's money = its ledger rows, its lost seconds → StepTime; COST §31)
                       guard.py (a call's cost estimated before it is sent — `3dcode cost estimate`)
   judges/             base.py (JudgeInput; `round_input` + `plan_summary(plan, language)`, the ONE payload
-                      builder and plan digest the in-run judge, `3dcode judge`, calibration, the texture
-                      gate and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire
+                      builder and plan digest the in-run judge, `3dcode judge`, calibration
+                      and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
                       pairwise.py.
                       No Judge Protocol: a judge is
                       duck-typed `.judge(JudgeInput) -> Judgment`
-  reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
-                      synthesis, THE plausibility gate that makes a synthesized
-                      reference safe to use, Spec attachment + honesty guards, proportions
-                      (does the picture agree with the brief?), render-vs-reference diff,
-                      the content-addressed cache and ground_spec (the one call the CLI makes)
-  texturing/          plan.py (VLM material plan + the scene texture pack), generate.py
-                      (generation + the tileable seam fix + the seam/judge gate), apply.py
-                      (world-metre unwrap, PBR map set, application + material normalisation),
-                      materials.py (named material library), run.py (texture_pass); __init__.py is
-                      docstring-only — import from the submodules
+  reference.py        a user `--image` against the render: proportions (does the picture agree
+                      with the brief?) and the render-vs-reference mismatch diff
+  texturing/          materials.py only: the named PBR material-family table `languages/blender` reads
+                      (no texture is generated: the harness has no image-generation step)
   orchestrator.py     the round loop's LIBRARY, not the loop: the round knobs (RoundPolicy —
                       no stop knob besides max_rounds), refine-task compilation + grouping,
                       StageRunner + RunState (resume), BudgetGuard (the clock).  The loop itself is
@@ -257,7 +249,7 @@ codeverse3d/
                       lives: <lang>/{system,contract}.md (incl. glsl_shader/,
                       opengl_python/; NO language ships a cookbook, D106 / D107 — contract.md
                       and system.md carry the interface facts), system/* (harness contract, single-shot envelope,
-                      role_{scope,asset,repair}.j2), texturing/*.md, tracks/*.j2.
+                      role_{scope,asset,repair}.j2), tracks/*.j2.
                       catalog.py answers "what exists and how does each piece reach the model"
                       — including the ONE per-language lookup, language_prompt(language, name) /
                       language_text: contract.md, system.md, effects_catalog.md, asset.md
@@ -279,7 +271,7 @@ codeverse3d/
                       commands), inspect_cmd.py (render/judge on one existing run), layout_cmd.py
                       (THE single-run view: `show` = STATUS / DELIVERABLE / QUALITY EVIDENCE / COST &
                       SETTINGS; `status` = `show --section status`, which also reads a run in flight),
-                      flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), doctor.py
+                      flywheel_cmd.py, cost_cmd.py (`3dcode cost`), doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
 eval/bench/                run_bench.py + report.py (the battery launcher, `python -m bench.run_bench` / `bench.report`;
@@ -394,8 +386,7 @@ server (name `3dcode`) for the vendor CLIs, (c) a native tool schema for any emb
 `render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
 `check_contract`, `compare_reference` (object tracks), `joint_sweep` (articulated),
 `shader_probe`, `scene_probe`, `scene_views`, `check_placement` (scene), `gl_probe`,
-`gl_frames` (graphics).  Texturing is not a tool: `3dcode pick --texture` or
-`3dcode texture pass` after the run (2026-09-22: 1 call in 616 recorded sessions).
+`gl_frames` (graphics).
 
 An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
 says the tool **could not run** (exception, missing artefact, unusable arguments).
@@ -471,13 +462,13 @@ fails when it drifts, printing the block to paste):
 ```stage-graph
 static_object       plan → skeleton → materialize* → round 0
 articulated_object  plan → skeleton → materialize* → round 0
-scene               plan → skeleton → materialize* → textures? → (assets ∥ env ∥ layouts?) → asset_api* → zones → clock* → assemble → round 0
+scene               plan → skeleton → materialize* → (assets ∥ env ∥ layouts?) → asset_api* → zones → clock* → assemble → round 0
 graphics            plan → skeleton → materialize* → round 0
 ```
 
 `→` in order; `(a ∥ b)` siblings side by side, each its own cached stage, timed as ONE step of the
 run's minutes, a failing sibling raised after every sibling has finished and cached; `?` runs under a
-`Settings` switch (`textures`: `scene_textures`, off by default; `layouts`: `zone_layouts`, on); `*`
+`Settings` switch (`layouts`: `zone_layouts`, on); `*`
 is not cached — it runs every session.  Every other stage is cached under its key
 (`stages/<name>.json`): what its result depends on, named in the declaration.  **Once rounds exist**
 a recorded stage is served whatever its key (`stage.frozen`), and the skeleton (`seeds_src`) never
@@ -535,7 +526,7 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
    the files its tasks name, the only ones it is shown; graphics is one program
    generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
              the other vendor CLIs have no turn cap at all; 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
-             a cap the machine sets (C3D_AGENT_MAX_TURNS / limits.agent_max_turns; no profile sets one) still buys a wrap-up session
+             a cap the machine sets (C3D_AGENT_MAX_TURNS / limits.agent_max_turns) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
              bought at all: no judge or no renders — a round that finishes past the clock is still judged)
@@ -560,9 +551,9 @@ stop reasons: max_rounds | budget (the wall clock — BudgetGuard / max_minutes)
               round's sessions changed nothing) | no_refine_tasks | judge_unavailable | failed
               (a record from before 2026-09-22 may say passed / plateau: it loads as `stopped`)
 finalise: the workspace ENDS AT THE LAST ROUND — src/ a cut round left dirty is put back and that round rebuilt;
-          finalize_record → record.json.  No best round, no deliverable/, no texture pass in the run.
+          finalize_record → record.json.  No best round, no deliverable/ in the run.
 after the run (`3dcode make`, unless --no-pick): addons/select.pick(by="score") — highest effective score, ties →
-          fewer gate errors → the earlier round — then package(): deliverable/ + selection.json (+ --texture)
+          fewer gate errors → the earlier round — then package(): deliverable/ + selection.json
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
@@ -592,32 +583,14 @@ shader-traps skill); before 2026-09-22 the scene's two never reached a round, an
 (D99): the census's `totals.draws` WARNs past `conventions.DRAWS_WARN_SCENE` and fails the build past
 `MAX_DRAWS_SCENE`, so the round's repair session gets it; no gate or judge reads fps.
 
-## 8. Texturing (derived asset pack)
-
-`texturing.run.texture_pass(ws, spec, plan, model_id=…)` — never inside a run: `3dcode pick
---texture` (and `make --texture`, which picks after the run) texture the PICKED round's kept
-`artifacts/rNN/object.glb`, and so does a standalone `3dcode texture pass` (the round
-`addons.select` reports as picked):
-one VLM **material plan** (parts → shared texture ids, family, projection,
-`tile_size_m`; cached) → text-to-image tiles (`GeminiImageModel`,
-gemini-3.1-flash-image; mirror cross-fade makes them tileable, `seam_score ≤ 0.08`
-gate) → **world-metre UV unwrap** (planar/box/cylinder per part; texel density
-identical across parts) → `artifacts/object_textured.glb` → before/after judge gate
-(**ship iff** Δoverall ≥ −0.01 AND the materials criterion improved).  Results land
-in `record.extra["texturing"]` + `events texture.*`; `object.glb` and `src/` are
-untouched.  Scenes get `scene_texture_pack` instead: 6–12 named tiles +
-`public/textures/manifest.json`, injected into zone prompts as an "Available
-textures" block.  Chair live check: plan $0.005 + 1 image $0.067 + gate $0.017,
-judge 0.686 → 0.701, materials 0.60 → 0.69, shipped.
-
-## 9. What a run costs and how long it takes
+## 8. What a run costs and how long it takes
 
 RUNBOOK §2 gives expected cost and time per track. Use `3dcode cost <slug>` for a
-run's recorded spend and `3dcode cost profiles` for profile expectations. Historical
+run's recorded spend and `3dcode cost estimate` for a call's expected price. Historical
 measurements cited elsewhere in this document are local experiment notes and are
 not distributed with the repository.
 
-## 10. Known limits
+## 9. Known limits
 
 * Judge: flash is lenient/noisy on fine distinctions (overall std ≈ 0.08–0.12 at
   n=3); its dynamic range comes from the defect checklist.  Use pro (default) or
@@ -633,8 +606,7 @@ not distributed with the repository.
   followers through the chain); sweep is O(links² × poses).
 * Scenes: fps is a record only (machine- and load-dependent; the draw count is what is gated);
   camera-in-geometry can miss open-back enclosures.
-* threejs: textures are stripped on GLB export (the texture pass re-adds them as a
-  derived pack); `userData.tick` cannot survive export.
+* threejs: textures are stripped on GLB export; `userData.tick` cannot survive export.
 * agy has no per-workspace MCP: each session (Gemini-API mode, the only one the harness runs)
   gets a HOME of its own with the 3dcode server in it.  A killed agy session books no usage (its tokens are in the envelope only).  A killed codex session books an ESTIMATE
   (usage is per turn and `--ephemeral` leaves no rollout; `CodexEvents.estimated_usage` prices
@@ -651,7 +623,7 @@ not distributed with the repository.
   storm-dead agent session gets the round loop's ONE transport retry (fresh key), no
   single-shot fallback (D103).
 
-## 11. Flywheel
+## 10. Flywheel
 
 `record.json` per run + git history; `3dcode flywheel export` writes sample folders
 (`<out>/<track>/<language>/<slug>/{code.<ext>, src/**, robot.urdf, meta.json,

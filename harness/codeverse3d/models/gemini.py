@@ -5,28 +5,22 @@
 * ``GeminiModel`` — the ``ChatModel``: a shared ``KeyPool`` over the configured keys,
   ``rotate_with_retries`` with the hedge, streaming with stall detection, per-attempt
   ledger rows;
-* ``GeminiImageModel`` — text(+reference images) → PIL images on the same pool and
-  retry machine, priced per generated image (``pricing.per_image_usd``), with a
-  fallback model when the primary is missing.
 """
 
 from __future__ import annotations
 
-import io
 import logging
 import random
 import re
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
-from pathlib import Path
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from PIL import Image
 
 from codeverse3d.config import Rate, get_settings
 from codeverse3d.contracts.chat import (
@@ -35,10 +29,8 @@ from codeverse3d.contracts.chat import (
     ChatResponse,
     ImagePart,
 )
-from codeverse3d.contracts.common import DEFAULT_IMAGE_MODEL, Usage
+from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.context import AttemptRecord, attempt_sink
-from codeverse3d.cost.ledger import record_call
-from codeverse3d.cost.types import Role, Stage
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import (
     Stopwatch,
@@ -49,7 +41,7 @@ from codeverse3d.models.parts import (
     retry_budget_s,
     retryable_status,
 )
-from codeverse3d.models.pricing import estimate_cost, per_image_usd
+from codeverse3d.models.pricing import estimate_cost
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
 
@@ -535,204 +527,3 @@ class GeminiModel:
         if warnings:
             raw["warnings"] = list(warnings)
         return ChatResponse(text=text, parsed=parsed, finish_reason=finish, usage=usage, raw=raw)
-
-
-# ===================================================================== gemini_image
-
-FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"
-
-#: requested pixel size → Gemini ``image_size`` token; a 512 request GENERATES a 1K
-#: image (resized locally), so it is billed as one — ``_GENERATED_PX`` is the size
-#: ``pricing.per_image_usd`` is asked for
-_IMAGE_SIZE_TOKEN: dict[int, str] = {512: "1K", 1024: "1K", 2048: "2K", 4096: "4K"}
-_GENERATED_PX: dict[str, int] = {"1K": 1024, "2K": 2048, "4K": 4096}
-
-
-def _to_part(ref: Image.Image | Path | str) -> types.Part:
-    if isinstance(ref, Image.Image):
-        buf = io.BytesIO()
-        ref.convert("RGB").save(buf, format="PNG")
-        return types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
-    data, mime = image_bytes(ImagePart(path=str(ref)))
-    return types.Part.from_bytes(data=data, mime_type=mime)
-
-
-def _is_model_missing(err: ModelError) -> bool:
-    s = str(err).lower()
-    return err.status == 404 or (err.status == 400 and ("not found" in s or "not supported" in s))
-
-
-def _record(usage: Usage, n_images: int) -> None:
-    """One ledger row per image batch (the image model is not a ChatModel, so
-    ``models.registry`` cannot meter it).  ``record_call`` never raises."""
-    record_call(usage, stage=Stage.TEXTURE, role=Role.IMAGE, label="image",
-                backend="gemini-image", model=usage.model, n_calls=max(1, n_images))
-
-
-class GeminiImageModel:
-    """Text (+ reference images) → PIL images on the shared key pool and retry machine.
-    ``model`` is the primary; ``fallback`` the second try once the primary is missing
-    or fails retryably.  Not a ``ChatModel``: it meters itself (``_record``)."""
-
-    provider = "gemini"
-
-    def __init__(
-        self,
-        model: str = DEFAULT_IMAGE_MODEL,
-        *,
-        fallback: str | None = FALLBACK_IMAGE_MODEL,
-        keys: list[str] | None = None,
-        pool: KeyPool | None = None,
-        timeout_s: float = 180.0,
-        max_attempts: int = 4,
-        hedge: int = 1,
-        sleep: Callable[[float], None] = time.sleep,
-        client_factory: Callable[[str], Any] | None = None,
-    ) -> None:
-        self.model = model
-        self.fallback = fallback if fallback and fallback != model else None
-        #: no 503 hedge by default: an image is billed per image, so a hedge that
-        #: lands twice pays for two of them (the chat models default to 2)
-        self.hedge = max(1, int(hedge))
-        keys = _keys_or_raise(keys, pool)
-        self.pool = pool or shared_pool(keys)
-        self.timeout_s = timeout_s
-        self.max_attempts = max(1, max_attempts)
-        self._sleep = sleep
-        self._client_factory = client_factory
-        self._lock = threading.Lock()
-        self._primary_dead = False
-
-    @property
-    def id(self) -> str:
-        return f"gemini-image:{self.model}"
-
-    # ------------------------------------------------------------------ API
-    def generate_with_usage(
-        self,
-        prompt: str,
-        *,
-        size: int = 1024,
-        n: int = 1,
-        seed: int | None = None,
-        reference_images: Sequence[Image.Image | Path | str] = (),
-        max_wait_s: float | None = None,
-    ) -> tuple[list[Image.Image], Usage]:
-        """``max_wait_s`` is the caller's retry budget for ONE image (each of the
-        ``n`` images gets its own window, and a fallback model too), exactly like
-        ``ChatRequest.max_wait_s`` clips ``GeminiModel.generate``; ``None`` = the
-        full ``retry.RETRY_DEADLINE_S`` (1800 s)."""
-        if not prompt.strip():
-            raise ModelError("empty image prompt")
-        if n < 1:
-            raise ModelError("n must be >= 1")
-        images: list[Image.Image] = []
-        usage = Usage(backend="gemini-image", model=self.model)
-        for i in range(n):
-            got, u = self._one(prompt, size=size, seed=None if seed is None else seed + i,
-                               refs=reference_images, max_wait_s=max_wait_s)
-            images.extend(got)
-            usage = usage + u
-        if len(images) > n:
-            images = images[:n]
-        _record(usage, len(images))
-        return images, usage
-
-    # ------------------------------------------------------------------ internals
-    def _models(self) -> list[str]:
-        with self._lock:
-            dead = self._primary_dead
-        order = [self.model] if not dead else []
-        if self.fallback:
-            order.append(self.fallback)
-        return order
-
-    def _one(
-        self, prompt: str, *, size: int, seed: int | None,
-        refs: Sequence[Image.Image | Path | str], max_wait_s: float | None = None,
-    ) -> tuple[list[Image.Image], Usage]:
-        last: ModelError | None = None
-        for model in self._models():
-            try:
-                return self._attempts(model, prompt, size=size, seed=seed, refs=refs,
-                                      max_wait_s=max_wait_s)
-            except ModelError as err:
-                last = err
-                if model == self.model and self.fallback and (err.retryable or _is_model_missing(err)):
-                    if _is_model_missing(err):
-                        with self._lock:
-                            self._primary_dead = True
-                    log.warning("image model %s failed (%s); falling back to %s", model, err, self.fallback)
-                    continue
-                raise
-        assert last is not None
-        raise last
-
-    def _attempts(
-        self, model: str, prompt: str, *, size: int, seed: int | None,
-        refs: Sequence[Image.Image | Path | str], max_wait_s: float | None = None,
-    ) -> tuple[list[Image.Image], Usage]:
-        parts: list[types.Part] = [_to_part(r) for r in refs]
-        parts.append(types.Part.from_text(text=prompt))
-        contents = [types.Content(role="user", parts=parts)]
-        token = _IMAGE_SIZE_TOKEN.get(int(size), "1K")
-        config = types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(aspect_ratio="1:1", image_size=token),
-            seed=seed,
-            http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)),
-        )
-        # the caller's budget clips the retry deadline, never extends it (the same
-        # contract as GeminiModel.generate with ChatRequest.max_wait_s), and each
-        # attempt's HTTP read timeout is the REMAINING budget, floored like
-        # GeminiModel._attempt_config — a 60 s image budget no longer holds a
-        # 180 s socket past its deadline.
-        budget = retry_budget_s(max_wait_s)
-        deadline = time.monotonic() + budget
-
-        def _attempt_config() -> types.GenerateContentConfig:
-            return clip_timeout(config, int(attempt_timeout_s(deadline, self.timeout_s) * 1000))
-
-        return rotate_with_retries(
-            self.pool,
-            lambda key: self._call(key, model, contents, _attempt_config(), size, _GENERATED_PX[token]),
-            classify=classify_exception,
-            max_attempts=self.max_attempts,
-            max_total_s=budget,
-            hedge=self.hedge,
-            sleep=self._sleep,
-            retry_after=_retry_after_s,
-            label=f"image {model}",
-        )
-
-    def _call(
-        self, key: str, model: str, contents: list[types.Content], config: types.GenerateContentConfig,
-        size: int, generated_px: int,
-    ) -> tuple[list[Image.Image], Usage]:
-        client = _client_for(key, self.timeout_s, self._client_factory)
-        with Stopwatch() as sw:
-            resp = client.models.generate_content(model=model, contents=contents, config=config)
-        usage = parse_usage(resp, model)  # parsed first: the raises below were billed too
-        usage.backend = "gemini-image"
-        usage.latency_ms = sw.ms
-        cand = _guard_candidates(resp, usage, "image model")
-        finish = str(cand.finish_reason.name if cand.finish_reason is not None else "")
-        images: list[Image.Image] = []
-        for part in (cand.content.parts if cand.content and cand.content.parts else []):
-            blob = getattr(part, "inline_data", None)
-            if blob is not None and blob.data:
-                img = Image.open(io.BytesIO(blob.data))
-                img.load()
-                images.append(img.convert("RGB"))
-        if not images:
-            if finish in FATAL_FINISH:
-                raise ModelError(f"image generation refused (finish_reason={finish})",
-                                 retryable=False, usage=usage)
-            raise ModelError(f"image model returned no image (finish_reason={finish or 'unknown'})",
-                             retryable=True, usage=usage)
-        # token-priced cost floored by the per-image price of the size that was GENERATED
-        usage.cost_usd = max(estimate_cost("gemini", model, usage),
-                             per_image_usd("gemini", model, size=generated_px) * len(images))
-        if int(size) not in (0, 1024) and images[0].size != (size, size):
-            images = [im.resize((int(size), int(size)), Image.LANCZOS) for im in images]
-        return images, usage

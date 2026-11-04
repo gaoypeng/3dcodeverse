@@ -15,11 +15,8 @@ from tests.conftest import COLLECTED
 HARNESS = Path(__file__).resolve().parents[2]
 KEY_ENVS = ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY")
 
-#: the two that PORT-2 caught; both are inside the offline (pure python) subset
-CREDENTIAL_FREE = (
-    "tests/models/test_health.py::test_probe_model_treats_a_503_as_final",
-    "tests/texturing/test_tools_cli.py::test_texture_pass_runs_with_injected_fakes",
-)
+#: the one that PORT-2 caught (its texture-pass twin went with the texture pass); inside the offline (pure python) subset
+CREDENTIAL_FREE = ("tests/models/test_health.py::test_probe_model_treats_a_503_as_final",)
 
 
 def test_passes_with_no_api_keys_in_the_environment(tmp_path: Path) -> None:

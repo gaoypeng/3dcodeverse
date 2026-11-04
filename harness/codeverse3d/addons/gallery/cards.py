@@ -20,7 +20,7 @@ from codeverse3d.addons.gallery.urls import UrlMaker
 
 #: links promoted next to ``detail`` on the card, best-first — the one artifact
 #: you actually open for that track
-PRIMARY_LINKS = ("glb", "textured glb", "preview.gif", "articulation", "src/")
+PRIMARY_LINKS = ("glb", "preview.gif", "articulation", "src/")
 
 
 def fmt(value: float | None, digits: int = 3, dash: str = "—") -> str:

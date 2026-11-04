@@ -19,7 +19,7 @@ from codeverse3d.cost.types import Role, Stage
 
 
 def _usage(**kw: object) -> Usage:
-    base = {"backend": "gemini", "model": "gemini-3.7-flash", "input_tokens": 12_000,
+    base = {"backend": "gemini", "model": "gemini-3.8-flash", "input_tokens": 12_000,
             "cached_tokens": 8_000, "output_tokens": 300, "latency_ms": 1234}
     base.update(kw)
     return Usage(**base)  # type: ignore[arg-type]
@@ -27,7 +27,7 @@ def _usage(**kw: object) -> Usage:
 
 class FakeChat:
     provider = "gemini"
-    model = "gemini-3.7-flash"
+    model = "gemini-3.8-flash"
 
     def __init__(self, error: Exception | None = None):
         self.error = error
@@ -35,7 +35,7 @@ class FakeChat:
 
     @property
     def id(self) -> str:
-        return "gemini:gemini-3.7-flash"
+        return "gemini:gemini-3.8-flash"
 
     def generate(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
@@ -48,7 +48,7 @@ class FakeAgent:
     """A backend whose individual calls already reach the ledger."""
 
     kind = "self-metering"
-    model = "gemini:gemini-3.6-flash"
+    model = "gemini:gemini-3.8-flash"
 
     def __init__(self, chat, turns: int = 3):
         self.chat, self.turns, self.seen_turns = chat, turns, 0
@@ -101,7 +101,7 @@ def test_both_registries_hand_out_metered_backends(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(model_registry, "build_chat_model", lambda mid: FakeChat())
     model_registry.get_chat_model.cache_clear()
     try:
-        assert isinstance(model_registry.get_chat_model("gemini:gemini-3.7-flash"), MeteredChatModel)
+        assert isinstance(model_registry.get_chat_model("gemini:gemini-3.8-flash"), MeteredChatModel)
     finally:
         model_registry.get_chat_model.cache_clear()
 
@@ -120,7 +120,7 @@ def test_the_proxy_forwards_everything_else():
     chat = FakeChat()
     chat.pool = "the-key-pool"  # type: ignore[attr-defined]
     m = MeteredChatModel(chat)
-    assert m.id == "gemini:gemini-3.7-flash" and m.provider == "gemini"
+    assert m.id == "gemini:gemini-3.8-flash" and m.provider == "gemini"
     assert m.pool == "the-key-pool"
     agent = MeteredAgent(FakeAgent(chat))
     assert agent.kind == "self-metering" and agent.available() == (True, "ok")
@@ -160,7 +160,7 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
     """An unrelated inner model row never suppresses the CLI session."""
     def inner_model_call() -> None:
         MeteredChatModel(FakeChat()).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="texture_plan"))
+            ChatRequest(messages=[ChatMessage.user("x")], label="caption:best"))
 
     with run_ledger(tmp_path, run="r1"):
         MeteredAgent(SideEffectCliAgent(FakeChat(), inner_model_call)).run(
@@ -170,7 +170,7 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
     session = next(r for r in rows if r.source == "session")
     assert session.backend == "gemini-cli" and session.input_tokens == 50_000
     tool = next(r for r in rows if r.source != "session")
-    assert tool.stage is Stage.TEXTURE  # and it is NOT filed under the session's stage
+    assert tool.stage is Stage.CAPTION  # and it is NOT filed under the session's stage
 
 
 # ------------------------------------------------------------------- nesting / parallelism
@@ -247,8 +247,8 @@ def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
     loser_usage = _usage(cost_usd=0.30)
 
     class Hedging:
-        provider, model = "gemini", "gemini-3.7-flash"
-        id = "gemini:gemini-3.7-flash"
+        provider, model = "gemini", "gemini-3.8-flash"
+        id = "gemini:gemini-3.8-flash"
         late: threading.Thread | None = None
 
         def generate(self, req):

@@ -26,7 +26,7 @@ from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.workspace import Workspace
 
-from .conftest import make_fake_run, tiny_png
+from .conftest import tiny_png
 
 runner = CliRunner()
 
@@ -192,64 +192,6 @@ def test_a_scene_or_graphics_round_packages_from_its_own_commit_and_renders(tmp_
             assert (out / "frames_sheet.png").read_bytes() == (ws.round_artifacts(0) / "frames_sheet.png").read_bytes()
 
 
-def _fake_texture_pass(calls: list, *, shipped: bool = True, fail: bool = False):
-    import codeverse3d.texturing.run as trun
-
-    def run(ws, spec, plan, *, glb_in, sheet, **kw):
-        calls.append((Path(glb_in), Path(sheet)))
-        if fail:
-            raise RuntimeError("image model down")
-        report = trun.TextureReport(plan=trun.TexturePlan(), textures=trun.TextureSet(), seam=trun.SeamGateResult(),
-                                    glb_in=str(glb_in), shipped=shipped)
-        (ws.artifacts / trun.TEXTURED_GLB).write_bytes(b"glTF textured")
-        ws.write_json(trun.report_path(ws), report)
-        trun.record_texturing(ws, report)
-        return report
-
-    return run
-
-
-def test_package_textures_the_rounds_own_glb_once_and_a_failed_pass_still_hands_over(tmp_path, monkeypatch):
-    import codeverse3d.texturing.run as trun
-
-    ws = _run(tmp_path / "r", [(0.5, 0), (0.8, 0)])
-    calls: list = []
-    monkeypatch.setattr(trun, "texture_pass", _fake_texture_pass(calls))
-    select.package(ws.root, 0, texture=True)
-    assert calls == [(ws.round_artifacts(0) / "object.glb", ws.renders_dir(0) / "sheet.png")]   # round 0, not the last
-    assert (ws.deliverable / "object_textured.glb").is_file()
-    assert json.loads((ws.root / select.SELECTION_NAME).read_text())["textured"] is True
-    assert json.loads(ws.record_path.read_text())["extra"]["texturing"]["shipped"] is True
-    select.package(ws.root, 0, texture=True)
-    assert len(calls) == 1, "a pass already made from these bytes is never bought again"
-    # another round's hand-over does not carry round 0's pack
-    select.package(ws.root, 1)
-    assert not (ws.deliverable / "object_textured.glb").exists()
-    # a failed pass does not stop the hand-over
-    monkeypatch.setattr(trun, "texture_pass", _fake_texture_pass([], fail=True))
-    select.package(ws.root, 1, texture=True)
-    assert (ws.deliverable / "object.glb").is_file() and not (ws.deliverable / "object_textured.glb").exists()
-    assert json.loads((ws.root / select.SELECTION_NAME).read_text())["textured"] is False
-
-
-def test_an_export_of_another_round_never_ships_the_pack_a_texture_pass_made_for_r02(tmp_path, monkeypatch):
-    """Texture r02, hand over r00, export: the r00 sample once carried r02's textured GLB."""
-    import codeverse3d.texturing.run as trun
-    from codeverse3d.addons.dataset.export import export_one
-    from codeverse3d.record.record import load_record
-
-    ws = _run(tmp_path / "r", [(0.5, 0), (0.6, 0), (0.8, 0)])
-    monkeypatch.setattr(trun, "texture_pass", _fake_texture_pass([]))
-    select.package(ws.root, 2, texture=True)
-    assert (ws.deliverable / "object_textured.glb").is_file()
-    select.package(ws.root, 0)
-    sample = export_one(ws, load_record(ws), tmp_path / "ds")
-    assert "renders/object.glb" in sample.file_hashes and sample.meta.round == 0
-    assert not any("textured" in f or f.startswith("textures/") for f in sample.file_hashes)
-    select.package(ws.root, 2)   # ... and the round it textured still ships it
-    assert "renders/object_textured.glb" in export_one(ws, load_record(ws), tmp_path / "ds2").file_hashes
-
-
 # --------------------------------------------------------------------------- CLI
 def test_pick_command_by_score_by_round_and_by_pairwise(tmp_path, monkeypatch):
     runs = tmp_path / "runs"
@@ -315,31 +257,3 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     assert select.round_file(ws, rec.rounds[0]) is None
     assert select.round_file(ws, rec.rounds[1]) is None
     assert select.round_complexity_block(ws, rec.rounds[1]) is None
-
-
-def test_cli_texture_pass_textures_the_picked_round_not_the_last_build(tmp_path: Path, monkeypatch):
-    """B5: `3dcode texture pass` textures the handed-over round's GLB, not the last build's — through
-    `select.texture_round` (N57): a pass that already started from those bytes is not bought again
-    (--force buys it), and the hand-over of that round is refreshed."""
-    from codeverse3d.texturing.run import report_path
-
-    ws, _ = make_fake_run(tmp_path / "runs", "chair", scores=(0.90, 0.50))  # r00 is picked, r01 built last
-    select.package(ws.root, 0, method="score")
-    seen: list[dict] = []
-    monkeypatch.setattr("codeverse3d.texturing.run.texture_pass", lambda *a, **kw: seen.append(kw) or object())
-    monkeypatch.setattr("codeverse3d.texturing.run.load_report", lambda ws: object())
-    monkeypatch.setattr("codeverse3d.cli.texture_cmd._print_report", lambda rep, ws: None)
-    monkeypatch.setattr("codeverse3d.reference.get_image_model", lambda name: None)
-    packaged: list[int] = []
-    monkeypatch.setattr(select, "package", lambda run_dir, index, **kw: packaged.append(index))
-    cmd = ["texture", "pass", "chair", "--runs-dir", str(tmp_path / "runs"), "--no-judge"]
-    r = runner.invoke(app, cmd)
-    assert r.exit_code == 0, r.output
-    assert seen[0]["glb_in"] == ws.round_artifacts(0) / "object.glb" and seen[0]["judge"] is False
-    assert seen[0]["sheet"] is not None and seen[0]["sheet"].is_relative_to(ws.renders_dir(0))
-    assert packaged == [0]                                   # the hand-over carries the new pack
-    ws.write_json(report_path(ws), {"glb_in": str(ws.round_artifacts(0) / "object.glb")})
-    r = runner.invoke(app, cmd)
-    assert r.exit_code == 0 and len(seen) == 1 and "already started" in r.output   # never bought twice
-    r = runner.invoke(app, [*cmd, "--force"])
-    assert r.exit_code == 0 and len(seen) == 2

@@ -19,7 +19,7 @@ cd eval
 pip install -e ../harness                     # once; both evaluations import codeverse3d
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-4-argon
 python -m bench.report bench/out/static_objects_v1          # rebuild report.md + report.html
-python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:agy:gemini-4-argon,oneshot:gemini:gemini-3.7-flash --out bench/out/compare_v1
+python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:agy:gemini-4-argon,oneshot:gemini:gemini-3.8-flash --out bench/out/compare_v1
 python -m bench.run_bench bench/prompts/scenes_v2.yaml --variant argon --judge gemini:gemini-4-argon   # a per-model prompt/skill variant (D105) on every run
 python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon --languages scene_threejs,scene_blender \
     --generator agy:gemini-4-argon --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 --rounds 2 --max-minutes 90

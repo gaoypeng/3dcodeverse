@@ -13,9 +13,7 @@ from codeverse3d.workspace import Workspace
 
 @pytest.fixture(autouse=True)
 def _fresh_settings():
-    """`3dcode make --profile X` applies the dial to the cached Settings singleton — right for
-    a process that runs one run, but in the test process it leaked into every later test on the
-    same xdist worker (`--profile quality` changed the next test's default max_minutes)."""
+    """Settings is a cached singleton: a test that edits it must not leak into the next test on the same xdist worker."""
     from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
