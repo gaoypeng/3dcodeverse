@@ -745,6 +745,9 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
                 raise ValueError(f"the plan echoes the schema's placeholders instead of describing the object: {echoed}. "
                                  "Write the REAL plan: actual part names, real numbers, a unit axis for every joint.")
             result = plan_model.model_validate(raw)
+            clash = fixed_part_clash(result, spec)
+            if clash:
+                raise ValueError(clash)
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]
             _record_invalid(ws, attempt, raw, resp.text)
@@ -828,6 +831,20 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, budget: Plan
         min_parts=budget.min_parts,
         cap_parts=budget.cap_parts,
     )
+
+
+def fixed_part_clash(plan_obj: BaseModel, spec: Spec) -> str:
+    """'' unless the plan lists one of the spec's fixed parts (``Spec.fixed_parts``) as a part of its own: the
+    project builds those, so a planned one invites the agent to author it — the re-ask says which."""
+    fixed = {to_snake(f.name): f for f in spec.fixed_parts if f.name}
+    if not fixed:
+        return ""
+    names = [p.name for p in getattr(plan_obj, "parts", None) or []]
+    hits = [n for n in names if to_snake(n) in fixed]
+    if not hits:
+        return ""
+    return (f"the plan lists fixed parts {hits} as its own parts: they are given by the project (FIXED PARTS) — "
+            "remove them from the plan and plan only the parts around them")
 
 
 def build_user_prompt(spec: Spec, *, brief: Any | None = None, budget: PlanBudget | None = None,
