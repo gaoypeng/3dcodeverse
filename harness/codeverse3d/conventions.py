@@ -21,7 +21,7 @@ Frames
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -263,16 +263,6 @@ LINK_PIECE_SEP = "__"
 #: zone's stray ``scene.add``) is scenery, never a row.  A key, never a name test: a zone may name its
 #: group anything, and an env group may be called anything too.
 ZONE_ROOT_KEY = "c3d_zone"
-
-
-def part_key(node: str, plan_keys: Collection[str]) -> str | None:
-    """The plan part (a snake key in ``plan_keys``) a GLB node belongs to, or None: the
-    node's own name, else its link (``Link__2`` → ``link``), else that name's instance base
-    (``Leg_0`` / ``Arm-2`` / ``Handle.001`` → ``leg`` / ``arm`` / ``handle``, one copy or
-    many).  The contract gate's
-    ``match_parts`` applies the same :func:`split_instance` rule."""
-    own = to_snake(node.split(LINK_PIECE_SEP, 1)[0])
-    return next((k for k in (to_snake(node), own, split_instance(own)[0]) if k in plan_keys), None)
 
 
 def to_pascal(name: str) -> str:

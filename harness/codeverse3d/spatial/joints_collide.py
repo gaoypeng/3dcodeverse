@@ -133,10 +133,6 @@ class LinkBody:
         pts = trimesh.transform_points(corners, self.T)
         return np.vstack([pts.min(axis=0), pts.max(axis=0)])
 
-    def surface_distance(self, points_world: np.ndarray) -> np.ndarray:
-        """Unsigned distance of world points to this body's surface."""
-        return self._pq.on_surface(trimesh.transform_points(points_world, self.T_inv))[1]
-
     def depth_of(self, points_world: np.ndarray) -> float:
         """Max distance-to-surface of the ``points_world`` that lie inside one of this body's islands."""
         local = trimesh.transform_points(points_world, self.T_inv)

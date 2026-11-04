@@ -5,15 +5,24 @@ from __future__ import annotations
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.glsl_shader import (
     HEADER,
+    _check_file,
     compose,
     first_error,
-    lint_text,
     parse_glsl_log,
 )
 from codeverse3d.languages.opengl_python import lint_source
 
 SHADER = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / u_resolution.xy;\n    fragColor = vec4(uv, 0.5 + 0.5*sin(u_time), 1.0);\n}\n"
 COMMON = "float hash(float n) { return fract(sin(n) * 43758.5453); }\n"
+
+
+def lint_text(shader, common=None, buffer_a=None):
+    out = _check_file("src/shader.frag", shader, role="shader")
+    if common is not None:
+        out += _check_file("src/common.glsl", common, role="common")
+    if buffer_a is not None:
+        out += _check_file("src/buffer_a.frag", buffer_a, role="buffer_a")
+    return out
 
 
 def test_parse_glsl_log_dialects_map_to_files():

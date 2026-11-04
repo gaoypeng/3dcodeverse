@@ -257,16 +257,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
     return GateReport.of(GATE, findings)
 
 
-def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None) -> list[GateFinding]:
-    """Lint in-memory sources (tests; the c3d-glsl-craft skill cites it)."""
-    out = _check_file(SHADER, shader_src, role="shader")
-    if common_src is not None:
-        out += _check_file(COMMON, common_src, role="common")
-    if buffer_a_src is not None:
-        out += _check_file(BUFFER_A, buffer_a_src, role="buffer_a")
-    return out
-
-
 # ===================================================================== skeleton
 COMMON_GLSL = """// src/common.glsl — pasted above shader.frag (and buffer_a.frag) by the harness; no #include.
 // Functions and constants only: no main(), no uniforms, no #version.  What goes here is yours.

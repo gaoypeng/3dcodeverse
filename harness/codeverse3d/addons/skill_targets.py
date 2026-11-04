@@ -489,21 +489,3 @@ def check_prompt_claims(root: Path | None = None) -> list[str]:
     except (ValueError, OSError) as e:
         return [f"prompt claims file unreadable: {e}"]
     return check_rows(rows, lambda f: (base / f).read_text() if f else "")
-
-
-def claim_bases(skill: Skill | str, root: Path | None = None) -> dict[str, tuple[str, Any]]:
-    """``key -> (dotted target, live value)`` — the agreement test's real comparison.
-
-    WHY not the rendered text: two skills may honestly quote one constant in two units.
-    ``c3d-bbox-contract`` says "1 cm" (scale 100) and ``c3d-repeats-and-mirrors`` says
-    "0.01" metres; both pin ``conventions:BBOX_TOLERANCE_M`` and both are right.  A
-    contradiction is two skills pointing a shared key at DIFFERENT numbers, so that is what
-    is compared — the pre-scale value, and the target it came from.
-    """
-    out: dict[str, tuple[str, Any]] = {}
-    for row in load_claims(skill, root):
-        key = row.get("key")
-        if not key or not (row.get("python") or row.get("js")):
-            continue
-        out[str(key)] = _target(row)
-    return out

@@ -199,14 +199,3 @@ def load_deliverable(ws: Workspace) -> RunDeliverable | None:
     except Exception as e:
         log.warning("unreadable deliverable manifest in %s: %s", ws.root, e)
         return None
-
-
-def deliverable_path(ws: Workspace, name: str) -> Path | None:
-    """``deliverable/<name>`` when it exists, else ``artifacts/<name>``, else None.
-
-    The one resolver every consumer (export, gallery, show) uses so both layouts
-    work: packaged runs answer from the hand-over folder, unpackaged runs from artifacts/."""
-    for candidate in (ws.deliverable / name, ws.artifacts / name):
-        if candidate.is_file():
-            return candidate
-    return None

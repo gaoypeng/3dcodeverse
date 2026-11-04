@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from codeverse3d.addons import select
 from codeverse3d.cli.main import app
 from codeverse3d.cost.types import STAGE_ORDER
-from codeverse3d.record.deliverable import build_deliverable, deliverable_path, load_deliverable
+from codeverse3d.record.deliverable import build_deliverable, load_deliverable
 from codeverse3d.record.record import load_record, package_run
 from codeverse3d.record.telemetry import (
     build_telemetry,
@@ -26,7 +26,6 @@ runner = CliRunner()
 def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run):
     ws, rec = fake_run
     assert load_telemetry(ws, rec) is None and load_deliverable(ws) is None
-    assert deliverable_path(ws, "object.glb") == ws.artifacts / "object.glb"
     # Cross the old hard-link fast-path threshold before packaging.
     (ws.artifacts / "object.glb").write_bytes(b"glTF" + b"\0" * (300 * 1024))
     package_run(ws, rec)
@@ -44,8 +43,6 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert cost["by_round"]
     settings = json.loads(ws.settings_path.read_text())
     assert {r["role"] for r in settings["roles"]} == {"planner", "generator", "judge", "captioner"}
-    assert deliverable_path(ws, "object.glb") == ws.deliverable / "object.glb"
-    assert deliverable_path(ws, "nope.glb") is None
 
     # Rebuilding unchanged content is byte-for-byte stable.
     second = build_deliverable(ws, rec, 1)
