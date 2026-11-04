@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 import platform
 import traceback
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import ExitStack, contextmanager
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,10 +40,8 @@ from codeverse3d.prompts.catalog import language_text
 from codeverse3d.prompts.variants import (
     activate,
     active_variant,
-    knobs_applied,
     resolve_variant,
     variant_block,
-    variant_info,
 )
 from codeverse3d.record.record import previous_verdict
 from codeverse3d.tracks.candidates import run_best_of_n
@@ -274,8 +271,7 @@ class BaseTrack:
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
         variant = self.variant_for(spec)
-        with activate(variant), run_ledger(ws.root, run=run_binding().run or ws.root.name), \
-                self._apply_variant(variant) as knobs:
+        with activate(variant), run_ledger(ws.root, run=run_binding().run or ws.root.name):
             if not ws.spec_path.is_file() or not resume:
                 ws.write_json(ws.spec_path, spec)
             events = EventLog(ws.events_path)
@@ -287,7 +283,7 @@ class BaseTrack:
                         agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge,
                         variant=variant)
             if variant:
-                events.emit("variant.active", **variant_block(variant), knobs=knobs)
+                events.emit("variant.active", **variant_block(variant))
             stop = RunStatus.FAILED
             error = ""
             try:
@@ -317,19 +313,6 @@ class BaseTrack:
     def variant_for(spec: Spec) -> str:
         """The variant this run activates: the spec's frozen choice, else the one resolved for its generator."""
         return spec.options.variant or resolve_variant(get_settings(), spec.backends.generator)
-
-    @contextmanager
-    def _apply_variant(self, variant: str) -> Iterator[dict[str, Any]]:
-        """Apply the variant's ``[knobs]`` as defaults on the process settings for the duration of the run."""
-        if not variant:
-            yield {}
-            return
-        info = variant_info(variant)
-        with ExitStack() as stack:
-            applied = stack.enter_context(knobs_applied(get_settings(), info))
-            if self._settings is not None and self._settings is not get_settings():
-                stack.enter_context(knobs_applied(self._settings, info))
-            yield applied
 
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,

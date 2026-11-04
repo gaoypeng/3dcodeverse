@@ -184,7 +184,7 @@ codeverse3d/
                       variants.py: per-model OVERLAYS — variants/<name>/<rel> shadows <rel> for load_text /
                       render / language_text while that variant is active (a ContextVar BaseTrack.run sets from
                       RunOptions.variant, else C3D_VARIANT / C3D_VARIANTS, resolved by exact generator id);
-                      variant.toml = name/version/generators/knobs, variant_hash lands in the record.
+                      variant.toml = name/version/generators, variant_hash lands in the record.
                       codeverse3d/skills/ is what an AGENT chooses to read; a file that tries to be both is the
                       bug this split prevents
   cli/                main.py (app wiring, make/resume/mcp + the doctor/tools/gallery commands), inspect_cmd.py

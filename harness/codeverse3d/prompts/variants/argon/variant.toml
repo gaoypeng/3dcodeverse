@@ -15,6 +15,3 @@ name = "argon"
 version = 2
 generators = ["agy:gemini-4-argon"]
 description = "gemini-4-argon on the scene track (threejs + blender)"
-
-# [knobs]            # optional; only Settings.skills_max / skills_only, applied like a profile
-# skills_max = 4     # (a field the user stated in config.yaml / C3D_* wins)

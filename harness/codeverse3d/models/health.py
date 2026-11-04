@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import logging
+import random
 from dataclasses import dataclass
+from typing import Any
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Backends
 from codeverse3d.models.registry import build_chat_model
 
@@ -52,10 +55,9 @@ def probe(
 
     prompt = _probe_prompt()
 
-    def one(_: int) -> str | None:
+    def one(key: str | None) -> str | None:
         try:
-            # built directly, not via get_chat_model: a probe must NOT retry or back off
-            m = _bare_model(model, timeout_s)
+            m = _bare_model(model, timeout_s, key)
             m.generate(
                 ChatRequest(
                     messages=[ChatMessage.user(prompt)],
@@ -63,15 +65,17 @@ def probe(
                     max_output_tokens=256,
                     thinking="off",
                     label="health",
+                    max_wait_s=timeout_s,
                 )
             )
             return None
         except Exception as e:  # noqa: BLE001 — a probe reports, it does not propagate
             return f"{type(e).__name__}: {str(e)[:100]}"
 
-    n = max(1, sample)
+    keys = _sampled_keys(model, max(1, sample))
+    n = len(keys)
     with cf.ThreadPoolExecutor(max_workers=n) as pool:
-        out = list(pool.map(one, range(n)))
+        out = list(pool.map(one, keys))
     reasons = tuple(dict.fromkeys(r for r in out if r))  # de-duplicated, order kept
     return Health(model=model, n_ok=sum(r is None for r in out), n_tried=n, reasons=reasons)
 
@@ -82,9 +86,24 @@ def _probe_prompt(tokens: int = PROBE_TOKENS) -> str:
     return f"{filler}\n\nIgnore the text above. Reply with the single word: pong"
 
 
-def _bare_model(model_id: str, timeout_s: float):
-    """The model with retries off; a bare name is a gemini model."""
+def _sampled_keys(model_id: str, n: int) -> list[str | None]:
+    """One pool key per probe for a gemini model (distinct while the pool allows); ``[None] * n`` otherwise."""
+    if ":" in model_id and not model_id.startswith("gemini:"):
+        return [None] * n
+    keys = list(get_settings().gemini_api_keys)
+    if not keys:
+        return [None] * n
+    chosen = random.sample(keys, min(n, len(keys)))
+    return [chosen[i % len(chosen)] for i in range(n)]
+
+
+def _bare_model(model_id: str, timeout_s: float, key: str | None = None):
+    """The model with every retry off, on ONE key when given; a bare name is a gemini model."""
     if ":" not in model_id:
         model_id = f"gemini:{model_id}"
-    extra = {"storm_attempts": 0} if model_id.startswith("gemini:") else {}
+    extra: dict[str, Any] = {}
+    if model_id.startswith("gemini:"):
+        extra = {"storm_attempts": 0, "hedge": 1}
+        if key is not None:
+            extra["keys"] = [key]
     return build_chat_model(model_id, timeout_s=timeout_s, max_attempts=1, **extra)

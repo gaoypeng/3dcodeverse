@@ -223,8 +223,7 @@ storm's rows (`--redo-status error,infra_failed,budget`) rather than reading the
   Every new template variable is guarded `{% if name is defined and name %}` for at least one
   wave: templates are read at render time, so a live worker on old python renders the new file.
 * **A per-model variant**: `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]` name =
-  the directory name, version, generators, description; optional `[knobs]` — `skills_max`,
-  `skills_only` — applied as defaults, a user-stated field wins) beside the prompt
+  the directory name, version, generators, description) beside the prompt
   files that shadow the base ones by relative path (a template there may `include` a base
   file), and `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name,
   their `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]`

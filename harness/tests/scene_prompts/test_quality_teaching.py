@@ -32,7 +32,7 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
     base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
                 zones_table="", cameras="", effects="", animation="", asset_api="", textures="", constraints_text="",
                 references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=[],
-                zone_file="src/zones/z.js", neighbours=[], layout="")
+                zone_file="src/zones/z.js", neighbours=[], layout="", output_format="")
     env_in = render("tracks/scene_env.j2", **base, interior=True, glazed=False)
     env_out = render("tracks/scene_env.j2", **base, interior=False, glazed=False)
     assert "This is an INTERIOR" in env_in and "roomShell" in env_in and "openings" in env_in

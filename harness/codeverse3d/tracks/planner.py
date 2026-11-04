@@ -536,7 +536,7 @@ def plan_wait_s(tokens: int, guard: object | None = None, *, scale: float = 1.0)
     """How long one planner call may take, given the answer size it asked for."""
     want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S) * scale
     fn = getattr(guard, "timeout_s", None)
-    return float(fn(want, floor_s=PLAN_MAX_WAIT_S)) if callable(fn) else want
+    return float(fn(want)) if callable(fn) else want
 
 
 def plan_tokens(budget: PlanBudget, floor: int) -> int:
@@ -699,6 +699,8 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         model = get_chat_model(model_id)
     brief, usage = (None, Usage())
     if brief_enabled(spec):
+        if guard is not None:
+            guard.check()
         brief, usage = expand_brief(spec, model_id, model=model, events=events)
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
@@ -709,11 +711,13 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     base_messages = list(messages)
     schema = plan_schema(spec, plan_model)
     last_error = ""
-    invalid = requeried = grown = restarts = 0
+    invalid = requeried = restarts = 0
     tokens = plan_tokens(budget, PLAN_TOKENS_MAX if spec.track is Track.GRAPHICS else PLAN_OUTPUT_FLOOR)
     thinking = "medium"
     wait_scale = 1.0
     for attempt in range(4 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_PLAN_RESTARTS):
+        if guard is not None:
+            guard.check()
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=plan_temperature(spec.track),
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
@@ -722,7 +726,6 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
             if not (_truncated(e) and tokens < PLAN_TOKENS_MAX):
                 raise
-            grown += 1
             tokens = min(PLAN_TOKENS_MAX, int(tokens * TRUNCATION_GROWTH))
             thinking = "off"
             wait_scale = TRUNCATION_WAIT_SCALE

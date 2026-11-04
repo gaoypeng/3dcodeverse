@@ -26,7 +26,7 @@ from codeverse3d.contracts.common import (
 )
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.record import git_history
-from codeverse3d.record.deliverable import round_outputs
+from codeverse3d.record.deliverable import load_deliverable, round_outputs
 from codeverse3d.record.record import effective_judgment, round_summary, stop_reason
 from codeverse3d.workspace import Workspace
 
@@ -123,12 +123,16 @@ def exported_round(ws: Workspace, record: RunRecord) -> RoundRecord | None:
 
 
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
-    if rnd is not None and rnd.commit and ws.has_commit(rnd.commit):
+    """The round's code at its commit; a packaged ``deliverable/`` only when its manifest names that round."""
+    if rnd is None:
+        return git_history.read_working_tree(ws), "working_tree"
+    if rnd.commit and ws.has_commit(rnd.commit):
         return git_history.read_tree_at(ws, rnd.commit), "commit"
-    packaged = _deliverable_code(ws)
-    if packaged:
-        return packaged, "deliverable"
-    return git_history.read_working_tree(ws), "working_tree"
+    manifest = load_deliverable(ws)
+    if manifest is not None and manifest.round == rnd.index and manifest.commit == rnd.commit:
+        return _deliverable_code(ws), "deliverable"
+    raise SampleError(f"round {rnd.index}: commit {rnd.commit[:10] or '(none)'} is unavailable and deliverable/ holds "
+                      + (f"round {manifest.round}" if manifest is not None else "no manifest"))
 
 
 def _deliverable_code(ws: Workspace) -> dict[str, bytes]:

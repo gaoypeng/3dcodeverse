@@ -128,9 +128,10 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert isinstance(p, StaticPlan) and p.object_name == _valid_plan_dict()["object_name"] and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
-    from codeverse3d.tracks.planner import PLAN_MAX_WAIT_S, plan_wait_s
+    from codeverse3d.tracks.planner import plan_wait_s
 
-    assert all(PLAN_MAX_WAIT_S <= r.max_wait_s <= plan_wait_s(r.max_output_tokens) for r in model.requests)
+    # every planner call waits at most what the clock has left (never past the budget), and never more than its size asks
+    assert all(60 <= r.max_wait_s <= min(plan_wait_s(r.max_output_tokens), budget.timeout_s(float("inf")) + 2) for r in model.requests)
     # deterministic acceptance items from constraints were appended
     texts = " ".join(a.text for a in p.acceptance)
     assert "height = 0.820" in texts and "Includes: armrests" in texts

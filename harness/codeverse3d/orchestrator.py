@@ -136,6 +136,9 @@ class StageRunner:
             try:
                 result = _revive(json.loads(path.read_text()), model)
             except (OSError, ValueError) as e:  # ValidationError is a ValueError
+                if self.frozen:
+                    raise RuntimeError(f"stage {name}: its recorded result {path} is unreadable ({e}) and rounds exist, "
+                                       "so it is never re-run; `3dcode resume --force` regenerates the stages") from e
                 self.events.emit("stage.cache_invalid", stage=name, inputs_hash=h, path=str(path),
                                  error=f"{type(e).__name__}: {e}")
                 log.warning("stage %s: cached result at %s is unusable (%s); re-running", name, path, e)

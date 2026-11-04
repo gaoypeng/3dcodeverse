@@ -123,7 +123,6 @@ class GlHost:
         # The subprocess starts inside out_dir: a relative job path would be resolved twice.
         out_dir = Path(out_dir).resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / RESULT_NAME).unlink(missing_ok=True)
         for p in (out_dir / "frames").glob("*.png"):
             p.unlink()
         job.update({"out_dir": str(out_dir), "fps": self.fps, "max_steps": self.max_steps, "backend": "egl"})
@@ -145,6 +144,7 @@ class GlHost:
 
     def _run_once(self, job_path: Path, out_dir: Path, *, use_gpu: bool, mode: str) -> GlResult:
         env = _base_env(GPU_ENV if use_gpu else CPU_ENV)
+        (out_dir / RESULT_NAME).unlink(missing_ok=True)  # never read a previous attempt's result
         t0 = time.time()
         proc = run_subprocess([self.python, str(RUNNER), "--job", str(job_path)], cwd=out_dir, timeout_s=self.timeout_s, env=env)
         result_path = out_dir / RESULT_NAME

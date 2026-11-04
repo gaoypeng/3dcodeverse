@@ -148,14 +148,14 @@ def test_articulated_motion_direction_gate_feeds_refine_and_judge(tmp_path, sett
     assert any(v.name == "pose_DrawerSlide_upper" for v in rec.rounds[0].renders.views)
 
 
-def test_crashed_candidate_is_retried_once(tmp_path, chair_plan, settings):
+def test_a_crashed_candidate_is_recorded_failed_and_never_retried_on_its_own(tmp_path, chair_plan, settings):
     spec = make_spec(language=Language.BLENDER, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "retry")
     seen: dict[str, int] = {}
 
     def writer(job, ws_):
         seen[job.label] = seen.get(job.label, 0) + 1
-        if job.label == "baseline_c0" and seen[job.label] == 1:
+        if job.label == "baseline_c0":
             raise RuntimeError("503 high demand")
         return _writer_by_candidate(job, ws_)
 
@@ -163,10 +163,10 @@ def test_crashed_candidate_is_retried_once(tmp_path, chair_plan, settings):
     track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
     rec = track.run(spec, ws)
-    assert seen == {"baseline_c0": 2, "baseline_c1": 1}
+    assert seen == {"baseline_c0": 1, "baseline_c1": 1}  # one session per candidate: no candidate-level retry
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert "candidate.retry" in kinds and "candidate.failed" not in kinds
-    assert "best-of-2: selected c0" in rec.rounds[0].notes and "_cand/c0" in (ws.src / "model.py").read_text()
+    assert "candidate.failed" in kinds and "candidate.retry" not in kinds
+    assert "best-of-2: selected c1" in rec.rounds[0].notes and "_cand/c1" in (ws.src / "model.py").read_text()
 
 
 def test_default_motion_checks_on_real_urdf(tmp_path):

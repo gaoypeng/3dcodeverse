@@ -12,6 +12,7 @@ from typing import Any
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
+from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
 
 
@@ -151,6 +152,20 @@ def retry_one_key(attempt: Any, *, label: str, classify: Any, attempts: int, sle
     storm patience or hedge, inside the request's ``max_wait_s`` deadline."""
     from codeverse3d.models.retry import KeyPool, rotate_with_retries
 
-    return rotate_with_retries(KeyPool([label], cooldown_s=0.0), lambda _key: attempt(), classify=classify,
+    billed = Usage()  # what failed attempts were billed for (ModelError.usage): joins the winner's row
+
+    def once() -> Any:
+        nonlocal billed
+        try:
+            return attempt()
+        except ModelError as e:
+            if e.usage is not None:
+                billed = billed + e.usage
+            raise
+
+    resp = rotate_with_retries(KeyPool([label], cooldown_s=0.0), lambda _key: once(), classify=classify,
                                max_attempts=attempts, max_total_s=retry_budget_s(max_wait_s),
                                storm_attempts=0, hedge=1, sleep=sleep, label=label)
+    if billed.input_tokens or billed.output_tokens:
+        resp = resp.model_copy(update={"usage": resp.usage + billed})
+    return resp

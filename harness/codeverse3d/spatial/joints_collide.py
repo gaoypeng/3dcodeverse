@@ -84,7 +84,6 @@ class LinkBody:
         self.islands = oriented_islands(mesh)
         self.watertight = all(bool(i.is_watertight) for i in self.islands)
         self._island_pq = [trimesh.proximity.ProximityQuery(i) for i in self.islands]
-        self._pq = trimesh.proximity.ProximityQuery(mesh)  # unsigned distances, LOCAL frame
         self.obj = fcl_collision_object(mesh)
         self.T = np.eye(4)
         self.T_inv = np.eye(4)
@@ -93,12 +92,6 @@ class LinkBody:
         self.T = T
         self.T_inv = np.linalg.inv(T)
         self.obj.setTransform(_fcl.Transform(np.ascontiguousarray(T[:3, :3]), np.ascontiguousarray(T[:3, 3])))
-
-    @property
-    def posed(self) -> trimesh.Trimesh:
-        m = trimesh.util.concatenate(self.islands) if len(self.islands) > 1 else self.islands[0].copy()
-        m.apply_transform(self.T)
-        return m
 
     @property
     def points(self) -> np.ndarray:

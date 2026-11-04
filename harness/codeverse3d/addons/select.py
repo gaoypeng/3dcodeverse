@@ -114,8 +114,6 @@ def round_file(ws: Workspace, rnd: RoundRecord | None, name: str = "object.glb")
 
 def round_complexity_block(ws: Workspace, rnd: RoundRecord | None) -> dict | None:
     block = round_complexity(rnd) if rnd is not None else None
-    if block is None and rnd is not None and round_outputs(ws, rnd) == ws.artifacts:
-        block = ((read_json_or_none(ws.artifacts / "measurement.json") or {}).get("extra") or {}).get("complexity")
     return block if isinstance(block, dict) else None
 
 

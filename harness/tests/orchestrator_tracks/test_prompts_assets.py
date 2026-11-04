@@ -89,7 +89,7 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
         out = render(f"tracks/{tpl}.j2", **st._ctx(ctx, **extra))
         assert "Harbour at dusk" in out and "DOM" in out
     sa = render("tracks/scene_asset.j2", **base_prompt_context(ctx, asset_name="Bollard", asset_kind="threejs", asset_description="d", asset_size=(0.3, 0.5, 0.3),
-                                                              asset_file="src/assets/bollard.js", asset_language="scene_threejs", fix_instructions=["- x"], current_code=""))
+                                                              asset_file="src/assets/bollard.js", asset_language="scene_threejs", fix_instructions=["- x"], current_code="", library_rows=""))
     assert "buildBollard" in sa and "FIX PASS" in sa
     # D100: a three.js asset whose sheet names a library factory gets that factory's catalog row
     from codeverse3d.tracks.scene_assets import _asset_prompt

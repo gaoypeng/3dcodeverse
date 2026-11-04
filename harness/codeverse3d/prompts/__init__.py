@@ -12,8 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from jinja2 import ChainableUndefined, ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
-from jinja2.exceptions import UndefinedError
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
 
 from codeverse3d.prompts.variants import active_variant, variant_root
 
@@ -26,18 +25,14 @@ _FLAGS: dict[str, Any] = {"undefined": StrictUndefined, "trim_blocks": True, "ls
 
 _env = Environment(loader=FileSystemLoader(str(PROMPTS_DIR)), **_FLAGS)
 
-#: lenient environment: an unknown name renders empty; the fallback in :func:`render` only
-_lenient_env = _env.overlay(undefined=ChainableUndefined)
-
 
 @lru_cache(maxsize=16)
-def _env_for(variant: str) -> tuple[Environment, Environment]:
-    """``(strict, lenient)`` environments: the base pair for ``""``, else overlay-first then base."""
+def _env_for(variant: str) -> Environment:
+    """The base environment for ``""``, else overlay-first then base."""
     if not variant:
-        return _env, _lenient_env
-    env = Environment(loader=ChoiceLoader([FileSystemLoader(str(variant_root(variant))),
-                                           FileSystemLoader(str(PROMPTS_DIR))]), **_FLAGS)
-    return env, env.overlay(undefined=ChainableUndefined)
+        return _env
+    return Environment(loader=ChoiceLoader([FileSystemLoader(str(variant_root(variant))),
+                                            FileSystemLoader(str(PROMPTS_DIR))]), **_FLAGS)
 
 
 def _resolve(variant: str, rel_path: str) -> Path:
@@ -62,19 +57,8 @@ def load_text(rel_path: str) -> str:
 
 
 def render(rel_path: str, **ctx: Any) -> str:
-    """Render a jinja template under prompts/ with ``ctx``.
-
-    StrictUndefined raises on a missing name, except that a name missing at render time degrades
-    that one section to empty (logged) so an edit made while a run is in flight cannot kill it.
-    """
-    env, lenient = _env_for(active_variant())
-    template = env.get_template(rel_path)
-    try:
-        return template.render(**ctx)
-    except UndefinedError as e:
-        log.error("prompt %s wants a variable this caller does not pass (%s); rendering it "
-                  "leniently — the prompt loses that section, the run continues", rel_path, e)
-        return lenient.get_template(rel_path).render(**ctx)
+    """Render a jinja template under prompts/ with ``ctx``; a missing name raises (StrictUndefined)."""
+    return _env_for(active_variant()).get_template(rel_path).render(**ctx)
 
 
 def prompt_hash(text: str) -> str:

@@ -63,17 +63,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     with timed("candidates", ctx.state.steps, round_index=0):
         results = fan_out(list(range(n)), _one, max_workers=ctx.settings.limits.max_parallel_agents,
                           label="candidates", item_name=lambda k: f"c{k}")
-    # one retry for candidates that crashed (transient 503s, parse failures) — not for budget stops
-    retry = [k for k, r in enumerate(results) if isinstance(r, Exception) and not isinstance(r, BudgetExceeded)]
-    if retry and ctx.budget.ok():
-        for k in retry:
-            ctx.events.emit("candidate.retry", candidate=k, error=f"{type(results[k]).__name__}: {results[k]}"[:300])
-            subs[k] = make_candidate_context(track, ctx, k)
-        with timed("candidates", ctx.state.steps, round_index=0):
-            again = fan_out(retry, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="candidates-retry",
-                            item_name=lambda k: f"c{k}")
-        for k, r in zip(retry, again, strict=True):
-            results[k] = r
     records: list[CandidateRecord] = []
     budget_stop: BudgetExceeded | None = None
     for k, r in enumerate(results):

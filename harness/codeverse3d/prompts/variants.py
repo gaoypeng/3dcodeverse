@@ -25,9 +25,6 @@ log = logging.getLogger(__name__)
 
 VARIANTS_DIR: Path = Path(__file__).resolve().parent / "variants"
 VARIANT_FILE = "variant.toml"
-#: ``[knobs]`` may set only these ``Settings`` fields; applied as defaults, user-stated values win
-KNOB_FIELDS: frozenset[str] = frozenset({"skills_max", "skills_only"})
-_KNOB_TYPES: dict[str, type] = {"skills_max": int, "skills_only": str}
 HASH_EXCLUDED: frozenset[str] = frozenset({"README.md"})
 
 _ACTIVE: ContextVar[str | None] = ContextVar("c3d_variant", default=None)
@@ -43,7 +40,6 @@ class VariantInfo(BaseModel):
     generators: tuple[str, ...] = Field(default=(), description="informative: the generator ids it was tuned "
                                         "for; selection is Settings.variants / --variant")
     description: str = ""
-    knobs: dict[str, Any] = Field(default_factory=dict, description="Settings fields to apply (KNOB_FIELDS only)")
 
 
 def _plain_name(name: str) -> bool:
@@ -80,9 +76,9 @@ def _parse(path: Path, dir_name: str) -> VariantInfo:
     head = data.get("variant")
     if not isinstance(head, dict):
         raise ValueError(f"{path}: missing the [variant] table")
-    unknown_tables = sorted(set(data) - {"variant", "knobs"})
+    unknown_tables = sorted(set(data) - {"variant"})
     if unknown_tables:
-        raise ValueError(f"{path}: unknown table(s) {unknown_tables}; variant.toml holds [variant] and [knobs]")
+        raise ValueError(f"{path}: unknown table(s) {unknown_tables}; variant.toml holds the [variant] table")
     unknown = sorted(set(head) - {"name", "version", "generators", "description"})
     if unknown:
         raise ValueError(f"{path}: unknown [variant] key(s) {unknown}")
@@ -98,18 +94,7 @@ def _parse(path: Path, dir_name: str) -> VariantInfo:
     description = head.get("description", "")
     if not isinstance(description, str):
         raise ValueError(f"{path}: description must be a string")
-    knobs = data.get("knobs", {})
-    if not isinstance(knobs, dict):
-        raise ValueError(f"{path}: [knobs] must be a table")
-    for key, value in knobs.items():
-        if key not in KNOB_FIELDS:
-            raise ValueError(f"{path}: [knobs] {key!r} is not a variant knob (allowed: {sorted(KNOB_FIELDS)})")
-        want = _KNOB_TYPES[key]
-        if (isinstance(value, bool) is not (want is bool)) or not isinstance(value, want) or (want is int and value < 0):
-            raise ValueError(f"{path}: [knobs] {key} must be a {want.__name__}"
-                             f"{' >= 0' if want is int else ''}, got {value!r}")
-    return VariantInfo(name=name, version=version, generators=tuple(generators), description=description,
-                       knobs=dict(knobs))
+    return VariantInfo(name=name, version=version, generators=tuple(generators), description=description)
 
 
 def served_id(generator_id: str) -> str:
@@ -201,35 +186,6 @@ def variant_block(name: str) -> dict[str, Any]:
         return {"name": name, "version": 0, "hash": ""}
 
 
-def apply_variant_knobs(settings: Settings, info: VariantInfo) -> dict[str, Any]:
-    """Set ``info.knobs`` on ``settings`` as defaults: fields the user stated are untouched and the
-    field-set is restored.  Returns what was set."""
-    stated = set(settings.model_fields_set)
-    applied: dict[str, Any] = {}
-    for field_name, value in info.knobs.items():
-        if field_name in stated:
-            continue
-        setattr(settings, field_name, value)
-        applied[field_name] = value
-    settings.__pydantic_fields_set__ = stated
-    return applied
-
-
-@contextmanager
-def knobs_applied(settings: Settings, info: VariantInfo | None) -> Iterator[dict[str, Any]]:
-    """:func:`apply_variant_knobs` for the block only: every knob field returns to its prior value and
-    field-set membership on exit.  Yields what was set."""
-    prior = {field_name: getattr(settings, field_name) for field_name in KNOB_FIELDS}
-    stated = set(settings.model_fields_set) & KNOB_FIELDS
-    applied = apply_variant_knobs(settings, info) if info is not None else {}
-    try:
-        yield applied
-    finally:
-        for field_name, value in prior.items():
-            setattr(settings, field_name, value)
-        settings.__pydantic_fields_set__ = (set(settings.model_fields_set) - KNOB_FIELDS) | stated
-
-
-__all__ = ["HASH_EXCLUDED", "KNOB_FIELDS", "VARIANTS_DIR", "VARIANT_FILE", "VariantInfo", "activate",
-           "active_variant", "apply_variant_knobs", "knobs_applied", "list_variants", "resolve_variant", "served_id",
-           "variant_block", "variant_hash", "variant_info", "variant_root"]
+__all__ = ["HASH_EXCLUDED", "VARIANTS_DIR", "VARIANT_FILE", "VariantInfo", "activate", "active_variant",
+           "list_variants", "resolve_variant", "served_id", "variant_block", "variant_hash", "variant_info",
+           "variant_root"]

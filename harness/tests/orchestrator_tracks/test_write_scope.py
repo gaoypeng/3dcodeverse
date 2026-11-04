@@ -20,7 +20,7 @@ from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.scene import SceneTrack
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
-from tests.orchestrator_tracks.test_fix_generation import scripted
+from tests.orchestrator_tracks.test_generation_parsing import scripted
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices

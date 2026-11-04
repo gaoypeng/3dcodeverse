@@ -1,4 +1,4 @@
-"""The variant layer (D105): selection, the prompt overlay, caches, activation, knobs, the record."""
+"""The variant layer (D105): selection, the prompt overlay, caches, activation, the record."""
 
 from __future__ import annotations
 
@@ -15,14 +15,13 @@ from codeverse3d.prompts import variants as V
 from codeverse3d.prompts.variants import (
     VARIANTS_DIR,
     activate,
-    knobs_applied,
     resolve_variant,
     variant_info,
 )
 from tests.prompts.conftest import PROMPTS_DIR
 
 TV_TOML = ('[variant]\nname = "tv"\nversion = 3\ngenerators = ["agy:gemini-4-argon"]\n'
-           'description = "a test variant"\n\n[knobs]\nskills_max = 4\nskills_only = "c3d-part-contact"\n')
+           'description = "a test variant"\n')
 
 def _clear() -> None:
     prompts._load.cache_clear()
@@ -97,22 +96,5 @@ def test_an_overlay_file_shadows_the_base_and_a_missing_one_falls_back(overlay):
 
 # --------------------------------------------------------------------------- provenance
 
-# --------------------------------------------------------------------------- knobs
-
 # --------------------------------------------------------------------------- the run
 
-def test_knobs_apply_as_defaults_a_stated_field_wins_and_nothing_outlives_the_block(overlay, monkeypatch):
-    """Regression: a variant's knobs leaked onto the process Settings and the next base run inherited them."""
-    monkeypatch.delenv("C3D_SKILLS_MAX", raising=False)
-    monkeypatch.delenv("C3D_SKILLS_ONLY", raising=False)
-    info = variant_info("tv")
-    default_max = Settings().skills_max
-    s = Settings(skills_only="c3d-scene-water")          # stated by the user: never touched
-    with knobs_applied(s, info) as applied:
-        assert applied == {"skills_max": 4} and (s.skills_max, s.skills_only) == (4, "c3d-scene-water")
-    assert (s.skills_max, s.skills_only) == (default_max, "c3d-scene-water")
-    s = Settings()
-    with pytest.raises(RuntimeError), knobs_applied(s, info):
-        assert (s.skills_max, s.skills_only) == (4, "c3d-part-contact")
-        raise RuntimeError("boom")
-    assert (s.skills_max, s.skills_only) == (default_max, "") and not set(s.model_fields_set) & V.KNOB_FIELDS

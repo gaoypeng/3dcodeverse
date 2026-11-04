@@ -72,18 +72,12 @@ class _Writer:
 
 
 def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
-    """``src/**`` (+ ``public/**``) at the round's commit, else the working tree."""
-    if rnd is not None and rnd.commit:
-        try:
-            if ws.has_commit(rnd.commit):
-                return git_history.read_tree_at(ws, rnd.commit), "commit"
-        except git_history.GitReadError as e:
-            log.warning("deliverable: git read failed in %s: %s", ws.root, e)
-    try:
+    """``src/**`` (+ ``public/**``) at the round's commit; the working tree only when no round is named."""
+    if rnd is None:
         return git_history.read_working_tree(ws), "working_tree"
-    except OSError as e:  # pragma: no cover - defensive
-        log.warning("deliverable: working tree unreadable in %s: %s", ws.root, e)
-        return {}, "working_tree"
+    if not (rnd.commit and ws.has_commit(rnd.commit)):
+        raise git_history.GitReadError(f"round {rnd.index}: commit {rnd.commit[:10] or '(none)'} is not in {ws.root}")
+    return git_history.read_tree_at(ws, rnd.commit), "commit"
 
 
 def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
