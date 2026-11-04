@@ -15,7 +15,7 @@ of the language — for four **tracks**:
 |---|---|---|
 | `static_object` | `blender` (bpy), `cadquery`, `threejs` | code + canonical `object.glb` (+stl/step) |
 | `articulated_object` | `urdf_blender` (bpy link meshes + hand-written URDF) | code + `robot.urdf` + `meshes/*.glb` (raw link frames) + `object.glb` (node hierarchy with joint extras) |
-| `scene` | `scene_threejs` (multi-file three.js + GLSL; optional bpy-built GLB assets), `scene_blender` (bpy on a harness-owned library) | `src/**` + `public/assets/*.glb` + renders + probes |
+| `scene` | `scene_threejs` (multi-file three.js + GLSL; optional bpy-built GLB assets), `scene_blender` (multi-file bpy, every module the agent's) | `src/**` + `public/assets/*.glb` + renders + probes |
 | `graphics` | `glsl_shader` (Shadertoy-style fragment shader), `opengl_python` (raw moderngl + GLSL, multi-pass) | shader/program source + judged animation frames + sheet + GIF + frame metrics |
 
 …driven by any of these backends behind two protocols:
@@ -108,10 +108,7 @@ codeverse3d/
                       scene_blender render driver (render_bpy_scene) and what they share (_wrapper_common,
                       _census, _census_glb, _finite — the NaN / inf check on everything a Blender wrapper writes).
                       scene_blender/starter/src/ is its example scene (scene.py, env.py, zones/{hamlet, lakeside,
-                      orchard}.py, assets/{crate, lantern_post}.py) and lib/ the harness-owned bpy library (noise,
-                      mesh, materials, terrain, sky, lighting, water, vegetation, architecture, scatter, place,
-                      figure, motion), indexed by prompts/scene_blender/effects_catalog.md; Settings.scene_lib off
-                      is RAW mode (the argon_raw variant): no lib/ ships, a `lib` import is a lint ERROR
+                      orchard}.py, assets/{crate, lantern_post}.py)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit), render_blender.py (scene_blender:
                       Blender pixels under a GPU slot + CPU fallback, the same metrics.json),
@@ -247,7 +244,7 @@ Authoritative text lives in `codeverse3d/prompts/<lang>/contract.md` (+ `system.
   prompts carry is `prompts/scene_threejs/effects_catalog.md`.  `src/lib/` is committed with
   `src/`, so the deliverable and the dataset sample carry it.
 * **scene_blender**: the same shape in bpy (`src/scene.py`, `src/env.py`, `src/zones/*.py`,
-  `src/assets/*.py`) on the harness-owned `src/lib/` bpy library; judged frames render in Cycles.
+  `src/assets/*.py`), every module the agent's; judged frames render in Cycles.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`, `src/buffer_a.frag` for
   feedback) — the agent never writes `#version`, uniform declarations or `out vec4`; the harness
   header provides `u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise/u_buffer_a` (+ Shadertoy

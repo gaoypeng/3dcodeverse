@@ -4,7 +4,7 @@ Companion to `c3d-bpy-scene-materials`. Socket names and node ids verified again
 5.2.2 LTS on 2026-10-14 (`codeverse3d/languages/blender/__init__.py` keeps the rename table the
 lint reports from). Every snippet assumes `mat = bpy.data.materials.new(name)` and
 `nodes, links = mat.node_tree.nodes, mat.node_tree.links`, `bsdf = nodes["Principled BSDF"]`.
-Prefer the `lib.materials` call that does the same thing; write nodes only for what no call covers.
+A material builder you reuse goes in `src/env.py` for the zones.
 
 ## 1. Socket renames the lint reports
 
@@ -38,8 +38,9 @@ links.new(noise.outputs["Fac"], bump.inputs["Height"])
 links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 ```
 
-`lib.materials.material(name, color, noise_scale=..., bump=...)` wires exactly this; roughness
-variation is the same noise into `Roughness` through a Map Range node.
+Roughness variation is the same noise into `Roughness` through a Map Range node. For more than
+one scale, add a second noise at a much larger `Scale` into the bump (grain) and keep the first
+on the colour (tone); a Voronoi in between gives patches, cells or pebbles.
 
 ## 3. Ground bands by slope and height
 
@@ -101,14 +102,14 @@ vol.inputs["Density"].default_value = <0.002-0.02>
 links.new(vol.outputs["Volume"], nodes["Material Output"].inputs["Volume"])
 ```
 
-`lib.sky.haze(collection, loc, size, density=..., color=...)` builds this on a box; any mesh whose
-only linked output is Volume is fog to the census. With the Surface socket linked as well it is a
-placed asset to the gate. `lib.materials.volume` is the same shader with noise, for steam and mist.
+Any mesh whose only linked output is Volume is fog to the census — a box over the play area is
+the simplest. With the Surface socket linked as well it is a placed asset to the gate. The same
+shader with a noise texture into `Density` is steam and mist.
 
-## 7. Water and glass, as the lib sets them
+## 7. Water and glass, the sockets that matter
 
 | material | the sockets that matter |
 |---|---|
-| `water` / `clear_water` | `Transmission Weight` at one, `Roughness` low, `Metallic` zero, a bump from scrolled noise; the plane is named with a water word so feet on it count as on water |
-| `glass` | `Transmission Weight` at one, `Roughness` near zero, `IOR` the lib's default; thin panes as single faces with a Solidify-free thickness read best at 32 samples |
-| `emissive` | `Emission Color` and a modest `Emission Strength`; the illumination is a `practical` lamp |
+| water | `Transmission Weight` at one, `Roughness` low, `Metallic` zero, a bump from scrolled noise; the plane is named with a water word so feet on it count as on water |
+| glass | `Transmission Weight` at one, `Roughness` near zero, `IOR` about 1.45-1.5; thin panes as single faces with a Solidify-free thickness read best at 32 samples |
+| emissive | `Emission Color` and a modest `Emission Strength`; the illumination is an area lamp beside it |

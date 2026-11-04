@@ -14,7 +14,7 @@ Scene: {{ spec_prompt }}
 - Description: {{ asset_description }}
 - Style of the whole scene: {{ style_notes or constraints }}
 
-## Contract (raw bpy module; the harness builds it once and the zones instance it)
+## Contract (a bpy module; the harness builds it once and the zones instance it)
 {{ frame_doc }}
 {{ asset_contract }}
 - `{{ asset_file }}` must define `def build_{{ asset_file.rsplit('/', 1)[-1][:-3] }}(ctx, variant=0)` that links
@@ -23,23 +23,23 @@ Scene: {{ spec_prompt }}
   (the check errors beyond 2.5 × or under 0.4 × on any axis; zones instance it at scale 1).  Zone code places collection instances of `ctx.assets['{{ asset_file.rsplit('/', 1)[-1][:-3] }}']` by
   that origin and never calls you.
 - Procedural mesh built in code (bmesh or `from_pydata`, any construction); every part carries a
-  Principled material with a real colour and roughness (`Base Color`, `Roughness`, `Metallic`;
-  `lib/materials.py` is one palette).  Objects are uniquely named PascalCase: one root mesh, or
-  children parented under it at RELATIVE locations.
+  Principled material with a real colour and roughness (`Base Color`, `Roughness`, `Metallic`), varied at
+  more than one scale (broad tone and wear plus fine grain or bump) where the real material varies.
+  Objects are uniquely named PascalCase: one root mesh, or children parented under it at RELATIVE
+  locations.  The module is self-contained: every part is `bpy` / `bmesh` / `mathutils` written in
+  this file.
+- A natural thing has an organic silhouette (judged): a tree is a trunk branching into limbs that carry
+  leaf or needle cards, a rock an irregular asymmetric mass — never a cone, a ball on a stick or a cube
+  standing in for one.
 - `variant` (0..n) and `ctx.rng(seed)` may vary details deterministically; `random.*` is a lint error.
 - At most 15000 triangles for the whole asset (it is instanced; the census counts them).
 - No lights, no cameras, no world, no file IO; the lint warns on `bpy.ops.mesh.primitive_*` in a loop;
   nothing outside the asset itself (no ground plane).
 - MOTION (only when the description names a moving part — a swinging lamp, a turning wheel): keyframe
-  that part's OWN rotation/location on `ctx.frame(0.0)` and `ctx.frame(1.5)` (LINEAR), or a simple
-  driver of `frame` (`frame * 0.2`); put the part's origin at its pivot.  Amplitude must read at scene
+  that part's OWN rotation/location on `ctx.frame(0.0)` and `ctx.frame(1.5)` (LINEAR, set on the slotted
+  action's `layers[0].strips[0].channelbag(action.slots[0]).fcurves`), or a simple driver of `frame`
+  (`frame * 0.2`); put the part's origin at its pivot.  Amplitude must read at scene
   distance (≥ 0.15 rad or ≥ 0.05 m registers in the frame difference).
-{% if library_rows %}
-- The sheet names shipped library calls — optional: `src/lib/` ships with the scene, so you may import
-  them (`from lib.vegetation import tree`) and compose what they build into `ctx.collection`; every
-  factory takes the collection, a name and a seed.
-{{ library_rows }}
-{% endif %}
 {% if skeleton_files is defined and skeleton_files %}
 
 ## Current files (skeleton already in src/ — keep its structure, fill in every stub)

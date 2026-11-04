@@ -111,24 +111,8 @@ class AssetResult(BaseModel):
 
 
 
-def ships_lib(ctx: RunContext) -> bool:
-    """``Settings.scene_lib`` of the run: is the harness's bpy library in this workspace?  ``False`` is
-    raw mode (D113) — only scene_blender reads it (scene_threejs always ships its library).  The run's
-    real runtime answers (``SceneBlenderRuntime.ships_lib``): the skeleton it wrote and the lint it runs
-    are the facts the prompts must match; a stand-in runtime (a rig) falls back to the same rule over
-    ``ctx.settings`` (``prompts.variants.run_knob``)."""
-    from codeverse3d.languages.scene_blender import SceneBlenderRuntime
-    from codeverse3d.prompts.variants import run_knob
-
-    if ctx.language != Language.SCENE_BLENDER:
-        return True
-    if isinstance(ctx.runtime, SceneBlenderRuntime):
-        return ctx.runtime.ships_lib
-    return bool(run_knob("scene_lib", ctx.settings))
-
-
 def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None, *,
-                      language: Language = Language.SCENE_THREEJS, lib: bool = True) -> str:
+                      language: Language = Language.SCENE_THREEJS) -> str:
     """What zone/composer tasks need to know about each asset (names + sizes + how to get it),
     in the words of the scene language that places them.
 
@@ -137,8 +121,7 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
     the ``opts.variant`` the zone must pass.  bpy: the harness builds EVERY module (a merged
     twin's shim included) and imports every hero before any zone runs, so each is a Collection
     at ``ctx.assets['<snake>']`` to place as a collection instance — the zone never imports or
-    calls a factory, and a merged twin needs no variant number.  ``lib`` False (bpy raw mode, D113): the
-    placing line names the collection-instance Empty itself, not the library call."""
+    calls a factory, and a merged twin needs no variant number."""
     alias = alias or {}
     lines = []
     for a in plan.assets:
@@ -159,9 +142,7 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
             lines.append(f"- {a.name}: preloaded at `ctx.assets['{to_snake(a.name)}']` (clone it; GLB public/assets/{to_snake(a.name)}.glb), "
                          f"base at y=0, {s}{motion}{status}")
     if lines and language is Language.SCENE_BLENDER:
-        place = ("place it with `lib.scatter.instance(ctx.collection, ctx.assets['<snake>'], name, x, y, "
-                 "height_at=ctx.height_at)` (a collection-instance Empty seated on the ground = ONE placement row)." if lib else
-                 "place it as a collection-instance Empty (`bpy.data.objects.new(name, None)` with `instance_type = 'COLLECTION'` "
+        place = ("place it as a collection-instance Empty (`bpy.data.objects.new(name, None)` with `instance_type = 'COLLECTION'` "
                  "and `instance_collection = ctx.assets['<snake>']`), linked into ctx.collection and seated on "
                  "ctx.height_at(x, y) = ONE placement row.")
         lines.insert(0, "Sizes are width × height × depth in metres, the plan's Y-up order: in your Blender frame x = width, "
@@ -774,24 +755,20 @@ def _scene_context(ctx: RunContext) -> dict[str, Any]:
     return {"spec_prompt": brief, "constraints": ctx.extra.get("scene_style") or "(none)"} if brief else {}
 
 
-#: what names a library row, per scene language: the factory right after a backtick and the module
-#: it lives in.  three.js: a camelCase call (``makeTree(``, ``patchWind``) — a bare lowercase one
-#: (``seat``, ``block``) is an ordinary word in a sheet — and ``lib/tree.js``.  bpy: the library is
-#: snake_case (``tree(``, ``water_surface(``) and ``lib/vegetation.py``; a sheet that says "a stone
-#: water trough" draws the water row too, which costs a line and never misleads.
+#: what names a library row (scene_threejs, the one language with a library): the factory right after a
+#: backtick — a camelCase call (``makeTree(``, ``patchWind``); a bare lowercase one (``seat``, ``block``)
+#: is an ordinary word in a sheet — and the module it lives in (``lib/tree.js``).
 _CATALOG_RES: dict[Language, tuple[re.Pattern[str], re.Pattern[str]]] = {
     Language.SCENE_THREEJS: (re.compile(r"`([a-z]+[A-Z]\w*)[(`]"), re.compile(r"`lib/(\w+\.js)`")),
-    Language.SCENE_BLENDER: (re.compile(r"`([a-z_][a-z0-9_]*)\("), re.compile(r"`lib/(\w+\.py)`")),
 }
 
 
-def library_rows(description: str, language: Language = Language.SCENE_THREEJS, *, lib: bool = True) -> str:
+def library_rows(description: str, language: Language = Language.SCENE_THREEJS) -> str:
     """The effects-catalog rows of the library factories an asset sheet names, by call or by module
     (D100): a module asset may compose ``src/lib/``, and a single-shot writer cannot open the
     module to learn the call — the rows carry it.  The whole catalog is a zone-sized prompt.
-    ``""`` for a language without a catalog (a blender hero), and with ``lib`` False (bpy raw mode,
-    D113: no library ships, so no row may name one)."""
-    if language not in _CATALOG_RES or not lib:
+    ``""`` for a language without a library (scene_blender, a blender hero)."""
+    if language not in _CATALOG_RES:
         return ""
     call_re, module_re = _CATALOG_RES[language]
     words = set(re.findall(r"\w+(?:\.\w+)*", description))
@@ -804,7 +781,7 @@ def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Lang
     files = list(files or [rel])
     prompt = render(asset_template(language), **base_prompt_context(
         ctx, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description, asset_size=asset.approx_size_m,
-        library_rows=library_rows(asset.description, language, lib=ships_lib(ctx)),
+        library_rows=library_rows(asset.description, language),
         asset_file=rel, asset_files=files, asset_language=language.value, fix_instructions=[], current_code="",
         # a single-shot hero has to see the multi-file skeleton it is filling in, like a static object
         skeleton_files=skeleton_files(ctx) if (ctx.single_shot and len(files) > 1) else {},
@@ -922,22 +899,18 @@ BPY_CHECK_ZONE = "check"
 def _bpy_check_workspace(ws: Workspace, rel: str, snake: str) -> Workspace:
     """A throw-away workspace under ``_assets/`` (git-ignored, beside the hero sub-workspaces)
     holding only what one module's build needs: an entry that lists this asset alone, the
-    module, the harness library it may import (none in raw mode, D113: an absent ``src/lib``
-    copies nothing), and the probe zone.  Rebuilt from scratch on every check so a module's last
-    attempt never shadows its next."""
+    module and the probe zone.  Rebuilt from scratch on every check so a module's last attempt
+    never shadows its next."""
     from codeverse3d.languages.scene_blender import render_scene_py
 
     scratch = Workspace(ws.root / "_assets" / f"{snake}_check")
     if scratch.root.exists():
         shutil.rmtree(scratch.root)
-    for sub in ("assets", "zones", "lib"):
+    for sub in ("assets", "zones"):
         (scratch.src / sub).mkdir(parents=True, exist_ok=True)
     scratch.artifacts.mkdir(parents=True, exist_ok=True)
     (scratch.root / ENTRY_FILE[Language.SCENE_BLENDER]).write_text(render_scene_py([], [snake], [], []))
     shutil.copyfile(ws.root / rel, scratch.src / "assets" / f"{snake}.py")
-    lib = ws.src / "lib"
-    for src in sorted(lib.glob("*.py")) if lib.is_dir() else []:
-        shutil.copyfile(src, scratch.src / "lib" / src.name)
     (scratch.src / "zones" / f"{BPY_CHECK_ZONE}.py").write_text(
         f'"""The harness\'s probe zone: one instance of {snake}, so the census GLB measures it."""\n'
         "import bpy\n\n\n"

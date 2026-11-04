@@ -73,7 +73,7 @@ Flat dark-blue world (a night sky colour at strength 0.3), a = 0.3, no sun:
 | + two point lamps 3 m up, 100 W | 0.06 / 0.04 / 0.11 | 0.05 / 0.06 / 0.59 | ERROR |
 | + two point lamps, 500 W | 0.13 / 0.12 / 0.07 | 0.14 / 0.13 / 0.21 | passes |
 | + two point lamps, 2000 W | 0.25 / 0.22 / 0.04 | 0.28 / 0.20 / 0.09 | passes with room to spare |
-| + two practical area lamps 2.5 m up, 45 W | 0.05 / 0.05 / 0.35 | 0.04 / 0.07 / 0.79 | ERROR: the lib's practical default is a glow, not illumination |
+| + two practical area lamps 2.5 m up, 45 W | 0.05 / 0.05 / 0.35 | 0.04 / 0.07 / 0.79 | ERROR: a glow-sized lamp, not illumination |
 | + two practicals, 150 W | 0.08 / 0.09 / 0.14 | 0.08 / 0.12 / 0.55 | ERROR on the eye camera; the overview is dim-but-lit |
 | + two practicals, 500 W | 0.14 / 0.16 / 0.07 | 0.14 / 0.18 / 0.28 | passes |
 | + two 0.15 m emissive spheres 2.5 m up, strength 5 (no lamps) | 0.03 / 0.04 / 0.57 | 0.01 / 0.03 / 0.99 | ERROR: the fixtures glow, the ground does not |
@@ -89,18 +89,16 @@ emissive fixture is not that lamp: its strength decides how the fixture looks, a
 mean barely moves until the fixture is a white blob, which the judge grades as blown.
 
 ```python
-from lib import lighting, materials, sky
-
-def build_env(ctx):                       # a lantern-lit night, one way
-    sky.night_world(ctx.scene, color=<deep blue hex>, strength=<low>)
-    lighting.sun(ctx.collection, azimuth_deg=<behind the hero>, elevation_deg=<low>, color=<cool hex>,
-                 energy=<a fraction of one>, name="Moon")
-    sky.haze(ctx.collection, <centre>, <size>, density=<thin>, color=<the sky colour>)
-
-# in a zone: each fixture is a look (emissive) AND a light (practical)
-mat = materials.emissive("LanternGlow", <warm hex>, <modest strength>)
-lighting.practical(ctx.collection, "LanternLight_0", (x, y, z), color=<warm hex>,
-                   energy=<hundreds of watts>, size=<the fixture's size>, target=<the ground below it>)
+def lamp(ctx, name, kind, loc, color, watts, size=0.4):   # a lantern-lit night, one way
+    light = bpy.data.lights.new(name, kind)
+    light.energy, light.color = watts, color
+    if kind == "AREA":
+        light.size = size
+    ob = bpy.data.objects.new(name, light)
+    ob.location = loc
+    ctx.collection.objects.link(ob)
+    return ob
+# each fixture: an emissive skin (the look) AND lamp(ctx, f"LanternLight_{i}", "AREA", ..., <hundreds of W>)
 ```
 
 ## 5. Interiors
@@ -119,13 +117,13 @@ Interiors need tens to hundreds of watts per lamp, and the failure mode above a 
 flat band (one pale tone), not clipping — AgX refused to blow out even the 3000 W room.
 
 ```python
-from lib import architecture, lighting
-
 def build_env(ctx):                       # a lit room
-    walls = architecture.room_shell(ctx.collection, <wall material>, center=<c>, extents=<e>, openings=<...>)
-    lighting.area_light(ctx.collection, "Ceiling_0", (<cx>, <cy>, <just under the ceiling>), <warm white hex>,
-                        <tens to hundreds of watts>, size=<about a metre>, target=(<cx>, <cy>, 0.0), shape="SQUARE")
-    ...
+    ...                                   # the shell: walls, floor and a lid named Ceiling... under RoomShell...
+    lid_lamp = bpy.data.lights.new("CeilingLight_0", "AREA")
+    lid_lamp.energy, lid_lamp.size, lid_lamp.shape = <tens to hundreds of watts>, <about a metre>, "SQUARE"
+    ob = bpy.data.objects.new("CeilingLight_0", lid_lamp)
+    ob.location = (<cx>, <cy>, <just under the ceiling>)   # an area lamp shines down its -Z
+    ctx.collection.objects.link(ob)
 ```
 
 ## 6. The check

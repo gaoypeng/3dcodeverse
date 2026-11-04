@@ -14,29 +14,13 @@ skeleton, their briefs, the layouts): you never write Z-up numbers, and `environ
 LANGUAGE CONTRACT THE BUILDERS WILL FOLLOW:
 {{ contract }}
 
-SHIPPED BPY LIBRARY (optional toolbox):
-The scene workspace already contains, under `src/lib/`: `noise.py` (`fbm2`, `ridged`,
-`mountain_height`, `height_field`), `mesh.py` (`Batch`: box / sphere / lathe / cone / beam / torus,
-`mesh_object`, `curve_object`), `materials.py` (`material`, `masonry`, `limestone`, `woodgrain`,
-`chipped_paint`, `worn_alloy`, `water`, `glass`, `foliage`, `snow`, `ice`, `emissive`),
-`terrain.py` (`make_height_at`, `ground`, `cliff`, `boulder`, `rock_field`, `talus`,
-`basalt_column`), `sky.py` (`sun_world`, `night_world`, `gradient_world`, `haze`, `aurora`,
-`stars`), `lighting.py` (`sun`, `area_light`, `point_light`, `spot`, `practical`), `water.py`
-(`water_surface`, `waterfall`, `hanging_fall`, `fountain_jets`, `droplets`), `vegetation.py`
-(`tree`: broadleaf / cypress / oak / pine, `shrub`, `fern`, `tropical`, `grass_patch`,
-`perennial_bed`, `tree_stand`), `architecture.py` (`arched_opening`, `tiled_roof`, `clay_roof`,
-`fret_window`, `timber_house`, `stone_bridge`, `arched_footbridge`, `tower`, `paving`,
-`room_shell`, `lantern`, `text_mesh`), `scatter.py` (`instance`, `scatter`, `poisson`,
-`along_path`, `grid`, `gn_scatter`), `place.py` (`seat`, `rest_on`, `clear_of`, `unique_name`),
-`figure.py` (`figure`, `visitor`, `crowd`) and `motion.py` (`keyframe_path`, `drift`, `spin`,
-`sway`, `scroll`, `shape_key_sweep`).  Use a call when its output fits the brief: name it, its
-module and its dimensions in the owning zone description / environment / effects.  An element the
-library does not give in the form the brief wants (a carved stone, a fishing boat, a market stall,
-a different kind of tree) is an asset built from scratch within the triangle budget below.
-Interface: a `bpy` asset may compose a library call with its own parts (a shrine with a `tree(...)`
-beside it) — name the call and its module (`tree`, `lib/vegetation.py`) in that asset's
-description; a `blender_glb` hero cannot.  Zone `contents` lists only actual asset names; library
-effects a zone places itself belong in its prose, not in invented asset ids.  Water and terrain
+DESCRIBE, DO NOT PRESCRIBE — every mesh, material, lamp, world and motion is `bpy` / `bmesh` the
+builders write, so describe each thing by what it IS — dimensions, parts,
+materials with colours and how they vary (broad wear and fine grain), and the silhouette features a
+person would name (a pine's whorled limbs carrying needle cards, a boulder's irregular facets) —
+never by a call or a module.  A thing repeated across zones (a tree species, a lamp post, a crate)
+is an asset within the triangle budget below.  Zone `contents` lists only actual
+asset names; scenery a zone builds itself belongs in its prose, not in invented asset ids.  Water and terrain
 share ONE surface sampler (`height_at` from the environment) and every placed thing is seated on
 it or on what it stands on — the harness measures the gap.  Geometry that exists only to continue
 the world beyond the bounds is named with the `Sky` prefix (the census then keeps it out of the

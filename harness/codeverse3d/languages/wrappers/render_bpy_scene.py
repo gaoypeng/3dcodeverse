@@ -233,12 +233,12 @@ def hide_fog_boxes(scene: Any) -> list[Any]:
     """Render-hide every bounded fog volume and return those objects (restore with ``hide_render = False``).
 
     WHY.  The ``no_fog`` views are the judge's placement views: ``unlink_world_volume`` takes the world's
-    Volume out, but ``lib.sky.haze`` — what 30/30 iteration-0 and 14/15 iteration-2 Blender envs used —
-    builds the fog as a volume-only BOX, which those views kept, so the judge read floating / sunken /
+    Volume out, but 30/30 iteration-0 and 14/15 iteration-2 Blender envs built the fog as a
+    volume-only BOX, which those views kept, so the judge read floating / sunken /
     interpenetration through 0.003-0.008 /m of haze over a few hundred metres (2026-10-15: the
     iteration-2 overview tiles came out milky).  A fog box is a mesh every material of which is
     volume-only (``_census_glb.is_volume_only``, the census's own test) and whose largest evaluated
-    bbox side is >= ``FOG_BOX_MIN_M``; a soft particle (``lib.materials.volume`` on a small Batch) is
+    bbox side is >= ``FOG_BOX_MIN_M``; a soft particle (a volume-only material on a small mesh) is
     smaller and stays.  Linked library data and already hidden objects are left alone."""
     depsgraph = bpy.context.evaluated_depsgraph_get()
     boxes = []
@@ -261,8 +261,7 @@ ROOM_SHELL_PREFIX, LID_PREFIX = "RoomShell", "Ceiling"
 def lift_lids(scene: Any, camera: Any) -> list[Any]:
     """Render-hide every room shell lid under ``camera`` and return those objects (restore with
     ``hide_render = False``).  A lid is a mesh object named ``Ceiling…`` whose parent is named
-    ``RoomShell…`` (what ``lib.architecture.room_shell`` builds — the prompts promise the author
-    the rig lifts it by name) and whose evaluated world-space bbox top is below the camera's
+    ``RoomShell…`` (the prompts promise the author the rig lifts it by name) and whose evaluated world-space bbox top is below the camera's
     z: ``scene_host.skyLayersBelow``'s rule, so both languages' overview tiles show the same
     interior.  An author's own roof, a lid the camera is under, an already hidden lid and
     linked library data (never written) stay."""

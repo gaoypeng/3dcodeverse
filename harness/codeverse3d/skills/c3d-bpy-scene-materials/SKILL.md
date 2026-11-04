@@ -1,12 +1,12 @@
 ---
 name: c3d-bpy-scene-materials
-description: "Use in every scene_blender env, zone, asset or refine session that authors a surface — ground, walls, props, foliage, water, glass, a glowing sign, steam. Cycles renders every node you wire, but the harness's census reads only three Principled sockets, so no gate rewards material work and the judge penalises the lack of it. Gives the Blender 5.2 node facts (no use_nodes, the 4.x socket names, ShaderNodeMix), what the judge names and what it measures, lib.materials as an optional palette, variation across copies without identical twins, ground that varies where the brief's surface does, water, glass and emissive done as dielectrics and fixtures, soft particles as volumes, and what to zoom on before you finish."
+description: "Use in every scene_blender env, zone, asset or refine session that authors a surface — ground, walls, props, foliage, water, glass, a glowing sign, steam. Cycles renders every node you wire, but the harness's census reads only three Principled sockets, so no gate rewards material work and the judge penalises the lack of it. Gives the Blender 5.2 node facts (no use_nodes, the 4.x socket names, ShaderNodeMix), what the judge names and what it measures, the node practices for multi-scale surfaces, variation across copies without identical twins, ground that varies where the brief's surface does, water, glass and emissive done as dielectrics and fixtures, soft particles as volumes, and what to zoom on before you finish."
 license: Apache-2.0
 compatibility: Blender 5.2.2 LTS headless, scene_blender runtime; Cycles 32 samples + OIDN under AgX (the harness's render settings), Principled BSDF 4.x socket names.
 metadata:
   evidence: mixed
-  evidence_note: 'The census facts are read from live code on 2026-10-14 (wrappers/_census_glb.py, wrappers/_census.py, the languages/blender lint tables verified against Blender 5.2.2 LTS) and the defect wording from the scene judge rubric; the recipes restate the scene_blender starter library. The corpus half is the argon loop iteration 0 of 2026-10-15 (30 scene_blender runs): 8 scenes built hard-edged particles from surface shaders.'
-  verified: "2026-10-15"
+  evidence_note: 'The census facts are read from live code on 2026-10-14 (wrappers/_census_glb.py, wrappers/_census.py, the languages/blender lint tables verified against Blender 5.2.2 LTS) and the defect wording from the scene judge rubric. The corpus half is the argon loop iteration 0 of 2026-10-15 (30 scene_blender runs): 8 scenes built hard-edged particles from surface shaders.'
+  verified: "2026-10-17"
   target_metric: "flat_principled_materials"
   target_direction: "down"
   target_unit: "materials whose Base Color, Roughness and Metallic are all unlinked constants (prospective census)"
@@ -45,33 +45,31 @@ fact that does bite — a mesh with no material at all is warned as exporting gr
   polygon starts on slot 0, and the census warns about slots no polygon uses — the part was
   authored in four colours and exports in one.
 
-## The palette — `lib.materials`, one option
+## Surfaces in nodes — what reads as photoreal
 
-Every call takes a name and returns a material; colours are sRGB hex strings (`rgba` decodes
-them to linear). Procedural detail reads OBJECT coordinates, so `noise_scale` is features per
-metre whatever the object's size, and the lib's own band for a non-emissive albedo is 0.02-0.8
-linear: pure black reads as a hole, pure white as a blown surface. Nodes you wire yourself do the
-same job (`references/principled-recipes.md` has the snippets).
+Every material is a node tree you wire on `mat.node_tree`. What the judge reads
+as real is variation at MORE THAN ONE SCALE, in object or generated coordinates so it is metres
+whatever the object's size:
 
-| want | call |
-|---|---|
-| a surface with value variance | `material(name, color, roughness=..., metal=..., noise_scale=..., bump=..., emission=...)` — `noise_scale` above zero adds the low-contrast variation that stops a large surface reading as a flat placeholder (judged); where the brief's material has it |
-| stone, brick, plaster | `masonry(name, color, mortar=..., scale=...)`, `limestone(name, color, scale=...)`, `ashlar(name, color)`, `mineral_surface(name, color, stone=...)` |
-| wood | `woodgrain(mat, dark=..., light=..., direction=...)` on an existing material |
-| worn paint, used metal | `chipped_paint(mat, paint, substrate, scale=...)`, `worn_alloy(name, color, seed=..., metal=...)` |
-| foliage, snow, ice | `foliage(name, color, variants=3)` returns a LIST of variant materials; `snow(name)`, `ice(name)` |
-| water | `water(name, color=..., roughness=..., scale=..., flow=..., ctx=ctx)` for a tinted, moving surface; `clear_water(name)` for shallow, almost colourless water (a basin, a bowl, a stream) |
-| glass | `glass(name, color=..., roughness=..., ior=...)` |
-| a glowing fixture | `emissive(name, color, strength)` — the look only; the light is a `practical` lamp (c3d-bpy-scene-lighting) |
-| steam, smoke, dust, mist | `volume(name, color, density=..., anisotropy=..., noise_scale=..., emission=...)` — volume-only, no silhouette |
-| a copy that is not a twin | `tint(mat, variant)` — a copy with its Base Color shifted, one per VARIANT and shared by that variant's copies; it leaves a LINKED Base Color alone, so a noise-mapped material gets its variant from `material` called with another colour |
+| scale | what carries it | nodes |
+|---|---|---|
+| metres — tone, wear, damp, sun-bleach | a low-frequency mask mixing two close colours | Noise texture (`Scale` ~0.2-1 per metre) into `ShaderNodeMix` (RGBA) |
+| decimetres — courses, planks, patches | a pattern the material has | Brick / Wave / Voronoi texture, or a ColorRamp over noise |
+| centimetres — grain, pores, grit | fine bump and roughness breakup | Noise / Voronoi (`Scale` 20-200) into `ShaderNodeBump` and through a Map Range into `Roughness` |
+
+Keep non-emissive albedos inside 0.02-0.8 linear: pure black reads as a hole, pure white as a
+blown surface. A copy is not a twin when its variant picks other colours or an Object Info
+`Random` drives a small hue shift (below). A glowing fixture is `Emission Color` with a modest
+`Emission Strength` — the look only; the light is a lamp (c3d-bpy-scene-lighting). Steam, smoke,
+dust and mist are a volume-only material (below). Node snippets in
+`references/principled-recipes.md`.
 
 ## Variation without twins
 
 Collection instances share the source collection's materials, so per-instance tinting is not
 "edit the material". Variation across copies comes from (a) several SOURCE variants —
-`build_<snake>(ctx, variant=k)` picking a different `foliage` entry or `tint` — placed in
-rotation, (b) per-instance scale and yaw from `lib.scatter.scatter`, and (c) for one material
+`build_<snake>(ctx, variant=k)` building with other colours and another silhouette — placed in
+rotation, (b) per-instance scale and yaw on each instance Empty, and (c) for one material
 over many copies, an Object Info node's `Random` output driving a hue shift, which Cycles
 evaluates per instance. The `stamped_ring` plan check measures rings of identical copies at one
 radius, and the judge calls the result monotonous vegetation.
@@ -80,42 +78,40 @@ radius, and the judge calls the result monotonous vegetation.
 
 Requirement (judged): the ground does not read as one flat untextured colour where the brief's
 surface would vary, and the seam where structures meet it does not read as a hard undressed line.
-`lib.terrain.ground` takes ONE material, so the variation lives inside it or in the mesh's own
+A ground mesh usually carries ONE material, so the variation lives inside it or in the mesh's own
 attributes. Options, by what the brief's place has: a slope mix (the Geometry node's `Normal`,
 its Z through a ColorRamp into the mix factor) and a height mix (object Z from Texture
 Coordinate) for natural ground; a worn band as a noise-masked colour along the routes people
-take; a darker or rougher apron, or ground cover (`gn_scatter`, `grass_patch`), at the feet of
-big structures; a colour attribute on the ground mesh read by a Color Attribute node when the
-bands are easier to paint per vertex than to compute per pixel; paving (`lib.architecture.paving`,
-`paving_grid`) where the ground is built, not grown. A polished floor or a plaza that IS one
+take; a darker or rougher apron, or ground cover (a geometry-nodes Instance on Points cloud), at the
+feet of big structures; a colour attribute on the ground mesh read by a Color Attribute node when
+the bands are easier to paint per vertex than to compute per pixel; paving (a Brick texture, or
+modelled setts) where the ground is built, not grown. A polished floor or a plaza that IS one
 material is not a defect when its material reads as that material.
 
 ## Water, glass, fog — dielectrics and volumes
 
-* Water is a dielectric: `water` and `clear_water` set transmission, a low roughness and
-  `Metallic` at zero; a metallic mirror plane reads as chrome, not water. Moving water scrolls its
-  mapping node on `ctx.frame(t)` through `lib.motion.scroll`, which is why `water(..., ctx=ctx)`
-  wants the context.
-* Glass is `glass`: full `Transmission Weight`, low roughness, the lib's default IOR. The bounce
+* Water is a dielectric: `Transmission Weight` 1, a low roughness and `Metallic` at zero; a
+  metallic mirror plane reads as chrome, not water. Moving water scrolls its Mapping node's
+  `Location` input with keyframes on `ctx.frame(t)`.
+* Glass: full `Transmission Weight`, roughness near zero, `IOR` about 1.45-1.5. The bounce
   budget is the harness's, so a stack of transmissive layers along one sight line goes dark —
   one or two read.
-* Fog is a VOLUME-ONLY material on any mesh (`lib.sky.haze` makes a box): only the Material
-  Output's Volume socket linked. A mesh with a surface shader as well is matter to the census — a
+* Fog is a VOLUME-ONLY material on any mesh (a box is enough): only the Material Output's Volume
+  socket linked. A mesh with a surface shader as well is matter to the census — a
   huge placed asset enclosing everything — and the `no_fog` check does not count it as atmosphere.
 * Soft particles are volumes too. A surface shader always has a silhouette; 8 of the 30 argon
   Blender scenes of 2026-10-15 built steam from translucent ico-spheres, metaballs, stacked tori,
-  discs or polygon sparks and were graded `hard_edged_particles`. `lib.materials.volume` on a
-  cloud of spheres (one `Batch`, one object, tagged `placement = "free"`, moved with
-  `lib.motion.drift` or `sway` so the two judged frames differ) rendered with no edge, and 40
-  such puffs added 0.7 s to a 32-sample GPU frame; motes and sparks read as tiny `emissive`
-  spheres. Under a dim world a volume with zero `emission` comes out grey.
+  discs or polygon sparks and were graded `hard_edged_particles`. A volume-only material on a
+  cloud of spheres (one mesh, one object, tagged `placement = "free"`, keyframed so the two
+  judged frames differ) rendered with no edge, and 40 such puffs added 0.7 s to a 32-sample GPU
+  frame; motes and sparks read as tiny emissive spheres. Under a dim world a volume with zero `emission` comes out grey.
 
 ## Emissive and metal under AgX
 
 AgX desaturates bright emitters toward white: a saturated sign needs a modest
-`Emission Strength` and a coloured `practical` lamp beside it for the glow on the ground. Metals
-need something to reflect — the sky world and the haze are what `worn_alloy` mirrors; a metal
-under a black world is a black shape.
+`Emission Strength` and a coloured area lamp beside it for the glow on the ground. Metals need
+something to reflect — the sky world and the haze are what a worn metal mirrors; a metal under a
+black world is a black shape.
 
 ## Verify before you finish
 

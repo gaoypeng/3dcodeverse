@@ -1,7 +1,6 @@
 """src/scene.py — ASSEMBLED BY THE HARNESS (codeverse3d assembler).  Edit env / zones / assets
 instead; re-assembly overwrites this file.
-EXAMPLE: a lakeside hamlet at golden hour — the plan-less starter scene (every zone and asset is
-built from src/lib; read them as worked examples of the library).
+EXAMPLE: a lakeside hamlet at golden hour — the plan-less starter scene.
 
 The harness builds the scene in one Blender process: env.build_env(ctx); every hero GLB and asset
 module (build_<snake>(ctx)); then every zone's build(ctx) — each on its own (a zone that raises is

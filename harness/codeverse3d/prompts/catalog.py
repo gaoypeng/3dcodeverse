@@ -34,13 +34,13 @@ PROMPT_DIRS: dict[Language, str] = {Language.URDF_BLENDER: "urdf"}
 
 def language_prompt(language: Language, name: str) -> str:
     """``<dir>/<name>`` under ``prompts/`` — THE path of a language's ``contract.md`` and
-    ``system.md`` (and the scene languages' ``effects_catalog.md`` / ``asset.md``)."""
+    ``system.md`` (and the scene languages' ``asset.md``, scene_threejs's ``effects_catalog.md``)."""
     return f"{PROMPT_DIRS.get(language, language.value)}/{name}"
 
 
 def language_text(language: Language, name: str) -> str:
     """The text of :func:`language_prompt`, or ``""`` for a file the language does not ship
-    (only the two scene languages ship an effects catalog / ``asset.md``).  No language ships
+    (the two scene languages ship ``asset.md``, scene_threejs an effects catalog).  No language ships
     a cookbook (D107, owner 2026-10-15): interface and language facts are in ``contract.md`` /
     ``system.md``, the craft in the skills as short optional practices."""
     try:

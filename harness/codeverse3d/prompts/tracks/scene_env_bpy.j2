@@ -10,25 +10,25 @@ Bounds (Z up, −Y front, metres — already converted from the plan): {{ bounds
 ## This is a GLASS HOUSE — the enclosure is yours
 The place must read enclosed in glass from every authored camera and be lit by what comes through it
 (the frame gate's luminance band).  Name the shell and lid meshes `RoomShell…` / `Ceiling…` so the
-overview rig can lift the lid, and cut the plan's doors as openings.  `room_shell(ctx.collection,
-frame_mat, center=…, extents=…, thickness=0.2, openings=(…), glazed=True)` from `lib/architecture.py`
-builds an iron-frame box with glass panes on the bounds' faces if that is the brief's shape; other
-shapes are yours to build.
+overview rig can lift the lid, and cut the plan's doors as openings.  The frame, the panes (a thin
+transmissive Principled material: `Transmission Weight` 1, low `Roughness`) and the house's shape
+are yours to build here.
 {% elif interior %}
 ## This is an INTERIOR — the enclosure is yours
 An interior must read enclosed from every authored camera (measured 2026-09-07 over six interior runs
 with no owner for walls and roof: every one was judged "not enclosed, a diorama on a flat plane",
 0.0–0.3) and be LIT INSIDE (the frame gate's luminance band; the sun is outside, so a closed room
 without openings and lights reads black).  Name the lid meshes `RoomShell…` / `Ceiling…` (the overview
-rig lifts the lid by name); windows and doors are openings the zones glaze or frame.
-`room_shell(ctx.collection, wall_mat, center=…, extents=…, thickness=0.2, openings=(…))` from
-`lib/architecture.py` is the box option (an opening = face, centre along the wall / up from the floor,
-size, metres); the room's shape and extent are the brief's.
+rig lifts the lid by name); windows and doors are openings the zones glaze or frame.  The room's
+shape, its openings and its extent are the brief's, built here.
 {% endif %}
 
 ## Contract
 {{ frame_doc }}
 {{ contract }}
+The world, the lamps, the ground mesh, the atmosphere and every material are `bpy` / `bmesh` /
+`mathutils` you write in this module.  Helpers the zones should reuse (a material builder, a mesh-linking or seating function)
+are module-level functions here; zones `from env import` them.
 
 ### The harness assembles `{{ entry_file }}` and runs YOUR module like this — nothing else runs
 ```python
@@ -55,9 +55,9 @@ fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
 
 ## What this module is graded on (the requirement, and how it is measured)
 1. **The ground reads as the brief's material**, not one flat untextured colour (judge `flat_ground`: no
-   blending, no wear, undressed seams).  Paving, snow, sand, decking, mud, a tiled floor all count; a
-   height / slope / noise colour blend (`lib.terrain.ground` + `lib.materials.mineral_surface`) is one tool
-   among others.
+   blending, no wear, undressed seams).  Paving, snow, sand, decking, mud, a tiled floor all count, and the
+   surface varies at more than one scale — broad tone, wear and slope / height bands over metres AND fine
+   grain or bump over centimetres — in a node tree you wire on the ground's material.
 2. **The world does not end in view.**  From no authored camera may the ground stop against the sky or a
    backdrop float (judge `world_edge_visible`; the frame census reports "terrain ends N m ahead").  Two
    gates measure it outdoors: `world_edge` (standing geometry must reach past 1.25 × the bounds'
@@ -71,13 +71,18 @@ fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
 4. **Every authored frame lands in the exposure band** at the brief's time of day (`dark_frame`: mean
    luminance < 0.12 or > 35 % near-black, cap 0.55; blown frames likewise) and the light is not monochrome
    (judged).  Cycles is physical.  Starting values that have passed on a mid-albedo ground: a Sun of
-   1–5 W/m² (a moon 0.05–0.3), a world (`lib.sky.sun_world`, or a deep colour for night) at strength
-   0.1–0.6, fog density 0.003–0.008 (`lib.sky.haze`); a brief lit by fire, neon, storm or nothing sets
-   its own and reads `camera_checks.mean_lum`.  Exposure is fixed at 0.
+   1–5 W/m² (a moon 0.05–0.3), a world (a Sky Texture with its sun disc off beside the Sun lamp, or a deep
+   colour for night) at strength 0.1–0.6, fog density 0.003–0.008 (a volume-only box over the play area);
+   a brief lit by fire, neon, storm or nothing sets its own and reads `camera_checks.mean_lum`.  Exposure is
+   fixed at 0.
 5. **Shadows read and shade carries colour** (judge `unlit_or_blown`, `lighting_atmosphere`: "flat
    shadows", "black shade"; the gate's `dark_frac`): a Sun `angle` of 1–3° with the sky world as fill is one
    way; any fill lamp you add is yours to justify by the frame table.
-6. No image textures, no file IO, no unseeded randomness (`ctx.rng(seed)`); the lint warns on `bpy.ops.mesh.primitive_*` in a loop.
+6. **What continues the world reads as real** (judged): far trees are trunks branching into limbs that carry
+   leaf or needle cards, far rocks and hills are irregular masses — never cones, balls on sticks or cubes
+   standing in for them (`asset_quality_detail`), and never one shape stamped in a ring (`stamped_ring`,
+   `monotonous_vegetation`).
+7. No image textures, no file IO, no unseeded randomness (`ctx.rng(seed)`); the lint warns on `bpy.ops.mesh.primitive_*` in a loop.
 
 ## DON'T
 - No assets or zones here (they come from other modules).  No cameras.  No `scene.*` render / view settings.
@@ -94,16 +99,6 @@ After editing run `build`, then `scene_views` and LOOK at every frame against th
 world end anywhere in view, is the ground one flat colour, is the shade black?  Read the frame table
 it prints: every authored camera must pass the exposure checks.  `scene_probe` says whether the world
 and the atmosphere were found.
-{% endif %}
-{% if effects_catalog is defined and effects_catalog %}
-
-{{ effects_catalog }}
-{% endif %}
-{% if lib_interface is defined and lib_interface %}
-
-## What `src/lib/` exports (read from the files in this workspace)
-{{ lib_interface }}
-An import from `src/lib/` can bind only these names; a call passes only these parameters.
 {% endif %}
 {% if env_check_error is defined and env_check_error %}
 

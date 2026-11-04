@@ -90,7 +90,6 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     rt = _rt()
     rt.skeleton(tmp_ws, plan)
-    assert (tmp_ws.src / "lib" / "terrain.py").is_file()   # the env below is built FROM the library
     assert rt.lint(tmp_ws).passed
     asm = rt.assemble(tmp_ws, plan)
     assert set(asm.zones_included) == {"quay", "water"} and not asm.zones_failed
@@ -144,3 +143,26 @@ def test_a_hero_glb_is_imported_into_ctx_assets(tmp_ws) -> None:
     row = _rows(res)["Windmill_0"]
     assert row["zone"] == "Yard" and row["supported"]   # a 4 m box centred on z = 2 stands on the ground
 
+
+
+def test_the_example_scene_builds_and_seats_every_root(tmp_ws) -> None:
+    """The plan-less starter scene (``write_example``: env, two assets, three zones in plain bpy) lints
+    clean, builds through the wrapper, seats every placed root (no floating, no burial past the 10 cm
+    WARN, nothing interpenetrating), keeps every driver simple and leaves the render settings alone."""
+    from codeverse3d.languages.scene_blender import write_example
+
+    rt = _rt()
+    write_example(tmp_ws)
+    assert rt.lint(tmp_ws).passed, [(f.target, f.message) for f in rt.lint(tmp_ws).findings]
+    res = rt.build(tmp_ws)
+    assert res.ok, res.stdout_tail
+    report = json.loads((tmp_ws.artifacts / "bpy_build.json").read_text())
+    assert report["errors"] == [] and sorted(report["zones_ok"]) == ["hamlet", "lakeside", "orchard"], report
+    assert res.census["bpy"]["drivers_invalid"] == [] and res.census["bpy"]["handlers"] == []
+    rows = _rows(res)
+    assert {"House_0", "Signpost_0", "LanternPost_2", "Crate_2", "Rock_9", "AppleTree_11", "HarvestCrate_2"} <= set(rows), sorted(rows)
+    for r in rows.values():
+        if not r["exempt"]:
+            assert r["supported"] and not r["floating"] and r["sunk_m"] <= 0.10, r
+    assert res.census["placement"]["interpenetrations"] == []
+    assert res.census["fog"] is not None and res.census["light_types"]

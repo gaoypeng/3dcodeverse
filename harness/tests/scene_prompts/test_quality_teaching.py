@@ -52,7 +52,7 @@ def test_the_bpy_env_brief_owns_the_enclosure_only_for_an_interior() -> None:
                 zones_table="", cameras="", effects="", animation="", asset_api="", textures="", constraints_text="",
                 references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=[],
                 zone_file="src/zones/z.py", neighbours=[], layout="", env_file="src/env.py", entry_file="src/scene.py",
-                single_shot=False, output_format="OUT", effects_catalog="")
+                single_shot=False, output_format="OUT")
     assert "INTERIOR" in render("tracks/scene_env_bpy.j2", **base, interior=True, glazed=False)
     assert "GLASS HOUSE" in render("tracks/scene_env_bpy.j2", **base, interior=True, glazed=True)
     assert "INTERIOR" not in render("tracks/scene_env_bpy.j2", **base, interior=False, glazed=False)

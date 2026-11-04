@@ -61,7 +61,6 @@ from codeverse3d.tracks.scene_assets import (
     asset_api_summary,
     read_dedupe_note,
     run_asset_stage,
-    ships_lib,
 )
 from codeverse3d.tracks.zone_layout import layout_block, layout_zones
 from codeverse3d.workspace import Workspace
@@ -257,7 +256,7 @@ class SceneTrack(BaseTrack):
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (ctx.extra.get("assets") or {}).items()}
         alias = read_dedupe_note(ctx.ws)
         ctx.extra["assets"], ctx.extra["asset_alias"] = assets, alias
-        return asset_api_summary(plan, assets, alias, language=ctx.language, lib=ships_lib(ctx))
+        return asset_api_summary(plan, assets, alias, language=ctx.language)
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
@@ -343,8 +342,8 @@ class SceneTrack(BaseTrack):
         CHECKED (D112): the written module counts only once the runtime's env check passes
         (``SceneRuntime.check_env``: its lint, a build with nothing beside it, something that lights
         it); a failure gets ONE repair single-shot with the check's words and the file fed back (the
-        asset ladder's single-shot + repair).  Both prompts carry the ``src/lib/`` interface
-        (``SceneRuntime.lib_interface``) — names and parameter lists, read off the files.  Iteration 5
+        asset ladder's single-shot + repair).  Both prompts carry the ``src/lib/`` interface of a language
+        that ships one (``SceneRuntime.lib_interface``) — names and parameter lists, read off the files.  Iteration 5
         (2026-10-16): 7 of 21 unchecked recoveries were broken or unlit (a SyntaxError, a non-existent
         ``gravel`` export, a ``roughness=`` keyword no function takes) and reached round 0 as an
         assembly without env.  A module that still fails is replaced by what was there before (the

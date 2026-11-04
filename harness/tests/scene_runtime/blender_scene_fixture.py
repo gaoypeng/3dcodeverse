@@ -113,25 +113,47 @@ def build_fixture(ws: Workspace, *, moving: bool = True, probe: bool = True) -> 
     return ws
 
 
-#: a 6 x 6 x 3 m room on the ground, built by the REAL ``lib.architecture.room_shell`` (so the
-#: names the driver's lid rule reads — root ``RoomShell``, lid ``Ceiling`` — are the library's,
-#: not the test's); the shell is red, the floor green, a near-vertical sun lights the inside
+#: a 6 x 6 x 3 m room on the ground with the names the driver's lid rule reads — root ``RoomShell``,
+#: lid ``Ceiling`` parented under it (what the prompts promise the author the rig lifts by name);
+#: the shell is red, the floor green, a near-vertical sun lights the inside
 ROOM_SHELL_BPY = r'''
 import sys
+import bmesh
 import bpy
 
 argv = sys.argv[sys.argv.index("--") + 1:]
-blend, starter = argv[0], argv[1]
-sys.path.insert(0, starter)
-from lib.architecture import room_shell
-from lib.materials import material
-
+blend = argv[0]
 bpy.ops.wm.read_factory_settings(use_empty=True)
 sc = bpy.context.scene
-red = material("ShellRed", (0.8, 0.08, 0.08), roughness=0.9)
-green = material("FloorGreen", (0.08, 0.8, 0.08), roughness=0.9)
-root, floor, ceiling, *walls = room_shell(sc.collection, red, center=(0.0, 0.0, 1.5), extents=(6.0, 6.0, 3.0), thickness=0.2)
-floor.data.materials[0] = green
+
+
+def material(name, rgb):
+    m = bpy.data.materials.new(name)
+    m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*rgb, 1.0)
+    return m
+
+
+def slab(name, parent, center, size, mat):
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, vec=size, verts=bm.verts)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(mat)
+    ob = bpy.data.objects.new(name, me)
+    ob.parent, ob.location = parent, center
+    sc.collection.objects.link(ob)
+    return ob
+
+
+red, green = material("ShellRed", (0.8, 0.08, 0.08)), material("FloorGreen", (0.08, 0.8, 0.08))
+root = bpy.data.objects.new("RoomShell", None)
+sc.collection.objects.link(root)
+slab("RoomShellFloor", root, (0.0, 0.0, 0.1), (6.0, 6.0, 0.2), green)
+ceiling = slab("Ceiling", root, (0.0, 0.0, 2.9), (6.0, 6.0, 0.2), red)
+for i, (cx, cy, sx, sy) in enumerate(((3.0, 0.0, 0.2, 6.0), (-3.0, 0.0, 0.2, 6.0), (0.0, 3.0, 6.0, 0.2), (0.0, -3.0, 6.0, 0.2))):
+    slab(f"RoomShellWall_{i}", root, (cx, cy, 1.5), (sx, sy, 3.0), red)
 assert root.name == "RoomShell" and ceiling.name == "Ceiling" and ceiling.parent is root
 sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", "SUN"))
 sun.data.energy = 5.0
@@ -143,14 +165,12 @@ bpy.ops.wm.save_as_mainfile(filepath=blend, compress=True)
 
 def build_room_shell(root: Path) -> Path:
     """Write ``root/scene.blend``: the room-shell interior; returns the .blend's path."""
-    from codeverse3d.languages.scene_blender import STARTER_DIR
-
     root.mkdir(parents=True, exist_ok=True)
     script = root / "build_room_shell.py"
     script.write_text(ROOM_SHELL_BPY)
     blend = root / "scene.blend"
     blender = get_settings().resolve_blender()
-    proc = run_subprocess([blender, "-b", "--factory-startup", "--python", str(script), "--", str(blend), str(STARTER_DIR)],
+    proc = run_subprocess([blender, "-b", "--factory-startup", "--python", str(script), "--", str(blend)],
                           cwd=root, env=blender_env(), timeout_s=120)
     assert proc.returncode == 0 and blend.is_file(), proc.stderr[-2000:]
     return blend

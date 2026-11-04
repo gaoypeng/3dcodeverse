@@ -1,4 +1,4 @@
-"""D112: ``SceneBlenderRuntime.check_env`` / ``lib_interface`` — the env module alone (argon loop
+"""D112: ``SceneBlenderRuntime.check_env`` — the env module alone (argon loop
 iteration 5: a recovered env.py that did not parse, one that raised on an unknown keyword, one with
 no lamp and no world)."""
 
@@ -42,17 +42,17 @@ def test_a_good_env_passes_and_each_broken_one_says_why(tmp_path):
     assert not (tmp_path / "good" / "run" / "src" / "_c3d_env_check.py").exists(), "the check's entry is deleted"
 
 
-def test_a_raise_inside_a_lib_helper_is_quoted_at_the_env_line_that_called_it():
-    """D112 review: iteration 5 blender r1_04's recovered env was reported at ``src/lib/mesh.py:69`` — a file
-    the repair single-shot never sees — while its own bad call (a tuple rotation) was ``env.py:287``."""
+def test_a_raise_inside_a_helper_module_is_quoted_at_the_env_line_that_called_it():
+    """D112 review: a recovered env was reported at the line of a helper module it called — a file the
+    repair single-shot never sees — while its own bad call (a tuple rotation) was ``env.py:287``."""
     from codeverse3d.languages.scene_blender import env_frame
 
     tb = ('Traceback (most recent call last):\n'
           '  File "/h/wrappers/run_bpy_scene.py", line 199, in run\n    out = mod.build_env(ctx)\n'
           '  File "/w/run/src/env.py", line 457, in build_env\n    _build_sky_backdrop(ctx)\n'
           '  File "/w/run/src/env.py", line 287, in _build_sky_backdrop\n    sky_batch.box(\n    ~~~~~~^\n'
-          '  File "/w/run/src/lib/mesh.py", line 69, in box_geometry\n    c, s = math.cos(rotation), math.sin(rotation)\n'
+          '  File "/b/5.2/scripts/modules/bpy_extras/object_utils.py", line 69, in object_data_add\n    c, s = math.cos(rotation), math.sin(rotation)\n'
           'TypeError: must be real number, not tuple\n')
     assert env_frame(tb) == "src/env.py:287 `sky_batch.box(`"
-    assert env_frame(tb.replace("/src/env.py", "/src/lib/env.py")) == ""   # a lib module is not the env
+    assert env_frame(tb.replace("/src/env.py", "/src/zones/env.py")) == ""   # another module is not the env
 

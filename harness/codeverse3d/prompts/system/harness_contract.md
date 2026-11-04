@@ -24,8 +24,8 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
   shader files with `THREE.FileLoader` — exactly as your language contract shows.  Writing files stays
   forbidden everywhere.
   A language contract may ALSO ship harness-owned modules inside your own `src/` and tell
-  you to call them (`scene_threejs`: `src/lib/*.js`; `scene_blender`: `src/lib/`).  Those are not an SDK import — they
-  are code the harness wrote into your workspace.  Call them; never rewrite them.
+  you to call them (`scene_threejs`: `src/lib/*.js`).  Those are not an SDK import — they are code
+  the harness wrote into your workspace.  Call them; never rewrite them.
 
 ## 2. Code is truth
 

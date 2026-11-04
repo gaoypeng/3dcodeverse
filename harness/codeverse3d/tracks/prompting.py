@@ -285,7 +285,7 @@ def current_files(
     ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
 ) -> dict[str, str]:
     """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The
-    language's harness-owned files (``HARNESS_OWNED_SRC``, e.g. a scene's ``src/lib/``) are
+    language's harness-owned files (``HARNESS_OWNED_SRC``, e.g. scene_threejs's ``src/lib/``) are
     never inlined: the single-shot prompt once showed one as an editable skeleton file while
     every write to it is refused."""
     owned = set(HARNESS_OWNED_SRC.get(ctx.language, ()))

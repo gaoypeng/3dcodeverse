@@ -1,11 +1,12 @@
-"""src/zones/lakeside.py — zone "Lakeside": the lake in the env's basin, a wooden footbridge over
-its edge, shore rocks, reeds and a willow.
+"""src/zones/lakeside.py — zone "Lakeside": the lake in the env's basin, drifting slowly, and shore rocks.
 
 CONTRACT: build(ctx) -> bpy.types.Collection — every placed thing is ONE root object seated on
 ctx.height_at; the water is a water-named surface (the census files it as a backdrop and a foot
 in it as on water).
 """
-from lib import architecture, materials, mesh, terrain, vegetation, water
+import bmesh
+import bpy
+from env import linked, material
 
 SEED = 21
 LAKE = (-24.0, 2.0)   # == env.BASIN's centre
@@ -13,37 +14,35 @@ LAKE = (-24.0, 2.0)   # == env.BASIN's centre
 
 def build(ctx):
     rng = ctx.rng(SEED)
-    h = ctx.height_at
     level = float(ctx.env.get("water_level", -0.3))
 
-    lake = water.water_surface("LakeWater", ctx.collection, size=(34.0, 34.0), level=level,
-                               material=materials.water("LakeWaterMat", color="1A3F4A", ctx=ctx),
-                               height_fn=lambda x, y: h(x + LAKE[0], y + LAKE[1]))
-    lake.location = (LAKE[0], LAKE[1], 0.0)
+    water = bpy.data.materials.new("LakeWaterMat")               # a dielectric: transmission, not metal
+    bsdf = water.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (0.10, 0.25, 0.29, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.05
+    bsdf.inputs["Transmission Weight"].default_value = 1.0
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=16, y_segments=16, size=17.0)
+    lake = linked(ctx, "LakeWater", bm, water)
+    lake.location = (LAKE[0], LAKE[1], level)
+    lake.keyframe_insert("location", frame=ctx.frame(0.0))        # the surface drifts 0.3 m between the judged frames
+    lake.location.x += 0.3
+    lake.keyframe_insert("location", frame=ctx.frame(1.5))
+    action = lake.animation_data.action
+    for fc in action.layers[0].strips[0].channelbag(action.slots[0]).fcurves:
+        for k in fc.keyframe_points:
+            k.interpolation = "LINEAR"
 
-    rock = materials.mineral_surface("ShoreRock", "6F6A60", stone=True)
-    rocks = mesh.Batch("ShoreRocks_0")
-    terrain.rock_field(rocks, rock, (LAKE[0] + 13.0, LAKE[1] - 7.0), 4.5, 14, h, rng)
-    terrain.boulder(rocks, rock, (LAKE[0] + 11.0, LAKE[1] + 10.0, h(LAKE[0] + 11.0, LAKE[1] + 10.0)), 1.6, seed=3)
-    rocks.finish(ctx.collection)
-
-    wood = materials.woodgrain(materials.material("BridgeWood", "5A4330", roughness=0.8))
-    stone = materials.ashlar("BridgeStone", "9A9080")
-    bridge = mesh.Batch("Footbridge_0")
-    start, end = (LAKE[0] + 12.7, LAKE[1] - 12.7), (LAKE[0] + 8.5, LAKE[1] - 8.5)   # bank top → the shallows
-    architecture.arched_footbridge(bridge, wood, stone, start=(*start, h(*start)), end=(*end, h(*end)), rise=1.1, height_at=h)
-    bridge.finish(ctx.collection)
-
-    reed_bed = terrain.ground("ReedSurface", ctx.collection, size=(9.0, 6.0), segments=6, height_at=h, material=None,
-                              center=(LAKE[0] + 13.5, LAKE[1] + 5.0))
-    reed_bed.hide_render = True                    # the distribution domain only: the cloud draws
-    reed_bed.hide_viewport = True
-    vegetation.grass_patch("Reeds_0", ctx.collection, reed_bed, density=5.0, seed=SEED, height=1.2, color="6B7A3A")
-
-    bark = materials.material("WillowBark", "4A3A2A", roughness=0.9, noise_scale=6.0)
-    leaves = materials.foliage("WillowLeaf", "6A8A3A", variants=2)
-    willow = mesh.Batch("Willow_0")
-    wx, wy = LAKE[0] + 16.5, LAKE[1] + 1.0
-    vegetation.tree(willow, (wx, wy, h(wx, wy)), 7.5, bark, leaves[0], seed=SEED, kind="broadleaf", max_leaves=1800)
-    willow.finish(ctx.collection)
+    rock = material("ShoreRock", (0.44, 0.42, 0.38), roughness=0.95, noise_scale=8.0)
+    for i in range(10):                                            # irregular masses along the east bank, part sunk (a rock may)
+        r = rng.uniform(0.4, 1.0)
+        bm = bmesh.new()
+        bmesh.ops.create_icosphere(bm, subdivisions=2, radius=r)
+        bmesh.ops.scale(bm, vec=(rng.uniform(0.8, 1.5), rng.uniform(0.7, 1.3), rng.uniform(0.5, 0.8)), verts=bm.verts)
+        for v in bm.verts:
+            v.co *= 1.0 + 0.12 * (rng.random() - 0.5)
+        bmesh.ops.translate(bm, vec=(0.0, 0.0, -min(v.co.z for v in bm.verts)), verts=bm.verts)   # base on local z = 0
+        ob = linked(ctx, f"Rock_{i}", bm, rock)
+        x, y = LAKE[0] + 13.0 + (1.8 if i % 2 else -1.8) + rng.uniform(-0.3, 0.3), LAKE[1] - 9.0 + 2.2 * i   # spaced: no two share a box
+        ob.location = (x, y, ctx.height_at(x, y) - 0.08 * r)   # its lowest vertex is under its centre: a little in, as a rock may
     return ctx.collection

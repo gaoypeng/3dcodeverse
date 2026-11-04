@@ -184,7 +184,7 @@ def write_files(
 
     ``only`` (an ``edit_only`` task's file scope, entry included when owned) skips a
     path that ALREADY EXISTS and is not listed — new files stay allowed; ``frozen``
-    (the language's harness-owned files and directories, e.g. a scene's ``src/lib/``) is
+    (the language's harness-owned files and directories, e.g. scene_threejs's ``src/lib/``) is
     skipped outright (``is_harness_owned``, the CLI side's rule).
     The single-shot envelope has no write-time gate, so this is where a scoped task is
     stopped from rewriting a sibling's file — the mirror of the CLI backends' post-hoc
@@ -751,7 +751,7 @@ def _envelope_scope(ws: Workspace, task: GenerationTask) -> tuple[set[str] | Non
 
 
 def _read_only(language: str) -> list[str]:
-    """The harness-owned files of the language (``src/lib/`` for the scene languages): every session
+    """The harness-owned files of the language (scene_threejs's ``src/lib/``): every session
     of the run — baseline, refine, repair — may read them, none may write them."""
     try:
         return list(HARNESS_OWNED_SRC.get(Language(language), ()))

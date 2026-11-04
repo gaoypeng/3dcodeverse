@@ -63,7 +63,7 @@ from run_bpy import MEMORY_HINT, clear_scene, render_fingerprint, save_blend  # 
 REPORT_NAME, FACTS_NAME = "bpy_build.json", "bpy_census.json"
 GLB_NAME, BLEND_NAME = "census.glb", "scene.blend"
 #: the workspace packages a scene imports from ``src/`` (purged before every run: never a stale module)
-PACKAGES = ("env", "zones", "assets", "lib")
+PACKAGES = ("env", "zones", "assets")
 ASSETS_COLLECTION, CAMERAS_COLLECTION = "_Assets", "_Cameras"
 _ERROR_KEYS = ("error_type", "error_message", "error_file", "error_line", "error_source")
 

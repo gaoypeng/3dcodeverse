@@ -53,8 +53,7 @@ Useful flags (`3dcode make --help`):
 * `--variant NAME` — a per-model prompt/skill overlay (`codeverse3d/prompts/variants/<name>/` +
   `codeverse3d/skills/variants/<name>/`), frozen on `spec.options.variant` so `resume` and
   `judge` read the same files; default `C3D_VARIANT`, else `C3D_VARIANTS` keyed by the exact
-  generator id, else the base prompts.  `--variant argon_raw` on `--language scene_blender` is
-  RAW mode: no harness bpy library ships and the model writes every line of bpy.
+  generator id, else the base prompts.
 
 Expected cost/time with gemini-3.8-flash: object tracks ≈ $0.7–0.9 and 12–36 min for baseline +
 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot ≈ $0.05 / 2 min per judged
@@ -225,7 +224,7 @@ storm's rows (`--redo-status error,infra_failed,budget`) rather than reading the
   wave: templates are read at render time, so a live worker on old python renders the new file.
 * **A per-model variant**: `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]` name =
   the directory name, version, generators, description; optional `[knobs]` — `skills_max`,
-  `skills_only`, `scene_lib` — applied as defaults, a user-stated field wins) beside the prompt
+  `skills_only` — applied as defaults, a user-stated field wins) beside the prompt
   files that shadow the base ones by relative path (a template there may `include` a base
   file), and `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name,
   their `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]`

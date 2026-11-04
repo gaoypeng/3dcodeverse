@@ -92,8 +92,6 @@ ENTRY_FILE: dict[Language, str] = {
 HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
     # the effect library (D51): the agent imports and calls it, never rewrites it.
     Language.SCENE_THREEJS: ("src/lib/",),
-    # the small bpy library (DESIGN phase 4, D51 extended): same rule, same directory
-    Language.SCENE_BLENDER: ("src/lib/",),
 }
 
 

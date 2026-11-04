@@ -330,11 +330,6 @@ class Settings(BaseSettings):
                                "prompt instead of editing it in context (docs/COST.md §30)")
     reference_diff: Flag = Field(default=True, description="the judge's reference-image mismatch pass")
     zone_layouts: Flag = Field(default=True, description="scene track: the L2 zone-layout planner calls")
-    scene_lib: Flag = Field(default=True, description="scene_blender: ship the harness-owned bpy library "
-                            "(src/lib/*.py) into every workspace and let modules import it.  OFF is RAW mode "
-                            "(D113): no library ships, `lib.*` imports are lint ERRORs and the model writes "
-                            "every mesh, material, light, world and motion in raw bpy / bmesh (variant "
-                            "argon_raw sets it through its [knobs])")
     axis_repair: Flag = Field(default=True, description="articulated track: rewrite a joint axis the "
                               "measured motion proves wrong, before the sweep renders")
     settle: Flag = Field(default=True, description="scene driver: the boot-time auto-seat")

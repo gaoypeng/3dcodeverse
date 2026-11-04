@@ -116,7 +116,10 @@ def test_a_recovery_that_fails_its_check_gets_one_repair_with_the_error_and_the_
     out = track._env_stage(ctx)
     assert out["ok"] and out["files"] == [rel] and "+ repair" in out["notes"], out
     assert list(prompts) == ["env", "env.recover", "env.recover.repair"], list(prompts)
-    assert "lib/fake.js: makeFake(opts = {})" in prompts["env.recover"]
+    if language is Language.SCENE_THREEJS:   # the one language with a library: its recovery prompt carries the index
+        assert "lib/fake.js: makeFake(opts = {})" in prompts["env.recover"]
+    else:
+        assert "lib/fake.js" not in prompts["env.recover"], "scene_blender ships no library: nothing to index"
     assert "lib/fake.js" not in prompts["env"], "the session opens the library itself"
     repair = prompts["env.recover.repair"]
     assert f"{rel}: {ctx.runtime.ENV_BROKEN} found" in repair and f"# {ctx.runtime.ENV_BROKEN} env" in repair

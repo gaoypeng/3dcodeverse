@@ -156,13 +156,11 @@ console.log('ENV_OK');
     assert "ENV_OK" in out
 
 # --------------------------------------------------------------------- scene_blender
-def _bpy_workspace(tmp_path, *, lib: bool = True):
+def _bpy_workspace(tmp_path):
     """The scratch workspace the scene_blender snippets run in."""
-    from codeverse3d.config import Settings
     from codeverse3d.contracts.common import Language, Track
     from codeverse3d.contracts.plan import ScenePlan
     from codeverse3d.languages import get_runtime
-    from codeverse3d.languages.scene_blender import SceneBlenderRuntime
     from codeverse3d.tracks.planner import plan_example
     from codeverse3d.workspace import Workspace
 
@@ -170,22 +168,24 @@ def _bpy_workspace(tmp_path, *, lib: bool = True):
         pytest.skip("no Blender binary configured")
     plan = ScenePlan.model_validate(plan_example(Track.SCENE, Language.SCENE_BLENDER))
     ws = Workspace(tmp_path / "ws")
-    rt = get_runtime(Language.SCENE_BLENDER) if lib else SceneBlenderRuntime(settings=Settings(scene_lib=False))
+    rt = get_runtime(Language.SCENE_BLENDER)
     rt.skeleton(ws, plan)
     return ws, rt, plan
 
-def _build_scene_blender_examples(tmp_path, rel: str, *, lib: bool) -> None:
+@pytest.mark.blender
+@pytest.mark.node
+def test_scene_blender_contract_examples_build_through_the_runtime(tmp_path) -> None:
     """The contract's two labelled files (src/env.py + src/zones/quay.py) lint clean, assemble, build and seat
     what they place through the real runtime, gates included."""
     from codeverse3d.contracts.artifacts import Severity
     from tests.scene_runtime.conftest import browser_available
 
+    rel = "scene_blender/contract.md"
     files = labelled_files(rel, tag="python")
     assert len(blocks(rel, "python")) == len(files) and set(files) == {"src/env.py", "src/zones/quay.py"}
     if not browser_available():
         pytest.skip("puppeteer/chrome required for the census probe")
-    ws, rt, plan = _bpy_workspace(tmp_path, lib=lib)
-    assert (ws.src / "lib").exists() is lib
+    ws, rt, plan = _bpy_workspace(tmp_path)
     for path, body in files.items():
         (ws.root / path).write_text(body)
     rep = rt.lint(ws)
@@ -197,16 +197,6 @@ def _build_scene_blender_examples(tmp_path, rel: str, *, lib: bool) -> None:
     rows = {r["name"]: r for r in res.census["placement"]["assets"]}
     assert rows["QuayDeck"]["supported"] and not rows["QuayDeck"]["floating"]
     assert all(rows[f"Bollard_{i}"]["supported"] for i in range(6)), {k: v for k, v in rows.items() if k.startswith("Bollard")}
-
-@pytest.mark.blender
-@pytest.mark.node
-def test_scene_blender_contract_examples_build_through_the_runtime(tmp_path) -> None:
-    _build_scene_blender_examples(tmp_path, "scene_blender/contract.md", lib=True)
-
-@pytest.mark.blender
-@pytest.mark.node
-def test_the_argon_raw_contract_examples_build_through_the_runtime_in_raw_mode(tmp_path) -> None:
-    _build_scene_blender_examples(tmp_path, "variants/argon_raw/scene_blender/contract.md", lib=False)
 
 # --------------------------------------------------------------------- glsl_shader
 def test_glsl_shader_contract_example_builds_and_moves(tmp_ws) -> None:

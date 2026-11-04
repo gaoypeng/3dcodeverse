@@ -187,12 +187,8 @@ def _skeleton(track: BaseTrack, ctx: RunContext) -> list[str]:
 
 
 def _skeleton_key(ctx: RunContext) -> dict[str, Any]:
-    """The plan and language — and, in scene_blender raw mode only (D113), ``scene_lib: False``: a resume
-    that changed the mode writes the skeleton again instead of keeping the other mode's ``src/lib``.
-    Library mode adds nothing, so every existing cache key stands."""
-    from codeverse3d.tracks.scene_assets import ships_lib
-
-    return {"plan": ctx.plan, "language": ctx.language.value, **({} if ships_lib(ctx) else {"scene_lib": False})}
+    """The plan and language."""
+    return {"plan": ctx.plan, "language": ctx.language.value}
 
 
 #: the buildable placeholder of every file the plan names

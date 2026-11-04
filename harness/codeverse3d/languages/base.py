@@ -82,7 +82,8 @@ class SceneRuntime(LanguageRuntime, Protocol):
     def lib_interface(self, ws: Workspace) -> str:
         """The harness-owned ``src/lib/`` as facts, one line per module: the names it exports and
         their parameter lists, read off the files (D112: the env recovery's single-shot cannot open
-        them, and invented ``gravel`` / ``pavingPatch`` / a ``roughness=`` keyword)."""
+        them, and invented ``gravel`` / ``pavingPatch`` / a ``roughness=`` keyword); ``""`` for a
+        language that ships none."""
         ...
 
     def check_env(self, ws: Workspace) -> str:

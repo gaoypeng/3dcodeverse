@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.contracts.artifacts import LintKind, Severity
+from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages._ast_lint import BASE_FORBIDDEN_IMPORTS
 from codeverse3d.languages.scene_blender import (
     FORBIDDEN_IMPORTS,
-    lib_files,
     lint_scene_source,
     simple_driver,
 )
@@ -72,18 +71,4 @@ def test_simple_driver_is_blenders_subset() -> None:
         assert simple_driver(ok), ok
     for bad in ("frame ** 2", "frame % 3", "noise.noise((frame, 0, 0))", "hypot(frame, 1)", "'a'", "[frame]", "sin(x=1)"):
         assert not simple_driver(bad), bad
-
-
-@pytest.mark.parametrize("path", lib_files(), ids=[p.stem for p in lib_files()])
-def test_the_library_passes_the_agent_lint_itself(path) -> None:
-    """The workspace gate reads ``src/lib/`` for syntax only — but agents COPY what they read, so
-    every module must also pass the policy an agent's file is held to: no trap API, no unseeded
-    randomness, no bpy.ops, no clock or file access.  ``sky.py`` holds the world setters, which
-    only ``src/env.py`` may call, so it is linted in the env role (minus the env's own
-    ``build_env`` / ``height_at`` export requirement)."""
-    role = "env" if path.stem == "sky" else "helper"
-    findings = lint_scene_source(path.read_text(), target=f"src/lib/{path.name}", role=role)
-    bad = [f for f in findings if f.severity is not Severity.INFO
-           and not (role == "env" and f.data.get("kind") == LintKind.LAYOUT.value)]
-    assert not bad, [(f.severity.value, f.message) for f in bad]
 

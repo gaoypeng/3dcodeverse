@@ -81,7 +81,7 @@ class AgentJob(BaseModel):
     read_only: list[str] = Field(
         default_factory=list,
         description="harness-owned files inside write_roots the agent may read but never write "
-        "(src/lib/ for the scene languages: contracts.common.HARNESS_OWNED_SRC); enforced "
+        "(scene_threejs's src/lib/: contracts.common.HARNESS_OWNED_SRC); enforced "
         "post-session: a write to one is reverted and the session failed",
     )
     shared_tree: bool = Field(
