@@ -103,8 +103,7 @@ How `agents/backends.py` runs agy (do not undo):
 ## 4. Where outputs land
 
 Everything lands in `runs/<slug>/` — code in `src/` (git, one commit per round), each round's
-build in `artifacts/rNN/`, and after a pick `deliverable/` + `selection.json`; the full tree is
-`docs/RUN_LAYOUT.md`.  `3dcode status <slug>` prints the stop reason, baseline → picked score,
+build in `artifacts/rNN/`, and after a pick `deliverable/` + `selection.json`.  `3dcode status <slug>` prints the stop reason, baseline → picked score,
 the rounds table, cost and the last events.
 
 ### Looking at results locally

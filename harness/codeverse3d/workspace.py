@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from codeverse3d.contracts.agent import FileChange
 from codeverse3d.proc import write_json_atomic
 
-#: the top-level buckets of a run directory (docs/RUN_LAYOUT.md); ``artifacts/`` is the evidence
+#: the top-level buckets of a run directory ; ``artifacts/`` is the evidence
 DELIVERABLE_DIR = "deliverable"   # (a) what the user asked for
 TELEMETRY_DIR = "telemetry"       # (c) what it cost and how it was configured
 #: harness-owned read-only files inside the workspace (task images: ``tracks/generation.IMAGES_DIR``)
@@ -211,7 +211,7 @@ class Workspace:
 
     def round_artifacts(self, round_index: int) -> Path:
         """``artifacts/rNN/`` — the round's own copy of the build outputs a hand-over needs
-        (``codeverse3d.record.deliverable.keep_round_artifacts``; docs/RUN_LAYOUT.md)."""
+        (``codeverse3d.record.deliverable.keep_round_artifacts``)."""
         return self.artifacts / f"r{round_index:02d}"
 
     def trajectory_dir(self, stage: str, round_index: int) -> Path:

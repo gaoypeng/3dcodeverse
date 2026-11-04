@@ -1,4 +1,4 @@
-"""``3dcode show`` — THE single-run view, in four sections (docs/RUN_LAYOUT.md):
+"""``3dcode show`` — THE single-run view, in four sections:
 
 * **STATUS** — where the run stands: the run, the rounds, the process holding the run
   lock, run_state, best-of-N candidates, the latest events.  It needs no

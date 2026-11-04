@@ -1,8 +1,7 @@
 """Run telemetry: the resolved settings snapshot + the summary of the money ledger.
 
 Beside the ledger itself, ``telemetry/cost.jsonl`` (one priced row per model call, written
-while the run happens — ``codeverse3d.cost``), two files under ``<run>/telemetry/`` (see
-docs/RUN_LAYOUT.md):
+while the run happens — ``codeverse3d.cost``), two files under ``<run>/telemetry/``:
 
 * ``settings.json`` — how the run was configured: model id per role, thinking
   level / temperature / judge samples, rounds + budget, rubric and its content

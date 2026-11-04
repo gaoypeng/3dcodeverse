@@ -2,8 +2,7 @@
 
 ``finalize_record`` is the last step of every track run: it fills the
 environment (tool versions + harness git sha), reads the run's total off its cost ledger
-(``telemetry/cost.jsonl``, the one record of money), writes ``telemetry/`` (see
-docs/RUN_LAYOUT.md) and writes ``record.json`` atomically.  ``deliverable/`` is not
+(``telemetry/cost.jsonl``, the one record of money), writes ``telemetry/`` and writes ``record.json`` atomically.  ``deliverable/`` is not
 the run's: which round to hand over is ``codeverse3d.addons.select``'s question
 (2026-09-22).  Telemetry is best-effort: a run is never failed by it.
 """

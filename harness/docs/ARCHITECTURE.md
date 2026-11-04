@@ -3,7 +3,7 @@
 Package `codeverse3d`, CLI `3dcodeverse` (short alias `3dcode`), repo location `harness/` in the
 3dcodeverse checkout.  Backend only.  Python 3.13 (one fixed version), a small Node runtime
 (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl for the graphics track.
-How-to is in `docs/RUNBOOK.md`, the run directory in `docs/RUN_LAYOUT.md`, the skill library in
+How-to is in `docs/RUNBOOK.md`, the skill library in
 `docs/SKILLS.md`, the evaluation protocol in `eval/docs/EVAL.md`.
 
 ## 0. What it is
@@ -211,8 +211,8 @@ tests/                one directory per package area (the count is `pytest --col
 
 One run is one directory, `runs/<slug>/`: `src/` is the code (git, one commit per round),
 `artifacts/` the last round's build plus every round's own `artifacts/rNN/`, and a pick writes
-`deliverable/` + `selection.json`.  The full tree and the three buckets are in
-`docs/RUN_LAYOUT.md`, their one home.
+`deliverable/` + `selection.json`; `telemetry/` holds the cost ledger and settings
+(`workspace.py` names the buckets; `3dcode show <slug>` walks a run).
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 

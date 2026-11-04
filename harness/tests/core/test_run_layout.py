@@ -1,4 +1,4 @@
-"""The run layout (docs/RUN_LAYOUT.md): directories,
+"""The run layout (workspace.py): directories,
 .gitignore and the additive record blocks.  Pure filesystem + pydantic."""
 
 from __future__ import annotations

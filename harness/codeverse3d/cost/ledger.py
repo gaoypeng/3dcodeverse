@@ -47,7 +47,7 @@ from codeverse3d.proc import iter_jsonl_lines
 
 log = logging.getLogger(__name__)
 
-#: the ledger of a run lives in its telemetry bucket (docs/RUN_LAYOUT.md §telemetry) — the
+#: the ledger of a run lives in its telemetry bucket (``<run>/telemetry/``) — the
 #: one name it has: the root ``cost_ledger.jsonl`` and ``telemetry/usage.jsonl`` aliases went
 #: on 2026-09-22 (runs written before keep them as dangling-safe symlinks nobody reads)
 TELEMETRY_DIR = "telemetry"
