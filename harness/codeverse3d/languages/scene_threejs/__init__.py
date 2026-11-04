@@ -245,8 +245,8 @@ _ENV_STUB = """// src/env.js — the environment: the ground every zone seats on
 //   • the ground mesh is named 'Ground…' / 'Terrain…' (the census classifies the ground by name; the placement gate
 //     seats on it); backdrop geometry is named 'Sky…' (it then never inflates the content bounds).
 // Raw three.js is the baseline.  src/lib is an OPTIONAL toolbox the effects catalog lists: lib/terrain.js ground()
-// displaces and textures a ground from a height field, lib/sky.js makeSky, lib/environment.js sunRig / roomShell,
-// lib/atmosphere.js makeHeightFog — use a call when it fits the brief, write your own when it does not.
+// displaces and textures a ground from a height field, lib/sky.js makeSky, lib/environment.js sunRig / roomShell —
+// use a call when it fits the brief, write your own when it does not.
 import * as THREE from 'three';
 
 export const SUN_AZIMUTH_DEG = {azimuth};    // 0 = +X, 90 = +Z — {azimuth_note}

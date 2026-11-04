@@ -8,11 +8,10 @@ from tests.scene_runtime.lib._probe import compile_scene
 pytestmark = pytest.mark.node
 
 
-def test_cloned_and_merged_shader_sample_live_render_target_on_gpu():
+def test_cloned_shader_samples_live_render_target_on_gpu():
     code, out = compile_scene("""
 import * as THREE from 'three';
 import {makeShaderMaterial,clonePatchedMaterial} from './lib/shader.js';
-import {mergeStatic} from './lib/merge.js';
 export function createScene({renderer}) {
  const scene=new THREE.Scene(),camera=new THREE.OrthographicCamera(-1,1,1,-1,.1,10);
  camera.position.z=2;
@@ -24,29 +23,21 @@ export function createScene({renderer}) {
    fragmentMain:'gl_FragColor=texture2D(uSample,vec2(.5))*vec4(vec3(uGain),1.0);'});
  const original=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);
  const clone=new THREE.Mesh(original.geometry,clonePatchedMaterial(material));
- const merged=mergeStatic([original],{variance:0});
  const previous=renderer.getRenderTarget(),expected=new Uint8Array(4),actual=new Uint8Array(4);
  try {
    renderer.setRenderTarget(textureTarget);renderer.render(sourceScene,camera);
    renderer.readRenderTargetPixels(textureTarget,4,4,1,1,expected);
-   for(const mesh of [clone,merged]) {
-     scene.add(mesh);renderer.setRenderTarget(readTarget);renderer.render(scene,camera);
-     renderer.readRenderTargetPixels(readTarget,4,4,1,1,actual);scene.remove(mesh);
-     if(actual.some((value,i)=>Math.abs(value-expected[i])>2))
-       throw new Error('Lost cloned/merged render-target sampler: '+actual+' expected '+expected);
-   }
-   // The batch follows the source clock/control map after construction.
-   material.uniforms.uGain.value=.5;scene.add(merged);renderer.render(scene,camera);
-   renderer.readRenderTargetPixels(readTarget,4,4,1,1,actual);scene.remove(merged);
-   if(actual.slice(0,3).some((value,i)=>Math.abs(value-expected[i]*.5)>2))
-     throw new Error('Merged shader disconnected source controls: '+actual);
+   scene.add(clone);renderer.setRenderTarget(readTarget);renderer.render(scene,camera);
+   renderer.readRenderTargetPixels(readTarget,4,4,1,1,actual);scene.remove(clone);
+   if(actual.some((value,i)=>Math.abs(value-expected[i])>2))
+     throw new Error('Lost cloned render-target sampler: '+actual+' expected '+expected);
  } finally {
    renderer.setRenderTarget(previous);readTarget.dispose();textureTarget.dispose();
-   merged.userData.dispose();clone.material.dispose();original.geometry.dispose();material.dispose();
+   clone.material.dispose();original.geometry.dispose();material.dispose();
  }
  return {scene,cameras:[{name:'a',position:[0,0,2],lookAt:[0,0,0],fov:45}]};
 }
-""", libs=("merge.js",))
+""")
     assert code == 0, out
     assert json.loads(out.strip().splitlines()[-1])["ok"]
 

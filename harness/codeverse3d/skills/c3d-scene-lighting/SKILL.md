@@ -106,8 +106,7 @@ the band are measured failures, one week apart in the same wave:
 
 So every lantern, lamp, sign, window or fire near a camera gets its OWN `PointLight` next
 to its emissive surface (the starter's `PRACTICAL` numbers in `lib/environment.js` are
-one measured setting; `makeNeonTube` + `patchNeonSpill` in `lib/neon.js` do a sign and the
-light it throws), a low but non-zero base colour on dark materials so they read as material
+one measured setting), a low but non-zero base colour on dark materials so they read as material
 and not as void, and shadows left dark. The starter night rig was measured to sit in the
 band; added fills push the frame out of it, as the courtyard showed.
 

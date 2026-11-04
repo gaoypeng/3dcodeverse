@@ -113,11 +113,11 @@ How the world continues is the brief's place. Strong options, each on its own en
   land from the content out to the fog with seam-matched relief, fields and wooded
   clusters; `ground` from `lib/terrain.js` with its `relief` option is the simpler version.
 * **A ridge or mesa on ONE side**, with the opposite side falling away to fog or water.
-* **A treeline** (`makeImposters` from `lib/woodland.js` at distance) or an orchard edge.
-* **A far skyline** — `cityFabric` from `lib/building.js`, a harbour wall, a viaduct.
-* **A shoreline**: `makeOceanSurface` or `makeOcean` to the horizon on one or more sides.
+* **A treeline** (imposter cards at distance) or an orchard edge.
+* **A far skyline** — a city block mass, a harbour wall, a viaduct.
+* **A shoreline**: water to the horizon on one or more sides.
 * **Fog only**, when the brief's weather is thick enough that the ground fades before it
-  ends (`makeHeightFog`, `patchAerialPerspective` from `lib/atmosphere.js`).
+  ends.
 * **Walls, cliffs, or an interior** with no horizon at all (`roomShell`, `cliff`).
 
 A ring of near-identical copies stamped evenly round the world is measured

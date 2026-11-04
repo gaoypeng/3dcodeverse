@@ -1,8 +1,5 @@
 # Gerstner waves and shoreline foam — the deeper cut
 
-`makeOceanSurface` in `lib/ocean.js` already does all of this; what follows is for a water
-body the library's options cannot shape.
-
 ## Why Gerstner and not displaced noise
 
 Noise-displaced water bobs; Gerstner water TRAVELS. Each wave moves vertices in a circle —

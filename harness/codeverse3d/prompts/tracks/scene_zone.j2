@@ -99,10 +99,10 @@ So `{{ zone_file }}` exports `export function build(ctx) → THREE.Group` named 
    across the frame, everything a pure function of `t`, driven from `userData.update`.  Particles
    must be soft-edged (judge `hard_edged_particles`: bare `PointsMaterial` squares, a chain of
    spheres for a steam jet, polygon sparks all fire it, and with it the brief's "soft particle
-   effect" must-item) — the library's volumes or a radial-alpha sprite both pass.
+   effect" must-item) — a bounded density volume or a radial-alpha sprite both pass.
 6. **Budget.**  Stay inside the draw-call / triangle budget `scene_probe` reports (WARN above 5 000
-   draws, ERROR above 15 000; 3 000 000 unique triangles); `InstancedMesh` / `mergeStatic` are the cheap
-   ways to repeat.
+   draws, ERROR above 15 000; 3 000 000 unique triangles); `InstancedMesh` and merged static geometry are
+   the cheap ways to repeat.
 
 ## DON'T
 - Sun, sky, ground and cameras are the env's.  This zone may add the practical lights its setting

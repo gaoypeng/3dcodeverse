@@ -367,7 +367,7 @@ def _draw_findings(c: dict[str, Any]) -> list[GateFinding]:
                f"{draws:,} draw calls per frame (each visible mesh is one) exceed the {limit:,} budget"
                + (f" — most in {where}" if where else "")
                + "; instance repeated geometry with InstancedMesh or merge "
-                 "static clutter with mergeGeometries (lib/merge.js mergeStatic)",
+                 "static clutter with BufferGeometryUtils.mergeGeometries",
                target="scene", kind="draw_calls", draws=draws, limit=limit)]
 
 

@@ -47,8 +47,7 @@ shaft.
 
 Measured in the reference harness: a NORMAL-blended shaft at 0.3+ opacity renders as a
 solid white TENT and buries the scene behind it. Additive blending at a few percent opacity,
-alpha fading along the cone, is the range that reads; `makeGodRays` from `lib/godrays.js`
-does it with its own ceiling. If the shaft reads clearly in a thumbnail, it is too strong.
+alpha fading along the cone, is the range that reads. If the shaft reads clearly in a thumbnail, it is too strong.
 
 ## Wet road
 

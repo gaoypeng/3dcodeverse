@@ -51,7 +51,7 @@ What is measured on every authored camera (the `scene_frames` gate, ERROR on fai
   by more than 60/255). No authored camera moving is `no_motion` (ERROR); the judge's
   `nothing_moves` follows it.
 * **Budget.** `scene_probe` reports draw calls and triangles (WARN above 5 000 draws, ERROR
-  above 15 000; 3 000 000 unique triangles). Instancing (`InstancedMesh`, `mergeStatic`) is
+  above 15 000; 3 000 000 unique triangles). Instancing (`InstancedMesh`) or merged static geometry is
   how repeated geometry usually stays inside it.
 
 Requirements that hold for every brief:

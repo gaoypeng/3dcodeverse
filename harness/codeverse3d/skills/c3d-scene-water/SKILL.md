@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-water
-description: "Use when a scene_threejs session builds water in any form - pond, lake, harbor, river, ocean, pool, canal, waterfall or fountain. Water is a dielectric, not a mirror: the single most common water bug is metalness, and the second is an environment bake it has nothing to reflect. States what has to be true and how the judge and the motion probe read it, then the library's water modules as the strong options, the shared noise block that keeps terrain, shoreline and scatter agreeing, Gerstner for open water, and foam that reads."
+description: "Use when a scene_threejs session builds water in any form - pond, lake, harbor, river, ocean, pool, canal, waterfall or fountain. Water is a dielectric, not a mirror: the single most common water bug is metalness, and the second is an environment bake it has nothing to reflect. States what has to be true and how the judge and the motion probe read it, then the shared noise block that keeps terrain, shoreline and scatter agreeing, Gerstner for open water, and foam that reads."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; ACES tone mapping, exposure 1.0.
 metadata:
@@ -32,17 +32,7 @@ why real water is dark at your feet and mirror-bright at the horizon.
   pixel bar (`nothing_moves`).
 * The shoreline agrees with the terrain: water, bank and anything seated near it sample the
   one height function, or the placement gate reports `floating` / `sunken` at the edge.
-* ONE reflective water body per scene (the library's reflectors each re-render the scene).
-
-## Strong options from the library
-
-`makeOceanSurface` from `lib/ocean.js` for the ocean, a lake or any sizeable body
-(dispersive Gerstner waves on displaced geometry, reflected scene, crest foam);
-`makeOcean` from `lib/water.js` for calm or distant water where no wave shape reads;
-`makeWaterMist` / `makeSpray` from `lib/watermist.js`;
-`patchShoreWet` / `patchShoreFoam` / `patchShallowWater` from `lib/waterside.js` on the
-bank. Each
-carries `userData.update(t, dt)` — call it from the zone's own update.
+* ONE reflective water body per scene (a planar reflector re-renders the scene).
 
 ## Your own material
 
@@ -67,11 +57,11 @@ terrain uses.
 
 Foam from DEPTH against the shared height hugs the banks and reads in a still frame; crest
 foam on open water is harder and pays less. Open ocean reads as sea when the surface itself
-displaces (Gerstner waves, dispersive — `makeOceanSurface` ships them; your own keeps the
-steepness sum below 1 or the crests loop over, and takes normals from the displaced
-surface) rather than only scrolling normals on a flat plane. A waterfall reads with scrolled
-vertical streaks thresholded to white over translucent water and soft mist at the base
-(`makeWaterMist`); a fountain's particles as pure ballistic arcs of `t` still
+displaces (Gerstner waves, dispersive — keep the steepness sum below 1 or the crests loop
+over, and take normals from the displaced surface) rather than only scrolling normals on a
+flat plane. A waterfall reads with scrolled
+vertical streaks thresholded to white over translucent water and soft mist at the base; a
+fountain's particles as pure ballistic arcs of `t` still
 read frozen mid-flight. `references/gerstner-and-foam.md` has the wave maths.
 
 ## Verify before you finish

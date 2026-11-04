@@ -93,8 +93,7 @@ and the zones, read by nothing in the harness.
    fill, env map, disc and shadows for a sunlit exterior in one call — one option; any light set
    that passes the gate and matches the brief's sources is as good.
    Aerial perspective is judged (`thin_atmosphere`: "horizon with no atmospheric falloff"): fog
-   does most of it; `makeHeightFog` / `patchAerialPerspective` in `lib/atmosphere.js` are optional
-   extras, kept subtle or the frame reads milky (`blown_frac`).
+   does most of it, kept subtle or the frame reads milky (`blown_frac`).
 5. **Shadows are not jagged** (judged): a shadow texel ≤ ~0.05 m over the content.
    `sunRig({ bounds })` fits frustum, map size and bias to the radius it is given — pass the
    content radius, not the ground size; a hand-set `sun.shadow.*` must meet the same texel size.

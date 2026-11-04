@@ -33,7 +33,7 @@ def test_the_probe_gates_the_census_draw_count(draws: int, severity: Severity | 
     (f,) = hits
     assert f.severity == severity and report.passed is (severity != Severity.ERROR)
     assert f.data["draws"] == draws and f.data["limit"] == limit
-    for text in (f"{draws:,}", f"{limit:,}", "Market", "InstancedMesh", "mergeGeometries", "lib/merge.js"):
+    for text in (f"{draws:,}", f"{limit:,}", "Market", "InstancedMesh", "mergeGeometries"):
         assert text in f.message, text
 
 

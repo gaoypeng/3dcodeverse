@@ -775,7 +775,7 @@ def _scene_context(ctx: RunContext) -> dict[str, Any]:
 
 
 #: what names a library row, per scene language: the factory right after a backtick and the module
-#: it lives in.  three.js: a camelCase call (``makeTree(``, ``patchMoss``) — a bare lowercase one
+#: it lives in.  three.js: a camelCase call (``makeTree(``, ``patchWind``) — a bare lowercase one
 #: (``seat``, ``block``) is an ordinary word in a sheet — and ``lib/tree.js``.  bpy: the library is
 #: snake_case (``tree(``, ``water_surface(``) and ``lib/vegetation.py``; a sheet that says "a stone
 #: water trough" draws the water row too, which costs a line and never misleads.

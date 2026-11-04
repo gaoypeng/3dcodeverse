@@ -27,9 +27,8 @@ Requirement: at crop scale no large surface reads as a single untextured value u
 brief's material really is flat — new paint, a lacquered floor (judged: `placeholder_material`,
 `flat_ground`). A strong option: the shipped procedural materials in `lib/materials.js`
 (`plaster`, `brick`, `granite`, `cobble`, `asphalt`, `weatheredWood`, `soil`, `foliage` and
-the rest) already carry low-contrast variance; `patchMicroBreakup` and `patchEdgeWear` from
-`lib/surface_wear.js` chain onto any material you made yourself. A `noiseTexture` from the
-same module as `roughnessMap` breaks a highlight into something other than a perfect oval.
+the rest) already carry low-contrast variance. A `noiseTexture` from the same module as
+`roughnessMap` breaks a highlight into something other than a perfect oval.
 
 ## Copies do not read as twins
 
@@ -52,8 +51,8 @@ it vary across the surface.
 ## Edges near the lens
 
 Near an authored camera a razor 90° edge catches light like CAD (judged:
-`asset_quality_detail`). A chamfer (`ExtrudeGeometry` with `bevelEnabled`), a bevelled
-`makePaving` for cobbles, or smoothed normals is one way out; background boxes can stay
+`asset_quality_detail`). A chamfer (`ExtrudeGeometry` with `bevelEnabled`), bevelled
+cobbles, or smoothed normals is one way out; background boxes can stay
 sharp.
 
 ## Terrain that reads as a landform
@@ -66,8 +65,8 @@ options when the place has relief: `ground` from `lib/terrain.js` with `relief` 
 seeded `rand`, returning the mesh and the height function in one; or your own heightfield
 from domain-warped `fbm2` (`lib/noise.js`) with a power curve so lowlands stay flat and
 ridges steepen, normals recomputed after displacement. Colour by slope and height with the
-materials the place has — `patchSlopeSplat` and `patchTriplanar` from `lib/terrain_shade.js`
-do that in the shader; a worn path or a wheel rut carved into `heightAt` itself lands
+materials the place has — a slope splat in the shader (`patchStandard` from `lib/shader.js`
+keeps the fog and depth chunks); a worn path or a wheel rut carved into `heightAt` itself lands
 everything placed on it at the right height. The alpine sand/grass/rock/snow ramp is one
 palette, right for an alpine brief.
 
@@ -76,10 +75,10 @@ palette, right for an alpine brief.
 The judge's `monotonous_vegetation` is "one shape stamped many times — no variation in
 silhouette, size or hue, and placed in a ring or a grid rather than clusters". So: more
 than one species where the place has more than one (`makeTree` / `makeShrub` from
-`lib/tree.js` for near trees, `makeCanopy` for every broadleaf crown and hedge,
-`makeImposters` for a forest at distance), clusters with clearings rather than a lattice
+`lib/tree.js` for near trees, imposter cards for a forest at distance), clusters with
+clearings rather than a lattice
 (a jittered grid times a clump mask from `fbm2` is one option), and a ground
-cover layer (`makeGrass`, `makeMeadow`) so plants grow out of the ground instead of standing
+cover layer (`makeGrass`) so plants grow out of the ground instead of standing
 on it.
 
 ## Dressing
@@ -88,8 +87,8 @@ The judge's `undressed_scene` is "no small props or clutter — a showroom of a 
 objects". A place has the small things its use leaves behind: tools by the bench, cups on
 the table, litter at the kerb, pebbles at the water, cables on the wall. Props against
 something (a wall base, a path edge, under a bench) read as belonging; props alone on open
-ground read as scatter. `patchSeamBand` and `patchTracks` (`lib/roadway.js`) dress where a
-structure meets the ground, so the seam is not a hard undressed line (`flat_ground`).
+ground read as scatter. A seam band or wheel tracks dress where a structure meets the
+ground, so the seam is not a hard undressed line (`flat_ground`).
 
 ## Seating is measured
 

@@ -195,7 +195,7 @@ export function makeSky(scene, opts = {}) {
       ? opts.rig.sunDir.clone().normalize() : sunDir;
   u.sunPosition.value.copy(sunDir);
   // r184 Sky ships value-noise clouds ON by default — grid artifacts
-  // at readable contrast. Clouds come from ./clouds.js instead.
+  // at readable contrast. Clouds are the scene's own.
   if (u.cloudCoverage) u.cloudCoverage.value = 0;
 
   // THE GRADE.  Extra uniforms on the addon's own material; the

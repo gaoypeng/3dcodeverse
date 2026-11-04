@@ -37,9 +37,8 @@ pattern visible through the throat is what sells it.
 ## Nebula and starfield
 
 Large additive fbm-canvas billboards (alpha = fbm squared) in two or three hues, plus a
-few near-black NORMAL-blended dust-lane sprites. Starfield: `makeStars` from
-`lib/celestial.js`, or `Points` with power-law brightness, a slight colour spread and a
-few hero stars with cross-flare sprites.
+few near-black NORMAL-blended dust-lane sprites. Starfield: `Points` with power-law
+brightness, a slight colour spread and a few hero stars with cross-flare sprites.
 
 ## Planet
 

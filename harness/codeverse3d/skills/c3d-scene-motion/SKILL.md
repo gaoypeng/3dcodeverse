@@ -114,7 +114,7 @@ return { scene, cameras, update(t, dt) {
 
 Add a mover to the list in the same edit that creates it — a zone whose
 `userData.update` nobody walks is failure mode 2 wearing a disguise. Library effects
-(`makeFire`, `makeSmoke`, `makeOceanSurface`, `makeFlag` …) carry their own
+(`makeTree`, `makeGrass`, `makeRock` …) carry their own
 `userData.update(t, dt)`; call each once from the zone that owns it, and anything built
 with `patchStandard` is driven by one `tickShaders(scene, t)` in `scene.js`.
 
@@ -187,12 +187,11 @@ is a decal. Options that read:
 * **Paths**: a `CatmullRomCurve3`
   sampled at `(t * speed / len + u0) % 1`, facing the tangent; distinct `u0` offsets space
   the traffic.
-* **Rain** as elongated streaks (`makeRainVeil` at distance) — elongation is
-  the motion cue; **snow** as soft sprites with per-flake sway (`makeSnowfall`); **motes**
-  and pollen from `makeMotes`; every particle gets its own phase so a frozen frame is
-  mid-motion, never at a synchronized extreme.
-* **Fire additive, smoke normal**: `makeFire` with a flickering light,
-  `makeSmoke` / `makeSteam` as a bounded density — a chain of spheres is not steam.
+* **Rain** as elongated streaks — elongation is the motion cue; **snow** as soft sprites
+  with per-flake sway; **motes** and pollen the same; every particle gets its own phase so a
+  frozen frame is mid-motion, never at a synchronized extreme.
+* **Fire additive, smoke normal**: a flame with a flickering light, smoke and steam as a
+  bounded density — a chain of spheres is not steam.
 
 ## Depth
 

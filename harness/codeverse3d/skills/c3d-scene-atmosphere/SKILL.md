@@ -36,7 +36,7 @@ horizon-to-zenith gradient, a sun term around `sunDir` (a halo and, if the brief
 shows it, a disk), and a haze band that pulls the lowest degrees toward the horizon colour.
 The curve shapes and the colours are the brief's sky: a low sun widens the halo and warms the
 horizon, an overcast sky is one flat gradient, a night sky hashes the direction for stars
-(`makeStars`, `makeAurora` in `lib/celestial.js` do it for you) and shades a moon.
+and shades a moon.
 
 ## Bake the SAME sky into `scene.environment`
 
@@ -62,20 +62,19 @@ If you bake your own equirect `DataTexture`, these are bugs when broken:
 
 Requirement: if the brief's sky has clouds, they read as soft volumes at the authored
 cameras, not as hard-edged cards (judged: `hard_edged_particles`, `materials_shaders_effects`).
-Strong options: `makeClouds` / `makeCirrus` from `lib/clouds.js` (one ray-marched deck,
-scene-lit); `makeCloudVolume` from `lib/cloudvolume.js` when a cumulus is close enough to
-need internal light; or sprite puffs from one shared radial-gradient canvas in a flattened
-cluster, bottoms tinted darker, `depthWrite: false`. Volumetrics cost frame time; the brief
-decides whether a cloud earns it.
+Strong options: a ray-marched deck lit from `sunDir` for a sky-filling layer, a volume with
+internal light when a cumulus is close enough to need it, or sprite puffs from one shared
+radial-gradient canvas in a flattened cluster, bottoms tinted darker, `depthWrite: false`.
+Volumetrics cost frame time; the brief decides whether a cloud earns it.
 
 ## Haze
 
 If the brief's weather has haze or fog: keep it in the sky's hue family and thin enough that
 the midground stays readable — the frame gate reads a washed frame as `flat_frame` (one
 luminance band holding > 92 % of an authored frame is an ERROR) and the judge reads no
-falloff at all as `thin_atmosphere`. `makeHeightFog` and `patchAerialPerspective` from
-`lib/atmosphere.js` do ground fog and distance haze; `scene.fog` alone does the simplest
-version. A clear dry day may have almost none. The shader-trap skill covers the fog uniforms
+falloff at all as `thin_atmosphere`. `scene.fog` does the simplest version; ground fog is
+a height-faded layer of your own, distance haze a view-distance blend toward the horizon
+colour. A clear dry day may have almost none. The shader-trap skill covers the fog uniforms
 custom shaders must honour.
 
 ## Verify before you finish

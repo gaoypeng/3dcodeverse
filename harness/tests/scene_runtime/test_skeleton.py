@@ -74,7 +74,7 @@ def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
     from codeverse3d.languages.scene_threejs import lib_files
 
     names = {p.name for p in lib_files()}
-    assert len(names) >= 40 and "grass.js" in names and "shader.js" in names
+    assert len(names) >= 12 and "grass.js" in names and "shader.js" in names
 
     for label, plan in (("example", None), ("plan", make_plan())):
         ws = Workspace(tmp_path / label)

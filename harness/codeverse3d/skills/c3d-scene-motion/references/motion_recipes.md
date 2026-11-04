@@ -4,10 +4,9 @@ The measure: each authored camera is rendered at t = 0 and t = 1.5 s and the two
 differenced; a camera MOVES when ≥ 0.4 % of its pixels change by more than 8/255 (or ≥ 0.08 %
 by more than 60/255). None moving is the gate's `no_motion` ERROR and the judge's
 `nothing_moves`. Everything below is one way to clear it; the library's own movers
-(`makeFalling` in `lib/flowers.js`, `makeSnowfall` / `makeMotes` in `lib/veils.js`,
-`makeFlock` in `lib/flock.js`, `makeFlag` in `lib/cloth.js`, `patchWind` in `lib/foliage_shade.js`)
-cover the common cases without any code of
-yours, and each carries `userData.update(t, dt)` for the zone to call.
+(`makeTree` / `makeShrub` in `lib/tree.js`, `makeGrass` in `lib/grass.js`, `patchWind` in
+`lib/foliage_shade.js`) cover swaying vegetation without any code of yours, and each carries
+`userData.update(t, dt)` for the zone to call.
 
 ## Seeded randomness
 

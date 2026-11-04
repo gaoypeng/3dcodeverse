@@ -27,7 +27,7 @@ function height(x, z) {
 
 ## Colour by slope and height
 
-Vertex colours or `patchSlopeSplat` (`lib/terrain_shade.js`): a steep-slope material
+Vertex colours or a slope splat in the shader: a steep-slope material
 (rock, bare earth) overriding by `normal.y`, then height bands blended by smoothstep with
 the materials the place has, each band jittered by a high-frequency noise, band edges
 overlapping rather than a hard line.
