@@ -1,11 +1,7 @@
-"""Plans: the planner's structured decomposition.  Every plan carries an
-*acceptance checklist* — concrete, verifiable items derived from the spec —
-so acceptance can be mechanical (evidence), not an opinion.
+"""Plans: the planner's structured decomposition, each with an acceptance checklist.
 
-Plans are written by an LLM under a JSON schema and then VALIDATED IN CODE
-(unit axes, single-root joint trees, sane limits, unique names).  Invalid
-plans are re-asked with the validation errors, before any generator runs.
-"""
+Written by an LLM under a JSON schema, then validated in code; invalid plans are re-asked
+with the validation errors."""
 
 from __future__ import annotations
 
@@ -24,16 +20,13 @@ from codeverse3d.contracts.common import (
 )
 from codeverse3d.conventions import to_snake
 
-#: a thinking model's self-reference leaked into structured output: measured 2026-08-28
-#: (gear_cq_ss), the PLANNER emitted a part literally named "Gemini25FlashThinking" and
-#: the generator faithfully modelled a placeholder pillar for it — judged 0.0.  High-
-#: precision patterns only: "CameraFlash" or "ModelStand" must stay legal.
+#: model ids / placeholders that leak into part names.  High-precision patterns only:
+#: "CameraFlash" or "ModelStand" must stay legal.
 _MODEL_NAME_LEAK = re.compile(r"(?i)(gemini|gpt[-_ ]?\d|claude|llama|qwen|deepseek|placeholder)")
 
 
 def reject_model_leak(v: str) -> str:
-    """Reject (never mangle) part names that are model ids / placeholders — the planner
-    is re-asked with this error, exactly like an unsafe camera name."""
+    """Reject (never mangle) part names that are model ids / placeholders."""
     m = _MODEL_NAME_LEAK.search(v)
     if m:
         raise ValueError(
@@ -69,17 +62,13 @@ class AcceptanceItem(BaseModel):
     priority: Literal["must", "should"] = "must"
 
 
-#: how far a sub-part may stick out of its parent's bbox before the plan is rejected:
-#: ``max(SUBPART_SLACK_M, SUBPART_REL_SLACK × parent extent)`` per axis.  Planner boxes are
-#: design intent, not measurements, so the check catches "this child is somewhere else
-#: entirely", never a 3 mm rounding.
+#: how far a sub-part may stick out of its parent's bbox: ``max(SUBPART_SLACK_M,
+#: SUBPART_REL_SLACK × parent extent)`` per axis (planner boxes are design intent).
 SUBPART_SLACK_M = 0.01
 SUBPART_REL_SLACK = 0.15
-#: A ``revolute`` range over 2π whose limits both sit inside ±``DEGREES_MAX_ABS`` and whose span is
-#: at least ``DEGREES_MIN_SPAN`` was written in DEGREES (door ``0..90``, lid ``-180..0``): 30 rad is
-#: nearly five turns, which no hinge is planned in.  A span between 2π and 30 (``0..4π``, ``0..6.5``,
-#: ``0..10``) is read as radians — an implausible hinge either way — and becomes ``continuous``
-#: (``ArticulatedPlan._normalise_raw``).
+#: A ``revolute`` range over 2π with both limits inside ±``DEGREES_MAX_ABS`` and a span of at
+#: least ``DEGREES_MIN_SPAN`` is read as degrees; a smaller span over 2π is radians and becomes
+#: ``continuous``.
 DEGREES_MAX_ABS = 360.0
 DEGREES_MIN_SPAN = 30.0
 
@@ -224,9 +213,7 @@ class JointPlan(BaseModel):
             if self.type == "prismatic" and (self.upper - self.lower) > 5.0:
                 raise ValueError(f"joint {self.name}: prismatic range > 5 m is implausible")
         if to_snake(self.parent) == to_snake(self.child):
-            # name BOTH sides: pydantic truncates the offending value right after the
-            # joint name, so "parent == child" was all the model ever saw, and it rewrote
-            # the same joint through every re-ask (7 runs lost that way, 2026-09-03).
+            # name BOTH sides: pydantic truncates the offending value after the joint name.
             same = "" if self.parent == self.child else (
                 f" ('{self.parent}' and '{self.child}' are the same name once normalised)")
             raise ValueError(
@@ -274,41 +261,23 @@ class ArticulatedPlan(StaticPlan):
     @model_validator(mode="before")
     @classmethod
     def _normalise_raw(cls, data: object) -> object:
-        """Repair the three planner mistakes that failed validation twice on compare_art_v2
-        (2026-08-25: 5 of 14 articulated prompts, a third of the harness's losses) — each is
-        a schema-shaped slip a re-ask did not fix, not a design decision worth a run.
+        """Repair schema-shaped planner slips that are not design decisions:
 
-        1. a joint whose ``parent`` / ``child`` names a SUB-PART: the sub-part is promoted to a
-           top-level part (``attach_to`` = its former parent) — anything a joint moves is a link;
-        2. a ``revolute`` joint whose range exceeds 2π: with both limits inside ±360 and a span of
-           at least 30 the planner wrote DEGREES (door ``0..90``, lid ``-180..0`` — the template says
-           rad), so the limits and a ``rest`` inside them are converted with ``math.radians`` and the
-           joint stays ``revolute``; any other span over 2π (``0..4π``, ``-4π..4π``) becomes
-           ``continuous`` (limits dropped).  The band 2π < span < 30 (``0..6.5``, ``0..10``) is
-           ambiguous and is read as radians: a wrong ``continuous`` there is what the run got before,
-           while a wrong degrees reading would squeeze a full turn into a 6° hinge without a trace.
-           A converted range that is still over 2π (``-360..360``) falls through to ``continuous``;
-        2b. swapped or out-of-range limits: ``upper < lower`` is written as the swap it is
-           (a hinge "from 90 to 0"), and a ``rest`` outside ``[lower, upper]`` is clamped to
-           the nearer limit — both killed cs37_urdf_02 at the planner (2026-08-29, 3.7-flash)
-           after two re-asks, and neither is a design decision worth a dead run;
-        3. a sub-part sticking out of its parent's bbox by more than the slack: the parent bbox
-           grows to enclose it (planner boxes are design intent, not measurements).
-        4. a ``root_link`` that names no part but loosely matches exactly ONE (af_excavator
-           2026-08-31, 3.7-flash: ``root_link: chassis`` over a part list that spelt it
-           differently — two re-asks did not fix it and the run died at the planner): the
-           root is rewritten to that part.  Zero or several candidates still raise.
-        Every repair is recorded in ``normalisations`` so the record shows what the planner
-        actually wrote.  Anything else still fails validation and is re-asked.
+        1. a joint naming a sub-part promotes it to a top-level part;
+        1b/1c. a joint naming a part or sub-part by a unique fragment is resolved;
+        2. revolute limits written in degrees become radians; other ranges over 2π become ``continuous``;
+        2b. swapped limits are swapped back, an out-of-range ``rest`` is clamped;
+        3. a sub-part outside its parent's bbox grows the parent;
+        4. a ``root_link`` naming no part is rewritten when exactly one part matches.
+
+        Every repair is recorded in ``normalisations``; anything else fails validation.
         """
         if not isinstance(data, dict):
             return data
         data = dict(data)
         parts = [dict(p) for p in (data.get("parts") or []) if isinstance(p, dict)]
         joints = [dict(j) for j in (data.get("joints") or []) if isinstance(j, dict)]
-        # harness-only: the planner is told to leave this empty, and one did not (articulated_v2
-        # scissor_mirror, 2026-08-26: two lines of design prose landed here) — a planner's text
-        # would read as a harness repair in the record, so incoming values are dropped
+        # harness-only field: any incoming value is dropped
         notes: list[str] = []
         if not parts or not joints:
             return data
@@ -332,10 +301,7 @@ class ArticulatedPlan(StaticPlan):
                     kept.append(child)
             part["children"] = kept
 
-        # 1b. a joint that names a link by a UNIQUE fragment of a real part ("Lid" for
-        # "ChestLid"): a naming slip, not a design decision.  Measured 2026-08-27
-        # (art_med_tool_chest, 3.6-flash): 'joint LidHinge references unknown link(s)
-        # Carcass/Lid' three times in a row, killing the run at the planner with 0 rounds.
+        # 1b. a joint naming a link by a unique fragment of a real part ("Lid" for "ChestLid")
         known = set(by_name)
         for j in joints:
             for side in ("parent", "child"):
@@ -348,14 +314,8 @@ class ArticulatedPlan(StaticPlan):
                     j[side] = by_name[hits[0]].get("name")
                     notes.append(f"joint {j.get('name')}.{side} '{raw_name}' resolved to the one part it names: {j[side]}")
 
-        # 1c. a joint that names a SUB-PART by a fragment (af_grandfather_clock 2026-08-31,
-        # 3.7-flash: everything nested under clock_case, the joint said GlazedDoor, the child
-        # spelt it longer — the exact-match promotion above missed it, 1b searches top-level
-        # links only, and the re-ask complaint listed top-level parts only, so both re-asks
-        # died the same way).  Sub-part names are longer and decorated, so the affix rule is
-        # too weak here: the match is WORD-SUBSET (every word of the reference appears in the
-        # candidate's words — {glazed,door} ⊆ {glazed,front,door}; "arm" still never matches
-        # "alarm").  A unique hit promotes the child and rewrites the joint side.
+        # 1c. a joint naming a sub-part by a fragment: WORD-SUBSET match ({glazed,door} within
+        # {glazed,front,door}; "arm" never matches "alarm"); a unique hit is promoted.
         sub_index: dict[str, tuple[dict, dict]] = {}
         for part in list(parts):
             for child in part.get("children") or []:
@@ -459,16 +419,14 @@ class ArticulatedPlan(StaticPlan):
             names = {to_snake(p.get("name", "")): p.get("name") for p in parts if p.get("name")}
             rk = to_snake(root)
             if rk not in names:
-                # same word-boundary rule as repair 1b, never bare substring ("arm" != "alarm")
+                # word-boundary rule as in 1b, never bare substring
                 hits = [orig for k, orig in names.items()
                         if rk in k.split("_") or k.endswith(f"_{rk}") or k.startswith(f"{rk}_")]
                 if len(hits) == 1:
                     notes.append(f"root_link '{root}' named no part; rewrote to '{hits[0]}'")
                     data["root_link"] = hits[0]
                 elif not hits:
-                    # 4b. nothing even loosely matches (a UUID, prose — ab_repairs
-                    #     grand_piano 2026-08-29, three plans in a row): the one part no
-                    #     joint names as a child is the root; unique → unambiguous
+                    # 4b. nothing matches: the one part no joint names as a child is the root
                     children = {to_snake(str(j.get("child", ""))) for j in joints}
                     roots = [orig for k, orig in names.items() if k not in children]
                     if len(roots) == 1:
@@ -513,9 +471,7 @@ class ArticulatedPlan(StaticPlan):
         return self
 
     def _check_mimics(self) -> None:
-        """Every declared coupling must name a joint that exists, moves, and does not lead
-        back to the joint that follows it — the rules are ``common.mimic_issues`` so the
-        plan, the lint and the URDF loader cannot drift apart."""
+        """Every coupling must name a joint that exists, moves, and does not loop (``common.mimic_issues``)."""
         by_name = {j.name: j for j in self.joints}
         issues = mimic_issues([
             MimicSpec(key=to_snake(j.name), name=j.name, movable=j.type != "fixed",
@@ -526,8 +482,7 @@ class ArticulatedPlan(StaticPlan):
             follower = by_name.get(i.joint)
             wanted = follower.mimic.joint if follower is not None and follower.mimic else i.target
             if i.kind == "out_of_range":
-                continue  # the plan does not reject a coupling for overshooting a limit;
-                          # the lint warns (contracts.common._driven_range says why)
+                continue  # only the lint warns about overshooting a limit
             raise ValueError({
                 "immobile": f"joint {i.joint}: a fixed joint cannot mimic {wanted}",
                 "zero_multiplier": f"mimic of {wanted}: multiplier 0 means the joint cannot move; use type=fixed",
@@ -548,17 +503,15 @@ class ZonePlan(BaseModel):
     contents: list[str] = Field(default_factory=list, description="asset names placed in this zone")
 
 
-#: the asset kinds each scene language plans (D5): ``bpy`` = a procedural module of a Blender
-#: scene (``src/assets/<snake>.py``), ``threejs`` its three.js twin, ``blender_glb`` a hero built as
-#: an object and shipped as a GLB (both languages)
+#: the asset kinds each scene language plans: ``bpy`` / ``threejs`` = a procedural module,
+#: ``blender_glb`` = a hero built as an object and shipped as a GLB
 SCENE_ASSET_KINDS: dict[str, tuple[str, ...]] = {
     "scene_threejs": ("threejs", "blender_glb"),
     "scene_blender": ("bpy", "blender_glb"),
 }
 
 
-#: what ``AssetPlan.kind`` means to the planner of each scene language — the description the
-#: swapped schema carries (scene_threejs keeps the field's own text, byte-identical)
+#: what ``AssetPlan.kind`` means to the planner of each scene language (scene_threejs keeps the field's own text)
 SCENE_KIND_DOCS: dict[str, str] = {
     "scene_blender": "bpy = a procedural Blender module (src/assets/<snake>.py, built once at the origin and "
                      "placed as collection instances); blender_glb = a hero built as an object and shipped as a GLB",
@@ -569,9 +522,7 @@ class AssetPlan(BaseModel):
     name: str = Field(description="PascalCase asset name")
     kind: Literal["threejs", "bpy", "blender_glb"] = Field(
         description="threejs = procedural module; blender_glb = built with bpy and compiled to a GLB",
-        # the schema a planner is handed names the kinds of ITS language (SCENE_ASSET_KINDS): the
-        # default is scene_threejs's, byte-identical to before `bpy` existed; a scene_blender
-        # planner swaps in its own enum (``scene_plan_schema``)
+        # default is scene_threejs's enum; ``scene_plan_schema`` swaps in the language's own
         json_schema_extra={"enum": list(SCENE_ASSET_KINDS["scene_threejs"])},
     )
     description: str = Field(description="construction in numbers and colours; the builder realises it")
@@ -586,14 +537,11 @@ class EffectPlan(BaseModel):
     target: str = Field(default="", description="zone / asset / scene it applies to")
 
 
-#: a camera name becomes a render FILENAME (``render_scene.mjs`` writes ``<name>_<t>.png``);
-#: the charset ``render_glb.mjs`` already enforces for view names, plus a length bound.
+#: a camera name becomes a render filename, so it is charset- and length-bounded
 CAMERA_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
-#: The scene host (``scene_host.mjs`` validateCameras) states the same name / fov / position
-#: rules for the cameras ``createScene`` returns; a plan that broke them used to validate here and
-#: then draw a WARN on src/scene.js every round that no agent owns (audit 2026-09-24 N10).
+#: Same name / fov / position rules as ``scene_host.mjs`` validateCameras.
 class CameraPlan(BaseModel):
     name: str = Field(description="letters/digits/_/- only; it becomes a render filename")
     position: Vec3
@@ -604,7 +552,7 @@ class CameraPlan(BaseModel):
     @field_validator("name")
     @classmethod
     def _filename_safe(cls, v: str) -> str:
-        """Reject (never mangle) unsafe names — the planner is re-asked with the error."""
+        """Reject (never mangle) unsafe names."""
         if not CAMERA_NAME_RE.fullmatch(v):
             raise ValueError(
                 f"camera name {v!r} must match [A-Za-z0-9_-]{{1,64}}: it becomes a render "
@@ -664,12 +612,8 @@ class ScenePlan(BaseModel):
 
 
 def scene_plan_schema(language: Language | str) -> dict[str, Any]:
-    """The ``ScenePlan`` JSON schema a planner of ``language`` is handed: ``AssetPlan.kind``'s enum
-    (and its description) are that language's (:data:`SCENE_ASSET_KINDS`).  scene_threejs's is
-    ``ScenePlan.model_json_schema()`` byte for byte — the default the field carries — so every
-    recorded scene_threejs planner request is unchanged; a scene_blender planner is offered
-    ``bpy`` / ``blender_glb`` and never ``threejs``.  ``KeyError`` for a language that plans no
-    scene."""
+    """The ``ScenePlan`` JSON schema for ``language``: ``AssetPlan.kind``'s enum and description
+    are that language's.  ``KeyError`` for a language that plans no scene."""
     kinds = SCENE_ASSET_KINDS[Language(language).value]
     schema = ScenePlan.model_json_schema()
     kind = schema["$defs"]["AssetPlan"]["properties"]["kind"]
@@ -762,8 +706,7 @@ class EngineeringBrief(BaseModel):
 
     @property
     def is_useful(self) -> bool:
-        """A brief with no assemblies AND no signature features tells the planner nothing —
-        the caller discards it rather than pasting an empty block into the prompt."""
+        """False when the brief tells the planner nothing and should be discarded."""
         return len(self.sub_assemblies) >= 2 or len(self.signature_features) >= 2
 
 

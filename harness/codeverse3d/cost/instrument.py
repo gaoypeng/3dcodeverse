@@ -1,24 +1,8 @@
-"""Meter every model call and every agent session into the ledger.
+"""Meter every model call and agent session into the ledger.
 
-Two thin proxies do the whole job:
-
-* :class:`MeteredChatModel` wraps a :class:`~codeverse3d.models.base.ChatModel`.
-  Every ``generate`` appends one :class:`~codeverse3d.cost.types.CallCost` row
-  (tokens, the unit prices actually used + their provenance, $, latency,
-  cache hit, outcome).  Because ``models.registry.get_chat_model`` returns the
-  proxy, this covers the planner, the judges, the captioner and single-shot
-  generation.
-* :class:`MeteredAgent` wraps a :class:`~codeverse3d.agents.registry.CodingAgent`.
-  It sets the ambient attribution (round / stage / label) for the session so
-  the model rows above land in the right bucket and, because every backend is a
-  vendor CLI whose calls we cannot see, records one session row from
-  ``AgentResult.usage``.  ``agents.registry
-  .get_coding_agent`` returns the proxy.
-
-Accounting is never allowed to fail a run: every hook is wrapped, and an
-exception in the ledger is logged and swallowed.  The proxies forward every
-other attribute, so a caller that reaches for ``model.pool`` or ``agent.kind``
-sees the real object's.
+:class:`MeteredChatModel` appends one ``CallCost`` row per ``generate``; :class:`MeteredAgent`
+sets the attribution for a session and records its one session row.  Accounting never fails
+a run: ledger errors are logged and swallowed, and other attributes forward to the real object.
 """
 
 from __future__ import annotations
@@ -58,7 +42,6 @@ log = logging.getLogger(__name__)
 
 
 class _Proxy:
-    """Forward everything to the wrapped object; the subclasses add the meter."""
 
     def __init__(self, inner: Any):
         self._inner = inner
@@ -79,7 +62,6 @@ class _Proxy:
 
 
 class MeteredChatModel(_Proxy):
-    """ChatModel proxy that appends one ledger row per call."""
 
     @property
     def provider(self) -> str:
@@ -88,10 +70,7 @@ class MeteredChatModel(_Proxy):
     # -- the meter --------------------------------------------------------
     def generate(self, request: ChatRequest) -> ChatResponse:
         call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
-        # captured NOW: a hedge loser lands after this call returned, in a thread with
-        # no context — neither the run's ledger, its name, the stage/role/round
-        # attribution (the loser's row used to fall back to the bare label) nor the
-        # open tallies are reachable
+        # captured now: a hedge loser lands after this call returned, in a thread with no context
         ledger = default_ledger()
         run = run_binding().run
         ctx = attribute(label=request.label)
@@ -109,9 +88,7 @@ class MeteredChatModel(_Proxy):
             with attempt_recording(attempt_row):
                 resp = self._inner.generate(request)
         except BaseException as exc:  # noqa: BLE001 - record the attempt, then re-raise
-            # a failed call may still have been billed: ModelError.usage carries what the
-            # provider charged (a bad-JSON reply costs like a good one) — but only when
-            # the round-trips did not already book it, or the last one counts twice
+            # a failed call may still have been billed (ModelError.usage), unless a round-trip already booked it
             ms = int((time.perf_counter() - t0) * 1000)
             usage = getattr(exc, "usage", None)
             usage = usage if isinstance(usage, Usage) else Usage(backend=self.provider, model=self.model)
@@ -123,9 +100,6 @@ class MeteredChatModel(_Proxy):
             raise
         ms = int((time.perf_counter() - t0) * 1000)
         book_time(ms / 1000, trips.lost_ms(ms, resp.usage.latency_ms) / 1000)
-        # which key served it and how many round-trips it took (gemini.py puts both in
-        # ``raw``); until 2026-08-26 no telemetry row carried either, so the per-key
-        # distribution of calls could only be probed, never read
         self._record(resp.usage, request, outcome="ok", ms=ms,
                      key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0),
                      call_id=call_id)
@@ -144,10 +118,7 @@ class MeteredChatModel(_Proxy):
     def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
                         ledger: CostLedger | None, run: str = "",
                         ctx: CallContext | None = None, tallies: tuple[Tally, ...] | None = None) -> bool:
-        """A round-trip that was DISCARDED and still cost money (a billed-but-invalid reply, a
-        hedge loser that landed) is money nothing else records, so it goes in as
-        ``source="extra"`` and counts in every total; the others are already on the call's
-        logical row.  Returns True when it billed an ``extra``."""
+        """Book a discarded round-trip that still cost money as ``source="extra"``; True when it did."""
         if not (rec.discarded and rec.usage.cost_usd):
             return False
         try:
@@ -168,9 +139,7 @@ class MeteredChatModel(_Proxy):
 
 
 class _RoundTrips:
-    """The round-trips of ONE logical call, as the backend reported them through the attempt
-    sink (``models.retry.rotate_with_retries``), reduced to what the minutes need: how long
-    the ones that got an answer took, and whether any failed without one."""
+    """The round-trips of one logical call, reduced to what the minutes need: time answered, any failure."""
 
     def __init__(self) -> None:
         self.answered_ms = 0  # the winner, and a reply that came back unusable (bad JSON, empty)
@@ -187,10 +156,7 @@ class _RoundTrips:
             self.failed = True
 
     def lost_ms(self, wall_ms: int, answer_ms: int) -> int:
-        """The call's milliseconds lost to provider errors: everything outside its answered
-        round-trips once one failed without an answer — its failed tries, their back-off and
-        the key waits between them.  A backend that reports no round-trips (the SDK adapters)
-        is charged everything outside the answer it returned."""
+        """Milliseconds lost to provider errors: everything outside the answered round-trips once one failed."""
         if not self.seen:
             return max(0, wall_ms - answer_ms)
         return max(0, wall_ms - self.answered_ms) if self.failed else 0
@@ -210,8 +176,7 @@ def _outcome(exc: BaseException) -> str:
 
 
 class MeteredAgent(_Proxy):
-    """CodingAgent proxy: attribution for the session + its one ledger row.  The
-    job runs as given — the turn cap is decided in ``tracks.generation``."""
+    """CodingAgent proxy: attribution for the session + its one ledger row."""
 
     @property
     def kind(self) -> str:
@@ -223,9 +188,7 @@ class MeteredAgent(_Proxy):
         with call_context(round=job.round, stage=stage, role=Role.GENERATOR, label=job.label):
             result = self._inner.run(job)
         wall_s = time.perf_counter() - t0
-        # the CLI's own retries of 503 / 429 / token-limit errors, read from its log
         book_time(wall_s, float(result.provider_wait_s or 0.0))
-        # an opaque CLI: its session row is the only record
         self._record_session(job, result, stage, int(wall_s * 1000))
         return result
 
@@ -240,7 +203,6 @@ class MeteredAgent(_Proxy):
                         latency_ms=usage.latency_ms or ms,
                         n_calls=max(1, int(result.tool_calls or 1)),
                         source="estimate" if result.usage_estimated else "session",
-                        # the effort the CLI was given (agy --effort): a loop splits by it (D110)
                         **({"effort": result.effort} if result.effort else {}))
         except Exception as e:  # pragma: no cover
             log.debug("cost: could not record agent session %s: %s", job.label, e)
@@ -248,8 +210,7 @@ class MeteredAgent(_Proxy):
 
 # --------------------------------------------------------------------------- factories
 def metered_chat_model(model: Any) -> Any:
-    """Wrap ``model`` unless it is already metered.  Metering cannot be switched off: the
-    ledger is the only record of money (the ``C3D_COST_LEDGER=off`` switch went 2026-09-22)."""
+    """Wrap ``model`` unless it is already metered.  Metering cannot be switched off."""
     if model is None or isinstance(model, MeteredChatModel):
         return model
     return MeteredChatModel(model)
@@ -266,20 +227,9 @@ def metered_agent(agent: Any) -> Any:
 def run_ledger(workspace: str | Path, *, run: str = "", create: bool = True) -> Iterator[CostLedger | None]:
     """Meter one run into ``<workspace>/telemetry/cost.jsonl``.
 
-    Binds the run name and points :func:`~codeverse3d.cost.ledger.record_call` at the
-    run's ledger for the duration of the block.
-
-    ``create=False`` is for work done *after* a run finished (``3dcode judge``,
-    a re-pick): it appends only when the run already keeps a
-    ledger, because a ledger holding nothing but the re-judge would be read as
-    the whole run's cost and hide everything the run really spent.  Without one
-    the rows go to the per-process log instead.
-
-    **Nests and parallelises.**  Both bindings unwind by ``ContextVar`` token, so a
-    bench cell that opens a ledger for the cell and then a second one for the
-    harness run inside it keeps both, and ``bench.run_bench`` can run N prompts in
-    N threads without their rows mixing — a save-and-restore by value could not,
-    because a fresh worker saved whatever a sibling had published last."""
+    ``create=False`` (work after a run finished) appends only to an existing ledger, else rows go
+    to the per-process log, so a re-judge never masquerades as the run's whole cost.
+    Nests and parallelises: bindings unwind by ``ContextVar`` token."""
     ws = Path(workspace)
     if not create and existing_ledger_path(ws) is None:
         with bound_run(run or ws.name):

@@ -1,13 +1,4 @@
-"""BaseTrack: the resumable plan → pre-round stages → rounds → finalise lifecycle.
-
-Concrete tracks (static / articulated / scene / graphics) declare their pre-round graph
-(``stages``: :class:`StageNode` tuples, walked by :func:`run_stages`) and override the
-hooks (``plan_model``, ``make_pipeline``, ``baseline_tasks`` and the refine scaffold's
-``_refine_task``); what differs per track at PLANNING time is
-``tracks/planner.py``'s alone.  All bookkeeping — workspace, events, budget, run
-state, stage cache, the fixed round count, record — lives here once.  Which round of a
-finished run to hand over is not the core's question: ``codeverse3d.addons.select``.
-"""
+"""BaseTrack: the resumable plan → pre-round stages → rounds → finalise lifecycle."""
 
 from __future__ import annotations
 
@@ -83,9 +74,7 @@ log = logging.getLogger(__name__)
 
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
-    """Only the spec fields the PLAN depends on: hashing the whole Spec meant that
-    raising ``budget.max_minutes`` in spec.json (the only way to continue a BUDGET-stopped
-    run) re-planned + re-skeletoned on resume, overwriting src/ under existing rounds."""
+    """Only the spec fields the PLAN depends on: hashing the whole Spec meant that"""
     return {
         "prompt": spec.prompt,
         "track": spec.track.value,
@@ -98,12 +87,6 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
 
 
 def plan_stage_key(spec: Spec, track: Track) -> dict[str, Any]:
-    """The plan stage's cache key: a run's, and the one a pinned A/B plan is seeded under
-    (``eval/bench/pin_plan``) — a seed under any other key is a cache MISS and re-plans.
-
-    A variant (the spec's frozen one, else the active one) is part of the key ONLY when set: it may
-    overlay the planner template, so its plan is cached — and a pinned plan seeded — under its name,
-    while the default run's key never moves (``tests/prompts/manifest.py`` STAGE_HINT)."""
     key: dict[str, Any] = {"spec": plan_stage_inputs(spec), "track": track.value}
     variant = spec.options.variant or active_variant()
     if variant:
@@ -112,47 +95,31 @@ def plan_stage_key(spec: Spec, track: Track) -> dict[str, Any]:
 
 
 def spec_fingerprint(spec: Spec) -> str:
-    """Identity of the spec THE PLAN depends on (hash of :func:`plan_stage_inputs`).
-
-    Stamped into ``state.extra["spec_fingerprint"]`` on first run and verified by
-    ``reconcile_resume``.  Budget raises — the sanctioned way to continue a
-    BUDGET-stopped run — are outside ``plan_stage_inputs`` and never change it."""
+    """Identity of the spec THE PLAN depends on (hash of :func:`plan_stage_inputs`)."""
     return hash_inputs(plan_stage_inputs(spec))
 
 
 class SpecChanged(RuntimeError):
-    """spec.json's plan inputs changed under an existing run.
-
-    Resuming would pair the recorded rounds with a new spec/plan in record.json —
-    fake prompt→code provenance.  Fork a new run, or resume with ``--force`` to
-    archive the old rounds under ``rounds/pre_force/`` and re-plan."""
+    """spec.json's plan inputs changed under an existing run."""
 
 
 # ============================================================================ the pre-round graph
 @dataclass(frozen=True)
 class StageNode:
-    """One pre-round stage of a track's declared graph (``BaseTrack.stages``).
-
-    ``key``: what the result depends on — the stage is cached under it (``stages/<name>.json``,
-    ``StageRunner``), and served as recorded once rounds exist (``StageRunner.frozen``).  ``None``:
-    not cached, it runs every session (an idempotent step).  ``when``: the ``Settings`` switch the
-    stage runs under.  ``seeds_src``: it writes the whole ``src/`` — never run once rounds exist,
-    recorded or not.  The result lands in ``ctx.extra[name]`` for the stages after it."""
+    """One pre-round stage of a track's declared graph (``BaseTrack.stages``)."""
 
     name: str
-    run: Callable[[Any, RunContext], Any]   # (track, ctx) -> result
+    run: Callable[[Any, RunContext], Any]
     key: Callable[[RunContext], dict[str, Any]] | None = None
     when: Callable[[Settings], bool] | None = None
     seeds_src: bool = False
 
 
-#: a track's pre-round graph, in order; an inner tuple = siblings that run side by side
 Stages = tuple[StageNode | tuple[StageNode, ...], ...]
 
 
 def run_stages(track: BaseTrack, ctx: RunContext, runner: StageRunner, stages: Stages) -> None:
-    """Walk ``stages``.  Siblings run side by side as ONE timed step of the run's minutes, each
-    its own cached stage; a failing sibling is raised after every sibling finished and cached."""
+    """Walk ``stages``.  Siblings run side by side as ONE timed step of the run's minutes, each"""
     def one(node: StageNode, *, timed_step: bool = True) -> Any:
         if node.key is None:
             return node.run(track, ctx)
@@ -191,32 +158,22 @@ def _skeleton_key(ctx: RunContext) -> dict[str, Any]:
     return {"plan": ctx.plan, "language": ctx.language.value}
 
 
-#: the buildable placeholder of every file the plan names
 SKELETON = StageNode("skeleton", _skeleton, key=_skeleton_key, seeds_src=True)
-#: the vendor CLI's workspace files (AGENTS.md / CLAUDE.md, the ignore file): once per agent kind
 MATERIALIZE = StageNode("materialize", lambda t, c: t.ensure_materialized(c))
-#: a stage boundary: the run stops here when the hard budget is spent
 CLOCK = StageNode("clock", lambda t, c: c.budget.check())
 
 
 class BaseTrack:
-    """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``, their pre-round
-    ``stages`` and parameterise the refine scaffold via the hooks below (``_refine_task`` …)."""
+    """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``, their pre-round"""
 
     track: Track
     rubric: str
     plan_model: type[Plan]
-    #: the pre-round graph, between the plan and round 0 (docs/ARCHITECTURE.md §7 is drawn from it)
     stages: Stages = (SKELETON, MATERIALIZE)
     generate_template: str = ""
     refine_template: str = ""
-    #: refine fan-out — the scene's zones / assets / env only: graphics is ONE whole-program task and the
-    #: object tracks ONE whole-object session (D110)
     allow_refine_fanout: bool = True
-    #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
-    #: track lowers it so the refine rounds always inherit money and minutes.
     soft_budget_fraction: float = 1.0
-    #: the whole-program baseline session's sampling temperature
     baseline_temperature: float = 0.5
 
     def __init__(
@@ -247,7 +204,6 @@ class BaseTrack:
         raise NotImplementedError
 
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        """Round 0: one whole-program session — ``generate_template`` over :meth:`generate_context`."""
         files = ctx.runtime.expected_files(ctx.plan)
         prompt = render(self.generate_template, **self.generate_context(
             ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
@@ -260,23 +216,15 @@ class BaseTrack:
         return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
     def round_extra_notes(self, ctx: RunContext) -> list[str]:
-        """Notes folded into every round record (e.g. 'the baseline was degraded')."""
         return list(ctx.extra.get("degraded") or [])
 
     def prepare_salvage(self, ctx: RunContext) -> bool:
-        """Make the workspace buildable after a stage tripped the budget before
-        round 0.  Return False when the track has nothing to salvage.  The default
-        says yes exactly when the baseline left code past the pre-round stages — a
-        session that committed (or wrote) before the clock stopped it, or the adopted
-        best-of-N winner: paid code must not be thrown away by a ceiling trip before
-        r00 (neon_glsl c007b166 spent $0.254 on a committed baseline and got 0 rounds).
-        A bare skeleton still returns False."""
+        """Make the workspace buildable after a stage tripped the budget before"""
         prepared = ctx.extra.get("prepared_commit")
         return bool(prepared) and any(c.path.startswith(ALLOWED_ROOTS) for c in ctx.ws.changed_files(since=prepared))
 
     # ---- refine hooks (the scaffold below is shared; tracks fill in the task)
     def refine_file_for_target(self, ctx: RunContext) -> Callable[[str], list[str]]:
-        """``target → [files]`` for refine tasks: the runtime's layout (``[]`` = no owner)."""
         return lambda target: ctx.runtime.files_for(ctx.plan, target)
 
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[Any]:
@@ -293,10 +241,7 @@ class BaseTrack:
 
     # ------------------------------------------------------------------ refine scaffold
     def refine_tasks(self, ctx: RunContext, last: RoundRecord) -> tuple[list[GenerationTask], list[str]]:
-        """The round after ``last``: rebuild guard → instructions → groups → per-track ``_refine_task``.
-
-        Always built on ``last`` — the previous round, whatever it scored (2026-09-22: no
-        refine-from-best, no whole-artifact rewrite after a regression)."""
+        """The round after ``last``: rebuild guard → instructions → groups → per-track ``_refine_task``."""
         index = last.index + 1
         if last.build is None or not last.build.ok:
             rebuild = self._rebuild_task(ctx, last, index).model_copy(update={"reserve_s": ctx.policy.judge_reserve_s})
@@ -329,23 +274,12 @@ class BaseTrack:
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
         variant = self.variant_for(spec)
-        # the run's own ledger even when nobody opened one (a test, a script): the CLI /
-        # bench open the same file first and run_ledger nests, restoring theirs on exit.
-        # Keep THEIR name when they bound one — a compare_backends cell is "<prompt>:<arm>",
-        # and rebinding it to the directory ("run") collapsed every cell into one bucket.
-        # The variant overlay (D105) wraps the WHOLE run: every prompt file, template and skill
-        # bundle below resolves through it, in the fan-out threads too (proc.fan_out copies the
-        # context); a resume re-activates what the spec froze.  Its knobs hold for exactly as long.
         with activate(variant), run_ledger(ws.root, run=run_binding().run or ws.root.name), \
                 self._apply_variant(variant) as knobs:
             if not ws.spec_path.is_file() or not resume:
                 ws.write_json(ws.spec_path, spec)
             events = EventLog(ws.events_path)
             state = RunState.load_or_new(ws, resume=resume)
-            # BEFORE build_context (which restores the budget snapshot from state.extra):
-            # make the state agree with the durable round journal, verify spec identity,
-            # and take the reconciled rounds as the loop's initial history — so the
-            # FAILED/BUDGET handlers below serialize the real rounds, never [].
             rounds: list[RoundRecord] = self.reconcile_resume(spec, ws, events, state, resume=resume, force=force)
             ctx = self.build_context(spec, ws, events, state)
             runner = StageRunner(ws, events, state, frozen=bool(rounds))
@@ -361,7 +295,7 @@ class BaseTrack:
                                         model=self.plan_model)
                 self.after_plan(ctx)
                 run_stages(self, ctx, runner, self.stages)
-                ctx.extra["prepared_commit"] = ws.head()   # what a salvage compares the baseline's work with
+                ctx.extra["prepared_commit"] = ws.head()
                 stop = self._round_loop(ctx, rounds)
             except BudgetExceeded as e:
                 events.emit("budget.exceeded", reason=e.reason)
@@ -370,7 +304,7 @@ class BaseTrack:
             except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
                 error = f"{type(e).__name__}: {e}"
                 events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
-                self._save_budget(ctx)  # the clock and the step log must survive for resume
+                self._save_budget(ctx)
                 state.status, state.error = RunStatus.FAILED, error
                 state.save(ws)
                 rec = self._record(ctx, rounds, RunStatus.FAILED, error=error)
@@ -378,23 +312,15 @@ class BaseTrack:
                 raise
             return self.finalise(ctx, rounds, stop, error=error)
 
-    # ------------------------------------------------------------------ the variant (D105)
+    # ------------------------------------------------------------------ the variant
     @staticmethod
     def variant_for(spec: Spec) -> str:
-        """The variant this run activates: the spec's frozen choice (``3dcode make --variant``,
-        ``run_bench --variant``), else the process switch — ``C3D_VARIANT``, or ``C3D_VARIANTS`` by the
-        generator id — read from ``get_settings()`` like every other switch, so a direct ``track.run``
-        under an A/B arm's environment honours it.  An unknown name raises before anything is paid."""
+        """The variant this run activates: the spec's frozen choice, else the one resolved for its generator."""
         return spec.options.variant or resolve_variant(get_settings(), spec.backends.generator)
 
     @contextmanager
     def _apply_variant(self, variant: str) -> Iterator[dict[str, Any]]:
-        """The variant's ``[knobs]`` as defaults on the process settings (where ``attach_skills`` reads
-        ``skills_max`` / ``skills_only``) and on an injected ``Settings`` too, for the RUN ONLY: both
-        objects outlive it (the singleton, a rig's shared Settings), so the prior values and field-sets
-        come back on exit and the next run of this process starts from its own base, never from a knob
-        the last variant left behind (``knobs_applied``).  A user-stated field wins
-        (``apply_variant_knobs``).  Yields what was set, for the ``variant.active`` event."""
+        """Apply the variant's ``[knobs]`` as defaults on the process settings for the duration of the run."""
         if not variant:
             yield {}
             return
@@ -408,28 +334,6 @@ class BaseTrack:
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
                          *, resume: bool, force: bool) -> list[RoundRecord]:
-        """The round history a resume goes on from: the on-disk round journal (``rounds/rNN.json``
-        + its git commit, written at the end of every round) — the one record of it; the state file
-        keeps no copy that a crash could leave behind.  On resume:
-
-        1. **Spec identity.**  ``state.extra["spec_fingerprint"]`` (hash of
-           :func:`plan_stage_inputs`, stamped on first run) must match the spec we are
-           resuming with; budget raises are outside the fingerprint by construction.
-           On a mismatch a plain resume raises :class:`SpecChanged`; ``--force``
-           emits ``resume.spec_changed`` and re-plans — old rounds are never paired with a
-           new spec/plan.  ``--force`` archives the old journal + ``record.json`` to
-           ``rounds/pre_force/`` whether the spec changed or not: with no rounds left the
-           pre-round stages are no longer frozen (``StageRunner.frozen``), so this is the
-           one way to regenerate a stage whose key drifted under existing rounds.
-        2. **Journal integrity.**  Trailing rounds whose commit git does not have are
-           dropped (half-written journal), with a ``resume.dropped_rounds`` event.
-        3. **The tree.**  The working tree goes back on the LAST round's commit when anything
-           left it elsewhere — a crash mid-round, or the finalise of a run recorded before
-           2026-09-22, which restored its best round.  The next round refines the round
-           before it, always.
-
-        Returns the loop's initial round history.  A fresh (non-resume) run only
-        stamps the fingerprint and starts empty."""
         fp = spec_fingerprint(spec)
         stored = str(state.extra.get("spec_fingerprint") or "")
         if not resume:
@@ -448,7 +352,7 @@ class BaseTrack:
                 )
             events.emit("resume.spec_changed", old_fingerprint=stored, new_fingerprint=fp,
                         archived_rounds=len(journal))
-            state.stages.pop("plan", None)  # the plan must be rebuilt from the edited spec
+            state.stages.pop("plan", None)
         if force and (journal or ws.record_path.is_file()):
             archived = self._archive_pre_force(ws)
             events.emit("resume.archived", dest=str(archived), rounds=len(journal))
@@ -458,7 +362,7 @@ class BaseTrack:
         dropped: list[int] = []
         for rec in journal:
             if dropped or not rec.commit or not ws.has_commit(rec.commit):
-                dropped.append(rec.index)  # half-written tail: rNN.json without its commit
+                dropped.append(rec.index)
             else:
                 kept.append(rec)
         if dropped:
@@ -477,8 +381,6 @@ class BaseTrack:
 
     @staticmethod
     def _archive_pre_force(ws: Workspace) -> Path:
-        """Move the old journal + record.json under ``rounds/pre_force/`` (never delete
-        evidence; a second --force lands in ``pre_force_2/`` and so on)."""
         rounds_dir = ws.root / "rounds"
         dest, n = rounds_dir / "pre_force", 1
         while dest.exists():
@@ -502,8 +404,6 @@ class BaseTrack:
             # the active minutes keep counting, so a raised cap (--max-minutes / --rounds)
             # grants only the difference, never a fresh full cap
             budget.restore(BudgetSnapshot.model_validate(snap))
-        # the judge sample count is the settings' (a profile's), however the track was built:
-        # `3dcode make` and a bench battery judge alike (N74; it was resolved in the CLI only)
         policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds,
                                              judge_samples=max(1, int(settings.judge.samples or 1)))
         policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings))
@@ -511,8 +411,6 @@ class BaseTrack:
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,
                          services=self.services, state=state, policy=policy, track=self.track, rubric=rubric,
                          agent_id=spec.backends.generator,
-                         # metered like the ones services hand out: an injected agent or model spends
-                         # money too, and the ledger is the only record of it
                          agent=metered_agent(self._agent), model=metered_chat_model(self._model),
                          variant=active_variant())
         ctx.contract_text = language_text(spec.language, "contract.md")
@@ -521,9 +419,7 @@ class BaseTrack:
         return ctx
 
     def _resolve_candidates(self, spec: Spec, settings: Settings) -> int:
-        """Best-of-N width: constructor (CLI --candidates) > ``spec.options.candidates``
-        (the persisted carrier — spec.json travels with the run) > settings default.  1 on a
-        track without best-of-N (``TrackInfo.best_of_n``): the record names the width that ran."""
+        """Best-of-N width: constructor value, else ``spec.options.candidates``, else the settings default."""
         if not TRACK_INFO[self.track].best_of_n:
             return 1
         n = self._n_candidates
@@ -534,8 +430,7 @@ class BaseTrack:
         return max(1, int(n or 1))
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
-        """The main judge: injected, else the class ``judges.vlm_judge.judge_for`` names (the rule
-        ``3dcode judge`` and calibration replay with), built through the services seam."""
+        """The main judge: the injected one, else an instance of the class ``judge_for`` picks for this track."""
         if self._judge is not None:
             return self._judge
         from codeverse3d.judges.vlm_judge import LikenessJudge, ReferenceJudge, judge_for
@@ -552,8 +447,6 @@ class BaseTrack:
         """Bind judge / generator backends once the plan exists."""
         if ctx.judge is None:
             ctx.judge = self.make_judge(ctx)
-        # provenance: the judge protocol (role prompt + rig rules + wire schema) is hashed
-        # like the generator prompts, so a judge-prompt edit is visible in record.json
         judge_hash = getattr(ctx.judge, "prompt_hash", "")
         if isinstance(judge_hash, str) and judge_hash:
             ctx.prompt_hashes["judge"] = judge_hash
@@ -570,7 +463,7 @@ class BaseTrack:
             plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws,
                                model=metered_chat_model(self._planner_model), events=ctx.events, budget=ctx.budget)
         finally:
-            self._save_budget(ctx)  # the clock and the plan step, on success AND PlanningError
+            self._save_budget(ctx)
         return plan
 
     # ------------------------------------------------------------------ stages
@@ -592,14 +485,6 @@ class BaseTrack:
 
     # ------------------------------------------------------------------ round loop
     def _round_loop(self, ctx: RunContext, rounds: list[RoundRecord]) -> RunStatus:
-        """The baseline, then ``max_rounds`` refine rounds — each built on the round before it.
-
-        FIXED rounds (owner, 2026-09-22): the judge scores every round and its verdict shapes
-        the next round's tasks, but nothing here decides that another round is not worth
-        buying.  The run stops early only on the clock (``BudgetGuard``) or a hard failure:
-        the vendor's quota, a refine round whose sessions changed nothing, or a last round
-        that leaves nothing to ask for (no gate error, no failed must-item, no judge plan) or
-        no verdict to ask from."""
         pipeline = self.make_pipeline()
         rejudged: set[int] = set()
         transport_retried: set[int] = set()
@@ -615,17 +500,13 @@ class BaseTrack:
             index = len(rounds)
             last = rounds[-1] if rounds else None
             if _unjudged(last) and last.index not in rejudged and ctx.budget.ok():
-                # judge outage/degraded verdict on a clean build: re-judge the SAME commit once
-                # (no regeneration) — before planning refinements from nothing, and before the
-                # last round ends the run unscored (`--rounds 0` used to stop MAX_ROUNDS with an
-                # unjudged baseline: the re-judge lived in the refine branch only)
                 rejudged.add(last.index)
                 if rejudge_round(ctx, pipeline, last, previous=previous_verdict(rounds, last.index)):
                     self._save_budget(ctx)
-            if index > ctx.policy.max_rounds:  # the baseline + max_rounds refine rounds all ran
+            if index > ctx.policy.max_rounds:
                 return _stop(RunStatus.JUDGE_UNAVAILABLE if _unjudged(last) else RunStatus.MAX_ROUNDS)
             if not ctx.budget.ok():
-                if not rounds:  # the stages spent the clock without raising: the ONE budget path (salvage)
+                if not rounds:
                     ctx.budget.check()
                 return _stop(RunStatus.BUDGET)
             previous = previous_verdict(rounds, index)
@@ -641,9 +522,6 @@ class BaseTrack:
                     # that is only because the judge never scored the round, say so.
                     return _stop(RunStatus.JUDGE_UNAVAILABLE if _unjudged(last) else RunStatus.NO_REFINE_TASKS)
             if last is not None and not ctx.policy.can_open(ctx.budget, single_shot=ctx.single_shot):
-                # D112: a refine round (or its transport / stall retry) that cannot also be built and
-                # judged before the clock stops is money for edits nobody scores (iteration 5, r1_09:
-                # the retry launched with 15 min left, was cut at the budget edge, never judged)
                 ctx.events.emit("round.skipped_budget", round=index, left_s=round(ctx.budget.left_s(), 1),
                                 need_s=ctx.policy.need_s(single_shot=ctx.single_shot))
                 return _stop(RunStatus.BUDGET)
@@ -658,54 +536,26 @@ class BaseTrack:
                                     extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
                 if e.quota:
-                    # The vendor's own usage limit: not a transport death (a retry meets the
-                    # same wall) — the agent is gone until the limit resets.  cmp8
-                    # (2026-09-09): three runs filed a plateau on "You've hit your usage
-                    # limit … try again at Sep 14th".
                     ctx.events.emit("round.agent_quota", round=index, detail=str(e)[:500])
                     if index == 0:
                         raise
                     return _stop(RunStatus.AGENT_QUOTA)
                 if index not in transport_retried and (e.transient or e.stalled):
-                    # A 503 storm / dropped socket / overloaded provider is not an agent
-                    # verdict — the session never really happened.  Re-run the SAME
-                    # round once, baseline included (rc=247 alone killed three whole
-                    # runs on 2026-08-29), before letting the failure mean anything.
-                    # ``continue`` re-enters through the loop head, so the budget and
-                    # round ceilings still guard the retry.  Typed since 2026-09-22
-                    # (RoundFailed.transient): a session that merely timed out on its own
-                    # work, or a CLI that crashed with no provider error, is not retried.  A session
-                    # the watchdog found HUNG (``stalled``: idle, nothing produced) is retried by the
-                    # same rule, whatever the vendor's log says (D112); the window check at the loop
-                    # head keeps the retry from launching when it could not also be judged.
                     transport_retried.add(index)
                     ctx.events.emit("round.transport_retry", round=index, stalled=e.stalled and not e.transient,
                                     detail=str(e)[:500])
                     continue
                 if index == 0:
                     raise
-                # every session of a refine round failed or changed nothing: the next round
-                # would be asked the same thing from the same code
                 ctx.events.emit("round.no_change", round=index, detail=str(e)[:500])
                 return _stop(RunStatus.NO_CHANGE)
             rounds.append(rec)
             self._save_budget(ctx)
 
     def _salvage(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
-        """The budget stopped the run with work nobody has judged: give ONE bounded grace and run
-        a no-generation round (build → gates → render → judge) on what is in the workspace.
-
-        * Before round 0 (the greenhouse scene: the zone fan-out crossed the ceiling, so the run
-          finished with no build, no render, no judge and no score at all): the baseline.
-        * After it (D112): a refine round whose sessions changed files before the clock stopped
-          them — a session cut at the budget edge, or a round stopped after its generate step.
-          Iteration 5, r1_09: the transport retry's edits (the camera that capped the run at 0.60)
-          were committed and thrown away; finalise rebuilt round 0.  A refine killed by its OWN
-          hard limit was always built and judged (iteration 4, the same run: 0.817).
-
-        Any failure here is swallowed: the run is already stopping on budget."""
+        """The budget stopped the run with work nobody has judged: give ONE bounded grace and run"""
         if ctx.plan is None:
-            return  # the PLAN itself blew the budget → nothing to salvage
+            return
         last = rounds[-1] if rounds else None
         edits: list[str] = []
         if last is not None:
@@ -713,7 +563,7 @@ class BaseTrack:
                 return
             edits = [f.path for f in ctx.ws.changed_files(last.commit) if f.path.split("/", 1)[0] in ("src", "public")]
             if not edits:
-                return   # the stop came before anything changed: the last round IS the work
+                return
         grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
         ctx.budget.grant_grace(minutes=grace_min)
         reason = ("no round completed before the clock stop" if last is None
@@ -744,11 +594,8 @@ class BaseTrack:
 
     # ------------------------------------------------------------------ finalise
     def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str = "") -> RunRecord:
-        """Write the record.  The workspace ENDS AT THE LAST ROUND: a round the budget or a crash
-        cut mid-way can leave src/ past it, so it is put back and rebuilt — the only restore a
-        run does (every round's own build is kept under artifacts/rNN/, and choosing a round
-        to hand over is ``codeverse3d.addons.select``'s job, after the run)."""
-        self._save_budget(ctx)  # the clock and an aborted round's steps must survive for resume
+        """Write the record.  The workspace ENDS AT THE LAST ROUND: a round the budget or a crash"""
+        self._save_budget(ctx)
         last = rounds[-1] if rounds else None
         rebuild_err = ""
         rebuild_ok = False
@@ -758,7 +605,7 @@ class BaseTrack:
             try:
                 build = ctx.runtime.build(ctx.ws, timeout_s=ctx.settings.limits.build_timeout_s)
                 ctx.events.emit("finalise.rebuild", round=last.index, ok=build.ok)
-                if not build.ok:  # the runtime invalidated the canonical artifact FIRST — it is gone
+                if not build.ok:
                     rebuild_err = f"{build.error_type or 'BuildFailed'}: {build.error_message}"[:300]
                 else:
                     rebuild_ok = True
@@ -766,16 +613,12 @@ class BaseTrack:
                 rebuild_err = f"{type(e).__name__}: {e}"[:300]
                 ctx.events.emit("finalise.rebuild_failed", error=rebuild_err)
         if rebuild_err:
-            # keep the earned status + scores; the record says the artifact is gone
             ctx.extra["finalise_rebuild_failed"] = rebuild_err
             error = error or f"finalise rebuild failed: {rebuild_err}"
         elif rebuild_ok:
-            # a rebuild that RAN and succeeded clears the stale flag a prior failed finalise
-            # left (the prior-record merge would otherwise carry it forward); no-rebuild
-            # resumes keep the prior flag — the artifact may still be the missing one
             ctx.extra["finalise_rebuild_failed"] = ""
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, status.value, error
-        self._save_budget(ctx)  # saves state too
+        self._save_budget(ctx)
         rec = self._record(ctx, rounds, status, error=error)
         self.services.finalize_record(ctx.ws, rec)
         ctx.events.emit("run.done", status=status.value, rounds=len(rounds),
@@ -785,8 +628,7 @@ class BaseTrack:
 
     @staticmethod
     def _needs_restore(ws: Workspace, commit: str) -> bool:
-        """src/ != ``commit``: HEAD moved on, OR an aborted round dirtied the tree
-        without committing (budget stop mid-generation) — HEAD alone cannot see that."""
+        """src/ != ``commit``: HEAD moved on, OR an aborted round dirtied the tree"""
         if ws.head() != commit:
             return True
         try:
@@ -796,10 +638,7 @@ class BaseTrack:
             return False
 
     def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str) -> RunRecord:
-        """The run record.  Its ``total_usage`` is the sum of the run's ledger at list price —
-        every billed row once: the planner, the scene stages, aborted rounds, retried sessions,
-        round-trips the provider billed and the call discarded — not a sum kept here."""
-        cands = ctx.ws.root / "rounds" / "candidates.json"  # best-of-N summary: the file is the one copy
+        cands = ctx.ws.root / "rounds" / "candidates.json"
         extra: dict[str, Any] = {"stop_reason": status.value, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
                                  "n_candidates": ctx.policy.n_candidates,
                                  "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
@@ -807,19 +646,11 @@ class BaseTrack:
         if ctx.extra.get("finalise_rebuild_failed"):
             extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):
-            # rounds the budget (or a crash) cut after the money was spent: they are not
-            # in ``rounds``, so name them here (their dollars are in the ledger, the total).
             extra["aborted_rounds"] = ctx.extra["aborted_rounds"]
-        # A resume rewrite must not drop what earlier sessions / other packages put on
-        # the record post-hoc (flywheel captions, prior
-        # sessions' aborted_rounds, prompt hashes of stages not re-executed): seed from
-        # the prior record — unknown keys preserved, this session's values win.
-        # the variant this session ran under (D105): name/version/hash beside the prompt hashes, so two
-        # runs can be told apart by what their models were shown; the base writes "" / 0 / "" and no hash
         variant = variant_block(ctx.variant)
         extra["variant"] = variant
         prior_extra, prior_hashes = self._prior_record_fields(ctx.ws)
-        if ctx.extra.get("finalise_rebuild_failed", None) == "":  # rebuilt successfully this session
+        if ctx.extra.get("finalise_rebuild_failed", None) == "":
             prior_extra.pop("finalise_rebuild_failed", None)
         prior_aborted = prior_extra.get("aborted_rounds")
         for k, v in prior_extra.items():
@@ -832,7 +663,7 @@ class BaseTrack:
         if ctx.variant and variant["hash"]:
             hashes["variant"] = variant["hash"]
         elif not ctx.variant:
-            hashes.pop("variant", None)   # a prior session's overlay is not this session's
+            hashes.pop("variant", None)
         return RunRecord(
             spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds,
             total_usage=ledger_usage(load_ledger(ctx.ws.root)), steps=list(ctx.state.steps),
@@ -844,19 +675,16 @@ class BaseTrack:
         )
 
     def sampling(self, judge: Any) -> dict[str, dict[str, Any]]:
-        """``record.extra["sampling"]``: the knobs this run's API roles sampled with — the
-        planner's temperature (``plan_temperature``: graphics 0.5, the rest 0.4) and the judge's
-        own temperature / thinking / samples.  The settings snapshot reads it."""
+        """``record.extra["sampling"]``: the knobs this run's API roles sampled with."""
         knobs = {k: getattr(judge, k) for k in ("temperature", "thinking", "n_samples")
                  if isinstance(getattr(judge, k, None), (int, float, str))}
         return {"planner": {"temperature": plan_temperature(self.track)}, **({"judge": knobs} if knobs else {})}
 
     @staticmethod
     def _prior_record_fields(ws: Workspace) -> tuple[dict[str, Any], dict[str, str]]:
-        """``(extra, prompt_hashes)`` of the record.json a previous session wrote
-        (empty when there is none / it cannot be read — never run-fatal)."""
+        """``(extra, prompt_hashes)`` of the record.json a previous session wrote"""
         prior = read_json_or_none(ws.record_path)
-        if prior is None:  # a corrupt old record must not block finalise
+        if prior is None:
             if ws.record_path.is_file():
                 log.warning("prior record.json unreadable; post-hoc extra keys not carried over")
             return {}, {}

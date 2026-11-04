@@ -55,11 +55,7 @@ TO_DEGREES_FUNCS = {"degrees", "rad2deg"}
 
 
 def looks_like_radians(expr: ast.expr) -> bool:
-    """True when ``expr`` is a radians expression (``math.pi``, ``math.pi / 2``, ``i * 2 * math.pi / n``,
-    ``math.radians(a)``) — never a plain name/number, never a conversion TO degrees
-    (``a * 180 / math.pi``, ``math.degrees(a)``).  Only the ``pi``/``tau`` constants and the
-    radians/degrees helpers are inspected, so identifiers such as ``n_pins`` or ``pitch`` cannot match.
-    """
+    """True when ``expr`` is a radians expression (``math.pi / 2``, ``math.radians(a)``), not a conversion to degrees."""
     hit = False
 
     def walk(node: ast.AST, inverted: bool) -> bool:
@@ -307,9 +303,7 @@ WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_cq.py"
 
 
 def cadquery_env() -> dict[str, str]:
-    """Environment for the wrapper subprocess that executes the model-authored
-    ``src/model.py``: the user's env minus credential-shaped vars
-    (:func:`codeverse3d.proc.scrub_secrets`)."""
+    """Environment for the wrapper subprocess: the user's env minus credential-shaped vars."""
     env = scrub_secrets(dict(os.environ))
     env.pop("PYTHONSTARTUP", None)
     env.setdefault("OMP_NUM_THREADS", "4")
@@ -332,7 +326,7 @@ class CadQueryRuntime(RuntimeLayout):
         return ws.src / "model.py"
 
     def build_command(self, ws: Workspace, *, seed: int = 0) -> list[str]:
-        """The wrapper's own --tolerance / --angular-tolerance defaults are the tessellation."""
+        """The wrapper's own tolerance defaults are the tessellation."""
         return [
             self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
             "--rlimit-gb", str(self._rlimit_gb), "--seed", str(seed),

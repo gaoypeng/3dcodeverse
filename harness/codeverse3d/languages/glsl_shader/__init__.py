@@ -53,8 +53,7 @@ MAIN_IMAGE_TRAILER = """
 void main() { mainImage(fragColor, gl_FragCoord.xy); }
 """
 
-#: ONE left-to-right scan: a `//` inside a block comment and a `/*` inside a line comment
-#: are comment text.  Two passes (blocks, then lines) blanked real code after `// … /*`.
+#: One left-to-right scan: `//` inside a block comment and `/*` inside a line comment are comment text.
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 _MAIN_IMAGE = re.compile(r"\bvoid\s+mainImage\s*\(")
 _PLAIN_MAIN = re.compile(r"\bvoid\s+main\s*\(\s*(void)?\s*\)")
@@ -91,10 +90,7 @@ def _unconditional(src: str) -> str:
 
 
 def detect_convention(shader_src: str) -> str:
-    """``main`` when the author wrote a ``main()`` (with or without a ``mainImage`` it calls — the usual
-    Shadertoy-port pattern), else ``mainImage`` (the harness appends the ``main()`` trailer).  Appending
-    the trailer to a file that already has ``main()`` redefined it: codex gpt-6-luna wrote both on 4 of
-    4 one-shot shaders (p3x_graphics_v2, 2026-09-23) and every one failed to compile at ``harness:3``."""
+    """``main`` when the author wrote a ``main()``, else ``mainImage`` (the harness appends the ``main()`` trailer)."""
     shader_src = strip_comments(shader_src)
     # a main() only inside #if/#ifdef (a STANDALONE guard) is not the entry point the harness compiles
     if _PLAIN_MAIN.search(_unconditional(shader_src)):
@@ -114,8 +110,7 @@ def _piece(text: str) -> str:
 
 def compose(shader_src: str, common_src: str | None = None, *,
             shader_file: str = "src/shader.frag", common_file: str = "src/common.glsl") -> Composed:
-    """Header + common + shader (+ trailer) with a line
-    map back to the agent files."""
+    """Header + common + shader (+ trailer) with a line map back to the agent files."""
     convention = detect_convention(shader_src)
     pieces: list[tuple[str, str]] = [("harness", HEADER)]
     if common_src and common_src.strip():
@@ -138,8 +133,7 @@ def compose(shader_src: str, common_src: str | None = None, *,
 
 
 # --------------------------------------------------------------------------- compiler messages
-# GlslMessage / LineMap / parse_glsl_log live in ``_gl_common`` (shared with opengl_python)
-# and are re-exported above; only source composition + first_error remain here.
+# GlslMessage / LineMap / parse_glsl_log live in ``_gl_common``.
 def first_error(messages: list[GlslMessage]) -> GlslMessage | None:
     for m in messages:
         if m.kind == "error":
@@ -353,7 +347,7 @@ class GlslShaderRuntime(RuntimeLayout):
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
-        invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
+        invalidate_stale_outputs(ws)
         if (missing := missing_entry(ws, self.language)) is not None:
             return missing
         plan = graphics_plan(ws)

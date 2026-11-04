@@ -1,38 +1,16 @@
-"""The scene_blender census GLB — executed BY Blender (``run_bpy_scene.py``), never imported by the harness.
+"""The scene_blender census GLB; runs inside Blender (``run_bpy_scene.py``), never imported by the harness.
 
-The geometry gates are the JS ones (``probe_scene.mjs`` → ``host_census`` + ``host_placement``), so a
-Blender scene reaches them as a GLB the harness writes itself from the EVALUATED depsgraph — what
-renders: modifiers, geometry nodes and instances included.  The official glTF exporter is not usable
-for this (DESIGN §1.4: it silently drops geometry-nodes instances, and with ``export_gn_mesh`` it did
-not finish in 10 min on 73 k grass blades; this writer: 0.1–0.4 s).  Geometry, names, base colour
-and custom properties only: the file is an instrument for gates, never a picture.
+Writes a GLB from the evaluated depsgraph (modifiers, geometry nodes and instances included) so
+the JS geometry gates can read a Blender scene.  Geometry, names, base colour and custom
+properties only; it is an instrument for gates, never a picture.
 
-Layout (what the census and the placement table read):
+Layout: env objects are root nodes by name; each ZONE collection is one root node marked
+``extras[zone_key]``; collection instances are nodes sharing one glTF mesh per source mesh; other
+instance clouds are ``EXT_mesh_gpu_instancing`` nodes; volume-only meshes are skipped; custom
+properties become node ``extras``; ``extras.c3d_cameras`` carries the harness cameras.  A
+non-finite matrix or vertex is never written: it raises ``NonFiniteError`` as the model's error.
 
-* root nodes = env objects (whatever is not in a zone collection), by object name — ``backdrop.mjs``
-  classifies ``Ground`` / ``Terrain`` / ``Water`` / ``Sky…`` by name, so names are carried verbatim;
-* one root node per ZONE collection, named for it and marked ``extras[zone_key]`` (D111: the
-  placement table's zone roots; env roots are scenery); its children = the zone's root objects, their
-  parent chains as child nodes (group nodes carry no transform: every mesh node holds its world
-  matrix, so an Empty's rotation can never be applied twice);
-* a collection-instance Empty = a node whose children are one mesh node per instanced object, all
-  sharing one glTF mesh per source mesh — a clone per placed asset, which ``host_placement`` checks;
-* any other instance cloud (geometry nodes, particles, dupli-verts/faces) = one
-  ``EXT_mesh_gpu_instancing`` node per (instancer, source mesh) — an ``InstancedMesh`` in three.js,
-  counted as instances and exempt from per-asset placement exactly like scatter is today;
-* a mesh every material of which is volume-only (a fog box) is not written: it is not matter, and
-  the fog is reported from bpy instead (``run_bpy_scene.scene_facts``);
-* custom properties of str/int/float/bool value → node ``extras`` → three.js ``userData`` (so
-  ``obj["placement"] = "free"`` exempts a deliberately airborne thing, as ``userData.placement`` does);
-* the scene's ``extras.c3d_cameras`` carries the harness cameras in the GLB frame — the adapter
-  (``runtime_js/lib/glb_scene.mjs``) hands them to the host;
-* a non-finite matrix or vertex is never written (``JSON.parse`` rejects ``NaN``): the writer collects
-  every one (``_finite.Offenders``) and raises ``NonFiniteError`` before writing — the model's build
-  error, naming the object, the channel and the file that built it (D114).
-
-Frame: ``basis`` (3×3 rows, from ``conventions.glb_basis`` via the wrapper's argv) takes a Blender
-vector into the GLB frame (Y-up, +Z front); nothing here restates it.
-"""
+``basis`` (from ``conventions.glb_basis``) takes a Blender vector into the GLB frame."""
 
 from __future__ import annotations
 
@@ -43,7 +21,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from _finite import NonFiniteError, Offenders, bad_rows, finite  # sibling, Blender-executed
+from _finite import NonFiniteError, Offenders, bad_rows, finite
 
 MEASURABLE_TYPES = ("MESH", "CURVE", "SURFACE", "FONT", "META")
 _FLOAT, _UINT = 5126, 5125
@@ -68,7 +46,6 @@ def is_volume_material(mat: Any) -> bool:
 
 
 def is_volume_only(obj: Any) -> bool:
-    """Every material slot of ``obj`` is a volume material (and it has at least one)."""
     mats = [s.material for s in getattr(obj, "material_slots", ())]
     return bool(mats) and all(is_volume_material(m) for m in mats)
 
@@ -92,7 +69,6 @@ def _input_value(node: Any, name: str, default: Any) -> Any:
 
 # ----------------------------------------------------------------------------- math
 def _quaternions(rot: np.ndarray) -> np.ndarray:
-    """(n, 3, 3) rotation matrices → (n, 4) quaternions (x, y, z, w), Shepperd's method."""
     n = rot.shape[0]
     q = np.empty((n, 4), np.float64)
     tr = rot[:, 0, 0] + rot[:, 1, 1] + rot[:, 2, 2]
@@ -120,10 +96,9 @@ def _quaternions(rot: np.ndarray) -> np.ndarray:
 
 
 def _trs(mats: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(n, 4, 4) GLB-frame matrices → translations, quaternions, scales (a mirror flips one scale)."""
     t = mats[:, :3, 3]
     lin = mats[:, :3, :3]
-    s = np.linalg.norm(lin, axis=1)          # column norms: L = R · diag(s)
+    s = np.linalg.norm(lin, axis=1)
     s = np.where(s < 1e-12, 1e-12, s)
     r = lin / s[:, None, :]
     neg = np.linalg.det(r) < 0
@@ -183,8 +158,7 @@ class _Writer:
         return self.mat_ix[key]
 
     def mesh(self, key: Any, me: Any, slots: list[Any], owner: Any) -> int | None:
-        """One glTF mesh per source mesh datablock (``key``); ``None`` for an empty one, and for one
-        with a non-finite vertex (recorded against ``owner``, the object that shows it)."""
+        """One glTF mesh per source mesh datablock; ``None`` when empty or holding a non-finite vertex."""
         if key in self.mesh_ix:
             return self.mesh_ix[key]
         me.calc_loop_triangles()
@@ -221,8 +195,7 @@ class _Writer:
         return self.b4 @ np.array(mw, np.float64) @ self.b4.T
 
     def node_matrix(self, mw: Any, *blame: Any, via: str = "") -> list[float] | None:
-        """``mw`` in the GLB frame as a glTF column-major list; ``None`` (recorded against ``blame``)
-        when it holds a non-finite value."""
+        """``mw`` as a glTF column-major list in the GLB frame; ``None`` when non-finite."""
         m = self.glb_matrix(mw)
         if not finite(m):
             self.bad.transform(*blame, via=via)
@@ -230,7 +203,6 @@ class _Writer:
         return m.T.reshape(-1).tolist()
 
     def node(self, node: dict[str, Any], path: tuple[str, ...]) -> int:
-        """Append ``node`` under the group node of ``path`` (a root when ``path`` is empty)."""
         self.nodes.append(node)
         i = len(self.nodes) - 1
         if path:
@@ -256,7 +228,7 @@ class _Writer:
         }
         if any("extensions" in n for n in self.nodes):
             g["extensionsUsed"] = ["EXT_mesh_gpu_instancing"]
-        js = json.dumps(g, separators=(",", ":"), allow_nan=False).encode()   # NaN is not JSON (D114)
+        js = json.dumps(g, separators=(",", ":"), allow_nan=False).encode()
         js += b" " * (-len(js) % 4)
         head = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(self.buf))
         return (head + struct.pack("<II", len(js), 0x4E4F534A) + js
@@ -264,10 +236,9 @@ class _Writer:
 
 
 def extras_of(obj: Any) -> dict[str, Any]:
-    """Custom properties a gate can read (``placement = 'free'``); IDProperty groups / arrays and
-    non-finite floats (not JSON) dropped."""
+    """Custom properties a gate can read; IDProperty groups / arrays and non-finite floats are dropped."""
     out: dict[str, Any] = {}
-    for k in obj.keys():  # noqa: SIM118 — a bpy ID is not iterable over its custom properties
+    for k in obj.keys():  # noqa: SIM118
         v = obj[k]
         if isinstance(v, float) and not finite([v]):
             continue
@@ -287,15 +258,10 @@ def _chain(obj: Any) -> list[Any]:
 def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: dict[str, str],
                      cameras: list[dict[str, Any]], zone_key: str,
                      origin: Callable[[Any], str] | None = None) -> dict[str, Any]:
-    """Write the census GLB of the current (t = 0) state to ``path``; return its stats.
+    """Write the census GLB of the current state to ``path``; return its stats.
 
-    ``zones`` maps a zone COLLECTION name to itself for every zone the wrapper built (the node
-    name); every object in one of them (recursively) hangs under that zone's node, and that node's
-    ``extras`` carry ``{zone_key: <zone>}`` (``conventions.ZONE_ROOT_KEY``, D111) — the mark the
-    placement table measures the zone's children by; every other root is scenery.
-
-    Raises ``NonFiniteError`` (nothing written) when a matrix or vertex it would write is NaN / inf;
-    ``origin(obj)`` names the file that built an original object, for that report."""
+    ``zones`` maps each zone collection name to itself; objects under one hang under its node.
+    Raises ``NonFiniteError`` (nothing written) on a NaN / inf matrix or vertex."""
     t0 = time.perf_counter()
     w = _Writer(np.array(basis, np.float64), Offenders(origin))
     zone_of: dict[str, str] = {}
@@ -311,8 +277,6 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
         return ((zone,) if zone else ()) + tuple(o.name for o in chain)
 
     def ensure_groups(obj: Any, *, own: bool = False) -> tuple[str, ...]:
-        """Group nodes for the ancestors of ``obj`` (+ ``obj`` itself when ``own``), top down so each
-        carries its object's custom properties; returns the path ``obj``'s own node hangs under."""
         chain = _chain(obj)
         zone = zone_of.get(chain[0].name)
         base = (zone,) if zone else ()
@@ -325,10 +289,9 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
                              "clouds": 0, "volumes_skipped": []}
     dg = bpy.context.evaluated_depsgraph_get()
     clouds: dict[tuple[tuple[str, ...], Any], tuple[int | None, str, list[np.ndarray], Any, str]] = {}
-    for zone in zones:   # an empty zone is still a group the census can see
+    for zone in zones:
         own = extras_of(bpy.data.collections[zone]) if zone in bpy.data.collections else {}
         w.group((zone,), {**own, zone_key: zone})
-    # an object that hosts an instance cloud is its own group (its mesh + the cloud = one row)
     hosts = {inst.parent.original.name for inst in dg.object_instances
              if inst.is_instance and inst.parent is not None and inst.parent.original.instance_type != "COLLECTION"}
     for inst in dg.object_instances:
@@ -340,23 +303,18 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
             if host is None or host.hide_render or is_volume_only(ob):
                 continue
             if host.type in MEASURABLE_TYPES and host.type != "MESH":
-                # a bevelled curve / a text object: the depsgraph lists the owner's own evaluated
-                # mesh component as an instance OF the owner (Blender 5.2.2, measured 2026-10-14:
-                # is_instance, parent = the curve, original = the curve) — written once, from the
-                # owner, by _write_other_types; a cloud here would be a phantom second copy
+                # curve and text meshes have their own writer; skip the instance
                 continue
-            # the geometry and the placement are both checked before either skips: two independent
-            # NaNs are one report, not two repair attempts
+            # check geometry and placement before either skips: two NaNs are one report
             ix = w.mesh(ob.data.as_pointer(), ob.data, [s.material for s in ob.material_slots], ob.original)
-            if host.instance_type == "COLLECTION":   # a placed asset: one clone node per instanced mesh
+            if host.instance_type == "COLLECTION":
                 m = w.node_matrix(inst.matrix_world, host, ob.original, via=f"(instanced by {host.name!r})")
                 if ix is None or m is None:
                     continue
                 w.node({"name": ob.name, "mesh": ix, "matrix": m}, ensure_groups(host, own=True))
                 stats["instanced_tris"] += w.mesh_tris[ix]
                 continue
-            key = (path_of(host), ob.data.as_pointer())   # Blender-frame matrices, converted in one batch below
-            # a geometry-nodes instance is listed AS its host (object name = the host's): the mesh names it
+            key = (path_of(host), ob.data.as_pointer())
             source = f"mesh {ob.data.name!r}" if ob.name == host.name else repr(ob.name)
             clouds.setdefault(key, (ix, ob.name, [], host, source))[2].append(np.array(inst.matrix_world, np.float32))
             continue
@@ -369,7 +327,6 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
         m = w.node_matrix(ob.matrix_world, orig)
         if ix is None or m is None:
             continue
-        # a mesh with children is its own group (one placement row), its geometry a node inside it
         under = ensure_groups(orig, own=bool(orig.children) or orig.name in hosts)
         node = {"name": orig.name, "mesh": ix, "matrix": m}
         if ex := extras_of(orig):
@@ -406,7 +363,6 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
 
 
 def _write_other_types(dg: Any, w: _Writer, stats: dict[str, Any], ensure_groups: Any) -> None:
-    """Curves, text, surfaces and metaballs that stayed their own type after evaluation."""
     for inst in dg.object_instances:
         ob = inst.object
         if inst.is_instance or ob.type == "MESH" or ob.type not in MEASURABLE_TYPES:
@@ -431,7 +387,6 @@ def _write_other_types(dg: Any, w: _Writer, stats: dict[str, Any], ensure_groups
 
 
 def _glb_camera(c: dict[str, Any], b3: np.ndarray) -> dict[str, Any]:
-    """A harness camera (Blender frame: ``location`` / ``look_at``, vertical ``fov``) as the host's spec."""
     pos = (b3 @ np.array(c["location"], np.float64)).tolist()
     look = (b3 @ np.array(c["look_at"], np.float64)).tolist()
     return {"name": str(c["name"]), "position": [round(v, 5) for v in pos], "lookAt": [round(v, 5) for v in look],

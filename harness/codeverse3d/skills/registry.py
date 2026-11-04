@@ -1,20 +1,9 @@
-"""The routing table (design §5.2) and the one place a gate finding becomes a routing kind.
+"""The skill routing table and the one place a gate finding becomes a routing kind.
 
-Two things live here and nowhere else:
-
-**finding_kind()** — a finding's kind is ``"<gate>/<data.kind>"``, the kind the gate itself
-wrote (``connectivity/penetration``, ``scene_frames/no_motion``); the ``lint:<language>``
-gates are one ``lint`` family, typed by ``contracts.artifacts.LintKind``.  Every gate now writes
-a kind; a finding recorded before its gate did (a lint or motion_direction round before
-2026-09-24) is ``"<gate>/untyped"``, which only a family row (``joint_sweep/*``) answers.  No
-message text is read: the regex this replaced left seven scene_frames kinds unrouted and R19
-unreachable (audit 2026-09-24, N52), and every gate reword could unroute a skill.  INFO lines
-("all 7 parts are connected") are census, not defects, and have no kind.
-
-**ROUTES** — typed rows, evaluated by ``select()`` below.  A row fires when ALL of its stated
-conditions hold; ``priority`` decides who survives the cap, and every gate-fired row sits
-at >= 90 so a repair round spends its budget on what actually broke.  Routing a kind is a
-claim that a skill helps, and that claim needs evidence; most kinds have no row.
+``finding_kind()`` maps a finding to ``"<gate>/<data.kind>"`` (all ``lint:<language>`` gates are one
+``lint`` family; an untyped finding is ``"<gate>/untyped"``); no message text is read and INFO
+lines have no kind.  ``ROUTES`` are typed rows evaluated by ``select()``: a row fires when all its
+conditions hold, ``priority`` decides who survives the cap, and gate-fired rows sit at >= 90.
 """
 
 from __future__ import annotations
@@ -28,7 +17,6 @@ from codeverse3d.contracts.artifacts import LintKind
 from codeverse3d.skills.model import EVIDENCE_INHERITED, Selection, Skill
 
 # --------------------------------------------------------------------------- finding kinds
-#: the kind of a finding whose gate writes no ``data.kind``
 UNTYPED = "untyped"
 #: the kinds a route or a bundle target names on its own — the gates' own words
 CONNECTIVITY_PENETRATION = "connectivity/penetration"
@@ -51,17 +39,14 @@ SHADER_PREFLIGHT = "shader_preflight/*"
 MOTION_WRONG_DIRECTION = "motion_direction/wrong_direction"
 LINT = "lint/*"
 LINT_PART_NOT_IMPORTED = f"lint/{LintKind.PART_NOT_IMPORTED.value}"
-#: the scene_placement gate's seating kinds (spatial/scene_placement.py; ``free_exempt`` and
-#: ``cantilevered`` are 2026-10-14's, D105).  Its PLAN kinds (no_fog, world_edge, scale, zone_empty, …)
-#: are deliberately not here: they are env / composition findings, not seating.
+#: the scene_placement seating kinds; its PLAN kinds (no_fog, world_edge, ...) are not seating
 SCENE_PLACEMENT_FLOATING = "scene_placement/floating"
 SCENE_PLACEMENT_SUNKEN = "scene_placement/sunken"
 SCENE_PLACEMENT_UNSUPPORTED = "scene_placement/unsupported"
 SCENE_PLACEMENT_INTERPENETRATION = "scene_placement/interpenetration"
 SCENE_PLACEMENT_FREE_EXEMPT = "scene_placement/free_exempt"
 SCENE_PLACEMENT_CANTILEVERED = "scene_placement/cantilevered"
-#: the six seating kinds a placement row answers (a family pattern ``"scene_placement/*"`` would
-#: also attach the placement sheet to a no_fog or stamped_ring finding, which it cannot fix)
+#: the seating kinds a placement row answers (a ``scene_placement/*`` pattern would over-attach)
 SCENE_PLACEMENT_SEATING: tuple[str, ...] = (
     SCENE_PLACEMENT_FLOATING, SCENE_PLACEMENT_SUNKEN, SCENE_PLACEMENT_UNSUPPORTED,
     SCENE_PLACEMENT_INTERPENETRATION, SCENE_PLACEMENT_FREE_EXEMPT, SCENE_PLACEMENT_CANTILEVERED,
@@ -69,7 +54,6 @@ SCENE_PLACEMENT_SEATING: tuple[str, ...] = (
 
 
 def gate_family(gate: str) -> str:
-    """A gate's name as its findings' kinds carry it: every ``lint:<language>`` gate folds to ``lint``."""
     gate = gate.strip().lower()
     return "lint" if gate.startswith("lint") else gate
 
@@ -88,12 +72,10 @@ def finding_kind(finding: Any) -> str | None:
 
 
 def kind_matches(kind: str, patterns: tuple[str, ...]) -> bool:
-    """``kind`` is one of ``patterns``: an exact kind, or a family ending in ``*`` (``gl_frames/*``)."""
     return any(kind.startswith(p[:-1]) if p.endswith("*") else kind == p for p in patterns)
 
 
 def finding_kinds(findings: object) -> list[str]:
-    """Distinct kinds of an iterable of ``GateFinding`` (or of ``GateReport``s), in order."""
     out: list[str] = []
     for f in _iter_findings(findings):
         k = finding_kind(f)
@@ -116,17 +98,15 @@ OBJECT_TRACKS = ("static_object", "articulated_object")
 BLENDER_LANGS = ("blender", "urdf_blender")
 THREEJS_LANGS = ("scene_threejs", "threejs")
 BPY_SCENE_LANGS = ("scene_blender",)
-#: the scene track's session kinds (tracks/scene.py: env, zone, refine, rebuild; asset is quiet)
+#: the scene track's session kinds that attach skills
 BPY_SCENE_KINDS = ("env", "zone", "refine", "rebuild")
 BUILD_KINDS = ("baseline", "part", "refine", "rebuild", "repair")
-#: kinds that attach nothing on their own (design §5.2 law 4): short, narrow sessions the
-#: corpus attaches no defect class to.  A gate-fired row still reaches them.
+#: kinds that attach nothing on their own; a gate-fired row still reaches them
 QUIET_KINDS = ("asset", "asset_fix", "reference")
 
 
 @dataclass(frozen=True)
 class Route:
-    """One row of the table.  Empty tuple == "any"; ``findings`` == "a gate fired"."""
 
     rule: str
     skill: str
@@ -144,7 +124,6 @@ class Route:
         return bool(self.findings)
 
     def matches_finding(self, kinds: list[str]) -> str | None:
-        """The first routed finding kind this row answers, or None."""
         return next((k for pat in self.findings for k in kinds if kind_matches(k, (pat,))), None)
 
 
@@ -154,17 +133,14 @@ ROUTES: tuple[Route, ...] = (
     Route("R2", "c3d-part-contact", 95, kinds=("repair", "refine", "rebuild"),
           findings=("connectivity/*", "joint_sweep/*"),
           why="the previous round's connectivity/joint gate fired"),
-    # R3 and R4 are object tracks only: the sheet's proof loop is measure / check_contract /
-    # isolate, and a scene session has none of those tools (both reached scene sessions until 2026-09-22)
+    # R3 and R4 are object tracks only: a scene session has no measure / check_contract / isolate tools
     Route("R3", "c3d-bbox-contract", 65, tracks=OBJECT_TRACKS,
           kinds=("baseline", "part", "refine", "rebuild"),
           why="this session owns dimensions, and the plan's numbers are the contract"),
     Route("R4", "c3d-bbox-contract", 95, tracks=OBJECT_TRACKS, kinds=("repair", "refine", "rebuild"),
           findings=("contract/*",),
           why="the previous round's contract gate fired"),
-    # R5 was c3d-form-manifest, retired 2026-08-25: read 2/19 (11%, CI [3%,31%]) before and
-    # after its description was revised.  See docs/SKILLS_LEDGER.md (the bundle's text is in git history).  The id is
-    # not reused — a route id is how a ledger row and a run record refer to a routing decision.
+    # R5 is retired; a route id is how a ledger row and a run record name a routing decision, so ids are never reused
     Route("R6", "c3d-repeats-and-mirrors", 55, tracks=OBJECT_TRACKS,
           kinds=("baseline", "part", "refine", "rebuild"),
           requires_any=("has_instances", "has_symmetry"),
@@ -217,15 +193,11 @@ ROUTES: tuple[Route, ...] = (
     Route("R23", "c3d-opengl-pipeline", 80, tracks=("graphics",), languages=("opengl_python",),
           kinds=("baseline", "refine", "repair", "rebuild"),
           why="pipeline setup and pass structure: originality 0.330 is the lowest criterion anywhere"),
-    # R24 is one row per language: the design writes it as a single line, but a Route names
-    # exactly one skill so telemetry can say which one the finding routed.
+    # one row per language: a Route names exactly one skill so telemetry can say which one a finding routed
     Route("R24-glsl", "c3d-glsl-craft", 90, tracks=("graphics",), languages=("glsl_shader",),
           findings=(GL_FRAMES,), why="the frame gate saw no motion or no detail"),
     Route("R24-opengl", "c3d-opengl-pipeline", 90, tracks=("graphics",), languages=("opengl_python",),
           findings=(GL_FRAMES,), why="the frame gate saw no motion or no detail"),
-    # R25-R28 (2026-09-01): the graphics-recipe port from the scene_multifile_graphics
-    # reference (eval/docs/EVAL.md sceneloop entry).  Atmosphere and materials ride every
-    # env/baseline build; water and night only when the plan's own words ask for them.
     Route("R25", "c3d-scene-atmosphere", 70, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "env", "refine"),
           why="the sky bake is the light source every PBR surface reflects; 4/9 reference scenes shipped it inverted"),
@@ -238,11 +210,6 @@ ROUTES: tuple[Route, ...] = (
     Route("R28", "c3d-scene-materials", 65, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "zone", "refine"),
           why="flat albedo and identical twins are the reference audit's most-cited surface defects"),
-    # R29-R34 (2026-10-14, D105): the scene_blender bundles.  Placement rides every build session
-    # because every placed thing is a measured row and the 2026-10-14 thresholds make a hand's
-    # breadth of hover an ERROR; lighting and materials ride the sessions that author light and
-    # surfaces.  R34 is the three.js half of "a gate-fired route on scene_placement for both
-    # languages": composition's first rule is the one height function everything samples.
     Route("R29", "c3d-bpy-scene-placement", 80, tracks=("scene",), languages=BPY_SCENE_LANGS, kinds=BPY_SCENE_KINDS,
           why="every placed thing is a measured placement row, and the strict 2026-10-14 thresholds make a "
               "hand's breadth of hover an ERROR with a score ceiling"),
@@ -265,7 +232,7 @@ ROUTES: tuple[Route, ...] = (
               "samples is the bundle's first rule"),
 )
 
-#: every skill the table can attach — the Author phase's contract for which bundles must exist
+#: every skill the table can attach
 ROUTED_SKILLS: tuple[str, ...] = tuple(dict.fromkeys(r.skill for r in ROUTES))
 
 
@@ -283,10 +250,7 @@ _NIGHT_WORDS = ("night", "neon", "dusk", "evening", "moonlit", "moonlight", "lam
 
 
 def plan_signals(plan: Any | None) -> dict[str, Any]:
-    """Route-relevant facts about a plan.  Tolerant by design: a missing/partial plan
-    yields all-false signals rather than raising, because a planner failure must not
-    also take out the round's skills.  Kept here, not on the Plan contracts: adding a
-    routing signal must not migrate every stored plan."""
+    """Route-relevant facts about a plan; a missing or partial plan yields all-false signals."""
     parts = list(getattr(plan, "parts", None) or [])
     joints = list(getattr(plan, "joints", None) or [])
     effects = list(getattr(plan, "effects", None) or [])
@@ -307,8 +271,6 @@ def plan_signals(plan: Any | None) -> dict[str, Any]:
         "has_joints": bool(joints),
         "joint_types": sorted({str(getattr(j, "type", "")) for j in joints if getattr(j, "type", "")}),
         "has_custom_shader": bool(effects) or any(w in text for w in _SHADER_WORDS),
-        # scene-content signals (2026-09-01, the graphics-recipe port): matched against the
-        # plan's own words so the water/night recipes ride only when the brief wants them
         "wants_water": any(w in text for w in _WATER_WORDS),
         "wants_night": any(w in text for w in _NIGHT_WORDS),
     }
@@ -326,16 +288,13 @@ def _row_applies(row: Route, track: str, language: str, kind: str, signals: dict
     return not (row.requires_any and not any(signals.get(k) for k in row.requires_any))
 
 
-#: the floor of a gate-fired row (design §5.2 law 2).  ``model.Selection.gate_fired`` reads a priority
-#: >= 90 as "a gate routed this", so a variant boost may neither lift a standing row up to it nor
-#: drop a fired row under it — the table's meaning must survive the overlay
+#: the floor of a gate-fired row: ``Selection.gate_fired`` reads priority >= 90 as "a gate routed this",
+#: so a variant boost may not move a row across it
 GATE_FIRED_PRIORITY = 90
 
 
 def effective_priority(row: Route, boosts: Mapping[str, int]) -> int:
-    """``row.priority`` plus the variant's boost for its skill, clamped to the table's law: a standing
-    row stays below :data:`GATE_FIRED_PRIORITY` (a warning says it was clamped — the boost is too
-    big, not wrong), a gate-fired row never drops below it, nothing goes under 0."""
+    """``row.priority`` plus the variant's boost, clamped so standing rows stay below and gate-fired rows at or above the floor."""
     delta = int(boosts.get(row.skill, 0))
     if not delta:
         return row.priority
@@ -366,13 +325,8 @@ def select(
 ) -> list[Selection]:
     """The routed bundles for one session, ranked, capped, each with its reason.
 
-    ``findings`` may be ``GateFinding``s, ``GateReport``s, or already-classified kind
-    strings — the caller usually has the previous ``RoundRecord.gates`` on hand.
-
-    ``routes`` / ``boosts`` / ``disabled`` are a variant's reshaping of the table
-    (``skills.variants_table``): the rows to evaluate, in order (a variant's extra rows come after
-    the base ones, so ties keep the base order), a priority delta per skill
-    (:func:`effective_priority` clamps it) and the rule ids to skip.
+    ``findings`` may be ``GateFinding``s, ``GateReport``s or kind strings; ``routes`` / ``boosts`` /
+    ``disabled`` are a variant's reshaping of the table.
     """
     from codeverse3d.skills import all_skills
 
@@ -392,14 +346,12 @@ def select(
         if row.gate_fired and hit is None:
             continue
         if not row.gate_fired and kind in QUIET_KINDS:
-            # design §5.2 law 4: short, narrow sessions attach nothing on their own
             continue
         if not _row_applies(row, track, language, kind, sig):
             continue
         skill = lib.get(row.skill)
         if skill is None:
-            # The Author phase ships bodies in its own commits; a table row without a
-            # bundle must not crash a run — it is a missing skill, not a broken harness.
+            # a table row without a bundle must not crash a run
             log.debug("route %s names skill %r, which is not in the library", row.rule, row.skill)
             continue
         if skill.evidence == EVIDENCE_INHERITED and not allow_unverified:
@@ -413,13 +365,11 @@ def select(
         if prev is None:
             best[row.skill] = Selection(skill=skill, priority=priority, rules=(row.rule,), reason=reason)
         elif priority > prev.priority:
-            # a gate-fired row overrides the standing one, and says so in the reason
             best[row.skill] = Selection(skill=skill, priority=priority, rules=(*prev.rules, row.rule), reason=reason)
         else:
             best[row.skill] = prev.model_copy(update={"rules": (*prev.rules, row.rule)})
 
-    # priority first (law 2: gate-fired rows outrank standing ones), then table order —
-    # a stable, testable ranking, so the cap always cuts the same tail.
+    # priority first (gate-fired outranks standing), then table order: the cap cuts a stable tail
     ranked = sorted(best.values(), key=lambda s: (-s.priority, first_seen[s.name]))
     return ranked[:max(0, max_skills)]
 

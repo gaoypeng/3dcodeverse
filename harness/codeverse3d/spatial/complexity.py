@@ -1,43 +1,4 @@
-"""Objective complexity of a built artifact — no VLM, no renders, no model call.
-
-``complexity_of_parts`` turns the world-space part meshes of the canonical GLB
-into a :class:`ComplexityVector`: eight measured axes plus one 0–1 ``index``
-computed from documented weights.  It answers "how much *thing* is actually
-here?" so that a judge score can be read against the difficulty of what was
-built (eval/docs/COMPLEXITY.md), and so a battery can state an expected complexity
-band instead of a vibe.
-
-The eight axes
-
-* ``part_count``       — parts with geometry in the canonical GLB.
-* ``assembly_depth``   — depth of the node graph below the effective top level
-  (1 = flat list of parts, 3 = sub-assemblies of sub-assemblies).
-* ``tri_count``        — triangles in the whole artifact.
-* ``materials``        — distinct materials bound to its geometry.
-* ``silhouette``       — mean isoperimetric quotient ``P² / 4πA`` of the
-  silhouette in the three axis-aligned projections (1.0 = a disc, ~1.3 = a
-  square, 10+ = a chair, 60 = a birdcage).  Computed from geometry (surface
-  samples rasterised at ``SILHOUETTE_RES``), not from a render, so it needs no
-  GPU and is identical on every machine.
-* ``feature_density``  — small *and* sharp edges per unit surface area, made
-  dimensionless with the bbox diagonal: ``n · diag² / area``.  An edge counts
-  when its dihedral angle exceeds ``_SHARP_DEG`` and it is shorter than
-  ``_SMALL_EDGE_FRAC`` of the diagonal — i.e. bevels, chamfers, flutes,
-  mouldings, hardware, fine tessellation of curved surfaces.  A box stack
-  scores ~100, a machined instrument ~10 000.
-* ``symmetry_groups``  — families of geometrically repeated parts (same tri
-  count and same extents to 1 mm): 4 identical legs are one group.  Organised
-  repetition is what separates a 20-part machine from 20 random blobs.
-* ``hollowness``       — mean per-part concavity ``1 − volume / hull_volume``
-  over watertight parts: 0 for solid boxes and cylinders, high for tubes,
-  shells, C-frames and bent bars.
-
-``index`` is ``Σ wᵢ · normᵢ(axisᵢ)`` with the weights in
-``COMPLEXITY_WEIGHTS`` and the saturating normalisers in ``_NORMALISERS`` (both
-public data; eval/docs/COMPLEXITY.md records why each number is what it is).  It is
-a *difficulty* measure, never a *quality* measure: a rich broken model and a
-rich good model score the same index.
-"""
+"""Objective complexity of a built artifact — no VLM, no renders, no model call."""
 
 from __future__ import annotations
 
@@ -59,20 +20,15 @@ __all__ = [
     "band_of",
 ]
 
-#: Bump when an axis, a weight or a normaliser changes — stored on every vector
-#: so an old record is never silently compared against a new scale.
 COMPLEXITY_VERSION = 1
 
 SILHOUETTE_RES = 128
-#: samples per grid cell: at 12 the chance a covered pixel is missed is ~6e-6, so the
-#: mask has no sampling pinholes and the perimeter is the shape's, not the noise's
 _SAMPLES_PER_CELL = 12
-_SAMPLE_SEED = 0   # law 10: the same GLB must always yield the same vector
+_SAMPLE_SEED = 0
 _SHARP_DEG = 20.0
 _SMALL_EDGE_FRAC = 0.02
 _DUP_TOL_M = 1e-3
 
-#: axis -> weight of its normalised value in ``index`` (sums to 1.0).
 COMPLEXITY_WEIGHTS: dict[str, float] = {
     "part_count": 0.20,
     "assembly_depth": 0.07,
@@ -84,9 +40,6 @@ COMPLEXITY_WEIGHTS: dict[str, float] = {
     "hollowness": 0.09,
 }
 
-#: axis -> (kind, lo, hi).  ``log`` maps log(x) linearly from log(lo)..log(hi)
-#: onto 0..1; ``lin`` maps x itself.  Everything is clipped to [0, 1], so the
-#: pair is "the value that scores 0" and "the value that saturates at 1".
 _NORMALISERS: dict[str, tuple[str, float, float]] = {
     "part_count": ("log", 1.0, 30.0),
     "assembly_depth": ("lin", 1.0, 4.0),
@@ -98,7 +51,6 @@ _NORMALISERS: dict[str, tuple[str, float, float]] = {
     "hollowness": ("lin", 0.0, 1.0),
 }
 
-#: index -> label.  The complexity battery states an expected band per prompt.
 _BANDS: tuple[tuple[float, str], ...] = (
     (0.25, "trivial"),
     (0.40, "simple"),
@@ -159,8 +111,8 @@ def _raster(pts2: np.ndarray, res: int) -> np.ndarray:
 
 
 def _close(grid: np.ndarray) -> np.ndarray:
-    """3×3 binary closing (dilate then erode) — seals sampling pinholes without
-    bridging real gaps wider than one pixel.  Pure numpy: scipy is an extra."""
+    """3×3 binary closing (dilate then erode) — seals sampling pinholes without bridging real
+    gaps wider than one pixel."""
     out = grid
     for op in (np.logical_or, np.logical_and):
         acc = out.copy()
@@ -172,12 +124,7 @@ def _close(grid: np.ndarray) -> np.ndarray:
 
 
 def _mask_perimeter(grid: np.ndarray) -> float:
-    """4-connected crack-boundary length of the mask, in pixels.
-
-    Uncorrected on purpose: a correction that is right for curves is wrong for
-    axis-aligned rectangles, and this axis is comparative.  Reference points on
-    this scale: a solid box ≈ 1.3, a sphere ≈ 1.6, a chair ≈ 10, a birdcage ≈ 60.
-    """
+    """4-connected crack-boundary length of the mask, in pixels."""
     p = int(np.count_nonzero(grid[:-1, :] ^ grid[1:, :]))
     p += int(np.count_nonzero(grid[:, :-1] ^ grid[:, 1:]))
     p += int(np.count_nonzero(grid[0, :]) + np.count_nonzero(grid[-1, :]))
@@ -186,14 +133,8 @@ def _mask_perimeter(grid: np.ndarray) -> float:
 
 
 def _silhouette_stats(mesh: trimesh.Trimesh) -> tuple[float, float, float]:
-    """``(isoperimetric quotient, fill fraction, mirror symmetry)`` averaged over
-    the three axis-aligned projections.
-
-    Each projection is sampled with faces weighted by their PROJECTED area
-    (``|n·view| · area``): sampling the raw surface would spend a third of its
-    points on faces that project to a line, and the resulting pinholes would be
-    read as perimeter — a solid box measured 89 instead of 1.3 before this.
-    """
+    """``(isoperimetric quotient, fill fraction, mirror symmetry)`` averaged over the three axis-
+    aligned projections."""
     n = _SAMPLES_PER_CELL * SILHOUETTE_RES * SILHOUETTE_RES
     quotients: list[float] = []
     fills: list[float] = []
@@ -274,11 +215,7 @@ def _hollowness(parts: dict[str, trimesh.Trimesh | None]) -> tuple[float, float]
 
 
 def _symmetry_groups(parts: dict[str, trimesh.Trimesh | None]) -> tuple[int, int]:
-    """``(families of geometrically identical parts, parts inside such a family)``.
-
-    Identity is (triangle count, extents rounded to ``_DUP_TOL_M``) — position
-    and orientation are ignored, so mirrored legs and a ring of spokes count.
-    """
+    """``(families of geometrically identical parts, parts inside such a family)``."""
     buckets: dict[tuple[int, tuple[int, ...]], int] = {}
     for mesh in parts.values():
         if mesh is None or not len(mesh.faces):
@@ -327,12 +264,7 @@ def complexity_of_parts(
     scene: trimesh.Scene | None = None,
     materials: int = 0,
 ) -> ComplexityVector:
-    """Complexity of already-loaded world-space part meshes.
-
-    ``scene`` (when given) supplies the node graph for ``assembly_depth`` and
-    the material count.  Never raises: a degenerate artifact yields a
-    near-zero vector with ``extra["error"]``.
-    """
+    """Complexity of already-loaded world-space part meshes."""
     solid = OrderedDict((k, v) for k, v in parts.items() if v is not None and len(v.faces))
     if not solid:
         return ComplexityVector(extra={"error": "no geometry"})

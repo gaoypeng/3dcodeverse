@@ -1,28 +1,4 @@
-"""Export run records → dataset sample folders + ``metadata.parquet``.
-
-``export_samples(runs_dir, out_dir)`` writes one sample folder per run (see
-``sample.py`` for the layout), records every file it wrote — sha256 each — in
-``<out>/dataset_manifest.json`` (:func:`write_manifest`, below) and builds the text
-index FROM those manifest entries, never from a directory rescan (so repeated
-exports into the same folder stay consistent and nothing the selection did not
-choose can leak into the index):
-
-* ``<out>/metadata.parquet`` — STORAGE_RULES §4 columns (``id, key, name,
-  captions{detailed,instruction,factory}, meta_json, code, tar, byte_start,
-  byte_len, n_files``) plus queryable extras (``track, language, score, passed,
-  generator, quality_tier, complexity (+band), gate_errors, cost_usd, rounds, status,
-  code_fingerprint, code_sha256, prompt_hash, duplicate_of, near_duplicate_of,
-  has_captions``).  ``tar``/``byte_*`` are filled by ``pack.py``; ``duplicate_of``
-  (raw hash) and ``near_duplicate_of`` (normalised) by the dedupe pass.
-* ``<out>/metadata.jsonl`` — same rows, one JSON object per line.
-* ``<out>/duplicates.json`` — the duplicate groups found by the last export.
-* ``<out>/dataset_manifest.json`` — the generation manifest: the filters, one
-  hashed entry per exported sample, and every dropped run with its reason
-  (``duplicate_of:<id>`` for de-duplicated rows).  ``pack.py`` consumes ONLY this.
-
-Captions come from ``record.extra["captions"]``, else ``<ws>/captions.json``,
-else ``<captions_dir>/<slug>.json`` (side-car written by ``3dcode flywheel caption --out``).
-"""
+"""Export run records → dataset sample folders + ``metadata.parquet``."""
 
 from __future__ import annotations
 
@@ -71,12 +47,6 @@ class ExportReport(BaseModel):
 def load_captions(
     ws: Workspace, record: RunRecord, captions_dir: Path | None = None, *, slug: str | None = None
 ) -> dict[str, Any]:
-    """Full captions dict (text fields + provenance) from record.extra, ``<ws>/captions.json``
-    or ``<captions_dir>/<slug>.json``; ``{}`` when the run is not captioned.
-
-    ``slug`` is the run's :class:`~codeverse3d.contracts.run.RunId` slug; without it the
-    side-car falls back to the directory basename (correct only for flat layouts —
-    every nested battery run is named ``run`` and would read a stranger's captions)."""
     caps = record.extra.get("captions") or {}
     if caps.get("detailed"):
         return dict(caps)
@@ -95,7 +65,6 @@ def _caption_texts(caps: dict[str, Any]) -> dict[str, str]:
 
 
 class ExportedSample(NamedTuple):
-    """What :func:`export_one` wrote: the sample dir plus the hashes the manifest needs."""
 
     dest: Path
     file_hashes: dict[str, str]
@@ -107,11 +76,6 @@ def export_one(
     ws: Workspace, record: RunRecord, out_dir: Path, *,
     captions_dir: Path | None = None, run_id: RunId | None = None
 ) -> ExportedSample:
-    """Write the sample folder for one run; returns the dir plus a sha256 per file
-    written (every byte in the folder passes through here, so it is hashed here).
-
-    ``run_id`` carries the collision-safe identity minted at discovery time; without
-    one the key falls back to the directory basename (flat layouts only)."""
     key = run_id.slug if run_id is not None else S.sample_key(ws)
     dest = out_dir / S.sample_rel_dir(record, key)
     rnd = S.exported_round(ws, record)
@@ -149,18 +113,6 @@ def export_samples(
     captions_dir: Path | str | None = None,
     drop_duplicates: bool = False,
 ) -> ExportReport:
-    """Export every eligible run under ``runs_dir`` into ``out_dir`` and rebuild the index.
-
-    The exported round is the one ``addons/select`` picks (the highest judged score, or
-    what the run's ``selection.json`` handed over).  Runs whose round never built are skipped unless
-    ``include_unbuilt`` (failed runs are still useful for repair pairs, not as
-    dataset samples).  Byte-identical duplicates (same raw ``code_sha256`` + prompt)
-    are marked ``duplicate_of`` and, with ``drop_duplicates``, left out of the index
-    AND of the manifest entries, recorded under ``manifest.dropped`` as
-    ``duplicate_of:<id>`` (folders stay on disk).  Normalised duplicates are only
-    MARKED (``near_duplicate_of``) — never dropped: whitespace inside a string
-    literal is not a duplicate.
-    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     rep = ExportReport()
@@ -168,10 +120,8 @@ def export_samples(
     def _bad(d: Path, e: Exception) -> None:
         rep.skipped[str(d)] = f"invalid record: {e}"
 
-    # Fail FAST on identity collisions: two run dirs whose samples would land in the
-    # same folder must abort before anything is written — the rmtree-before-write in
-    # export_one is how 79 nested-battery records used to collapse into ONE sample.
-    # A dest left by an EARLIER pass stays overwritable; only same-pass duplicates raise.
+    # Abort on same-pass identity collisions before writing anything (export_one rmtrees its dest);
+    # a dest left by an earlier pass stays overwritable.
     found: list[FoundRun] = list(iter_runs(runs_dir, on_error=_bad))
     dest_owner: dict[str, Path] = {}
     for ws, rec, rid in found:
@@ -200,7 +150,7 @@ def export_samples(
         if not include_unbuilt and not (rnd.build is not None and rnd.build.ok):
             _skip(ws.root, rid, "the exported round did not build")
             continue
-        if only_passed and not (j is not None and j.passed):  # the judge's verdict on THAT round
+        if only_passed and not (j is not None and j.passed):
             _skip(ws.root, rid, "the judge did not pass the exported round")
             continue
         if min_score is not None and (score is None or score < min_score):
@@ -212,7 +162,7 @@ def export_samples(
         except S.SampleError as e:
             _skip(ws.root, rid, str(e))
             continue
-        except Exception as e:  # git errors etc. — report, keep going
+        except Exception as e:
             _skip(ws.root, rid, f"{type(e).__name__}: {e}")
             continue
         rep.n_exported += 1
@@ -222,8 +172,7 @@ def export_samples(
             run=rid, sample_id=exported.meta.id, sample_rel_dir=rel_dir,
             files=exported.file_hashes, code_fingerprint=exported.meta.code_fingerprint,
             code_sha256=exported.code_sha256))
-    # rows come from the manifest's own selection, never a rescan — a rescan is how
-    # dropped duplicates used to ship and how a planted src/meta.json became a row
+    # rows come from the manifest's own selection, never a rescan.
     rows = [row_for_sample(out / e.sample_rel_dir) for e in entries]
     rep.duplicates = mark_duplicates(rows)
     rep.n_duplicates = sum(len(g.duplicates) for g in rep.duplicates)
@@ -247,16 +196,11 @@ def export_samples(
     rep.n_indexed = len(rows)
     for r in rows:
         rep.tiers[r["quality_tier"]] = rep.tiers.get(r["quality_tier"], 0) + 1
-    # JSONL first, and unconditionally: it carries the same rows with no third-party
-    # dependency, so a core-only install still gets a complete, indexed dataset.
     rep.jsonl = str(write_jsonl(rows, out / JSONL_NAME))
     try:
         rep.parquet = str(write_parquet(rows, out / PARQUET_NAME))
     except ImportError:
-        # docs/INSTALL.md §4 scopes pyarrow to the `flywheel` extra and promises the
-        # harness only raises at the moment the named feature is used.  Crashing here
-        # left a partial dataset on disk (samples written, no index at all) and the
-        # rows were already computed — degrade loudly instead.
+        # pyarrow is an optional extra: degrade loudly instead of leaving a partial dataset.
         rep.notes.append(f"{PARQUET_NAME} skipped: pyarrow is not installed "
                          f"(pip install -e 'harness[flywheel]'); {JSONL_NAME} has the same rows")
         log.warning("%s", rep.notes[-1])
@@ -265,7 +209,6 @@ def export_samples(
 
 # --------------------------------------------------------------------------- index rows
 def row_for_sample(sample_dir: Path) -> dict[str, Any]:
-    """One parquet row from a sample folder (reads meta.json / captions.json / entry)."""
     meta_text = (sample_dir / "meta.json").read_text()
     meta = json.loads(meta_text)
     caps_path = sample_dir / "captions.json"
@@ -344,16 +287,6 @@ def parquet_schema() -> Any:
 
 
 def write_parquet(rows: list[dict[str, Any]], path: Path, *, commit: bool = True) -> Path:
-    """One row per sample, in :func:`parquet_schema` order.  ``commit=False`` leaves the
-    file at ``<path>.tmp`` and returns it, so a caller can publish it with other files.
-
-    ``from_pylist(schema=...)`` DROPS any key the schema does not name, silently: that is
-    how ``complexity`` / ``complexity_band`` — filled by :func:`row_for_sample`, kept in
-    metadata.jsonl, and advertised in this module's docstring — went missing from the
-    parquet, so every query of the dataset by complexity band returned nothing.  The
-    schema and the row keys are asserted equal here so a future column cannot vanish
-    the same way.
-    """
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -372,7 +305,6 @@ def write_parquet(rows: list[dict[str, Any]], path: Path, *, commit: bool = True
 
 
 def write_jsonl(rows: list[dict[str, Any]], path: Path, *, commit: bool = True) -> Path:
-    """``commit=False``: leave ``<path>.tmp`` and return it (see :func:`write_parquet`)."""
     tmp = path.with_suffix(".jsonl.tmp")
     with tmp.open("w") as fh:
         for r in rows:
@@ -392,7 +324,6 @@ class ManifestError(RuntimeError):
 
 
 class ManifestFilters(BaseModel):
-    """The selection knobs the export ran with (provenance for the dataset)."""
 
     min_score: float | None = None
     only_passed: bool = False
@@ -403,7 +334,6 @@ class ManifestFilters(BaseModel):
 
 
 class ManifestEntry(BaseModel):
-    """One exported sample folder, hashed file by file at write time."""
 
     run: RunId
     sample_id: str
@@ -417,7 +347,6 @@ class ManifestEntry(BaseModel):
 
 
 class DroppedRun(BaseModel):
-    """A run the selection refused — nothing is dropped silently."""
 
     run: RunId
     reason: str = Field(description='filter reason, export error, or "duplicate_of:<sample id>"')
@@ -432,14 +361,12 @@ class DatasetGenerationManifest(BaseModel):
 
 
 def write_manifest(manifest: DatasetGenerationManifest, out_dir: Path | str) -> Path:
-    """Atomic write (tmp + replace) of ``<out_dir>/dataset_manifest.json``."""
     if manifest.generated_at is None:
         manifest = manifest.model_copy(update={"generated_at": datetime.now(UTC)})
     return write_text_atomic(Path(out_dir) / MANIFEST_NAME, manifest.model_dump_json(indent=2))
 
 
 def load_manifest(out_dir: Path | str) -> DatasetGenerationManifest:
-    """Read ``<out_dir>/dataset_manifest.json``; missing or invalid is a hard error."""
     path = Path(out_dir) / MANIFEST_NAME
     if not path.is_file():
         raise ManifestError(

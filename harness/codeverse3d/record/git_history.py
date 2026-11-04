@@ -1,15 +1,8 @@
-"""Read-only git helpers for the flywheel: file trees at a commit, binary-safe.
+"""Read-only git helpers: file trees at a commit, binary-safe, never touching the working tree.
 
-The exporter / pairs builder must never touch the working tree of a run
-(another process may be resuming it), so everything here reads the object database
-of the run's repository (``ls-tree`` / ``cat-file`` / ``diff``).
-
-Read-only is not the same as safe: a run's ``.git/config`` and ``.gitattributes``
-were writable by the agent, and git config can name a program to RUN.  Every
-invocation therefore goes through the same sanitised argv + environment the
-workspace's own git uses (:data:`~codeverse3d.workspace.GIT_SAFE_FLAGS`,
-:func:`~codeverse3d.workspace.git_safe_env`), and every content-rendering command
-adds :data:`~codeverse3d.workspace.GIT_SAFE_DIFF_FLAGS`.
+A run's ``.git/config`` and ``.gitattributes`` are agent-writable and can name a program to run, so
+every call uses the workspace's sanitised flags and environment (``GIT_SAFE_FLAGS``, ``git_safe_env``,
+and ``GIT_SAFE_DIFF_FLAGS`` for content-rendering commands).
 """
 
 from __future__ import annotations
@@ -32,10 +25,7 @@ class GitReadError(RuntimeError):
 
 
 def _run(ws: Workspace, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
-    """One sanitised git invocation; ``stdin`` feeds ``cat-file --batch`` its object list.
-
-    Every way the call can fail — no git binary, a timeout, a non-zero exit — is one
-    :class:`GitReadError`, so a caller catches one thing."""
+    """One sanitised git invocation; every failure is a :class:`GitReadError`."""
     try:
         proc = subprocess.run(
             ["git", *GIT_SAFE_FLAGS, *args], cwd=ws.root, capture_output=True, check=False,
@@ -68,15 +58,10 @@ def _keep(rel: str) -> bool:
 
 
 def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = None) -> dict[str, bytes]:
-    """``{repo-relative path: bytes}`` for every code file at ``commit`` (binary-safe);
-    ``paths`` narrows it to those files, so a caller after two of forty streams two.
+    """``{repo-relative path: bytes}`` for every code file at ``commit``; ``paths`` narrows it.
 
-    ``ls-tree`` + ``cat-file --batch``, never ``git archive``: archive renders content
-    through ``convert_to_working_tree``, so an agent-planted ``filter.<name>.smudge``
-    RUNS — and unlike textconv there is no flag to turn it off (``-c
-    core.attributesFile=/dev/null`` only silences the GLOBAL attributes file; the
-    in-repo ``.gitattributes`` and ``.git/info/attributes`` are still read).
-    ``cat-file`` hands back the raw blob and applies no filter unless asked."""
+    ``ls-tree`` + ``cat-file --batch``, never ``git archive``: archive runs an agent-planted
+    ``filter.<name>.smudge`` and no flag disables it; ``cat-file`` applies no filter."""
     if not ws.has_commit(commit):
         raise GitReadError(f"commit {commit!r} not found in {ws.root}")
     entries: list[tuple[str, str]] = []  # (blob sha, path)
@@ -86,9 +71,7 @@ def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = 
             continue
         meta, _, path = rec.partition("\t")
         parts = meta.split()
-        # mode 120000 is a SYMLINK, stored as a blob whose content is the link target:
-        # `git archive` filtered it (tar member, not a file) and this path must too, or
-        # `src/link.py -> model.py` comes back as a one-line file saying "model.py".
+        # mode 120000 is a symlink (a blob holding the target path): skip it
         if len(parts) < 3 or parts[1] != "blob" or parts[0] == "120000" or not _keep(path):
             continue
         if paths is not None and path not in paths:
@@ -115,12 +98,7 @@ def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = 
 def diff_between(ws: Workspace, before: str, after: str, *, max_bytes: int | None = None) -> tuple[str, int, bool]:
     """Unified diff of the code roots between two commits: ``(text, total_bytes, truncated)``.
 
-    ``total_bytes`` is what git actually produced, so a capped row still records the
-    size it was capped from.  The useful shas are the ones recorded on the rounds,
-    rather than ``HEAD``, which may contain later changes. A
-    sha the repository no longer holds raises rather than diffing against an empty
-    tree: ``git diff`` itself refuses an unknown object, so no pre-check is needed.
-    """
+    ``total_bytes`` is the uncapped size.  An unknown sha raises."""
     raw = _run(ws, "diff", *GIT_SAFE_DIFF_FLAGS, before, after, "--", *CODE_ROOTS).stdout
     total = len(raw)
     if max_bytes is not None and total > max_bytes:
@@ -136,7 +114,7 @@ def changed_files_between(ws: Workspace, before: str, after: str) -> list[str]:
 
 
 def read_working_tree(ws: Workspace) -> dict[str, bytes]:
-    """Fallback when a round has no commit: the current ``src/`` + ``public/``."""
+    """The current ``src/`` + ``public/``, for a round with no commit."""
     files: dict[str, bytes] = {}
     for root in CODE_ROOTS:
         base = ws.root / root
@@ -151,12 +129,9 @@ def read_working_tree(ws: Workspace) -> dict[str, bytes]:
 
 
 def decode_text_files(files: dict[str, bytes], *, max_total: int | None = None) -> tuple[dict[str, str], list[str]]:
-    """UTF-8 decode text files; binary files are listed in the second return value.
+    """UTF-8 decode text files; binary ones go in the second return value.
 
-    ``max_total`` caps the summed decoded length (files are added in sorted path
-    order; the first file that does not fit is truncated with a marker and the
-    rest are skipped into the ``skipped`` list).
-    """
+    ``max_total`` caps the summed length in sorted order: the first overflow is truncated, the rest skipped."""
     text: dict[str, str] = {}
     skipped: list[str] = []
     total = 0

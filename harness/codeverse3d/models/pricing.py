@@ -1,17 +1,8 @@
 """USD price table (per 1M tokens) + ``estimate_cost`` + price provenance.
 
-Every ``Usage`` is priced here (providers never return USD).  Each row carries its
-provenance — where the number came from and when it was last checked — so a cost
-report can say *which* price row produced a dollar and whether it was verified or
-merely inferred (``3dcode cost prices``).
-
-Only the standard (short-context) tier is modelled, **except** the documented
-long-prompt tiers of Gemini pro, Claude Haiku 5.5 and GPT-6, which ``estimate_cost`` applies
-automatically (``Price.long_context``).  Cache *storage* fees (Gemini explicit
-caching, $/1M-tokens/hour), Anthropic 1h-cache writes, batch/flex discounts,
-data-residency and fast-mode multipliers are **not** modelled — see
-``docs/COST.md``.  Unknown models price at 0.0 and log a warning once per
-(provider, model).
+Each row carries its provenance (source status and check date).  Long-prompt tiers
+are modelled (``Price.long_context``); cache storage, 1h cache writes, batch and fast-mode
+multipliers are not.  Unknown models price at 0.0 and warn once.
 """
 
 from __future__ import annotations
@@ -28,9 +19,6 @@ log = logging.getLogger(__name__)
 #: date the tables below were last reconciled against the providers' pricing pages
 CHECKED = "2026-08-23"
 
-#: the pricing pages the rows are read off: ai.google.dev/gemini-api/docs/pricing,
-#: platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing
-
 
 @dataclass(frozen=True)
 class LongContext:
@@ -44,16 +32,9 @@ class LongContext:
 
 @dataclass(frozen=True)
 class Price:
-    """USD per 1M tokens, and where the number came from.  ``cached`` = cache-read input;
-    ``cache_write`` = cache creation (Anthropic explicit caching, 5-minute TTL);
-    ``thoughts`` are billed at the output rate.
-
-    Provenance: ``checked`` is the day it was last read off the provider's pricing page, and ``status``:
-
-    * ``verified``   — read off the provider's public pricing page on ``checked``
-    * ``inferred``   — no published row; copied from the nearest sibling
-    * ``unverified`` — the model is not listed on the page (retired / alias / CLI-only)
-    """
+    """USD per 1M tokens.  ``cached`` = cache-read input, ``cache_write`` = cache creation;
+    thoughts bill at the output rate.  ``status``: verified | inferred (nearest sibling) |
+    unverified (not on the pricing page)."""
 
     input: float
     output: float
@@ -69,12 +50,8 @@ class Price:
 # fmt: off
 PRICES: dict[tuple[str, str], Price] = {
     # ---------------------------------------------------------------- gemini
-    # 4 argon: introductory rates valid through 2026-11-30; they double on 2026-12-01
-    # ($4.00 / $20.00 / $0.20).  Update then.  No >200k tier; output includes thinking.
     ("gemini", "gemini-4-argon"):             Price(2.00, 10.00, 0.10, checked="2026-10-13",
                                                     note="intro rate through 2026-11-30, then 4.00/20.00/0.20"),
-    # 3.8 flash: introductory rates valid through 2026-12-31; they double
-    # on 2027-01-01 ($1.50 / $7.50 / $0.15).  Update then.  No >200k surcharge.
     ("gemini", "gemini-3.8-flash"):           Price(0.75, 3.75, 0.075, checked="2026-09-21",
                                                     note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
     ("gemini", "gemini-3.1-pro-preview"):     Price(2.00, 12.00, 0.20,
@@ -90,22 +67,18 @@ PRICES: dict[tuple[str, str], Price] = {
     ("gemini", "gemini-2.5-flash"):           Price(0.30, 2.50, 0.03, note="cached was 0.075 here until 2026-08-23; published 0.03"),
     ("gemini", "gemini-2.5-flash-lite"):      Price(0.10, 0.40, 0.01, note="cached was 0.025 here until 2026-08-23; published 0.01"),
     # ------------------------------------------------------------- anthropic
-    # Only the current generation is kept (owner, 2026-10-13): a model no longer
-    # here prices at $0 with a warning; a recorded run keeps the cost it was booked at.
     ("anthropic", "claude-fable-5-1"):        Price(10.00, 50.00, 0.25, cache_write=12.50, checked="2026-10-13",
                                                     note="1h cache write 20.00 (not modelled)"),
     ("anthropic", "claude-opus-5-5"):         Price(4.00, 20.00, 0.20, cache_write=5.00, checked="2026-10-13",
                                                     note="fast mode is 8.00/40.00 (not modelled)"),
     ("anthropic", "claude-sonnet-5-5"):       Price(2.00, 10.00, 0.10, cache_write=2.50, checked="2026-10-13"),
-    # haiku-5.5 is priced by prompt length: >100k tokens (cache reads and writes included)
-    # pays 0.50/2.50/0.05 for the whole request; its 0.625 cache write there is not modelled.
+    # haiku-5.5: prompts over 100k tokens bill the whole request at the long tier
     ("anthropic", "claude-haiku-5-5"):        Price(0.10, 0.50, 0.01, cache_write=0.125, checked="2026-10-13",
                                                     long_context=LongContext(100_000, 0.50, 2.50, 0.05)),
-    # kept for the small model claude-code reports next to the main one (``claude-haiku-4-5-20251001``)
+    # the small model claude-code reports next to the main one
     ("anthropic", "claude-haiku-4-5"):        Price(1.00, 5.00, 0.10, cache_write=1.25, checked="2026-10-13"),
     # ---------------------------------------------------------------- openai
-    # >272k input bills the whole request at 2x input/cache and 1.5x output.  CLI aggregate
-    # usage is a notional estimate, not per-request billing.
+    # >272k input bills the whole request at 2x input/cache and 1.5x output
     ("openai", "gpt-6-astra"):               Price(10.00, 50.00, 1.00, cache_write=12.50, checked="2026-10-13",
                                                     long_context=LongContext(272_000, 20.00, 75.00, 2.00)),
     ("openai", "gpt-6.1-sol"):               Price(2.00, 10.00, 0.10, cache_write=2.50, checked="2026-10-13",
@@ -125,18 +98,15 @@ def _normalise(model: str) -> str:
     return model.strip().lower()
 
 
-#: the reasoning efforts agy spells into its model ids (``gemini-3.8-flash-medium``): the same
-#: model at the same per-token rate — unmatched, every agy session was priced $0 (live, 2026-09-23)
+#: reasoning efforts agy spells into its model ids (``gemini-3.8-flash-medium``): same model, same rate
 EFFORTS = ("low", "medium", "high")
 # words that may follow a priced model id without changing which model it is
 _VERSION_WORDS = frozenset({"latest", "preview", "exp", "beta", "alpha", "stable", "snapshot", *EFFORTS})
 
 
 def _is_version_suffix(rest: str) -> bool:
-    """True when ``rest`` (what follows a table key in a model id) is only a
-    version / date / channel tag — ``-20260301``, ``@001``, ``-preview-05-20``,
-    ``-latest`` — and not a sibling model name (``-nano``, ``-mini``, ``-codex``,
-    ``.5``), which must price separately or be reported unknown."""
+    """True when ``rest`` (what follows a table key) is only a version/date/channel tag,
+    not a sibling model name (``-mini``, ``.5``)."""
     if not rest or rest[0] not in "-_@:":
         return False
     segments = rest[1:].split("-")
@@ -158,10 +128,8 @@ def _match(provider: str, model: str) -> tuple[tuple[str, str], Price] | None:
 
 
 def lookup_price(provider: str, model: str) -> Price | None:
-    """Exact match first, then the longest table key that ``model`` extends by a
-    pure version/date suffix (``claude-opus-5-20260301``, ``gemini-3.8-flash-preview-09``).
-    A different family name after the key (``gpt-6.1-sol-mini`` vs ``gpt-6.1-sol``) is NOT a
-    match: unknown → ``None`` so the caller prices 0.0 and warns, never a sibling's rate."""
+    """Exact match, else the longest table key extended only by a version/date suffix.
+    A sibling name (``gpt-6.1-sol-mini``) is unknown → ``None``, never a sibling's rate."""
     found = _match(provider, model)
     return found[1] if found else None
 
@@ -178,8 +146,7 @@ class PriceRow:
 
     @property
     def approximate(self) -> bool:
-        """True when the dollar cannot be trusted to the cent: no row, an
-        inferred/unverified row, or a row flagged ``approximate``."""
+        """True when the dollar is not exact: no row, a non-verified row, or flagged."""
         return self.price is None or self.price.approximate or self.price.status != "verified"
 
     @property
@@ -192,8 +159,7 @@ class PriceRow:
 
 
 def price_provenance(provider: str, model: str) -> PriceRow:
-    """Resolve ``provider:model`` to a price **and its source**.  Never raises;
-    an unknown model comes back as ``match="unknown"``, ``price=None``."""
+    """Resolve ``provider:model`` to a price and its source; unknown → ``match="unknown"``."""
     prov = (provider or "").strip().lower()
     found = _match(prov, model)
     if not found:
@@ -204,9 +170,8 @@ def price_provenance(provider: str, model: str) -> PriceRow:
 
 
 def unit_prices(provider: str, model: str, *, prompt_tokens: int = 0) -> tuple[float, float, float]:
-    """``(input, cached, output)`` USD per 1M actually charged for a prompt of
-    ``prompt_tokens`` — the long-context tier when the model has one and the
-    prompt crosses its threshold.  Unknown model → ``(0, 0, 0)``."""
+    """``(input, cached, output)`` USD per 1M for a prompt of ``prompt_tokens`` (long tier
+    past its threshold).  Unknown model → zeros."""
     price = lookup_price(provider, model)
     if price is None:
         return (0.0, 0.0, 0.0)
@@ -217,11 +182,8 @@ def unit_prices(provider: str, model: str, *, prompt_tokens: int = 0) -> tuple[f
 
 
 def estimate_cost(provider: str, model: str, usage: Usage) -> float:
-    """USD for one call.  ``usage.input_tokens`` is the TOTAL prompt size (cached
-    tokens included); cached tokens are re-priced at the cache-read rate.
-    ``usage.thoughts_tokens`` are billed as output when the provider reports
-    them separately from ``output_tokens`` (Gemini); Anthropic/OpenAI fold
-    reasoning into ``output_tokens`` already, so callers must not double count."""
+    """USD for one call.  ``input_tokens`` includes cached tokens (re-priced at the cache-read
+    rate); ``thoughts_tokens`` bill as output, so callers must not also fold them into ``output_tokens``."""
     price = lookup_price(provider, model)
     if price is None:
         key = (provider, _normalise(model))
@@ -242,10 +204,8 @@ def estimate_cost(provider: str, model: str, usage: Usage) -> float:
 
 def openai_usage(backend: str, model: str, *, prompt: int, cached: int, completion: int, reasoning: int,
                  **extra: Any) -> Usage:
-    """OpenAI-family tokens (the SDK and codex alike) as a priced ``Usage``.  ``completion``
-    already CONTAINS ``reasoning`` (measured on codex: output − reasoning tracks the answer
-    length), so the reasoning share moves to ``thoughts_tokens`` — still visible, and billed
-    once by :func:`estimate_cost` (output + thoughts), never twice."""
+    """OpenAI-family tokens as a priced ``Usage``.  ``completion`` contains ``reasoning``;
+    the reasoning share moves to ``thoughts_tokens`` so it is billed once."""
     usage = Usage(backend=backend, model=model, input_tokens=prompt, output_tokens=max(0, completion - reasoning),
                   cached_tokens=cached, thoughts_tokens=reasoning, **extra)
     usage.cost_usd = estimate_cost("openai", model, usage)
@@ -253,9 +213,7 @@ def openai_usage(backend: str, model: str, *, prompt: int, cached: int, completi
 
 
 def cache_write_surcharge(provider: str, model: str, cache_write_tokens: int) -> float:
-    """Extra USD (on top of the normal input rate already charged by
-    ``estimate_cost``) for explicit cache creation, e.g. Anthropic's
-    ``cache_creation_input_tokens`` billed at 1.25× input."""
+    """Extra USD on top of the input rate ``estimate_cost`` already charged, for cache creation."""
     price = lookup_price(provider, model)
     if price is None or cache_write_tokens <= 0 or price.cache_write is None:
         return 0.0

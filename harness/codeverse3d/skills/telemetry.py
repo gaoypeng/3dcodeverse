@@ -1,45 +1,10 @@
-"""Did anyone actually READ it?  Measured from the CLI's own record where there is one.
+"""Did the agent READ the routed skills?  Measured from the CLI's own tool trace where there is one.
 
-The fact this whole system has to answer: the former ``read_cookbook`` tool was called by
-**0 of 16** zone sessions and 1 of 4 env sessions on ``scenes_v1_flash``, although the
-prompt of the day named five chapters by title.  A tool that exists is not a tool that gets used, and shipping a
-nicer file format without measuring reads would repeat that at a new price.
-
-**Ground truth first (2026-09-22).**  Every CLI backend now folds its session's tool
-calls into ``trajectories/<label>/transcript.jsonl`` (``agents/cli_common.record_tool_calls``:
-claude-code's ``Skill``/``Read`` from stream-json, codex's shell commands from
-``exec --json``, agy's ``read_file`` — ``view_file`` before 1.4 — from its conversation database).  A
-bundle is *surfaced* when a call activated it or named its ``SKILL.md``, *deep* when a
-call named a file under its ``references/``, and the control is read when a call touched
-it — ``SkillsUsage.evidence == "transcript"``.  A bundle the trace calls surfaced but not
-deep is still deep when a file under its ``references/`` was opened and the control's
-``references/`` were not (signal 3: nothing scanned references/ wholesale) — claude-code
-2.1.317 read them with ``cd …/<name> && … cat "$f"`` (live, 2026-11-03), a call that names
-no path to match.  Only when a session after the attach left
-no trace does the probe fall back to the atime signals below, which the control proved
-blind in 27 of 33 sessions (docs/SKILLS.md §4):
-
-1. **atime probe** — the root filesystem is ext4 with ``relatime``, where the first read
-   after a write bumps ``atime``.  ``materialize_skills`` stamps ``atime == mtime`` on
-   every file it writes, so ``atime > mtime`` afterwards means the file was opened.  No
-   parsing, and it works identically for all five backends.
-2. **references/ depth probe** — signal 1 has an obvious false positive: a CLI's startup
-   scan opens SKILL.md to read the frontmatter.  The design assumed nothing scans
-   ``references/*.md``, so an atime bump there meant the agent read the body and followed
-   it.  **Measured 2026-08-25, that assumption is false**, for two independent reasons:
-   ``Workspace.changed_files`` runs ``git add -A -N`` + ``git diff`` after every session
-   and git reads every untracked file to diff it; and all four CLIs open ``references/``
-   while activating a skill, even one whose description does not match the task.  So the
-   depth signal is kept — it is still the difference between "listed" and "opened" — but
-   it is no longer trusted on its own, which is what signal 3 is for.  (A bundle that
-   ships no ``references/`` cannot be probed for depth and says so via
-   ``deep_measurable`` instead of quietly scoring 0.)
-3. **the control bundle** — ``materialize.write_control`` puts one never-routed,
-   never-indexed bundle beside the real ones.  Nothing should ever open it.  When it comes
-   back opened, this session's atime evidence proves nothing, ``control_read`` is set and
-   ``deep_read_rate`` returns ``None`` rather than a confident 100%.  It costs two small
-   files and turns a metric that could silently read 100% forever into one that says when
-   it cannot see.
+A bundle is *surfaced* when a call activated it or named its ``SKILL.md``, *deep* when a call
+named a file under its ``references/``.  When a session left no trace the probe falls back to
+atime (``materialize_skills`` stamps ``atime == mtime``; a later atime means opened).  The
+never-routed control bundle falsifies that fallback: if it reads as opened, ``deep_read_rate``
+is ``None`` instead of a confident 100%.
 """
 
 from __future__ import annotations
@@ -59,7 +24,7 @@ from codeverse3d.skills.prompting import AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT
 log = logging.getLogger(__name__)
 
 TELEMETRY_DIR = "telemetry"
-SKILLS_FILE = "skills.jsonl"       # the per-session roll-up, written after it
+SKILLS_FILE = "skills.jsonl"
 #: seconds of slack: some filesystems round atime/mtime differently on the two writes
 ATIME_EPSILON_S = 1.0
 
@@ -73,9 +38,7 @@ def _opened(path: Path) -> bool:
 
 
 def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
-    """What the sessions since the attach did with the bundles we attached, per skill.
-
-    From their tool traces when every one of them left one; from atime otherwise."""
+    """Per skill, what the sessions since the attach did with the bundles (trace first, atime fallback)."""
     from codeverse3d.skills.materialize import CONTROL_NAME
 
     root = Path(ws_root)
@@ -90,18 +53,14 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
         refs = [f for b in bundles for f in sorted((b / "references").glob("*.md"))]
         if trace is not None:
             surfaced, deep = trace[name]
-            # a shell read names no path the trace can match (claude-code 2.1.317, live
-            # 2026-11-03: `cd …/<name> && for f in $(find references -type f); do cat "$f"; done`)
-            # but bumps the reference's atime — proof exactly while the control's references
-            # stay untouched, i.e. nothing scanned references/ wholesale (module doc, signal 3)
+            # a shell read names no path the trace can match but bumps the reference's atime;
+            # counts as proof only while the control's references stay untouched
             if not deep and not control_refs_read:
                 deep = any(_opened(f) for f in refs)
         else:
             surfaced = any(_opened(b / "SKILL.md") for b in bundles)
             deep = any(_opened(f) for f in refs)
         # reading a reference means the bundle was reached, whatever SKILL.md's atime says
-        # (relatime can miss the second access within 24 h, and some CLIs stream the body
-        # out of their own index rather than re-opening the file)
         surfaced = surfaced or deep
         reads.append(SkillRead(
             name=name, surfaced=surfaced, deep=deep, deep_measurable=bool(refs),
@@ -117,13 +76,11 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
 
 
 def trace_reads(ws_root: Path, names: Sequence[str], *, since: float = 0.0) -> dict[str, tuple[bool, bool]] | None:
-    """``{name: (surfaced, deep)}`` from the tool calls the CLI sessions logged after ``since``.
+    """``{name: (surfaced, deep)}`` from tool calls logged after ``since``.
 
-    ``None`` — "no ground truth, use the fallback" — when no session ran after the attach,
-    or when one of them left no ``tool_trace`` marker (a CLI that died before its backend
-    could read its record, or a backend that cannot): that session's reads would be
-    MISSING, not absent, and a partial trace would under-count exactly like a blind probe
-    over-counts.  A session is a transcript with an ``invoke`` row at or after ``since``."""
+    ``None`` (use the fallback) when no session ran after the attach or one left no
+    ``tool_trace`` marker: a partial trace would under-count.
+    """
     from codeverse3d.agents.cli_common import TOOL_CALL_ROW, TOOL_TRACE_ROW
     from codeverse3d.workspace import Workspace
 
@@ -155,10 +112,8 @@ def _t(row: dict[str, Any]) -> float:
 
 
 def _called(name: str, calls: Sequence[dict[str, Any]]) -> tuple[bool, bool]:
-    """(surfaced, deep) for one bundle.  Matched on ``<name>/SKILL.md`` and
-    ``<name>/references/<file>`` anywhere in a call's arguments, so a relative path, an
-    absolute one, codex's ``r1/<name>/SKILL.md`` root alias expanded or not, and a
-    ``cat``/``sed`` shell line all count; a listing of ``references`` does not."""
+    """(surfaced, deep) for one bundle, matched on ``<name>/SKILL.md`` and ``<name>/references/<file>``
+    anywhere in a call's arguments; a listing of ``references`` does not count."""
     body = re.compile(rf"(?<![\w-]){re.escape(name)}/SKILL\.md")
     ref = re.compile(rf"(?<![\w-]){re.escape(name)}/references/[^\s\"'`]+")
     surfaced = deep = False
@@ -172,10 +127,8 @@ def _called(name: str, calls: Sequence[dict[str, Any]]) -> tuple[bool, bool]:
 
 
 def _control_state(root: Path) -> tuple[bool, bool, bool]:
-    """(a control was materialised, something opened it, something opened its ``references/``)
-    — the probe's own falsification.  The third is the stricter signal: a CLI's discovery scan
-    opens every ``SKILL.md`` (claude-code does, 2.1.317), nothing legitimate opens an unrouted
-    bundle's references."""
+    """(a control was materialised, something opened it, something opened its ``references/``);
+    the third is the stricter signal, since a CLI's discovery scan opens every ``SKILL.md``."""
     from codeverse3d.skills.materialize import CONTROL_NAME
 
     present = opened = refs_opened = False
@@ -191,7 +144,7 @@ def _control_state(root: Path) -> tuple[bool, bool, bool]:
 
 
 def append_usage(ws_root: Path, usage: SkillsUsage, **context: Any) -> Path | None:
-    """One JSON line per (run, round, session) — the file ``3dcode skills report`` reads."""
+    """One JSON line per (run, round, session)."""
     try:
         d = Path(ws_root) / TELEMETRY_DIR
         d.mkdir(parents=True, exist_ok=True)

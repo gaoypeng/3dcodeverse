@@ -29,18 +29,15 @@ def export_cmd(
     captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
     drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave byte-identical duplicates (raw code sha256 + prompt) out of the index, manifest and tars (recorded under the manifest's dropped); normalised ones are only marked near_duplicate_of")] = False,
 ) -> None:
-    """Export runs → sample folders + dataset_manifest.json + metadata.jsonl/.parquet
-    (+ optional plain tars, packed FROM the manifest)."""
+    """Export runs → sample folders + dataset_manifest.json + metadata.jsonl/.parquet (+ tars)."""
     from codeverse3d.addons.dataset.export import export_samples
 
     if pack:
-        # pack_samples rewrites the index and reads it back with pyarrow, so --pack
-        # cannot degrade the way a plain export can.  Say so BEFORE the first sample is
-        # written rather than after a few hundred, with a raw ModuleNotFoundError.
+        # --pack reads the index back with pyarrow: fail before the first sample is written
         try:
             import pyarrow  # noqa: F401
         except ImportError:
-            # escaped: rich reads "[flywheel]" as markup and would print the tag away
+            # escaped: rich reads "[flywheel]" as markup
             raise C.CliError(escape("--pack needs the flywheel extra: "
                                     "pip install -e 'harness[flywheel]'")) from None
 
@@ -119,12 +116,10 @@ def caption_cmd(
         if not force and load_captions(ws, rec, out, slug=slug).get("detailed"):
             skipped += 1
             continue
-        # PER RUN: captioning rewrites record.json (--out writes a side-car instead and
-        # touches nothing), and a locked run is skipped with a warning — one live run must
-        # not abort a --all batch of hundreds
+        # per run: captioning rewrites record.json (--out writes a side-car instead); a locked
+        # run is skipped so one live run does not abort an --all batch
         lock = nullcontext() if out else exclusive(ws.root, what=f"3dcode flywheel caption {ws.root.name}")
         try:
-            # the priced captioner call joins the run's ledger (as `3dcode judge` does)
             with lock, run_ledger(ws.root, run=ws.root.name, create=False):
                 caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)
         except (CaptionError, RunLocked) as e:

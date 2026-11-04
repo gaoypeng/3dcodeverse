@@ -1,20 +1,7 @@
 """GlHost: headless moderngl rendering of fragment shaders / raw OpenGL programs.
 
-moderngl contexts are not fork-safe and the harness is multi-threaded, so every
-render happens in a fresh ``python3`` subprocess running the standalone
-``languages/opengl_python/wrappers/run_gl.py``.  The host tries the GPU driver
-environment first (Mesa d3d12 on WSL2) and falls back to llvmpipe when the
-context cannot be created; the decision is cached per process.
-
-Public API::
-
-    host = GlHost()                                   # gpu="auto" | "on" | "off"
-    res = host.render_fragment_shader(frag_src, out_dir, width=1280, height=720, times=(0, 1, 2.5),
-                                      buffer_a_src=None, feedback=False, extra_times=())
-    res = host.run_program(program_path, out_dir, width=..., height=..., times=...)
-    res.ok · res.frames[GlFrame] · res.judge_frames · res.stage · res.error_message · res.renderer
-
-Artifacts derived from a result: :func:`write_contact_sheet`, :func:`write_gif`.
+Every render runs in a fresh subprocess (``run_gl.py``; moderngl contexts are not fork-safe).
+GPU (Mesa d3d12) is tried first, llvmpipe is the fallback; the choice is cached per process.
 """
 
 from __future__ import annotations
@@ -33,7 +20,7 @@ from codeverse3d.proc import run_subprocess
 
 RUNNER = Path(__file__).resolve().parent.parent / "languages" / "opengl_python" / "wrappers" / "run_gl.py"
 
-#: Mesa d3d12 driver env (GPU on WSL2).  Falls back to llvmpipe when unusable.
+#: Mesa d3d12 driver env (GPU on WSL2).
 GPU_ENV: dict[str, str] = {
     "GALLIUM_DRIVER": "d3d12",
     "MESA_LOADER_DRIVER_OVERRIDE": "d3d12",
@@ -92,7 +79,7 @@ def _base_env(extra: dict[str, str]) -> dict[str, str]:
 
 
 def gpu_preference(gpu: str) -> list[bool]:
-    """Order of attempts: [True, False] (GPU then CPU) for auto, etc."""
+    """Order of attempts (True = GPU) for ``gpu`` in auto/on/off."""
     if gpu == "on":
         return [True]
     if gpu == "off":
@@ -133,9 +120,7 @@ class GlHost:
 
     # ------------------------------------------------------------------ internals
     def _run(self, job: dict[str, Any], out_dir: Path) -> GlResult:
-        # The subprocess starts inside out_dir. A relative job path would be
-        # resolved against that directory a second time and appear to crash
-        # before it could write any result (observed with --out examples/...).
+        # The subprocess starts inside out_dir: a relative job path would be resolved twice.
         out_dir = Path(out_dir).resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / RESULT_NAME).unlink(missing_ok=True)
@@ -186,11 +171,7 @@ class GlHost:
 
 # --------------------------------------------------------------------------- derived artifacts
 def write_contact_sheet(frames: Sequence[GlFrame], out: Path, *, cols: int = 3, tile_w: int = 480) -> Path:
-    """Labelled grid of frames keeping their aspect ratio (``t=<s>`` under each tile).
-
-    Thin wrapper over :func:`codeverse3d.spatial.sheet.contact_sheet` (the one
-    sheet builder) with a 16:9-style cell derived from the first frame.
-    """
+    """Labelled grid of frames (``t=<s>`` under each tile), cell sized from the first frame."""
     from codeverse3d.spatial.sheet import contact_sheet, tile_size
 
     frames = list(frames)
@@ -201,7 +182,7 @@ def write_contact_sheet(frames: Sequence[GlFrame], out: Path, *, cols: int = 3, 
 
 
 def write_gif(frames: Sequence[GlFrame], out: Path, *, width: int = 480, fps: int = 6) -> Path | None:
-    """Animated GIF preview from ALL frames (judge + extra), resized to ``width``."""
+    """Animated GIF of all frames (judge + extra)."""
     from codeverse3d.spatial.sheet import write_gif as _write_gif
 
     ordered = sorted(frames, key=lambda f: f.time)

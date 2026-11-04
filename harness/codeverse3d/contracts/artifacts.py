@@ -19,8 +19,7 @@ class Severity(StrEnum):
 
 
 class LintKind(StrEnum):
-    """``data.kind`` of a ``lint:<language>`` finding — what routes a skill (``skills.registry``)
-    and what a cap rule's ``kinds`` are matched against.  One vocabulary for every lint."""
+    """``data.kind`` of a ``lint:<language>`` finding: routes skills and matches cap rules."""
 
     SYNTAX = "syntax"                        # the file does not parse
     MISSING_FILE = "missing_file"            # an entry / planned part file is absent
@@ -43,9 +42,8 @@ class LintKind(StrEnum):
     CENSUS = "census"                        # INFO: what the lint saw
 
 
-#: ``GateFinding.data["kind"]`` of a plan part that is still the skeleton's placeholder box
-#: (``spatial.contract``, D110) — the one gate ERROR the next refine round puts ahead of every
-#: other (``orchestrator.build_refine_instructions``): nothing else about a part matters until it exists
+#: ``GateFinding.data["kind"]`` of a plan part that is still the skeleton's placeholder box;
+#: the next refine round puts it ahead of every other gate error.
 PLACEHOLDER_PART = "placeholder_part"
 
 
@@ -65,10 +63,7 @@ class GateFinding(BaseModel):
         with_target: bool = False,
         with_hint: bool = True,
     ) -> str:
-        """One presentation line for prompts/reports — no leading ``- `` (callers
-        own their list bullets).  ``message`` is always present; the flags opt in
-        to a ``GATE <gate>:`` prefix, a ``[<severity>]`` tag, a `` [<target>]``
-        suffix and the `` FIX: <fix_hint>`` suffix (default on, when non-empty)."""
+        """One line for prompts/reports, no leading bullet; the flags opt in to prefix/tag/suffix parts."""
         parts: list[str] = []
         if with_gate:
             parts.append(f"GATE {self.gate}:")
@@ -101,8 +96,6 @@ class GateReport(BaseModel):
 
 
 class BuildResult(BaseModel):
-    """Result of executing the raw code and exporting the canonical artifact."""
-
     ok: bool
     language: str
     glb_path: str | None = None
@@ -155,9 +148,7 @@ class Measurement(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
-#: every mode the object rig draws (runtime_js/render_glb.mjs MODES, pinned by
-#: tests/spatial_tools/test_tools.py).  The tool layer advertised "depth" from the
-#: first commit; no renderer ever had it.
+#: every mode the object rig draws (runtime_js/render_glb.mjs MODES)
 RENDER_MODES = ("shaded", "wire", "normals", "silhouette", "clay")
 
 
@@ -225,8 +216,7 @@ class Judgment(BaseModel):
 
     @property
     def degraded(self) -> bool:
-        """A judge glitch (an outage, an unparseable verdict), never a score: its 0.0 must not
-        reach a pick or a refine plan (``judges.rubrics.degraded_judgment`` writes one)."""
+        """A judge glitch (outage, unparseable verdict), never a score: must not reach a pick or refine plan."""
         if self.summary.startswith("judge_error:"):
             return True
         try:

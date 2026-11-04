@@ -1,19 +1,8 @@
 """What the meters saw inside one block of work: its money and its lost time.
 
-A :class:`Tally` is opened with :func:`tally` around a block (a round, a timed step) and
-nests; everything metered inside the block books into every tally that is open:
-
-* ``cost.ledger.record_call`` books each priced row, so ``Tally.usage`` is exactly the
-  money ``telemetry/cost.jsonl`` holds for the block — the round's cost is read here, never
-  accumulated a second way;
-* the proxies in ``cost.instrument`` book each API call's and each agent session's wall
-  clock and the part of it lost to provider errors (503 / 429 / overloaded / timeout
-  retries and their back-off), per thread, so :meth:`Tally.lost_s` knows what the block
-  lost even when its work ran side by side.
-
-:func:`timed` turns one block into a ``StepTime`` row — the unit a run's minutes are
-summed from (owner, 2026-09-22).  The binding is a ``ContextVar``: ``proc.fan_out`` copies
-the context, so a worker thread books into its caller's tallies.
+A :class:`Tally` opened by :func:`tally` nests; the ledger books priced rows and the
+``cost.instrument`` proxies book wall/lost seconds into every open tally.  :func:`timed`
+turns a block into a ``StepTime`` row.  The binding is a ``ContextVar`` that fan-out copies.
 """
 
 from __future__ import annotations
@@ -29,7 +18,6 @@ from codeverse3d.contracts.run import StepTime
 
 
 class Tally:
-    """The money and the lost seconds one block of work booked (see the module docstring)."""
 
     def __init__(self) -> None:
         self.usage = Usage()
@@ -47,10 +35,8 @@ class Tally:
             t[1] += min(lost_s, wall_s)
 
     def lost_s(self) -> float:
-        """Seconds of the block's clock lost to provider errors.  Calls in one thread ran one
-        after the other, so their losses add up; threads ran side by side (fan-out sessions,
-        judge samples, best-of-N candidates), so the block lost what its slowest thread would
-        have been spared: ``max(wall) - max(wall - lost)`` over the threads."""
+        """Seconds lost to provider errors: losses add within a thread; across parallel threads
+        it is ``max(wall) - max(wall - lost)``."""
         with self._lock:
             if not self._time:
                 return 0.0
@@ -62,7 +48,6 @@ _open: ContextVar[tuple[Tally, ...]] = ContextVar("c3d_cost_tallies", default=()
 
 @contextmanager
 def tally() -> Iterator[Tally]:
-    """Open a tally for the block (nested ones all receive what the block books)."""
     t = Tally()
     token = _open.set(_open.get() + (t,))
     try:
@@ -72,8 +57,7 @@ def tally() -> Iterator[Tally]:
 
 
 def open_tallies() -> tuple[Tally, ...]:
-    """The tallies this execution context books into — captured by a caller whose work may
-    land later in a thread with no context (a hedge loser's billed round-trip)."""
+    """The tallies this context books into, for callers whose work lands later in a thread without it."""
     return _open.get()
 
 
@@ -89,8 +73,7 @@ def book_time(wall_s: float, lost_s: float) -> None:
 
 @contextmanager
 def timed(step: str, into: list[StepTime], *, round_index: int | None = None) -> Iterator[Tally]:
-    """Time ``step`` into ``into`` — its wall clock and what it lost — whether the block
-    returns or raises.  A step that took no time (a cached stage) leaves no row."""
+    """Time ``step`` into ``into`` whether the block returns or raises; a ~0 s step leaves no row."""
     t0 = time.monotonic()
     with tally() as t:
         try:

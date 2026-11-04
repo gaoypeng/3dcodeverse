@@ -1,9 +1,6 @@
-"""What every vendor-CLI backend (``agents/backends.py``) shares: the trajectory folder
-(prompt.md, transcript.jsonl, stdout/stderr, result.json under
-``ws.trajectory_dir(label, round)``, one layout whatever the backend), the watchdog'd
-session process, the hardened environment, the session's write scope and locks, failure
-classification, and the tool-call trace.  (``cli/`` is the harness's own ``3dcode`` CLI.)
-"""
+"""What every vendor-CLI backend shares: the trajectory folder (prompt, transcript, stdout/stderr,
+result.json), the watchdog'd session process, the hardened environment, write-scope enforcement,
+failure classification and the tool-call trace."""
 
 from __future__ import annotations
 
@@ -33,15 +30,12 @@ from codeverse3d.proc import (
 )
 from codeverse3d.workspace import Workspace
 
-#: per-session transcript caps.  Rows are byte-capped individually but nothing capped
-#: the file: a child emitting 100k lines wrote 27 MB, ~406 MB at the per-row cap.  The
-#: unabridged (bounded) stream still lands in stdout.json.
+#: per-session transcript caps; the unabridged (bounded) stream still lands in stdout.json
 LINE_BUDGET_BYTES = 64 * 1024 * 1024
 LINE_BUDGET_ROWS = 200_000
 
 
 class Trajectory:
-    """Append-only writer for one agent session's files."""
 
     def __init__(self, directory: Path | str):
         self.dir = Path(directory)
@@ -91,7 +85,6 @@ class Trajectory:
         append_jsonl_line(self.transcript_path, rec, self._lock)
 
     def write_result(self, result: BaseModel, **extra: Any) -> None:
-        """Write ``result.json`` = AgentResult fields + any extra diagnostics."""
         write_json_atomic(self.result_path, result.model_dump(mode="json") | extra)
 
     def read_transcript(self) -> list[dict[str, Any]]:
@@ -104,12 +97,7 @@ _SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini"}
 
 @dataclass
 class CompletedProc:
-    """Outcome of :func:`run_with_watchdog`.
-
-    ``stdout``/``stderr`` are bounded to ``codeverse3d.proc.STREAM_BUDGET_BYTES`` per
-    stream (head + tail kept, truncation marker in between) — streaming consumers
-    that must see every line unconditionally use ``on_line``.
-    """
+    """Outcome of :func:`run_with_watchdog`; ``stdout``/``stderr`` are bounded per stream (head + tail kept)."""
 
     rc: int
     stdout: str
@@ -120,7 +108,6 @@ class CompletedProc:
 
 
 class ActivityTracker:
-    """Thread-safe 'last time something happened' clock."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -136,8 +123,7 @@ class ActivityTracker:
 
 
 def _latest_mtime(dirs: Iterable[Path]) -> float:
-    """Newest mtime under ``dirs`` — a directory is walked, a FILE is its own mtime (a
-    ``shared_tree`` session watches only its own files, D111)."""
+    """Newest mtime under ``dirs``: a directory is walked, a FILE is its own mtime."""
     latest = 0.0
     for d in dirs:
         if d.is_file():
@@ -172,18 +158,9 @@ def run_with_watchdog(
 ) -> CompletedProc:
     """Run ``cmd`` streaming output; kill the process group on idle/hard timeout.
 
-    ``on_line(stream, line)`` is called for every line (stream is ``"stdout"``
-    or ``"stderr"``).  ``activity_dirs`` (default ``cwd/src``; a file is watched as itself)
-    are polled for mtime changes (every ``scan_s``) that also count as activity.
-
-    Since 2026-08-27 the process lifecycle lives in
-    :class:`codeverse3d.proc.ManagedProcess`; this function keeps only the clocks.
-    Fixed by that move: a KeyboardInterrupt anywhere in the poll loop kills the
-    group before propagating (it used to orphan the whole node → chrome tree —
-    SIGINT never reaches a ``start_new_session`` child); stdin is written from a
-    helper thread, so a child that never reads a >64 KiB prompt (every agent
-    CLI gets its prompt on stdin) can no longer wedge the main thread before the
-    clocks start; captured output is bounded per stream (head+tail + marker).
+    ``on_line(stream, line)`` is called for every line.  ``activity_dirs`` (default ``cwd/src``) are
+    polled for mtime changes that also count as activity.  Process lifecycle lives in
+    :class:`codeverse3d.proc.ManagedProcess`; stdin is written from a helper thread.
     """
     if hard_timeout_s is None:
         hard_timeout_s = max(soft_timeout_s * 1.5, soft_timeout_s + 600.0)
@@ -228,14 +205,6 @@ def run_with_watchdog(
 
 
 def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
-    """Fail with an argv position and an excerpt instead of a bare "embedded null byte".
-
-    ``subprocess.Popen`` raises ``ValueError: embedded null byte`` naming nothing at all —
-    not the argument, not the offset, not the value.  On 2026-08-24 that cost an hour to
-    trace back to five ``\\u0000`` escapes a planner had written into plan.json four stages
-    earlier (see ``schema_utils.strip_control_chars``, which is the actual cure).  This is
-    the backstop: if one ever leaks again, the error says where.
-    """
     for i, arg in enumerate(cmd):
         text = str(arg)
         j = text.find("\x00")
@@ -252,15 +221,13 @@ log = logging.getLogger(__name__)
 
 
 def clean_env(keep: set[str] | frozenset[str] = frozenset()) -> dict[str, str]:
-    """``os.environ`` minus secrets (the one owner of the patterns: ``proc.scrub_secrets``) but
-    for the ``keep`` names (a CLI's own auth var) — a vendor CLI's env."""
+    """``os.environ`` minus secrets (``proc.scrub_secrets``) but for the ``keep`` names."""
     env = scrub_secrets(dict(os.environ)) | {k: v for k, v in os.environ.items() if k in keep}
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
 
 def hardened_env(ws: Workspace, job: AgentJob, *, keep: set[str] | None = None) -> dict[str, str]:
-    """:func:`clean_env` plus the git ceiling and ``job.env``."""
     env = clean_env(keep or set())
     env["GIT_CEILING_DIRECTORIES"] = str(ws.root.parent)
     env.update(job.env)
@@ -268,7 +235,6 @@ def hardened_env(ws: Workspace, job: AgentJob, *, keep: set[str] | None = None) 
 
 
 def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", round_index: int | None = None) -> list[str]:
-    """The stdio MCP server command exposing the spatial tool registry for ``ws``."""
     cmd = [sys.executable, "-m", "codeverse3d.spatial.mcp_server", "--workspace", str(ws.root)]
     if language:
         cmd += ["--language", language]
@@ -280,14 +246,11 @@ def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", r
 
 
 def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
-    """The 3dcode MCP command for this job, from the TYPED job.
+    """The 3dcode MCP command for this job, built from the TYPED job.
 
-    It deliberately does NOT read the workspace's ``.mcp.json``.  That file lives where
-    the agent works and every CLI backend runs unsandboxed inside it, so an agent that
-    rewrote it in round 0 chose what executable the NEXT round's codex/claude launched —
-    with provider credentials in the environment, and (for codex) outside the
-    ``--sandbox workspace-write`` its own shell obeys.  The command is rebuilt from the
-    job every session instead; nothing on disk can redirect it (audit 2026-08-27)."""
+    It never reads the workspace's ``.mcp.json``: the agent can rewrite it between rounds and
+    choose what the next session launches.
+    """
     return default_mcp_command(ws, language=job.language, track=job.track, round_index=job.round)
 
 
@@ -296,8 +259,7 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".gemini", ".claude", ".agents", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "CLAUDE.md",
                                  ".mcp.json", ".antigravityignore", ".gitignore"})
-#: gitignored control files git cannot revert (downstream trusts both blindly):
-#: byte-snapshotted by :func:`begin_session`, compared + restored by :func:`_enforce_scope`
+#: gitignored control files git cannot revert; byte-snapshotted by :func:`begin_session`, restored by :func:`_enforce_scope`
 UNTRACKED_CONTROL_FILES = ("run_state.json", "record.json")
 #: the harness appends to the event stream MID-session — exempt from the tamper revert
 _CONTROL_EXEMPT = frozenset({"events.jsonl"})
@@ -310,17 +272,11 @@ def _hinted(path: str, hints: frozenset[str]) -> bool:
 def attribute_changes(files: list[FileChange], *, write_roots: list[str],
                       only: Iterable[str] | None = None) -> list[FileChange]:
     """The subset of a whole-worktree git diff that belongs to ONE session: inside its
-    ``write_roots`` and not harness-owned.  (Agent sessions on one workspace are serialised —
-    :data:`EXCLUSIVE_KINDS` — so there is no sibling SESSION to attribute against; the
-    edit_only scope is enforced by :func:`_enforce_scope`, which REVERTS an out-of-scope write
-    rather than hiding it from ``files_changed``.)
+    ``write_roots`` and not harness-owned.
 
-    ``only`` — a ``shared_tree`` job's ``files_hint`` (D111): harness writers that take no
-    session lock (the scene asset single-shots) change the same tree while the session runs,
-    and the diff cannot tell their files from the session's.  The env session of iteration 4
-    (argon loop, 2026-10-15) wrote nothing in 12 of 15 runs and was credited with the asset
-    files every time, so its stage read ``ok``.  Under ``only`` a path outside it is not the
-    session's."""
+    ``only`` (a ``shared_tree`` job's ``files_hint``): harness writers that take no session lock
+    change the same tree meanwhile, so a path outside ``only`` is not the session's.
+    """
     roots = tuple(r.strip("/") for r in write_roots if r.strip("/"))
     own = _clean(only) if only is not None else None
     out: list[FileChange] = []
@@ -338,7 +294,6 @@ def attribute_changes(files: list[FileChange], *, write_roots: list[str],
 
 @dataclass
 class Session:
-    """State for one CLI agent run (created by :func:`begin_session`)."""
 
     ws: Workspace
     job: AgentJob
@@ -352,17 +307,12 @@ class Session:
     attempt: int = 1
     files_hint: frozenset[str] = frozenset()
     ws_lock: threading.RLock | None = None
-    #: bytes of :data:`UNTRACKED_CONTROL_FILES` at session start (None = absent)
     control_snapshot: dict[str, bytes | None] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- serialisation
-#: agent kinds whose sessions are EXCLUSIVE per workspace — today, every kind.  No
-#: backend has write-time enforcement (scope is checked post-session by
-#: :func:`_enforce_scope`), and both session snapshots run ``git add -A`` — a
-#: late-starting session's ``pre:`` commit absorbs a sibling's in-flight writes, which
-#: makes concurrent provenance (and any per-path rollback) unfixable after the fact.
-#: So agent sessions on one workspace are serialised.
+#: agent kinds whose sessions are EXCLUSIVE per workspace (every kind): scope is checked post-session,
+#: and a late session's ``pre:`` commit (``git add -A``) would absorb a sibling's in-flight writes.
 EXCLUSIVE_KINDS = frozenset({"claude-code", "codex", "agy"})
 
 _WS_SESSION_LOCKS: dict[str, threading.RLock] = {}
@@ -370,42 +320,31 @@ _WS_SESSION_LOCKS_GUARD = threading.Lock()
 
 
 def _session_lock(ws: Workspace) -> threading.RLock:
-    """One re-entrant lock per workspace root.  Re-entrant so a thread that begins a
-    session it never finishes (argv-building tests do) cannot deadlock itself; real
-    sessions begin, finish and release on their own worker thread."""
+    """One re-entrant lock per workspace root (so a thread that never finishes a session cannot deadlock itself)."""
     with _WS_SESSION_LOCKS_GUARD:
         return _WS_SESSION_LOCKS.setdefault(str(ws.root), threading.RLock())
 
 
 @contextlib.contextmanager
 def exclusive_workspace(ws: Workspace) -> Iterator[None]:
-    """Hold ``ws``'s session lock for a HARNESS writer that commits while agent sessions may run on
-    the same workspace (the scene env recovery beside an escalated asset session, D112).
+    """Hold ``ws``'s session lock for a HARNESS writer that commits while agent sessions may run.
 
-    WHY the lock and not "restore an out-of-scope path to HEAD instead of ``head_before``": every
-    commit is ``git add -A``, so a harness commit made mid-session also absorbs the session's own
-    in-flight writes — restoring to HEAD would keep exactly the out-of-scope writes the revert
-    exists to undo, on every track.  Holding the lock keeps every harness commit out of every
-    session's window, so ``head_before`` stays the whole truth :func:`_enforce_scope` relies on.
-    Argon loop iteration 5, scene_blender r1_10: the asset session's revert restored env.py to its
-    ``head_before`` and erased the harness's recovered env (+391 lines) — round 0 rendered black."""
+    A harness commit mid-session (``git add -A``) would absorb the session's in-flight writes and
+    break the ``head_before`` that :func:`_enforce_scope` restores to.
+    """
     lock = _session_lock(ws)
     with lock:
         yield
 
 
 def release_session(s: Session) -> None:
-    """Release ``s``'s workspace lock (idempotent).  ``finish_session`` always calls it;
-    the CLI backends also call it in a ``finally`` so a session that crashes between
-    begin and finish cannot starve every later session on the same workspace."""
     lock, s.ws_lock = s.ws_lock, None
     if lock is not None:
         lock.release()
 
 
 def _session_label(ws: Workspace, label: str, round_index: int) -> tuple[str, int]:
-    """``label`` for attempt 1; ``<label>.a<n>`` when ``trajectories/<label>_rNN`` already
-    holds a finished attempt (result.json) — a silent-bail retry must not overwrite it."""
+    """``label`` for attempt 1; ``<label>.a<n>`` when a finished attempt (result.json) already exists."""
     n, cand = 1, label
     while (ws.trajectory_dir(cand, round_index) / "result.json").exists():
         n += 1
@@ -414,11 +353,8 @@ def _session_label(ws: Workspace, label: str, round_index: int) -> tuple[str, in
 
 
 def begin_session(job: AgentJob, kind: str) -> Session:
-    """Create the trajectory dir, write prompt.md and snapshot src/ (``pre:<label>``).
-
-    For :data:`EXCLUSIVE_KINDS` the per-workspace session lock is taken BEFORE the
-    ``pre:`` commit and held until ``finish_session`` releases it — see the constant's
-    comment for why concurrent CLI sessions in one workspace are unfixable."""
+    """Create the trajectory dir, write prompt.md and snapshot src/ (``pre:<label>``), taking the
+    per-workspace lock first for :data:`EXCLUSIVE_KINDS`."""
     ws = Workspace(job.workspace)
     if not ws.root.is_dir():
         raise FileNotFoundError(f"workspace does not exist: {ws.root}")
@@ -446,23 +382,16 @@ def begin_session(job: AgentJob, kind: str) -> Session:
 
 
 def _clean(seq: Any) -> frozenset[str]:
-    """Normalise a path list: str(), strip, drop empties."""
     return frozenset(p for p in (str(x).strip() for x in seq) if p)
 
 
 def _enforce_scope(s: Session) -> dict[str, str]:
-    """Revert a CLI session's out-of-scope writes; returns the reverted paths.
+    """Revert a CLI session's out-of-scope writes; returns ``{path: reason}``.
 
-    Post-hoc, because every backend is a vendor CLI and none has a write-time file gate
-    (the in-process one that did was deleted 2026-08-28).  Three layers:
-    ``job.read_only`` ALWAYS — harness-owned source the agent must call, never rewrite
-    (scene_threejs's ``src/lib/``); ``job.write_roots`` ALWAYS — a CLI session used to be able
-    to write and commit a root-level ``conftest.py``; then, for ``edit_only``, the
-    narrowing to ``files_hint`` + ``always_writable`` (a pre-existing file outside it is
-    out of scope; new files stay allowed).  Only safe because sessions on one workspace
-    are serialised (:data:`EXCLUSIVE_KINDS`) and a harness writer that commits mid-run takes the
-    same lock (:func:`exclusive_workspace`): ``head_before`` holds no sibling's in-flight work and
-    no harness commit lands inside the session's window."""
+    Layers: ``job.read_only`` and ``job.write_roots`` always; for ``edit_only``, the narrowing to
+    ``files_hint`` + ``always_writable`` (new files stay allowed).  Relies on sessions on one
+    workspace being serialised, so ``head_before`` holds no sibling's or harness's work.
+    """
     roots = tuple(r.strip("/") for r in s.job.write_roots if r.strip("/"))
     frozen = _clean(s.job.read_only)
     narrow = (s.files_hint | _clean(s.job.always_writable)
@@ -470,12 +399,11 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     reverted: dict[str, str] = {}
     restore: list[str] = []
     remove: list[str] = []
-    # no empty-scope early-out: control files are enforced under ANY job scope
     for f in s.ws.changed_files(s.head_before):
         parts = Path(f.path).parts
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in _CONTROL_EXEMPT:
             continue
-        if f.path in HARNESS_OWNED_FILES:  # was a silent skip: the tamper survived AND went unreported
+        if f.path in HARNESS_OWNED_FILES:
             why = "harness control file: never agent-writable"
         elif is_harness_owned(f.path, frozen):
             why = "harness-owned: call its functions, never rewrite it"
@@ -521,25 +449,17 @@ def finish_session(
     effort: str = "",
     **extra: Any,
 ) -> AgentResult:
-    """Commit the agent's work, compute ``files_changed`` via git (attributed to this
-    session — see :func:`attribute_changes`; a ``shared_tree`` job is credited with its
-    ``files_hint`` only), write result.json.  ``turns`` is the
-    backend's own count (``AgentResult.turns``); ``transient`` / ``quota`` / ``stalled`` its typed
-    failure class (:class:`SessionEnd`) and ``provider_wait_s`` the time its CLI lost to provider errors
-    (:func:`provider_wait`); ``effort`` what the backend passed its CLI (``AgentResult.effort``);
-    ``extra`` lands in result.json only.
+    """Commit the agent's work, compute ``files_changed`` via git (attributed to this session),
+    write result.json.  ``extra`` lands in result.json only.
 
-    Write scope is enforced here for the CLI backends (they have no write-time gate):
-    writes outside ``write_roots`` (and, for ``edit_only``, outside ``files_hint``) are
-    reverted to this session's own ``pre:`` commit and the session is failed
-    (:func:`_enforce_scope`)."""
+    Writes outside ``write_roots`` (or, for ``edit_only``, ``files_hint``) are reverted to the
+    session's ``pre:`` commit and the session is failed (:func:`_enforce_scope`).
+    """
     try:
         errors = list(errors or [])
         reverted = _enforce_scope(s)
         if reverted:
             ok = False
-            # each path carries ITS reason: a read_only revert used to be blamed on
-            # write_roots ("may only write under ['src']") for a file under src/
             msg = ("out-of-scope writes reverted: "
                    + "; ".join(f"{p} ({why})" for p, why in sorted(reverted.items())))
             errors.append(msg)
@@ -564,27 +484,20 @@ def finish_session(
 
 
 def failed(s: Session, reason: str, message: str, usage: Usage | None = None) -> AgentResult:
-    """Shortcut for an ``ok=False`` result with one error line."""
     return finish_session(s, ok=False, exit_reason=reason, text="", usage=usage or Usage(), errors=[message])
 
 
 # --------------------------------------------------------------------------- invoke
-#: seconds without output or workspace activity before the watchdog kills a CLI agent;
-#: read at call time by :func:`invoke` so a test can monkeypatch it here.
+#: seconds without output or workspace activity before the watchdog kills a CLI agent (read at call time)
 IDLE_GRACE_S = 300.0
-#: how far past its soft timeout a session that is still working may run before the watchdog
-#: kills it whatever it is doing — the hard limit is ``timeout_s + HARD_GRACE_S``.  A CLI with
-#: a clock of its own must be set past it (agy ``--print-timeout``), or that clock decides.
+#: how far past its soft timeout a working session may run: the hard limit is ``timeout_s + HARD_GRACE_S``;
+#: a CLI with a clock of its own must be set past it (agy ``--print-timeout``)
 HARD_GRACE_S = 300.0
 
-#: how often the watchdog re-reads the activity paths' mtimes; read at call time like
-#: :data:`POLL_S` so a test can turn it down.
+#: how often the watchdog re-reads the activity paths' mtimes (read at call time)
 SCAN_S = 5.0
 
-#: watchdog poll period.  A real vendor CLI runs for minutes, so 1 s of latency on
-#: noticing it exited is free — but a FAKE cli in a test exits in milliseconds and then
-#: waits out the poll, which was ~1 s on every agent.run() in the suite.  Same shape as
-#: IDLE_GRACE_S: read at call time so tests can turn it down (tests/agents/conftest.py).
+#: watchdog poll period (read at call time so tests can turn it down)
 POLL_S = 1.0
 
 
@@ -602,29 +515,15 @@ def invoke(
 ) -> CompletedProc:
     """Run one CLI agent process under the watchdog and record it in the trajectory.
 
-    The prompt goes to the CLI on STDIN, always, for every backend — never on argv and never
-    through a file the agent must read.  argv caps one argument at 128 KiB (``MAX_ARG_STRLEN``),
-    and the file stub this replaced (``task_prompt.md`` above 100 kB) handed the prompt to the
-    agent's own file tool, which (gemini-cli's ``read_file``, 2 000 lines) silently dropped the
-    last zones of a 5-zone scene prompt.  Each CLI reads its whole stdin as the prompt,
-    byte for byte (checked 2026-09-22 against claude-code 2.1.280, codex
-    0.155.1 and agy 1.2.8 with a 185 000-character, 2 502-line prompt; agy alone truncates a
-    request past ~175 kB, whatever carries it).
-
-    One block every backend shares: the ``invoke`` transcript line, ``run_with_watchdog``
-    (workspace cwd, the job's soft timeout, ``IDLE_GRACE_S``, every output line into the
-    transcript, ``src/`` + ``public/`` as activity dirs — a ``shared_tree`` job's own files only —
-    plus ``activity``, the backend's own record of the session's steps, :func:`activity_paths`)
-    and the stdout/stderr captures next to
-    the transcript.  ``stdout_name`` sets the capture's name (codex streams JSONL →
-    ``stdout.jsonl``); ``on_stdout`` / ``on_stderr`` also receive each line as it arrives (the
-    backends fold their event streams live).  The ``invoke`` line records the prompt's size,
-    plus ``invoke_extra`` (agy in API mode adds ``model``, the ``effort`` it passed and ``key_tail``).
+    The prompt goes to the CLI on STDIN for every backend (never argv or a file the agent must
+    read).  Output lines go into the transcript; ``src/`` + ``public/`` (a ``shared_tree`` job's own
+    files) plus ``activity`` are the activity dirs.  ``stdout_name`` names the capture;
+    ``on_stdout`` / ``on_stderr`` also receive each line; ``invoke_extra`` lands in the ``invoke`` row.
     """
     soft = float(s.job.timeout_s)
     hard = soft + HARD_GRACE_S
     if s.job.hard_deadline_s is not None:
-        # This runs AFTER begin_session's workspace lock.  A queued job must not regain the window it had before waiting for a peer.
+        # runs AFTER begin_session's workspace lock: a queued job must not regain the window it had before waiting
         hard = min(hard, max(0.0, s.job.hard_deadline_s - time.monotonic()))
         soft = min(soft, hard)
     s.traj.append("invoke", argv=list(argv), stdin_bytes=len(prompt.encode("utf-8")),
@@ -651,37 +550,23 @@ def invoke(
 
 
 def activity_paths(s: Session, steps: Sequence[Path] = ()) -> list[Path]:
-    """What the watchdog polls as this session's activity: ``src/`` + ``public/``, or — a
-    ``shared_tree`` job (D111) — its ``files_hint`` paths alone; plus ``steps``, where the
-    CLI itself records each step it takes (agy: its per-session HOME's ``brain/`` and
-    ``conversations/``, :data:`~codeverse3d.agents.backends.AGY_STEP_DIRS`).
-
-    The asset single-shots writing ``src/assets/`` beside the env session kept it "alive" until
-    ~300 s after their last write, so its kill time followed the asset stage (421-616 s on a
-    420 s window in the 12 iteration-4 runs whose session wrote nothing) instead of its own
-    work.  Narrowed to its own file, though, a session that is READING was idle from second 0:
-    agy prints nothing until it exits, so its soft window was a hard kill — 22 of 26 env
-    sessions and 4 of 21 refines of iteration 5 died at exactly the window with nothing written,
-    mid-read (D112).  A step the CLI records is activity; a session that takes none for
-    ``IDLE_GRACE_S`` past its window is still killed there, and every session stops at its
-    hard limit."""
+    """What the watchdog polls as this session's activity: ``src/`` + ``public/``, or a
+    ``shared_tree`` job's ``files_hint`` paths alone; plus ``steps``, where the CLI itself records
+    each step (agy prints nothing until it exits, so a session that only reads would look idle).
+    """
     own = [s.ws.root / h for h in sorted(s.files_hint)] if s.job.shared_tree else [s.ws.src, s.ws.public]
     return own + list(steps)
 
 
 def watchdog_error(proc: CompletedProc) -> str:
-    """The error line every CLI backend records when the watchdog killed its process."""
     return f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s"
 
 
 # --------------------------------------------------------------------------- tool trace
-#: The CLI's OWN record of what it called, normalised into ``transcript.jsonl`` by every
-#: backend after its session: one :data:`TOOL_CALL_ROW` per call, then ONE
-#: :data:`TOOL_TRACE_ROW` saying "this session's calls are all here" — a session without
-#: it left no trace, and its silence must not read as "called nothing".  The skill read
-#: probe (``skills/telemetry.py``) reads these rows instead of file atimes, which its own
-#: control bundle caught "reading" in 27 of 33 sessions (docs/SKILLS.md §4).  Arguments are
-#: compacted to :data:`TRACE_ARG_CHARS` per value: a path survives, a file body does not.
+#: The CLI's OWN record of what it called, normalised into ``transcript.jsonl`` by every backend:
+#: one :data:`TOOL_CALL_ROW` per call, then ONE :data:`TOOL_TRACE_ROW` saying "this session's calls
+#: are all here" (a session without it left no trace, which must not read as "called nothing").
+#: Arguments are compacted to :data:`TRACE_ARG_CHARS` per value.
 TOOL_CALL_ROW = "tool_call"
 TOOL_TRACE_ROW = "tool_trace"
 TRACE_ARG_CHARS = 400
@@ -689,11 +574,8 @@ TRACE_ARG_CHARS = 400
 
 @dataclass(frozen=True)
 class ToolCall:
-    """One tool call as the CLI reported it.  ``skill`` names the bundle when the call was
-    the CLI's own skill-activation tool (claude-code ``Skill``),
-    so a reader of the trace never needs any vendor's tool vocabulary; ``failed`` is the
-    CLI's own verdict on the call (a ``sed`` of a mis-expanded skill path read nothing —
-    codex 0.155.1 did exactly that on its first try, 2026-09-22)."""
+    """One tool call as the CLI reported it.  ``skill`` names the bundle when the call was the CLI's
+    skill-activation tool; ``failed`` is the CLI's own verdict on the call."""
 
     tool: str
     args: Mapping[str, Any] = field(default_factory=dict)
@@ -714,9 +596,8 @@ def record_tool_calls(s: Session, calls: Iterable[ToolCall], *, source: str,
                       skills_index: Sequence[str] | None = None) -> int:
     """Append one session's tool calls and the closing :data:`TOOL_TRACE_ROW`; returns the count.
 
-    ``source`` says where the backend read them (its event stream, its chat record);
-    ``skills_index`` is the skill list the CLI itself reported as available, when it
-    reports one (claude-code's ``init`` event) — the proof the index reached the model."""
+    ``skills_index`` is the skill list the CLI reported as available, when it reports one.
+    """
     n = 0
     for c in calls:
         row: dict[str, Any] = {"tool": c.tool, "args": _compact(dict(c.args))}
@@ -732,28 +613,18 @@ def record_tool_calls(s: Session, calls: Iterable[ToolCall], *, source: str,
 
 
 # --------------------------------------------------------------------------- failures
-#: THE vocabulary for what a CLI says about the call that ended its session — one place for
-#: every backend.  The backends turn it into typed flags (``AgentResult.transient`` / ``.quota``)
-#: that ride ``GenerationResult`` into ``RoundFailed``; the round loop never reads a message.
-#: Transient: a provider failure a retry may get through — capacity (5xx, UNAVAILABLE,
-#: overloaded), rate limits (429, RESOURCE_EXHAUSTED) and the transport (a dropped, refused or
-#: reset connection, an empty or broken stream).  The gRPC status names match case-sensitively:
-#: lower-case "internal" is in every node stack trace (``node:internal/process/...``), which made
-#: any crashed CLI look transient.  A plain "timed out" is NOT here: the watchdog's own kill, a
-#: slow MCP tool and a provider timeout all say it, and a retry of the first two buys another
-#: full window for the same outcome (provider timeouts arrive typed: agy's ``AGY_ERROR``,
-#: ``ModelError(status=408, retryable=True)``).
+#: the vocabulary for what a CLI says about the call that ended its session.  Transient: a provider
+#: failure a retry may get through (capacity, rate limits, dropped transport).  gRPC status names
+#: match case-sensitively ("internal" is in every node stack trace).  A plain "timed out" is NOT
+#: here: the watchdog's kill and a slow MCP tool say it too, and a retry buys the same outcome.
 _TRANSIENT_RE = re.compile(
     r"(?-i:\b(?:UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED)\b)|\b(?:429|50[0234]|529)\b|overloaded"
     r"|rate.?limit|empty response|Invalid stream|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN"
     r"|socket hang up|connection reset|stream disconnected",
     re.IGNORECASE,
 )
-#: Quota: the vendor's usage limit or credits are spent and nothing gets through until they reset
-#: (codex "You've hit your usage limit", claude "usage limit reached" / "You've hit your limit" /
-#: "out of usage credits", OpenAI ``insufficient_quota``).  Not a rate limit: gemini says "Quota
-#: exceeded ... per minute" and "You exceeded your current quota" of a per-key 429 the key pool
-#: rotates past, so neither phrase is here.
+#: Quota: the vendor's usage limit or credits are spent.  Not a rate limit: gemini's per-key
+#: "quota exceeded" 429s are rotated past by the key pool, so those phrases are not here.
 _QUOTA_RE = re.compile(
     r"usage limit|hit your limit|out of (?:extra )?usage|usage credits|credit balance (?:is )?too low"
     r"|purchase more credits|insufficient[_ ]quota|insufficient credits|billing hard limit",
@@ -763,7 +634,6 @@ _RATE_LIMIT_RE = re.compile(r"\b429\b|(?-i:\bRESOURCE_EXHAUSTED\b)|rate.?limit",
 
 
 def is_quota_failure(*texts: str) -> bool:
-    """The vendor's usage limit is spent (``AgentResult.quota``): stop, do not retry."""
     return any(_QUOTA_RE.search(t or "") for t in texts)
 
 
@@ -774,15 +644,13 @@ def is_transient_failure(*texts: str) -> bool:
 
 
 def is_rate_limited(*texts: str) -> bool:
-    """A 429: transient, and the key that got it should cool down (``exit_reason="budget"``)."""
     return any(_RATE_LIMIT_RE.search(t or "") for t in texts)
 
 
 @dataclass(frozen=True)
 class SessionEnd:
-    """How a CLI session ended: ``exit_reason`` (completed | timeout | budget | error) and the
-    typed failure class ``AgentResult.transient`` / ``.quota`` carry.  ``rate_limited`` is a
-    429 — agy in API mode cools its key in the pool."""
+    """How a CLI session ended: ``exit_reason`` (completed | timeout | budget | error) plus the typed
+    failure class; ``rate_limited`` is a 429 (agy cools its key in the pool)."""
 
     exit_reason: str
     transient: bool = False
@@ -793,21 +661,13 @@ class SessionEnd:
 
 def classify_end(proc: CompletedProc, *, ok: bool, text: str, said: Sequence[str] = (),
                  provider_failed: bool = False) -> SessionEnd:
-    """THE end rule for every CLI backend (N71; D83) — each backend brings only its vendor's
-    evidence: ``said`` (what the CLI printed about the call that ended it) and ``provider_failed``
-    (a typed vendor verdict: agy's ``AGY_ERROR.retryable``).
+    """The end rule for every CLI backend; each brings only its vendor's evidence: ``said`` (what the
+    CLI printed about the call that ended it) and ``provider_failed`` (a typed vendor verdict).
 
-    A watchdog kill is ``timeout`` and never ``transient`` (the key it ran on is not at fault).  It
-    is ``stalled`` when the watchdog found the session IDLE — no output, no workspace write and no
-    step the CLI recorded for ``IDLE_GRACE_S`` past its window — and it answered nothing: a hang
-    (iteration 5, r1_09: "connection reset by peer", then 10.8 minutes of silence), which the round
-    loop and the stage retry give ONE more session when the clock still holds a minimum window
-    (D112).  A kill at the hard limit is the task's own pace: a retry buys the same window for the
-    same outcome.  Until D112 a kill was transient whenever the CLI's log held ANY provider retry —
-    one 4 s 503 at t=0 — so the same 901 s / zero-file kill was retried in r1_05 and r1_09 and
-    ended r1_07 and r1_08 as no_change.  Any other failure is ``quota`` / ``transient`` by the
-    vocabulary above, and ``budget`` when the usage limit is spent or the call was rate limited,
-    for every vendor."""
+    A watchdog kill is ``timeout``, never ``transient``; ``stalled`` when the watchdog found the
+    session IDLE and it produced no text.  Any other failure is ``quota`` / ``transient`` by the
+    vocabulary above, and ``budget`` when the usage limit is spent or the call was rate limited.
+    """
     if ok:
         return SessionEnd("completed")
     if proc.timed_out:
@@ -824,14 +684,11 @@ def provider_wait(failures: Iterable[tuple[float, float]], end: float,
                   progress: Iterable[float] | None = None) -> float:
     """Seconds a session lost to provider errors, from the CLI's own record of them.
 
-    ``failures`` are ``(t, backoff_s)``: when the CLI reported a failed API attempt, and the
-    back-off it announced before the next one (0 when it does not say).  ``progress`` are the times the session demonstrably moved on (a model message, a
-    tool result); ``None`` when the CLI records none (agy's log).  Failures with no progress
-    between them form one burst, which costs from the last progress before it — when the
-    request that failed went out; its first failure when nothing precedes it — until the
-    CLI tried again after the burst's last failure (``t + backoff``).  A burst no progress
-    ever followed costs until ``end``: the CLI gave up, or the watchdog killed it mid-storm.
-    A lower bound wherever the back-off is unannounced."""
+    ``failures`` are ``(t, backoff_s)``; ``progress`` are the times the session demonstrably moved
+    on (``None`` when the CLI records none).  Failures with no progress between them form one
+    burst, costing from the last progress before it until the CLI retried after it (or until
+    ``end`` when nothing followed).  A lower bound wherever the back-off is unannounced.
+    """
     fails = sorted(failures)
     prog = sorted(progress) if progress is not None else []
     total, i = 0.0, 0
@@ -848,12 +705,7 @@ def provider_wait(failures: Iterable[tuple[float, float]], end: float,
 
 
 def find_json_object(stdout: str, accept: Callable[[dict[str, Any]], bool]) -> dict[str, Any] | None:
-    """The one JSON envelope a CLI printed, possibly around log noise.
-
-    Tries the whole text; unwraps a top-level list (claude's stream-json array) to
-    its LAST accepted element; then ``{``-starting lines from the END (claude / agy
-    print one envelope per line after their chatter).  ``accept`` says which dict is the
-    envelope."""
+    """The one JSON envelope a CLI printed, possibly among log noise; ``accept`` picks the dict."""
     s = stdout.strip()
     if not s:
         return None

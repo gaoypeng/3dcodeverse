@@ -1,13 +1,4 @@
-"""Shared track machinery: the run context, the services seam, the single-shot path.
-
-``Services`` is the tracks' injection seam: every call into a sibling package
-(models, agents, runtimes, spatial tools, judges, record) goes through one
-method here so a test can subclass it with fakes (``tests/orchestrator_tracks/
-fakes.py``) and an articulated test double can synthesise joint sweeps from the
-plan.  The targets are modules of this same package — never optional — and are
-imported lazily only to keep ``tracks`` importable without loading Blender,
-Chrome or a model client.  Nothing here touches a network.
-"""
+"""Shared track machinery: the run context, the services seam, the single-shot path."""
 
 from __future__ import annotations
 
@@ -75,10 +66,7 @@ class Services:
         return _import("codeverse3d.spatial.measure", "measure_glb")(glb)
 
     def connectivity(self, glb: Path, language: str = "", planned_edges: Sequence[tuple[str, str | Sequence[str]]] = ()) -> GateReport:
-        """``language`` selects the frame of the fix hints (the author's frame, not the GLB's);
-        ``planned_edges`` are the plan's attach_to pairs spelled in GLB part names — the gate
-        measures each one and lists it contact/open in its contact ledger (the judge's
-        assembly_fit ground truth since 2026-08-30)."""
+        """Connectivity gate; ``language`` selects the frame of the fix hints (the author's frame, not the GLB's)."""
         return _import("codeverse3d.spatial.connectivity", "check_connectivity")(
             glb, language=language, planned_edges=tuple(planned_edges))
 
@@ -93,8 +81,7 @@ class Services:
         return runtime.render_scene(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times), width=width, height=height, sheet=True)
 
     def render_geometry(self, glb: Path, out_dir: Path, *, views: Sequence[ViewPreset]) -> RenderSet:
-        """Clay renders (no materials/textures) exposing holes/intersections for the judge's
-        geometry montage — cheap thanks to the render cache."""
+        """Clay renders (no materials/textures) exposing holes/intersections for the judge's"""
         return _import("codeverse3d.spatial.render", "render_glb")(glb, out_dir, views=list(views), mode="clay", sheet=False)
 
     def frame_gate(self, renders: RenderSet) -> GateReport:
@@ -148,14 +135,12 @@ class RunContext:
     agent_id: str
     plan: Plan | None = None
     judge: Any | None = None
-    agent: Any | None = None  # CodingAgent instance (agent path)
-    model: Any | None = None  # ChatModel (single-shot path)
+    agent: Any | None = None
+    model: Any | None = None
     contract_text: str = ""
     tool_cards: str = ""
     prompt_hashes: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
-    #: the prompt/skill variant this run activated (``prompts/variants.py``, D105): ``""`` = base.
-    #: Informative here — the overlay itself is the ContextVar ``BaseTrack.run`` sets around the run
     variant: str = ""
 
     @property
@@ -177,16 +162,11 @@ class RunContext:
 
 # ----------------------------------------------------------------------------- strategy
 def single_shot_ctx(ctx: RunContext) -> RunContext | None:
-    """A copy of ``ctx`` bound to the single-shot strategy, or None when the
-    generator has no usable chat model (CLI agents, tests with fake services)."""
+    """A copy of ``ctx`` bound to the single-shot strategy, or None when none is available."""
     cached = ctx.extra.get("_single_shot_ctx")
     if cached is not None:
-        return cached or None  # False = known-unavailable
+        return cached or None
     planner = ctx.spec.backends.planner
-    # Single-shot is ONE api call that returns the asset file; the coding agent is always a
-    # vendor CLI (no chat model), so the model comes from the run's planner backend.  A SHAPE
-    # check only, deliberately not models.registry.parse_model_id: whether the id resolves is the
-    # SERVICES' call (tests run fake providers like "fake:planner").
     sid = ctx.agent_id if is_single_shot(ctx.agent_id) else (SINGLE_SHOT_PREFIX + planner if ":" in planner else "")
     sub: RunContext | None = None
     if sid:
@@ -202,8 +182,6 @@ def single_shot_ctx(ctx: RunContext) -> RunContext | None:
 
 
 def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
-    """``generate()`` with everything ``ctx`` knows — the one call every stage makes.  A session
-    that died of a provider failure comes back ``transient``; the round loop's one retry is the
-    only retry above the CLI's own."""
+    """``generate()`` with everything ``ctx`` knows — the one call every stage makes.  A session"""
     return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
                     budget=ctx.budget, events=ctx.events)

@@ -1,17 +1,4 @@
-"""L2 zone layouts: one cheap structured call per zone, in parallel, validated.
-
-Why this layer exists (measured 2026-08-30 across the 48 scored scene runs):
-``ZonePlan.contents`` is a list of NAMES — the zone agent freehand-places
-everything, and the final rounds still carried 55 interpenetration, 38 sunken
-and 22 floating gate ERRORS, with undressed_scene standing in 31/48 verdicts.
-The layout is planning work, so it is done by the PLANNER model with a schema
-(never a coding agent), validated deterministically against the zone bbox and
-the plan, re-asked once with the exact complaint, and handed to the zone
-builder as numbers to realise.
-
-Layouts are an optional accelerator like the engineering brief: any failure
-returns no layout for that zone and generation proceeds exactly as before.
-"""
+"""L2 zone layouts."""
 
 from __future__ import annotations
 
@@ -38,22 +25,11 @@ LAYOUT_WAIT_S = 300.0
 COUNT_SLACK = 4
 #: cluster centres may sit this far outside the zone bbox (assets have radius)
 BBOX_MARGIN_M = 1.0
-#: lens margin beyond the asset's own reach.  Two measurements set this: fv_izakaya_night
-#: (2026-08-30) — BarCounter 0.7 m from the PotDetail camera put the lens INSIDE the
-#: counter, three capped rounds, unfixable downstream; and dg_izakaya_night (2026-08-31)
-#: — the first tune (1.2 m base + footprint/2 + full spread) rejected EVERY placement a
-#: small indoor zone could offer ("WoodenStool 1.8 m from OdenStationDetail — keep
-#: >= 1.8 m") until the layout was dropped entirely, muting the layer exactly where it
-#: helps.  The validator now rejects only what puts the LENS inside the asset's reach
-#: (half footprint + half spread + this margin, floored at 0.8 m); polite shot spacing
-#: stays in the prompt, where a director can trade it off.
+#: lens margin beyond the asset's own reach; the validator rejects only a lens INSIDE the
+#: asset's reach (half footprint + half spread + this, floored), spacing stays in the prompt.
 CAMERA_CLEAR_M = 0.4
 CAMERA_CLEAR_FLOOR_M = 0.8
-#: two LARGE assets whose cluster centres nearly coincide are stacked into each other —
-#: fv2_alpine_night's RetainingWall x PrayerBench interpenetration.  Deliberately narrow:
-#: only same-spot (< 0.6 m) pairs where BOTH footprints are >= 0.8 m and neither stands on
-#: the other — a stool against a counter (small footprint) or bottles on a bar
-#: (support relation) must never be rejected.
+#: two LARGE assets on nearly the same spot are stacked; small footprints and supported items are never rejected.
 STACK_DIST_M = 0.6
 STACK_MIN_FOOT_M = 0.8
 
@@ -75,18 +51,14 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
                             f"x {lo[0]:.1f}..{hi[0]:.1f}, z {lo[2]:.1f}..{hi[2]:.1f}")
         if p.count > COUNT_SLACK * hints[k]:
             problems.append(f"{p.asset} count {p.count} is over {COUNT_SLACK}x the plan's instances_hint {hints[k]}")
-        # the shot must survive the layout: a cluster whose footprint reaches a camera
-        # puts geometry inside the lens (fv_izakaya_night), and nothing downstream can fix it
+        # a cluster whose footprint reaches a camera puts geometry inside the lens
         foot = max(known[k].approx_size_m[0], known[k].approx_size_m[2])
         need = max(CAMERA_CLEAR_FLOOR_M, foot / 2 + p.spread_m / 2 + CAMERA_CLEAR_M)
         base = known[to_snake(p.support)].approx_size_m[1] if to_snake(p.support) in known else 0.0
         top = base + known[k].approx_size_m[1]
         for cam in plan.cameras:
             if cam.position[1] > top + CAMERA_CLEAR_M:
-                # the check is 2D by design (clusters stand on the floor), so an aerial /
-                # establishing camera must escape it vertically: a lens this far above the
-                # cluster's top cannot be inside it, and rejecting every large placement
-                # under a high camera dropped the whole zone's layout (review of PR #3)
+                # the check is 2D; a lens well above the cluster's top cannot be inside it
                 continue
             dist = math.hypot(x - cam.position[0], z - cam.position[2])
             if dist < need:
@@ -118,20 +90,13 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
 
 
 def ground_point(xz: tuple[float, float], language: Language | str) -> tuple[float, float]:
-    """A layout's ground point — ``(x, z)`` in the plan's Y-up frame — as the two horizontal
-    coordinates an author of ``language`` places with: the same pair for a Y-up language, ``(x, y)``
-    with ``y = -z`` for a Z-up one (``conventions.to_authoring_frame``; D12: the plan stays Y-up,
-    only what the author reads is converted)."""
     v = to_authoring_frame((xz[0], 0.0, xz[1]), str(language))
     x, y = (v[0], v[1]) if authoring_frame(str(language)) is Frame.Z_UP_NEG_Y_FRONT else (v[0], v[2])
-    # ``+ 0.0`` folds the ``-0.0`` a negated zero leaves (z = 0 is the director's default cluster line;
-    # the brief would print ``(3.0, -0.0)``) — the fold ``tracks.scene.plan_vec`` uses
+    # ``+ 0.0`` folds ``-0.0`` so the brief never prints ``(3.0, -0.0)``
     return (x + 0.0, y + 0.0)
 
 
 def layout_block(layout: ZoneLayout | dict[str, Any] | None, *, language: Language | str = Language.SCENE_THREEJS) -> str:
-    """The prompt table a zone builder realises (`""` when there is no layout), its points in the
-    authoring frame of ``language`` (scene_threejs's reads the layout's own numbers)."""
     if layout is None:
         return ""
     lay = layout if isinstance(layout, ZoneLayout) else ZoneLayout.model_validate(layout)
@@ -168,10 +133,7 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
             f"{zone.description}\nContents to place: {', '.join(zone.contents) or '(none)'}")
     complaint = ""
     for attempt in (0, 1):
-        # the run clock outranks the layout (review-3 S3): past the hard ceiling the
-        # documented degraded mode is "no layout for this zone", and a call that does
-        # go out gets the wall clock actually left, never a flat 300 s — the re-ask
-        # preflights again, so it cannot buy a second window past the ceiling
+        # past the hard ceiling the layout is skipped; a call that goes out gets the wall clock left
         try:
             max_wait_s = _deadline_preflight(budget, LAYOUT_WAIT_S, soft=True, floor_s=20.0)
         except BudgetExceeded as e:
@@ -196,8 +158,7 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
 
 def layout_zones(plan: ScenePlan, model: Any, *, budget: Any = None, events: Any = None,
                  max_workers: int = 6) -> dict[str, ZoneLayout]:
-    """One validated layout per zone, computed in parallel.  Failures drop out silently
-    (an exception or double rejection yields no layout for that zone, never a dead run)."""
+    """One validated layout per zone, computed in parallel."""
     events = NULL_EVENTS if events is None else events
 
     results = fan_out(list(plan.zones), lambda z: _one_layout(z, plan, model, budget, events), max_workers=max_workers, label="layouts",

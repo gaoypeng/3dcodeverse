@@ -1,18 +1,5 @@
-"""Pack the manifest's sample folders into plain ``samples-NNN.tar`` files and fill
-the ``tar / byte_start / byte_len / n_files`` locator columns (STORAGE_RULES §3-4).
-
-``pack_samples`` consumes ONLY ``<out>/dataset_manifest.json`` (written by
-``export_samples``) — no directory rescan, so a duplicate dropped at export can
-never ship and nothing outside the manifest reaches an archive.  Every file is
-sha256-verified against the manifest as it is added (fail fast, naming the file);
-the archives AND the two index files are written as ``.tmp`` and moved into place
-in one final loop, so a failure anywhere — including in ``write_parquet`` — leaves
-the previous archives and index untouched.  Tars left over from a re-pack that
-produced fewer shards are removed after that loop.
-
-Each sample's files are written consecutively so ``byte_start..+byte_len`` is a
-valid sub-tar; ``verify_locators`` round-trips every row.
-"""
+"""Pack the manifest's sample folders into plain ``samples-NNN.tar`` files and fill the ``tar /
+byte_start / byte_len / n_files`` locator columns."""
 
 from __future__ import annotations
 
@@ -38,7 +25,6 @@ from codeverse3d.addons.dataset.export import (
 from codeverse3d.addons.dataset.quality import mark_duplicates
 
 MAX_TAR_BYTES = int(2.5 * 1024**3)
-#: per-member allowance for tar headers/padding in the rollover size estimate
 TAR_HEADER_SLACK = 1024
 
 
@@ -63,12 +49,6 @@ def _entry_sizes(sdir: Path, entry: ManifestEntry, rels: list[str]) -> int:
 
 
 def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: int = MAX_TAR_BYTES) -> PackReport:
-    """Write ``samples-NNN.tar`` under ``out_dir`` from the dataset manifest and
-    rewrite the index (rows rebuilt from the manifest's sample dirs, locators filled).
-
-    ``tar_prefix`` is prepended to the tar file name in the ``tar`` column so it
-    can be repo-root-relative (e.g. ``"3dcodeverse/static_object/"``).
-    """
     out = Path(out_dir)
     try:
         manifest = load_manifest(out)
@@ -96,7 +76,7 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
             tar.close()
         final = out / f"samples-{tar_idx:03d}.tar"
         tmp = out / f"samples-{tar_idx:03d}.tar.tmp"
-        tar = tarfile.open(tmp, mode="w", format=tarfile.PAX_FORMAT)  # noqa: SIM115 - closed in _open_new/finally
+        tar = tarfile.open(tmp, mode="w", format=tarfile.PAX_FORMAT)  # noqa: SIM115
         tmp_to_final.append((tmp, final))
         final_name = final.name
         rep.tars.append(final.name)
@@ -135,20 +115,18 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
             rep.n_samples += 1
         tar.close()
         tar = None
-        # the index is published WITH the tars: a failure here used to leave every new
-        # tar in place and the old index pointing into it (byte offsets of a re-pack)
         tmp_to_final.append((write_parquet(rows, out / PARQUET_NAME, commit=False), out / PARQUET_NAME))
         tmp_to_final.append((write_jsonl(rows, out / JSONL_NAME, commit=False), out / JSONL_NAME))
         done = True
     finally:
-        if not done:  # leave the previous archives and index exactly as they were
+        if not done:
             if tar is not None:
                 tar.close()
             for tmp, _final in tmp_to_final:
                 tmp.unlink(missing_ok=True)
     for tmp, final in tmp_to_final:
         os.replace(tmp, final)
-    for stale in out.glob("samples-*.tar"):  # a re-pack with fewer shards must leave no dead tar
+    for stale in out.glob("samples-*.tar"):
         n = stale.name[len("samples-"):-len(".tar")]
         if n.isdigit() and int(n) >= tar_idx:
             stale.unlink()
@@ -157,7 +135,6 @@ def pack_samples(out_dir: Path | str, *, tar_prefix: str = "", max_tar_bytes: in
 
 
 def verify_locators(out_dir: Path | str) -> int:
-    """Round-trip every row's byte range through ``tarfile``; returns rows checked."""
     out = Path(out_dir)
     import pyarrow.parquet as pq
 

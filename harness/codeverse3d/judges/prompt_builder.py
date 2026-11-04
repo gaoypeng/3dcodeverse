@@ -1,14 +1,7 @@
-"""What the judge SEES: image prep, montage planning and message assembly.
+"""What the judge sees: image prep, montage planning and message assembly.
 
-* image prep (``prepare_image``): every image sent to a judge is downscaled
-  (≤ ``max_px`` on the long side) and carries a burnt-in label (``VIEW 5/14 — front ·
-  az 0° el 0°``) the model can cite as evidence; prepared files are cached under
-  ``<cache_dir>/<sha>.png`` keyed by source path, mtime, size, max_px and label text.
-* montage planning (``plan_montages`` / ``render_montage``): ranked views packed into
-  ≤2×2 sheets — shaded, geometry (clay/normals), poses, detail crops.
-* message assembly (``build_judge_messages``): rubric + montages + measurements +
-  acceptance items → the ``ChatRequest`` system/messages; ``judge_prompt_hash`` is the
-  verdict's provenance stamp.
+``prepare_image`` downscales and labels every image; ``plan_montages`` / ``render_montage`` pack ranked views
+into ≤2×2 sheets; ``build_judge_messages`` assembles the request; ``judge_prompt_hash`` stamps a verdict.
 """
 
 from __future__ import annotations
@@ -53,9 +46,7 @@ from codeverse3d.spatial.measure import measure_summary_table
 from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2
 
 _PRESETS: dict[str, ViewPreset] = {v.name: v for v in (*OBJECT_VIEWS, *SCENE_VIEWS)}
-#: Clay tiles label their OWN cameras: ``OBJECT_CLAY_VIEWS.top`` sits at el 88 while the
-#: rig's ``top`` is el 90, so a geometry-mode tile resolves here before ``_PRESETS`` —
-#: labelling a clay tile with the rig's numbers was the rig_ab payload_c.py pitfall.
+#: clay tiles label their own cameras (``OBJECT_CLAY_VIEWS.top`` is el 88, the rig's is 90), so they resolve here first
 _CLAY_PRESETS: dict[str, ViewPreset] = {v.name: v for v in OBJECT_CLAY_VIEWS}
 
 
@@ -68,8 +59,7 @@ def default_cache_dir() -> Path:
 
 
 def view_az_el(view: RenderView) -> tuple[float, float] | None:
-    """Azimuth/elevation (deg) of a view: from the preset name (geometry-mode tiles
-    prefer the clay rig's own cameras), else from camera geometry (Y-up)."""
+    """Azimuth/elevation (deg) of a view: from the preset name, else from camera geometry (Y-up)."""
     if view.mode != "shaded" and view.name in _CLAY_PRESETS:
         p = _CLAY_PRESETS[view.name]
         return p.azimuth_deg, p.elevation_deg
@@ -83,7 +73,7 @@ def view_az_el(view: RenderView) -> tuple[float, float] | None:
         horiz = math.hypot(dx, dz)
         if horiz < 1e-9 and abs(dy) < 1e-9:
             return None
-        az = math.degrees(math.atan2(dx, dz)) % 360.0  # 0 = +Z front, CCW from above
+        az = math.degrees(math.atan2(dx, dz)) % 360.0
         el = math.degrees(math.atan2(dy, horiz))
         return round(az, 1), round(el, 1)
     return None
@@ -92,13 +82,10 @@ def view_az_el(view: RenderView) -> tuple[float, float] | None:
 def prepare_image(
     src: str | Path, *, label: str = "", max_px: int = 768, cache_dir: Path | None = None
 ) -> Path:
-    """Downscale ``src`` to ≤ ``max_px`` on its long side and burn ``label`` into a top strip.
-
-    Returns the cached PNG path.  Raises ``JudgeImageError`` if the source is missing.
-    """
+    """Downscale ``src`` to ≤ ``max_px`` and burn ``label`` into a top strip; returns the cached PNG path."""
     cache = Path(cache_dir) if cache_dir else default_cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
-    out = cache / f"{_key([_stat(str(src)), str(max_px), label])}.png"  # _stat raises JudgeImageError
+    out = cache / f"{_key([_stat(str(src)), str(max_px), label])}.png"
     if out.is_file():
         return out
     with Image.open(src) as im:
@@ -109,9 +96,9 @@ def prepare_image(
             im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
         if label:
             im = _with_label_strip(im, label)
-        tmp = unique_tmp(out)  # unique per writer: concurrent judges share the cache
+        tmp = unique_tmp(out)
         im.save(tmp, format="PNG", optimize=True)
-        tmp.replace(out)  # atomic; a concurrent identical write simply wins last
+        tmp.replace(out)
     return out
 
 
@@ -123,7 +110,6 @@ def _with_label_strip(im: Image.Image, label: str) -> Image.Image:
     canvas.paste(im, (0, strip_h))
     draw = ImageDraw.Draw(canvas)
     text = label
-    # truncate to fit
     while text and draw.textlength(text, font=font) > w - 12 and len(text) > 8:
         text = text[:-2]
     font_px = getattr(font, "size", 11)
@@ -135,32 +121,22 @@ def image_part(path: Path, label: str) -> ImagePart:
     return ImagePart(path=str(path), mime="image/png", label=label)
 
 
-# ===================================================================== montage
 MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
 
-#: modes that show geometry without material/lighting noise: every render mode but shaded
 GEOMETRY_MODES = tuple(m for m in RENDER_MODES if m != "shaded")
-#: most-informative-first order for the object rig (names from conventions.OBJECT_VIEWS):
-#: montage 1 = {front_right_high, back_left_high, top, bottom}, so a montage-cap
-#: truncation still sees the underside; then the eye ring, then the remaining rings.
+#: most-informative-first order for the object rig; montage 1 includes the underside
 OBJECT_RANK = (
-    # a STORED pre-D47 run (and a clay tile) ranks by its rig twin, ``conventions.view_key``
     "front_right_high", "back_left_high", "top", "bottom",
     "front", "right", "back", "left",
     "front_right_low", "back_left_low", "front_left_high", "back_right_high",
     "front_left_low", "back_right_low",
 )
-#: scene rig: authored cameras first (graded for composition), then the overview rig.
-#: The rig names come from ``conventions.SCENE_VIEWS`` — anything else in a scene render
-#: set is a camera the SCENE authored, whatever it is called (they are PascalCase plan
-#: names such as ``Establishing``, never a fixed prefix).
+#: scene rig: authored cameras first, then the overview rig; any name not in ``conventions.SCENE_VIEWS`` is authored
 SCENE_OVERVIEW_RANK = ("overview_front_right", "overview_back_left", "overview_top", "overview_low_front",
                        "eye_front", "eye_right", "eye_back_left")
 SCENE_RIG_NAMES = frozenset(v.name for v in SCENE_VIEWS) | frozenset(SCENE_OVERVIEW_RANK)
-#: the rig tiles a contact crop may be cut from (the judged ``overview_*`` views; the eye
-#: rig never reaches the judge, so a crop from it would cite a tile the judge cannot see)
+#: the rig tiles a contact crop may be cut from (only the judged ``overview_*`` views)
 SCENE_OVERVIEW_NAMES = frozenset(n for n in SCENE_OVERVIEW_RANK if n.startswith("overview"))
-#: the gate whose findings become contact crops and the MEASURED PLACEMENT line
 PLACEMENT_GATE = "scene_placement"
 POSE_PREFIX = "pose_"
 POSE_SHEET_NAMES = ("articulation_sheet", "pose_sheet")
@@ -171,15 +147,13 @@ _POSITIONS = {
     4: ("top-left", "top-right", "bottom-left", "bottom-right"),
 }
 MAX_TILES = 4
-#: payload knobs (defaults; ``Settings.judge`` overrides per run).  5 montages carry the
-#: 14-view rig + the clay geometry montage; 3 silently dropped the low ring + poles (D47).
+#: payload knobs (defaults; ``Settings.judge`` overrides per run)
 MAX_MONTAGES = 5
 MAX_DETAIL_CROPS = 2
 
 
 @dataclass(frozen=True)
 class Montage:
-    """One judge image: 1–4 tiles (or a pass-through sheet / a detail crop)."""
 
     kind: MontageKind
     tiles: tuple[RenderView, ...]
@@ -193,7 +167,6 @@ class Montage:
         return self.kind == "detail"
 
 
-# --------------------------------------------------------------------------- view grouping / ranking
 def is_pose_view(v: RenderView) -> bool:
     return v.name.startswith(POSE_PREFIX)
 
@@ -207,12 +180,11 @@ def is_geometry_view(v: RenderView) -> bool:
 
 
 def rank_views(views: list[RenderView], *, scene: bool) -> list[RenderView]:
-    """Most informative first; unknown names keep their given order after the known ones."""
     if scene:
         def key(iv: tuple[int, RenderView]) -> tuple[int, int, int]:
             i, v = iv
             if v.name not in SCENE_RIG_NAMES:
-                return (0, 0, i)          # the scene's OWN cameras: the pictures being graded
+                return (0, 0, i)
             if v.name in SCENE_OVERVIEW_RANK:
                 return (1, SCENE_OVERVIEW_RANK.index(v.name), i)
             return (2, 0, i)
@@ -237,8 +209,7 @@ def plan_montages(
     detail_crops: int = MAX_DETAIL_CROPS,
     gates: Sequence[GateReport] = (),
 ) -> list[Montage]:
-    """Decide which montages a judge call gets (see module docstring for the priority).
-    ``gates`` feed a scene's contact crops (``plan_detail_crops``); objects ignore them."""
+    """Decide which montages a judge call gets; ``gates`` feed a scene's contact crops."""
     shaded = [v for v in renders.views if not (is_pose_view(v) or is_pose_sheet(v) or is_geometry_view(v))]
     poses = [v for v in renders.views if is_pose_view(v)]
     sheets = [v for v in renders.views if is_pose_sheet(v)]
@@ -260,7 +231,7 @@ def plan_montages(
         candidates.append(Montage("geometry", tuple(geo), f"GEOMETRY-ONLY views ({geo[0].mode}: no materials — look for holes, black/inverted faces, intersections, gaps)"))
     for extra in shaded_groups[1:]:
         candidates.append(Montage("shaded", tuple(extra), "SHADED views (remaining)"))
-    if sheets and poses:  # the sheet already shows the poses; the 2×2 is a larger-tile duplicate, lowest priority
+    if sheets and poses:
         candidates.append(Montage("poses", tuple(poses[:MAX_TILES]), "POSED views (joints moved by the harness; tile label = pose)"))
     chosen = candidates[: max(0, max_montages)]
     chosen.extend(plan_detail_crops(shaded, scene=scene, gates=gates, limit=max(0, detail_crops)))
@@ -268,7 +239,6 @@ def plan_montages(
 
 
 def _match_geometry(geometry: list[RenderView], primary: tuple[RenderView, ...]) -> list[RenderView]:
-    """Prefer geometry views whose names match the primary shaded montage, then the rest."""
     names = [v.name for v in primary]
     by_name = {v.name: v for v in geometry}
     out = [by_name[n] for n in names if n in by_name]
@@ -278,14 +248,8 @@ def _match_geometry(geometry: list[RenderView], primary: tuple[RenderView, ...])
 
 def plan_detail_crops(shaded: list[RenderView], *, scene: bool, gates: Sequence[GateReport] = (),
                       limit: int = MAX_DETAIL_CROPS) -> list[Montage]:
-    """The crops a verdict sends, ``limit`` = ``Settings.judge.detail_crops`` (0 = none).
-
-    Objects: the centre crop of the best view at 2× (detail legibility) + the ground band of
-    the lowest view, cut to ``limit``.  Scenes (scene, 2026-10-14): the centre crop plus up
-    to ``limit`` CONTACT CROPS — close-ups around the placement findings the gate measured
-    (``plan_contact_crops``), so the judge sees the daylight under a base at crop scale
-    instead of reading the gate's sentence about it.
-    """
+    """The crops a verdict sends, ``limit`` = ``Settings.judge.detail_crops``: a centre crop plus a ground band
+    for objects, plus contact crops around placement findings for scenes."""
     if not shaded or limit <= 0:
         return []
     centre = Montage("detail", (shaded[0],), f"DETAIL CROP — centre of {shaded[0].name} at 2×",
@@ -302,20 +266,13 @@ def plan_detail_crops(shaded: list[RenderView], *, scene: bool, gates: Sequence[
     return out[:limit]
 
 
-# --------------------------------------------------------------------------- scene contact crops
-#: a crop smaller than this of the frame (per axis) would upscale a 1024-px tile past ~4.5×
+#: a crop smaller than this fraction of the frame (per axis) would over-upscale a tile
 CONTACT_CROP_MIN_FRAC = 0.22
-#: padding around the projected asset box, as a fraction of the box's own size: the gap
-#: under a base and the neighbour a part passes through are OUTSIDE the box
+#: padding around the projected asset box, as a fraction of the box's size
 CONTACT_CROP_PAD = 0.6
-#: an asset filling more than this of the tile on either axis needs no crop: the tile is the crop
 CONTACT_CROP_MAX_FRAC = 0.8
-#: which rig tile a crop prefers, by the tile's elevation: ``(upper bound, weight)`` rows, the
-#: first whose bound exceeds the elevation applies.  The ground-level contact tile (< 10°) is
-#: built for this and counts 1.5×; a 32° overview counts as drawn; a top-down tile (≥ 60°)
-#: shows a base's shadow, not its gap, and is the last resort at a quarter.
+#: which rig tile a crop prefers, by elevation: ``(upper bound, weight)`` rows; the first bound above the elevation applies
 CONTACT_TILE_WEIGHT: tuple[tuple[float, float], ...] = ((10.0, 1.5), (60.0, 1.0), (90.1, 0.25))
-#: placement kinds that carry a per-asset box, and how their magnitude is printed in the label
 CONTACT_KINDS: dict[str, tuple[str, str]] = {
     "floating": ("gap_m", "{:.2f} m"), "unsupported": ("gap_m", "{:.2f} m"), "cantilevered": ("gap_max_m", "{:.2f} m"),
     "sunken": ("sunk_m", "{:.2f} m"), "interpenetration": ("overlap", "{:.0%}"), "scale": ("factor", "{:g}×"),
@@ -323,9 +280,7 @@ CONTACT_KINDS: dict[str, tuple[str, str]] = {
 
 
 def _camera_frame(view: RenderView) -> tuple[tuple[float, float, float], ...] | None:
-    """``(eye, forward, right, up)`` of a view's camera in the GLB frame, with THREE's lookAt
-    roll (world up +Y unless the view is vertical, then −Z) — the convention ``orbit.mjs``
-    fits the rig with, so a projection here lands where the tile drew it."""
+    """``(eye, forward, right, up)`` of a view's camera in the GLB frame, with three.js lookAt roll."""
     if view.camera_position is None or view.look_at is None:
         return None
     eye = tuple(float(c) for c in view.camera_position)
@@ -349,10 +304,8 @@ def _view_aspect(view: RenderView) -> float:
 
 
 def project_box(view: RenderView, center: Sequence[float], size: Sequence[float]) -> tuple[float, float, float, float] | None:
-    """The frame-fraction box ``(left, top, right, bottom)`` the GLB-frame AABB ``center ±
-    size/2`` covers in ``view`` (vertical ``fov``, the rig's 50° when the record has none), or
-    None when the camera is unknown, a corner is behind the lens, or the box's centre is
-    outside the frame.  Fractions may run past 0..1 for a box that is partly out of frame."""
+    """The frame-fraction box ``(left, top, right, bottom)`` a GLB-frame AABB covers in ``view``, or None if
+    the camera is unknown, a corner is behind the lens, or the centre is outside the frame."""
     frame = _camera_frame(view)
     if frame is None:
         return None
@@ -373,13 +326,13 @@ def project_box(view: RenderView, center: Sequence[float], size: Sequence[float]
         y = (rel[0] * u[0] + rel[1] * u[1] + rel[2] * u[2]) / (depth * tan_v)
         us.append((x + 1) / 2)
         vs.append((1 - y) / 2)
-    if not (0.0 <= us[0] <= 1.0 and 0.0 <= vs[0] <= 1.0):  # the centre must be in the picture
+    if not (0.0 <= us[0] <= 1.0 and 0.0 <= vs[0] <= 1.0):
         return None
     return min(us[1:]), min(vs[1:]), max(us[1:]), max(vs[1:])
 
 
 def _finding_box(f: GateFinding) -> tuple[list[float], list[float]] | None:
-    """``(center, size)`` from a placement finding's ``data.bbox`` (scene_placement, 2026-10-14), or None."""
+    """``(center, size)`` from a placement finding's ``data.bbox``, or None."""
     box = f.data.get("bbox") if isinstance(f.data, dict) else None
     if not isinstance(box, dict):
         return None
@@ -402,8 +355,7 @@ def _contact_label(f: GateFinding) -> str:
 
 
 def _crop_around(box: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    """A crop window around a projected box: padded by ``CONTACT_CROP_PAD``, never under
-    ``CONTACT_CROP_MIN_FRAC`` on either axis, shifted (not shrunk) back inside the frame."""
+    """A crop window around a projected box: padded, never under the minimum fraction, shifted inside the frame."""
     left, top, right, bottom = box
     cx, cy = (left + right) / 2, (top + bottom) / 2
     hw = max((right - left) * (1 + CONTACT_CROP_PAD) / 2, CONTACT_CROP_MIN_FRAC / 2)
@@ -423,8 +375,7 @@ def _crop_around(box: tuple[float, float, float, float]) -> tuple[float, float, 
 
 
 def placement_findings_for_crops(gates: Sequence[GateReport]) -> list[GateFinding]:
-    """The scene_placement findings a contact crop can be cut for: ERROR before WARN, the larger
-    magnitude first, one per asset, only those carrying a box."""
+    """The placement findings a contact crop can be cut for: ERROR before WARN, larger first, one per asset."""
     rank = {Severity.ERROR: 0, Severity.WARN: 1, Severity.INFO: 2}
     found: list[GateFinding] = [f for g in gates if g.gate == PLACEMENT_GATE for f in g.findings
                                 if f.severity != Severity.INFO and str(f.data.get("kind") or "") in CONTACT_KINDS
@@ -450,15 +401,8 @@ def _tile_weight(elevation_deg: float) -> float:
 
 
 def plan_contact_crops(shaded: list[RenderView], gates: Sequence[GateReport]) -> list[Montage]:
-    """One crop per placement finding (``placement_findings_for_crops`` order), cut from the
-    judged overview tile that shows the asset largest: every ``overview_*`` view at the first
-    time whose camera is recorded projects the finding's box (``project_box``), its projected
-    size weighted by the tile's elevation (``CONTACT_TILE_WEIGHT``: the ground-level contact
-    tile first, the top-down one last); a tile where the box fills the frame needs no crop.  No
-    box, no camera, no tile that sees it — no crop: the verdict never dies on a crop.  Added
-    2026-10-14 (scene) because the judge read the gate's floating sentences instead of the
-    pictures: the crop puts the measured contact in front of it at the scale a person would
-    check."""
+    """One crop per placement finding, cut from the judged overview tile that shows the asset largest.
+    No box, camera or tile that sees it means no crop."""
     overviews = [v for v in shaded if v.name in SCENE_OVERVIEW_NAMES]
     if not overviews:
         return []
@@ -478,7 +422,7 @@ def plan_contact_crops(shaded: list[RenderView], gates: Sequence[GateReport]) ->
             if max(w, h) > CONTACT_CROP_MAX_FRAC:
                 continue
             el = (view_az_el(v) or (0.0, 0.0))[1]
-            score = max(w, h) * _tile_weight(el) - i * 1e-6  # ties keep rank order
+            score = max(w, h) * _tile_weight(el) - i * 1e-6
             if best is None or score > best[0]:
                 best = (score, v, proj)
         if best is None:
@@ -491,7 +435,6 @@ def plan_contact_crops(shaded: list[RenderView], gates: Sequence[GateReport]) ->
     return out
 
 
-# --------------------------------------------------------------------------- shuffling
 def shuffle_montages(montages: list[Montage], seed: int | None) -> list[Montage]:
     """Permute montage order and the tile order inside each grid; detail crops stay last."""
     if seed is None:
@@ -511,7 +454,6 @@ def shuffle_montages(montages: list[Montage], seed: int | None) -> list[Montage]
     return out + details
 
 
-# --------------------------------------------------------------------------- labels
 def tile_label(v: RenderView) -> str:
     bits = [v.name]
     azel = view_az_el(v)
@@ -543,7 +485,6 @@ def montage_label(m: Montage, index: int, total: int) -> str:
     return f"MONTAGE {index}/{total} — {m.title}: " + ", ".join(f"{p} = {tile_label(v)}" for p, v in zip(pos, m.tiles, strict=True))
 
 
-# --------------------------------------------------------------------------- rendering
 def _key(parts: list[str]) -> str:
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:20]
 
@@ -557,11 +498,7 @@ def _stat(p: str) -> str:
 
 
 def render_montage(m: Montage, *, cache_dir: Path | None = None, tile_px: int = 512) -> Path:
-    """Build (or fetch from cache) the PNG for one montage; pass-through sheets return their source.
-
-    Writes go through a per-writer temp file + atomic replace so concurrent
-    judges sharing a cache directory never read a half-written PNG.
-    """
+    """Build (or fetch from cache) the PNG for one montage; writes are atomic so concurrent judges share the cache."""
     if m.passthrough:
         _stat(m.tiles[0].path)
         return Path(m.tiles[0].path)
@@ -583,7 +520,6 @@ def render_montage(m: Montage, *, cache_dir: Path | None = None, tile_px: int = 
 
 
 def describe_montages(montages: list[Montage]) -> str:
-    """One line per image for the VIEW RIG paragraph (what each image is, in send order)."""
     grids = [m for m in montages if not m.is_detail]
     details = [m for m in montages if m.is_detail]
     lines = [f"- image {i}: {m.title}" for i, m in enumerate(grids, 1)]
@@ -591,14 +527,13 @@ def describe_montages(montages: list[Montage]) -> str:
     return "\n".join(lines)
 
 
-# ===================================================================== prompt_builder
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse3d.judges.base import JudgeInput
 
-TEXT_BUDGET_CHARS = 24_000  # ≈ 6k tokens
-MAX_PX = 1024  # montages are 2×2 grids: keep them legible
+TEXT_BUDGET_CHARS = 24_000
+MAX_PX = 1024
 MONTAGE_TILE_PX = 512
-SLICE_MAX_PX = 1024  # D48 slice images: single drawings, sent at the montage size
+SLICE_MAX_PX = 1024
 
 _ROLE = """You are the BLIND JUDGE of a 3D-code harness: exacting but fair.
 You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning. Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
@@ -616,12 +551,9 @@ SCORING RULES
 - Reply with ONE JSON object matching the requested schema; no prose outside it."""
 
 
-#: D48: end of the DEFECT CHECKLIST scoring-rule bullet in ``_ROLE`` — the anchor the
-#: provenance-elicitation sentence is appended after on slice (gate-ERROR) rounds.
+#: end of the DEFECT CHECKLIST scoring-rule bullet in ``_ROLE``; the provenance sentence is appended after it
 _DEFECT_BULLET_END = 'do not mark a defect to "be safe", and do not hide one to be kind.'
-#: D48: one neutral, defect-agnostic sentence.  Measured (42-item battery, n=3 pro): it turns
-#: dirty-round defect votes into locatable citations (62/97 image-located, 26 explicit
-#: text-only, 2/23 fabricated slice cites — both guard-caught) without naming any defect.
+#: one neutral, defect-agnostic sentence for slice (gate-ERROR) rounds
 PROVENANCE_ELICITATION = (
     "For each defect you mark present, say where it is visible (MONTAGE n / "
     "DETAIL CROP n / slice n) or state that it rests on the measured text alone."
@@ -636,8 +568,7 @@ def _rubric_block(rubric: Rubric) -> str:
             continue
         floor = f", hard floor {c.floor:.2f}" if c.floor is not None else ""
         lines.append(f"{i}. {c.id} (weight {c.weight:.2f}{floor}) — {c.label}: {c.description.strip()}")
-        # every anchor the rubric declares, richest scale first (rubrics may add levels
-        # between the four required ones — e.g. scene_v1's 0.5 "diorama on a flat plane")
+        # every anchor the rubric declares, richest scale first
         for lvl in sorted(c.anchors, key=lambda k: -float(k)):
             lines.append(f"     {lvl}: {c.anchors[lvl]}")
     if rubric.defects:
@@ -657,18 +588,15 @@ def _rubric_block(rubric: Rubric) -> str:
 
 
 def build_system_prompt(rubric: Rubric, *, provenance_elicitation: bool = False) -> str:
-    """The judge's system prompt.  ``provenance_elicitation=True`` (D48, slice rounds only)
-    appends :data:`PROVENANCE_ELICITATION` once to the DEFECT CHECKLIST bullet; the default
-    is byte-identical to the pre-D48 prompt, which keeps ``judge_prompt_hash`` stable."""
+    """The judge's system prompt; ``provenance_elicitation`` appends :data:`PROVENANCE_ELICITATION` once."""
     role = _ROLE
     if provenance_elicitation:
-        if role.count(_DEFECT_BULLET_END) != 1:  # the anchor moved: fail loudly, not silently
+        if role.count(_DEFECT_BULLET_END) != 1:
             raise ValueError("prompt_builder._ROLE: the defect-checklist bullet anchor drifted")
         role = role.replace(_DEFECT_BULLET_END, _DEFECT_BULLET_END + " " + PROVENANCE_ELICITATION)
     return role + "\n\n" + _rubric_block(rubric)
 
 
-# --------------------------------------------------------------------------- text sections
 def _clip(text: str, limit: int) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[: limit - 12].rstrip() + " …[clipped]"
@@ -708,17 +636,12 @@ def measurement_section(m: Measurement | None) -> str:
     return "MEASUREMENTS (harness, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
 
 
-#: MEASURED STRUCTURE clips.  p90 of the 321 stored static_object rounds that report a
-#: contact count is 26 contacts (2026-08-30, scratch corpus_ledger.py over eval/bench/out); the
-#: whole block has to stay near 500 tokens on such a round, so contacts and planned joins
-#: are cut with an "… n more" rather than listed to the end.
+#: MEASURED STRUCTURE clips: contacts and planned joins are cut with an "… n more"
 LEDGER_MAX_CONTACTS = 24
 LEDGER_MAX_JOINS = 20
-#: Parts whose lowest vertex is within this of the object's lowest point are the ground-contact
-#: candidates; only those get a floor gap in the prompt (a lamp shade is not "above the floor").
+#: parts whose lowest vertex is within this of the object's lowest point are the ground-contact candidates
 GROUND_BAND_MM = 10.0
-#: A near-floor gap at or under this is a hairline: the corpus has a verdict writing "legs end
-#: above the ground plane" on 0.3 mm, so the number is printed instead of the adjective.
+#: a near-floor gap at or under this is a hairline: the number is printed instead of the adjective
 GROUND_GAP_REPORT_MM = 0.5
 
 _PASSED_FLOATING = (
@@ -730,9 +653,7 @@ _PASSED_FLOATING = (
 
 
 def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | None:
-    """The connectivity gate's per-pair table — one INFO finding per report since 2026-08-30
-    (``spatial.connectivity._ledger``) — with the report that carries it; ``None`` on a
-    round recorded before it existed."""
+    """The connectivity gate's per-pair table (one INFO finding) with its report; ``None`` if absent."""
     for g in gates:
         if g.gate != "connectivity":
             continue
@@ -743,17 +664,9 @@ def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | 
 
 
 def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8, scene: bool = False) -> str:
-    """The judge's gate facts.  ERRORs are listed as recorded.  With a contact ledger the
-    connectivity WARNs are not prose any more: the audit of 420 judged static rounds
-    (2026-08-30, eval/docs/EVAL.md §6) found the judge marking interpenetration on every gate
-    ERROR (69/69) and on 110 rounds whose only evidence was a WARN the rubric tells it to
-    ignore — it read the gate's sentences, not the images (same images, gate text removed:
-    13 of 24 flags flipped).  So the WARNs become one measured line and a MEASURED STRUCTURE
-    block (contacts, planned joins contact/open, floor gaps) the judge can cite instead.
-    Without a ledger (older rounds) the text is the pre-ledger text byte for byte, which is
-    what keeps ``3dcode judge <old-slug>`` comparable with the verdict it stored.
-    ``scene`` (scene, 2026-10-14) is the scene track's own branch — ``_scene_gates_section``;
-    the object text above is untouched by it."""
+    """The judge's gate facts.  ERRORs are listed as recorded; with a contact ledger the connectivity WARNs
+    become one measured line plus a MEASURED STRUCTURE block, without one the plain text.  ``scene`` has
+    its own branch (``_scene_gates_section``)."""
     if not gates:
         return "GATE FINDINGS: (no gates run)"
     if scene:
@@ -768,12 +681,7 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
         if not errs and not warns:
             lines.append("no errors or warnings — parts are connected and contracts hold.")
         if any(g.gate == "connectivity" and g.passed for g in gates):
-            # The connectivity gate MEASURES mesh-to-mesh contact; a VLM reads shading.  Measured
-            # 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): on a lamp whose gate said
-            # "all 9 parts connected, gap <= 2 mm", the judge called the dark seam under the
-            # pedestal "floating in mid-air, a clear daylight gap" — CRITICAL — and scored
-            # structure_plausibility 0.4 against 1.0 for the near-identical sibling.  A measured
-            # contact outranks a shadow (CLAUDE.md law 3); the seam is at most a craftsmanship note.
+            # the connectivity gate measures contact; a VLM reads shading, so a measured contact outranks a shadow
             lines.append(_PASSED_FLOATING)
         return "\n".join(lines)
     conn, ledger = found
@@ -795,13 +703,9 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
     return "\n".join(lines)
 
 
-# --------------------------------------------------------------------------- the scene branch
-#: the order the scene gates are listed in: what was measured about the place first (the
-#: placement rows), then the frames, then lint / build / console reports.  A typed rank, so a
-#: new gate name lands in the tail by default — never a regex on the name.
+#: the order the scene gates are listed in; a gate not named lands in the tail
 SCENE_GATE_ORDER: dict[str, int] = {PLACEMENT_GATE: 0, "scene_frames": 1}
-#: the per-kind magnitude a MEASURED PLACEMENT line reports as "worst" (the same keys the
-#: findings carry; cantilevered rows report their widest column gap)
+#: the per-kind magnitude a MEASURED PLACEMENT line reports as "worst"
 PLACEMENT_WORST: dict[str, tuple[str, str]] = {
     "floating": ("gap_m", "{:.2f} m"), "sunken": ("sunk_m", "{:.2f} m"), "unsupported": ("gap_m", "{:.2f} m"),
     "interpenetration": ("overlap", "{:.0%} of the smaller box"), "cantilevered": ("gap_max_m", "{:.2f} m"),
@@ -809,11 +713,8 @@ PLACEMENT_WORST: dict[str, tuple[str, str]] = {
 
 
 def _scene_gates_section(gates: list[GateReport], *, max_errors: int, max_warns: int) -> str:
-    """The scene judge's gate facts (scene): reports in ``SCENE_GATE_ORDER``, the ERRORs as
-    recorded, one MEASURED PLACEMENT line built from the scene_placement report's own counts
-    (``placement_block``), and the WARNs grouped by (gate, kind) as the object ledger branch
-    groups them — eight flat lines used to cut a round's WARNs mid-list with every frame
-    WARN behind the placement ones."""
+    """The scene judge's gate facts: reports in ``SCENE_GATE_ORDER``, ERRORs as recorded, one MEASURED
+    PLACEMENT line, and the WARNs grouped by (gate, kind)."""
     ordered = sorted(gates, key=lambda g: SCENE_GATE_ORDER.get(g.gate, len(SCENE_GATE_ORDER)))
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in ordered)
     lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
@@ -834,12 +735,8 @@ def placement_report(gates: Sequence[GateReport]) -> GateReport | None:
 
 
 def placement_block(gates: Sequence[GateReport]) -> str:
-    """MEASURED PLACEMENT: the scene_placement gate's own summary (checked / placed / exempt /
-    free-tagged, the count per kind) with the worst magnitude per kind read off the typed
-    findings, the thresholds the gate used when it recorded them, and — on a clean report — the
-    sentence that tells the judge which checklist items the measurement already answered (the
-    arithmetic veto, ``rubrics.measured_absent``, holds when the judge does not listen).  Empty
-    without the gate or when its probe failed (nothing was measured)."""
+    """MEASURED PLACEMENT: the scene_placement gate's summary with the worst magnitude per kind, its thresholds,
+    and on a clean report the sentence naming the checklist items already answered.  Empty without the gate."""
     rep = placement_report(gates)
     if rep is None:
         return ""
@@ -861,8 +758,6 @@ def placement_block(gates: Sequence[GateReport]) -> str:
     head = (f"MEASURED PLACEMENT (scene_placement gate: every placed asset's foot columns against what is under it, "
             f"every pair's box overlap): {int(d.get('checked') or 0)} assets checked of {int(d.get('total') or 0)} placed, "
             f"{sum(exempt.values())} exempt ({exempt.get('free', 0)} tagged free)")
-    # the gate's own per-kind counts (floating / sunken / unsupported / interpenetration, in its
-    # order), then any kind only the findings know (a cantilevered row has no count yet)
     kinds = [k for k in PLACEMENT_WORST if k in counts] + [k for k in worst if k not in counts]
     parts = []
     for kind in kinds:
@@ -886,11 +781,8 @@ def placement_block(gates: Sequence[GateReport]) -> str:
 
 
 def connectivity_error_pairs(gates: list[GateReport]) -> list[tuple[str, str]]:
-    """The connectivity gate's ERROR-level penetration part pairs — the D48 slice
-    channel's hatch targets.  The pair is read the way the measured batteries read it:
-    the finding's ``target`` (falling back to ``data.entering``) against ``data.other``
-    (falling back to ``data.container``) — never ``data.entering`` first, whose
-    direction is the probe's, not the finding's."""
+    """The connectivity gate's ERROR-level penetration part pairs (the slice channel's hatch targets): ``target``
+    against ``data.other``, falling back to ``data.entering`` / ``data.container``."""
     pairs: set[frozenset[str]] = set()
     for g in gates:
         if g.gate != "connectivity":
@@ -920,8 +812,7 @@ def _capped(label: str, items: list[str], cap: int) -> list[str]:
 
 
 def _structure_block(conn: GateReport, d: dict) -> list[str]:
-    """N parts / E contacts / floating / overlaps, the contact graph, the plan's joins measured
-    contact or OPEN, and the floor gap of the parts that could be standing on the floor."""
+    """N parts / E contacts / floating / overlaps, the contact graph, planned joins, and floor gaps."""
     parts = list(d.get("parts") or [])
     contacts = list(d.get("contacts") or [])
     gap = float(d.get("contact_gap_mm") or 0.0)
@@ -933,8 +824,6 @@ def _structure_block(conn: GateReport, d: dict) -> list[str]:
     planned = list(d.get("planned") or [])
     if planned:
         lines.append("- " + _planned_line(planned, gap))
-    # the planned joins already list their contacts pair by pair; the adjacency adds what the
-    # plan did not ask for (an apron touching a stretcher) instead of repeating it
     planned_pairs = {frozenset((str(a), str(b))) for a, b, _g, st in planned if st == "contact"}
     other = [c for c in contacts if frozenset((str(c[0]), str(c[1]))) not in planned_pairs]
     if other:
@@ -950,8 +839,7 @@ def _structure_block(conn: GateReport, d: dict) -> list[str]:
 
 
 def _gap(mm: float) -> str:
-    """A contact's gap: nothing when it rounds to 0.0 mm (most do), else the number —
-    26 "0.0" tokens were a fifth of the block on the p90 round."""
+    """A contact's gap: nothing when it rounds to 0.0 mm, else the number."""
     return f" {mm:.1f}" if round(mm, 1) else ""
 
 
@@ -966,7 +854,7 @@ def _adjacency(contacts: list, cap: int) -> str:
 
 
 def _planned_line(planned: list, gap_mm: float) -> str:
-    """OPEN joins first so the clip never hides one: they are the assembly_fit signal."""
+    """OPEN joins first so the clip never hides one."""
     rows = [(str(a), str(b), float(g), str(st)) for a, b, g, st in planned]
     open_rows = [r for r in rows if r[3] != "contact"]
     contact_rows = [r for r in rows if r[3] == "contact"]
@@ -1003,22 +891,15 @@ def _ground_line(ground: dict) -> str:
 
 
 def _overlap_line(conn: GateReport, d: dict) -> str:
-    """The measured replacement for the interpenetration WARN prose.  The gate's ERROR
-    pairs are already listed under errors; every other overlapping pair is a weld by the
-    gate's own rule (depth ≤ 10 mm; the through-ratio is a fact, not a severity), and the
-    rubric says a weld is not the defect — the judge marked it anyway on 110 WARN-only rounds.
-    A pair reaching half-way or more through its partner is named as a measurement: the ratio
-    saturates at the mid-plane and cannot tell "ends inside" from "out the far side", so that
-    reading is left to the geometry montage."""
+    """The measured replacement for the interpenetration WARN prose: overlapping pairs are welds by the gate's
+    rule; a pair reaching half-way through its partner is named as a measurement."""
     over = list(d.get("overlaps") or [])
     if not over:
         return ""
     error_pairs = {(f.target, f.data.get("other")) for f in conn.findings
                    if f.severity == Severity.ERROR and f.data.get("kind") == "penetration"}
     rest = [r for r in over if (str(r[0]), str(r[1])) not in error_pairs]
-    # classified by MEASURED depth, never by severity: the gate keeps a deep overlap a WARN when
-    # only a sliver of surface is inside (a stile 17 mm through a seat), and calling that a
-    # "weld under the ERROR line" would hand the judge a false fact (skeptic 2026-08-30)
+    # classified by measured depth, never by severity (a deep overlap can still be a WARN)
     deep = [r for r in rest if float(r[2]) > PENETRATION_ERROR_M * 1000]
     welds = [r for r in rest if float(r[2]) <= PENETRATION_ERROR_M * 1000]
     text = f"connectivity measured {len(over)} mating overlaps"
@@ -1034,7 +915,7 @@ def _overlap_line(conn: GateReport, d: dict) -> str:
                  "surface is inside — a continuous member through a slab reads like this; the montage decides: "
                  + "; ".join(f"{a}/{b} {float(dp):.1f} mm (through-ratio {float(t):.2f})" for a, b, dp, t in deep[:3])
                  + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more") + ".")
-    mid = [r for r in welds if float(r[3]) >= 0.5]  # the gate names the ratio in its message from 0.5 up
+    mid = [r for r in welds if float(r[3]) >= 0.5]
     if mid:
         text += (" Measured, not a defect claim: "
                  + "; ".join(f"{a}/{b} reaches {min(float(t), 1.0):.0%} of the way to its partner's mid-plane ({float(dp):.1f} mm)"
@@ -1044,8 +925,7 @@ def _overlap_line(conn: GateReport, d: dict) -> str:
 
 
 def _grouped_warnings(rest: list[tuple[GateReport, GateFinding]], max_warns: int) -> list[str]:
-    """One line per (gate, kind), ``max_warns`` findings each — 8 flat lines used to cut a
-    15-WARN round (p90) mid-list, dropping every contract WARN behind the connectivity ones."""
+    """One line per (gate, kind), ``max_warns`` findings each."""
     if not rest:
         return []
     groups: dict[str, list[GateFinding]] = {}
@@ -1063,11 +943,7 @@ def _grouped_warnings(rest: list[tuple[GateReport, GateFinding]], max_warns: int
 
 
 def _passed_paragraph(n_parts: int, n_contacts: int, gap_mm: float, overlaps: list) -> str:
-    # Same voice as the legacy paragraph (2026-08-26 gas_street_lamp seam), now with the
-    # measurement it rests on and the interpenetration half.  The injunction against the
-    # interpenetration tick is only made when the veto will honour it: every overlap under
-    # VETO_PENETRATION_DEPTH_M (rubrics._rule_gates_clean).  A deeper WARN — a stile through a
-    # seat, a rod to a plate's mid-plane — is named as a measurement and the picture decides.
+    # the interpenetration injunction is made only when the veto honours it (every overlap under VETO_PENETRATION_DEPTH_M)
     head = (
         f"CONNECTIVITY PASSED: all {n_parts} parts are in measured contact ({n_contacts} contacts, gap <= {gap_mm:g} mm). "
         "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
@@ -1104,8 +980,7 @@ def previous_section(prev: Judgment | None, round_index: int) -> str:
     return "\n".join(lines)
 
 
-#: The fixed sentences of the view-rig paragraph (everything that is not a count or a
-#: per-run probe line).  Kept as constants so ``judge_prompt_hash`` covers them.
+#: the fixed sentences of the view-rig paragraph, constants so ``judge_prompt_hash`` covers them
 RIG_RULES: dict[str, str] = {
     "grid": (
         "Each montage is a ≤2×2 grid; every tile carries a label under it ('name · az/el[· mode][· t=]') and the "
@@ -1119,12 +994,7 @@ RIG_RULES: dict[str, str] = {
     "geometry": "The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.",
     "poses": "POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
     "scene_cams": "Views named overview_* and eye_* are harness cameras fitted to the scene bounds (layout X-ray); every other view is one of the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
-    # 2026-10-15 (owner's rule: requirements, not templates): the craft list names what to read against the
-    # BRIEF's place, not one recipe (foreground prop + blended ground + fog), and nothing_moves is the
-    # MEASURED MOTION line's — the rubric forbids judging motion by comparing tiles
     "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth readable for what each shot frames, surfaces that read as the brief's materials rather than one flat colour, variety among repeated elements, the secondary detail the brief's place implies, and distance softened where the brief's weather would soften it — each judged against what THIS place would have, not a fixed recipe. The same camera at two times appears as separate tiles; nothing_moves is answered from the MEASURED MOTION line only, never by comparing tiles.",
-    # scene (2026-10-14): the high overview tiles lift room ceilings (scene_host.skyLayersBelow) and
-    # drop the fog; the low one is the contact camera; CONTACT CROPs are diagnostic close-ups
     "scene_contact": "The high overview_* tiles (overview_front_right / overview_back_left / overview_top) are rendered with the fog removed and room ceilings lifted: a missing roof, lid or haze in them is never a defect. overview_low_front stands at ground level just outside the content, where daylight under a base shows. CONTACT CROP images are diagnostic close-ups cut from an overview tile around a placement finding the gate measured (the label names the asset, the kind and the number): judge the contact they show — base meets ground, part through neighbour — never their composition, lighting or dressing. Every floating / sunken / clipping / scale claim must name its view and its asset.",
     "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
 }
@@ -1155,9 +1025,8 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
 
 
 def slice_rig_section(labels: list[str]) -> str:
-    """The D48 slice block appended to the view rig on gate-ERROR rounds: what the slice
-    images are (facts only: F2 wording for the hatch), the anti-over-read sentence (F3 —
-    an in-plane gap is not evidence of disconnection), and the slice list in send order."""
+    """The slice block appended to the view rig on gate-ERROR rounds: what the slices are, the anti-over-read
+    sentence, and the slice list in send order."""
     lines = "\n".join(f"- slice {i}: {lbl}" for i, lbl in enumerate(labels, 1))
     return (f"After the crops, {len(labels)} cross-section slice(s) show the interior: "
             "slices cut the object on two centre planes; each part keeps one color "
@@ -1171,17 +1040,8 @@ def slice_rig_section(labels: list[str]) -> str:
 
 
 def judge_prompt_hash(rubric: Rubric) -> str:
-    """Hash of everything the judge is told that is constant for a rubric.
-
-    Covers the system prompt (``_ROLE`` + the rubric block as rendered), the fixed
-    view-rig rules and the wire schema's structure (field order is the
-    observe-then-score protocol; ``EVAL.md`` §6 records that changing it moved the
-    flash judge's σ from 0.01 to 0.08).  Per-run content (brief, plan digest,
-    measurements, acceptance ids, images) is deliberately excluded, so two runs judged
-    under the same protocol share the hash and a prompt edit is visible in every
-    ``ScoreBreakdown.judge_prompt_hash`` / ``record.prompt_hashes["judge"]`` it touched.
-    ``rubric_hash`` (the YAML alone) stays alongside for the narrower question.
-    """
+    """Hash of everything the judge is told that is constant for a rubric: the system prompt, the fixed
+    view-rig rules and the wire schema's structure.  Per-run content is excluded."""
     payload = "\n".join([
         build_system_prompt(rubric),
         *(RIG_RULES[k] for k in sorted(RIG_RULES)),
@@ -1190,7 +1050,6 @@ def judge_prompt_hash(rubric: Rubric) -> str:
     return prompt_hash(payload)
 
 
-# --------------------------------------------------------------------------- images
 def montage_image_parts(
     renders: RenderSet,
     *,
@@ -1203,8 +1062,7 @@ def montage_image_parts(
     cache_dir: Path | None = None,
     gates: Sequence[GateReport] = (),
 ) -> tuple[list[tuple[str, ImagePart]], list[Montage]]:
-    """(label, ImagePart) pairs for the montages of a render set, plus the montage plan (in send
-    order).  ``gates`` feed a scene's contact crops (``plan_contact_crops``)."""
+    """(label, ImagePart) pairs for the montages of a render set, plus the montage plan in send order."""
     montages = shuffle_montages(
         plan_montages(renders, geometry_views=geometry_views, scene=scene, max_montages=max_montages, detail_crops=detail_crops,
                       gates=gates),
@@ -1224,7 +1082,6 @@ def montage_image_parts(
     return out, montages
 
 
-# --------------------------------------------------------------------------- assembly
 def build_judge_messages(
     inp: JudgeInput,
     rubric: Rubric,
@@ -1242,20 +1099,9 @@ def build_judge_messages(
 ) -> tuple[str, list[ChatMessage]]:
     """Return ``(system, [user_message])`` for a rubric judge call.
 
-    ``geometry_views`` is an optional second RenderSet rendered with
-    ``mode='clay'`` / ``'normals'`` (tracks may pass it); when absent, geometry
-    views embedded in ``inp.renders`` (by ``RenderView.mode``) are used, else the
-    geometry montage is skipped.  ``shuffle_seed`` permutes montage and tile
-    order (n-sample noise control).  ``extra_images`` (label, path) are placed
-    BEFORE the montages (e.g. reference images); ``extra_text`` is appended to
-    the text block (e.g. measured silhouette).
-
-    ``slice_images`` (label, path) are the D48 cross-section slices: placed AFTER
-    the montages and detail crops (the measured placement — the ``extra_images``
-    prepend was not what the batteries tested), described by
-    :func:`slice_rig_section` in the view-rig text, and ``provenance_elicitation``
-    adds one sentence to the system prompt's defect-checklist bullet.  With both
-    left at their defaults the output is byte-identical to the pre-D48 payload.
+    ``geometry_views`` is an optional clay/normals RenderSet; ``shuffle_seed`` permutes montage and tile order;
+    ``extra_images`` go BEFORE the montages and ``slice_images`` AFTER the montages and crops; ``extra_text``
+    is appended to the text block; ``provenance_elicitation`` adds one sentence to the system prompt.
     """
     system = build_system_prompt(rubric, provenance_elicitation=provenance_elicitation)
     is_scene = inp.spec.track.value == "scene"
@@ -1290,7 +1136,7 @@ def build_judge_messages(
     for lbl, ip in images:
         parts.append(TextPart(text=lbl))
         parts.append(ip)
-    for lbl, p in slices:  # D48: slices AFTER the montages and crops — the measured placement
+    for lbl, p in slices:
         parts.append(TextPart(text=lbl))
         parts.append(image_part(prepare_image(p, label=lbl, max_px=SLICE_MAX_PX, cache_dir=cache_dir), lbl))
     parts.append(TextPart(text="Now score every criterion with evidence, answer every defect-checklist item and every acceptance item, and return the JSON object."))

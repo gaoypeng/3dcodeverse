@@ -1,23 +1,4 @@
-"""Silhouette comparison between a render and a reference image.
-
-Foreground mask (documented limits):
-* PNG with an alpha channel → ``alpha > 0`` (renders on transparent background).
-* Otherwise the background colour is the median of the border pixels; pixels
-  farther than ``tol`` from it are "object-coloured", and the background region
-  is the flood fill from the image border through non-object pixels.  Enclosed
-  pockets therefore count as *foreground* (a chair's back is one silhouette),
-  which is what we want for shape comparison but hides interior holes.
-* Works for silhouette-mode renders and product photos on a plain backdrop.
-  Shaded renders with a contact shadow include the shadow in the mask (pale
-  objects on pale studio backdrops are the weak case — always render the
-  *render* side in ``silhouette`` mode); textured / gradient backgrounds
-  over-segment (``reliable`` becomes False when a fill is < 0.2 % or > 95 %).
-
-IoU is computed on **bbox-normalised** masks at 256² (each silhouette cropped
-to its bounding box and scaled to fit, aspect preserved), so framing and scale
-differences do not dominate — ``aspect_ratio_err`` carries the shape-proportion
-signal separately.
-"""
+"""Silhouette comparison between a render and a reference image."""
 
 from __future__ import annotations
 
@@ -35,20 +16,10 @@ from codeverse3d.contracts.spec import ReferenceImage, Spec
 from codeverse3d.conventions import views_by_preference
 
 MASK_SIZE = 256
-#: colour-distance tolerance (0-441) from the border colour: adaptive between these bounds
-#: (≈ BORDER_TOL_BASE + BORDER_TOL_K × border std), so flat backdrops get a tight threshold
 BORDER_TOL_MIN = 10.0
 BORDER_TOL_MAX = 40.0
 BORDER_TOL_K = 4.0
 _MIN_FILL = 0.002
-#: a mask whose BOUNDING BOX spans essentially the whole frame localised nothing, however
-#: much or little area it covers.  Measured 2026-08-25 over the 21 reference photos in
-#: astra3d-brilliana/references_images: 9 of them (coffee_cup, flower, flower_2, F1 car,
-#: blackberry, disney_land, ferris_wheel, micky_character, sc2_protoss) flood-filled to
-#: corner-to-corner masks — a coffee cup on a table read as 73.8 % "object" — while the
-#: area test passed every one of them, because it only rejects fills above 95 %.  Real
-#: single-view renders sit at 0.60-0.69 here and the closest surviving photo at 0.969, so
-#: the bar has room on both sides.
 _MAX_BBOX_COVER = 0.98
 
 
@@ -92,10 +63,7 @@ def _flood_outside(bg_like: np.ndarray) -> np.ndarray:
 
 
 def foreground_mask(path: Path | str, size: int = MASK_SIZE, tol: float | None = None) -> np.ndarray:
-    """Boolean foreground mask (≤ size², aspect preserved).  See module docstring.
-
-    ``tol`` overrides the adaptive colour tolerance (useful for tests).
-    """
+    """Boolean foreground mask (≤ size², aspect preserved)."""
     rgba = _load_rgba(path, size)
     alpha = rgba[..., 3]
     if alpha.min() < 250:  # has real transparency → trust it
@@ -113,12 +81,7 @@ def foreground_mask(path: Path | str, size: int = MASK_SIZE, tol: float | None =
 
 
 def _bbox_cover(mask: np.ndarray) -> float:
-    """Fraction of the frame the mask's BOUNDING BOX spans (1.0 = corner to corner).
-
-    Separate from fill: a photo whose background the border-colour model failed on comes
-    back as a scattered mask of 40-80 % area whose bbox is still the entire image.  Area
-    says "plausible object"; the bbox says "nothing was located".
-    """
+    """Fraction of the frame the mask's BOUNDING BOX spans (1.0 = corner to corner)."""
     ys, xs = np.nonzero(mask)
     if ys.size == 0:
         return 0.0
@@ -127,7 +90,7 @@ def _bbox_cover(mask: np.ndarray) -> float:
 
 
 def _normalise(mask: np.ndarray, size: int = MASK_SIZE) -> tuple[np.ndarray, float]:
-    """Crop to the mask bbox and scale into a size² canvas; returns (canvas, aspect w/h)."""
+    """Crop to the mask bbox and scale into a size² canvas."""
     ys, xs = np.nonzero(mask)
     canvas = np.zeros((size, size), dtype=bool)
     if len(ys) == 0:
@@ -145,7 +108,7 @@ def _normalise(mask: np.ndarray, size: int = MASK_SIZE) -> tuple[np.ndarray, flo
 
 
 def _diff_image(a: np.ndarray, b: np.ndarray, out: Path) -> Path:
-    """Overlay: red = reference only, blue = render only, grey = both."""
+    """Overlay."""
     h, w = a.shape
     img = np.full((h, w, 3), 255, dtype=np.uint8)
     both = a & b
@@ -158,16 +121,7 @@ def _diff_image(a: np.ndarray, b: np.ndarray, out: Path) -> Path:
 
 
 def compare_silhouette(render_png: Path | str, reference_png: Path | str, *, diff_png: Path | str | None = None) -> dict[str, Any]:
-    """IoU + fills + aspect error between a render and a reference image.
-
-    Returns ``{iou, ref_fill, render_fill, aspect_ratio_err, ref_aspect, render_aspect,
-    reliable, diff_png_path?}``.  ``reliable`` is False when either mask is empty, covers
-    more than 95 % of the pixels, or has a bounding box spanning the whole frame — all
-    three mean the background estimate failed and the IoU below is arithmetic on noise.
-    The caller must honour it: :class:`~codeverse3d.judges.vlm_judge.ReferenceJudge` scores
-    ``silhouette_match`` NEUTRAL rather than low, because "we could not measure this" is
-    not the same as "it does not match".
-    """
+    """IoU + fills + aspect error between a render and a reference image."""
     ref_mask = foreground_mask(reference_png)
     ren_mask = foreground_mask(render_png)
     ref_fill = float(ref_mask.mean())
@@ -192,11 +146,7 @@ def compare_silhouette(render_png: Path | str, reference_png: Path | str, *, dif
 
 
 def silhouette_aspect(path: Path | str) -> float:
-    """Width/height of the foreground bounding box (0.0 when the mask is empty).
-
-    The one number that says whether a picture and a brief agree about the
-    object's PROPORTIONS, independent of framing or resolution.
-    """
+    """Width/height of the foreground bounding box (0.0 when the mask is empty)."""
     mask = foreground_mask(path)
     ys, xs = np.nonzero(mask)
     if len(ys) == 0:
@@ -206,17 +156,11 @@ def silhouette_aspect(path: Path | str) -> float:
     return w / h if h else 0.0
 
 
-#: render views a reference photo could plausibly have been shot from — a straight-on
-#: studio elevation matches ``front``/``right``/``left``/``back``, a 3/4 product shot
-#: matches the ``*_high`` ring.  ``top``, ``bottom`` and the low ring are never a
-#: product-shot camera.  A stored pre-D47 run matches through ``conventions.view_key``.
 CANDIDATE_VIEWS: tuple[str, ...] = (
     "front", "front_right_high", "front_left_high", "right", "left", "back", "back_left_high",
 )
 
 
-#: ``compare_silhouette``'s shape: (render png, reference png) → its result dict.  Injectable, so
-#: the track's services and the judge's tests can stand in for the mask arithmetic.
 CompareFn = Callable[[str, str], dict[str, Any]]
 
 
@@ -228,16 +172,7 @@ def best_view_match(
     diff_png: Path | str | None = None,
     compare: CompareFn | None = None,
 ) -> dict[str, Any]:
-    """IoU of the render view that best matches ``reference``, and which one it was.
-
-    A reference photograph has ONE camera; comparing it to a fixed ``front`` render
-    punishes an object whose reference happens to be a three-quarter shot.  Scoring
-    the best-matching candidate view instead measures *shape* rather than *camera
-    agreement* — and the chosen view is reported so the number stays auditable.
-
-    Returns the :func:`compare_silhouette` dict plus ``view`` (the winning view name)
-    and ``per_view`` (name → IoU).  ``{"error": ...}`` when nothing could be compared.
-    """
+    """IoU of the render view that best matches ``reference``, and which one it was."""
     compare = compare or compare_silhouette
     per_view: dict[str, float] = {}
     best: tuple[float, RenderView, dict[str, Any]] | None = None
@@ -265,17 +200,13 @@ def best_view_match(
 
 
 def target_reference(references: Sequence[ReferenceImage]) -> str | None:
-    """THE silhouette target: the first readable reference with role ``target``, else the first
-    readable one; ``None`` when no reference file exists."""
+    """THE silhouette target."""
     readable = [r for r in references if Path(r.path).is_file()]
     return next((r.path for r in readable if r.role == "target"), readable[0].path if readable else None)
 
 
 class ReferenceMatch(BaseModel):
-    """The one silhouette measurement of a round against its target reference: the
-    ``reference_silhouette`` gate records it (and refines on it), the reference judge scores
-    ``silhouette_match`` from it.  Until 2026-09-24 the gate compared the ``front`` render only
-    while the judge took the best-matching view — 0.26 vs 0.995 on one reference (audit N51)."""
+    """The one silhouette measurement of a round against its target reference."""
 
     iou: float
     ref_fill: float | None = None
@@ -291,15 +222,13 @@ class ReferenceMatch(BaseModel):
 
     @property
     def scorable(self) -> bool:
-        """May the IoU be read as a shape verdict?  Not on an unreliable mask, and not when
-        the reference contradicts the brief (the brief wins; the score is neutral)."""
+        """True when the IoU may be read as a shape verdict: the mask is reliable and the reference does not contradict the brief."""
         return self.reliable and not self.conflict
 
 
 def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: CompareFn | None = None) -> ReferenceMatch | None:
     """:class:`ReferenceMatch` of ``renders`` against ``spec``'s target reference, or ``None``
-    when the spec has no readable reference or no render view could be compared.  An error in
-    ``compare`` itself propagates: the caller decides what "unavailable" means."""
+    when the spec has no readable reference or no render view could be compared."""
     from codeverse3d.reference import dimension_conflict  # reference.py imports this module
 
     ref = target_reference(spec.references)

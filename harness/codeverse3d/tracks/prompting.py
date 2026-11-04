@@ -1,10 +1,4 @@
-"""Prompt context for the tracks' jinja templates (``prompts/tracks/*.j2``).
-
-Everything a template may reference is produced here from the spec, the plan
-and the run context — exact numbers (bbox tables in meters), acceptance lines,
-the language frame doc, reference-image notes.  Which file owns what is the
-runtime's answer (``LanguageRuntime.expected_files`` / ``files_for``).
-"""
+"""Prompt context for the tracks' jinja templates (``prompts/tracks/*.j2``)."""
 
 from __future__ import annotations
 
@@ -50,11 +44,7 @@ def parts_table(plan: Plan) -> str:
 
 
 def part_details(plan: Plan) -> str:
-    """Per-part construction notes, including the sub-parts an ASSEMBLY part is made of.
-
-    Sub-parts (``PartPlan.children``) are a planning device — the parent is still ONE
-    named export node — but they are where the depth lives, so the builder must see
-    them with their own boxes, not just a sentence."""
+    """Per-part construction notes, including the sub-parts an ASSEMBLY part is made of."""
     out: list[str] = []
     for p in getattr(plan, "parts", None) or ():
         sym = p.symmetry if getattr(p, "symmetry", "none") != "none" else "no symmetry"
@@ -115,30 +105,13 @@ def constraints_text(spec: Any) -> str:
 
 
 def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
-    """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template.
-
-    These were f-strings inside each track class until 2026-08-28 — two sentences each,
-    and for the three static-object languages literally the SAME two sentences with the
-    language's name substituted, though bpy mesh modelling, CadQuery's B-rep workplanes
-    and three.js BufferGeometry share almost nothing but the word "3D".  Per language, in
-    the prompt corpus, so the seven can diverge and be edited without touching code.
-    """
-    # rendered, not read raw: a system prompt that tells a SINGLE-SHOT session to call
-    # gl_probe is instructing something it has no tools to do, and the self-check loop is
-    # the whole point of the graphics prompt.  `tools` lets the file say so itself.
-    # (The v0 two-sentence arm of the system-prompt A/B was retired 2026-08-29: a
-    # three-way null, eval/docs/EVAL.md.)
+    """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template."""
     base = render(language_prompt(language, "system.md"), tools=tools).strip()
     if not role:
         return base
-    # roles COMPOSE with the language base rather than replacing it.  Replacing was the
-    # shape inherited from the f-strings, and it left every fatal language-specific fact —
-    # the self-check loop, the sampled-time contract — absent from exactly the stage that
-    # violates it: the repair pass.
     return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
 
 
-#: the ``## `` headings of a scene contract an ASSET session acts on (``contract_sections``)
 ASSET_CONTRACT_SECTIONS: tuple[str, ...] = ("Files", "The `ctx`", "Allowed imports", "FORBIDDEN", "Blender 5.2 API facts",
                                             "What the renderer does", "Naming")
 
@@ -152,9 +125,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "language": ctx.language.value,
         "frame_doc": frame_doc(LANGUAGE_FRAME[ctx.language.value]),
         "contract": ctx.contract_text,
-        # a scene_blender asset session writes ONE module the zones instance: it is handed the
-        # contract's ctx table, imports, lint policy, API facts and render budgets, not the
-        # assembler, the cameras or the worked env / zone modules it must not write
         "asset_contract": contract_sections(ctx.contract_text, ASSET_CONTRACT_SECTIONS),
         "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot,
@@ -172,9 +142,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "detail_advice": DETAIL_ADVICE if plan and getattr(plan, "parts", None) else "",
         "root_link": getattr(plan, "root_link", "") if plan else "",
         "reference_note": reference_note(ctx),
-        # The want -> call table for the effect library that ships in every
-        # scene_threejs workspace (D51).  "" for every other language (no such file), so
-        # the templates that carry it stay byte-identical elsewhere.
         "effects_catalog": language_text(ctx.language, "effects_catalog.md"),
     }
     d.update(extra)
@@ -195,14 +162,7 @@ def reference_images(ctx: RunContext, limit: int = 3) -> list[ImagePart]:
 
 
 def judged_sheet(last: Any) -> list[ImagePart]:
-    """The contact sheet the judge scored last round, as ONE inline image for the refine session.
-
-    "What the judge saw" reached the refine agent as a paragraph of text; the picture it
-    was written about did not.  A session told "the horn intersects the case" then had to
-    re-render to find out which view showed it.  One image is cheap next to a session of
-    30 tool turns, and it is the same file the score came from, so the agent and the judge
-    are finally looking at the same thing.
-    """
+    """The contact sheet the judge scored last round, as ONE inline image for the refine session."""
     sheet = getattr(getattr(last, "renders", None), "contact_sheet", None)
     if not sheet or not Path(sheet).is_file():
         return []
@@ -215,13 +175,7 @@ def judged_sheet(last: Any) -> list[ImagePart]:
 
 
 def _likeness_note(ctx: RunContext, refs: list[Any]) -> str:
-    """Graphics / scene: the photos say what the REAL thing looks like, not what to compose.
-
-    The object-track note asks for a silhouette match and an IoU tool; a shader has no
-    silhouette.  What an aurora / a harbour / a nebula needs from a photo is its physics —
-    dominant colour, how the structure folds and thins, where the light sits, how much of
-    the frame stays dark — and the judge sees the same photos beside the frames.
-    """
+    """Graphics / scene: the photos say what the REAL thing looks like, not what to compose."""
     lines = [
         f"REFERENCE PHOTOS ({len(refs)}) of the REAL thing come with this task.  They are not a composition to copy; "
         "they show what the brief's subject actually looks like: its dominant colour and where the secondary "
@@ -276,18 +230,14 @@ def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict
 
 
 def refine_inline_files(ctx: RunContext, rels: Sequence[str]) -> dict[str, str]:
-    """The files a refine task may edit, inlined for the prompt — single-shot only (it has
-    no read tool); an agent session reads them itself, so it gets ``{}``."""
+    """The files a refine task may edit, inlined for the prompt in single-shot mode and empty otherwise."""
     return current_files(ctx, rels) if ctx.single_shot else {}
 
 
 def current_files(
     ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
 ) -> dict[str, str]:
-    """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The
-    language's harness-owned files (``HARNESS_OWNED_SRC``, e.g. scene_threejs's ``src/lib/``) are
-    never inlined: the single-shot prompt once showed one as an editable skeleton file while
-    every write to it is refused."""
+    """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The"""
     owned = set(HARNESS_OWNED_SRC.get(ctx.language, ()))
     out: dict[str, str] = {}
     total = 0
@@ -326,7 +276,6 @@ def judge_digest(last: RoundRecord, max_issues: int = 8) -> str:
 def measurement_vs_plan(
     last: RoundRecord, plan: Plan | None, language: Language = Language.THREEJS
 ) -> str:
-    """Exact numbers (in the plan's frame): measured overall/part bboxes vs planned ones."""
     m = last.measurement
     if m is None or plan is None or not hasattr(plan, "overall_bbox"):
         return ""

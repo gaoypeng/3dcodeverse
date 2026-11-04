@@ -1,4 +1,5 @@
-"""``3dcode cost`` — what the runs cost and where the money went.
+"""``3dcode cost`` — what the runs cost and where the money went, from each run's
+``telemetry/cost.jsonl`` ledger.
 
     3dcode cost <slug>                      # one run, from its own ledger
     3dcode cost --runs-dir eval/bench/out/x # a whole battery, aggregated
@@ -7,9 +8,6 @@
     3dcode cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
     3dcode cost prices [--stale] [--unverified]
     3dcode cost estimate gemini:… --in 12000 --out 800
-
-Every run is read from its own ledger (``telemetry/cost.jsonl``) — one priced row per
-real model call; a run recorded before the ledger existed (2026-08-23) has none.
 """
 
 from __future__ import annotations
@@ -28,13 +26,10 @@ from codeverse3d.cli._common import console, ok, runs_root, warn
 STALE_AFTER_DAYS = 90
 
 class _CostGroup(TyperGroup):
-    """``3dcode cost <slug|path> ...`` — a first argument that is not a subcommand
-    is forwarded to ``show`` instead of failing with "No such command"."""
+    """A first argument that is not a subcommand is forwarded to ``show``."""
 
     def resolve_command(self, ctx: click.Context, args: list[str]):  # type: ignore[override]
-        # Membership test rather than catching UsageError: typer >= 0.22 vendors its
-        # own click (typer._click), so the error it raises is NOT click.UsageError
-        # and the except clause silently stopped matching (CI, typer 0.27).
+        # typer vendors its own click, so its UsageError is not click.UsageError: test membership
         if args and not args[0].startswith("-") and args[0] not in self.commands:
             return "show", self.get_command(ctx, "show"), args
         return super().resolve_command(ctx, args)
@@ -50,10 +45,7 @@ def cost(
     recheck: Annotated[bool, typer.Option("--recheck", help="re-price every call with today's table")] = False,
     md: Annotated[Path | None, typer.Option("--md", help="also write the full markdown report here")] = None,
 ) -> None:
-    """Cost breakdown: per stage, per role, per model, waste, $ per run.
-
-    ``3dcode cost <slug>`` reports one run from its own ledger; ``--runs-dir <dir>``
-    aggregates every run under a root (a bench battery)."""
+    """Cost breakdown: per stage, per role, per model, waste, $ per run."""
     if ctx.invoked_subcommand is not None:
         return
     if runs_dir is None:
@@ -71,12 +63,11 @@ def show(
     per_run: Annotated[bool, typer.Option("--per-run/--no-per-run")] = True,
     runs_dir: Annotated[Path | None, typer.Option("--runs-dir", help="runs root a bare slug is resolved against")] = None,
 ) -> None:
-    """Cost breakdown for runs named by slug or path (``3dcode cost <slug>`` lands here)."""
+    """Cost breakdown for runs named by slug or path."""
     _report([_resolve(str(p), runs_dir) for p in paths], md=md, recheck=recheck, limit=limit, per_run=per_run)
 
 
 def _resolve(arg: str, runs_dir: Path | None) -> Path:
-    """A bare argument is a path when it exists, else a slug under the runs root."""
     p = Path(arg)
     if p.exists():
         return p
@@ -115,11 +106,7 @@ def prices(
     stale: Annotated[bool, typer.Option("--stale", help=f"only rows older than {STALE_AFTER_DAYS} days or approximate")] = False,
     days: Annotated[int, typer.Option("--days", help="staleness threshold in days")] = STALE_AFTER_DAYS,
 ) -> None:
-    """The USD price table with its provenance (source + checked date + status).
-
-    A row is flagged when it was last checked more than ``--days`` ago, when the
-    price is marked approximate, or when its status is not ``verified`` — those
-    are the dollars an audit cannot stand behind."""
+    """The USD price table with its provenance; flags stale, approximate or unverified rows."""
     from codeverse3d.models.pricing import PRICES, price_provenance
 
     rows, flagged = [], 0
@@ -178,8 +165,7 @@ def cache(
     paths: Annotated[list[Path], typer.Argument(help="run slugs or run dirs")],
     runs_dir: Annotated[Path | None, typer.Option("--runs-dir")] = None,
 ) -> None:
-    """Did prompt caching actually happen?  Per session: the cold first call, the
-    cached share, the dollars the cache saved and the dollars the cold head cost."""
+    """Did prompt caching happen?  Per session: cold first call, cached share, dollars saved."""
     from codeverse3d.addons.costreport.caching import session_cache
     from codeverse3d.cost.ledger import load_ledger
 

@@ -1,16 +1,4 @@
-"""One dataset sample from one run: typed ``meta.json`` + folder layout.
-
-Sample folder (STORAGE_RULES §3/§8 compatible)::
-
-    <out>/<track>/<language>/<key>/
-      code.<ext>        copy of the entry file (parquet ``code`` column)
-      src/**            the full raw code tree at the exported commit (lossless)
-      robot.urdf        (urdf_blender) copy of src/robot.urdf
-      meta.json         SampleMeta (typed, below)
-      captions.json     {detailed, instruction, factory} or {} when not captioned
-      renders/          view_*.png, sheet.png, object.glb (< 20 MB)
-      meshes/<link>.glb (urdf_blender) per-link meshes referenced by robot.urdf
-"""
+"""One dataset sample from one run: typed ``meta.json`` + folder layout."""
 
 from __future__ import annotations
 
@@ -52,7 +40,6 @@ class SampleError(RuntimeError):
 
 
 class AcceptanceEntry(BaseModel):
-    """One plan acceptance item joined with the judge's verdict for the exported round."""
 
     id: str
     text: str = ""
@@ -62,7 +49,6 @@ class AcceptanceEntry(BaseModel):
 
 
 class SampleMeta(BaseModel):
-    """``meta.json`` — everything a consumer needs without opening record.json."""
 
     id: str
     key: str
@@ -120,10 +106,6 @@ class SampleMeta(BaseModel):
 
 
 def sample_key(ws: Workspace) -> str:
-    """FALLBACK key: the directory basename — correct for the flat ``runs/<id>``
-    layout only.  Exporters that scanned a root pass the collision-safe
-    :class:`~codeverse3d.contracts.run.RunId` slug instead (``export_one(run_id=…)``):
-    in nested battery layouts every run dir is literally named ``run``."""
     return ws.root.name
 
 
@@ -136,16 +118,11 @@ def sample_rel_dir(record: RunRecord, key: str) -> Path:
 
 
 def exported_round(ws: Workspace, record: RunRecord) -> RoundRecord | None:
-    """The round a sample is made of: the one every reader shows (``select.summarise().round``:
-    the pick, else — nothing judged — ``select.fallback_round``, a score-less tier-D sample),
-    else — no round built with renders — the last round (``export --include-unbuilt``'s code)."""
     shown = select.summarise(ws.root, record=record).round
     return next((r for r in record.rounds if r.index == shown), record.rounds[-1] if record.rounds else None)
 
 
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
-    """Raw code tree for a round → ``(files, source)`` where source is ``commit``,
-    ``deliverable`` (the packaged snapshot of the handed-over round) or ``working_tree``."""
     if rnd is not None and rnd.commit and ws.has_commit(rnd.commit):
         return git_history.read_tree_at(ws, rnd.commit), "commit"
     packaged = _deliverable_code(ws)
@@ -155,8 +132,6 @@ def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[s
 
 
 def _deliverable_code(ws: Workspace) -> dict[str, bytes]:
-    """``deliverable/src|public/**`` — the snapshot kept when git is unreadable
-    (a run copied without its .git, an archived deliverable)."""
     files: dict[str, bytes] = {}
     for root in git_history.CODE_ROOTS:
         base = ws.deliverable / root
@@ -169,7 +144,6 @@ def _deliverable_code(ws: Workspace) -> dict[str, bytes]:
 
 
 def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> tuple[str, list[str]]:
-    """Write ``src/**`` + ``code.<ext>`` (+ ``robot.urdf``); return (entry, written paths)."""
     written: list[str] = []
     for rel, data in sorted(files.items()):
         p = dest / rel
@@ -188,7 +162,6 @@ def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> 
 
 
 def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
-    """Copy the round's views, contact sheet and a small object.glb."""
     out: list[str] = []
     rdir = dest / "renders"
     rdir.mkdir(parents=True, exist_ok=True)
@@ -201,7 +174,7 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
 
     if rnd is not None and rnd.renders is not None:
         names = [v.name for v in rnd.renders.views]
-        by_stem = len(set(names)) != len(names)  # scene views repeat a camera name per time → use file stems
+        by_stem = len(set(names)) != len(names)
         for v in rnd.renders.views:
             src = ws.rebase(v.path)
             if not src.is_file():
@@ -216,9 +189,9 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
         if sheet.is_file():
             _cp(sheet, f"sheet{sheet.suffix or '.png'}")
     if not any(o.startswith("renders/sheet") for o in out):
-        packaged = ws.deliverable / "sheet.png"  # the handed-over round's sheet
+        packaged = ws.deliverable / "sheet.png"
         _cp(packaged if packaged.is_file() else None, "sheet.png")
-    for name in ("object.glb", "preview.gif"):  # the round's OWN build (graphics: its animated loop preview)
+    for name in ("object.glb", "preview.gif"):
         src = select.round_file(ws, rnd, name)
         if src is not None and src.stat().st_size < MAX_GLB_BYTES:
             _cp(src, name)
@@ -226,7 +199,6 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
 
 
 def copy_link_meshes(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
-    """(urdf_blender) copy the round's own per-link meshes so the sample's robot.urdf resolves."""
     out_dir = round_outputs(ws, rnd)
     src = out_dir / "meshes" if out_dir is not None else None
     if src is None or not src.is_dir():
@@ -244,7 +216,6 @@ def copy_link_meshes(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list
 
 
 def acceptance_entries(record: RunRecord, rnd: RoundRecord | None) -> list[AcceptanceEntry]:
-    """Plan checklist items joined with the round's judge verdicts (ids only when no plan)."""
     j = effective_judgment(rnd) if rnd is not None else None
     verdicts = dict(j.acceptance_results) if j is not None else {}
     items = list(getattr(record.plan, "acceptance", []) or []) if record.plan is not None else []
@@ -264,13 +235,11 @@ def build_meta(
     captions: dict[str, Any] | None = None,
 ) -> SampleMeta:
     spec = record.spec
-    j = effective_judgment(rnd) if rnd is not None else None  # degraded verdicts count as unjudged
+    j = effective_judgment(rnd) if rnd is not None else None
     caps = captions if captions is not None else (record.extra.get("captions") or {})
     code_files = [f for f in files if f.startswith("src/")]
     gates = gate_error_summary(rnd)
     n_gate_errors = sum(gates.values())
-    # difficulty next to quality: a tier-A five-box stool and a tier-A machine are
-    # not the same training sample (eval/docs/COMPLEXITY.md)
     cx = select.round_complexity_block(ws, rnd)
     name = ""
     if record.plan is not None:
@@ -327,9 +296,6 @@ def build_meta(
 
 
 def telemetry_digest(ws: Workspace, record: RunRecord) -> dict[str, Any]:
-    """The few accounting numbers a dataset consumer wants inline: total, per stage,
-    model + thinking level per role, rubric/price hashes.  ``{}`` when a run has no
-    telemetry (old layout and nothing computable)."""
     from codeverse3d.record.telemetry import load_telemetry
 
     tele = load_telemetry(ws, record)

@@ -1,12 +1,4 @@
-"""LanguageRuntime protocol + registry.
-
-A runtime knows how to (1) lay down starter files for a plan — and so which file
-owns what (``expected_files`` / ``files_for``: the tracks ask, never restate), (2)
-statically lint agent code for known pitfalls, (3) execute it in a sandboxed
-subprocess and export the canonical artifact(s).  Its authoring contract is prompt
-material (``prompts/<lang>/contract.md``, found by ``prompts.catalog.language_prompt``).
-Runtimes never import agent code into the harness process.
-"""
+"""LanguageRuntime protocol + registry: starter files, static lint, sandboxed build, file ownership."""
 
 from __future__ import annotations
 
@@ -50,20 +42,15 @@ class LanguageRuntime(Protocol):
         ...
 
     def files_for(self, plan: Plan | None, target: str) -> list[str]:
-        """The files that own a refine target (a part, zone, asset, camera, env word); ``[]`` = no
-        owner, so the task stays whole-artifact."""
+        """The files that own a refine target (part, zone, asset, camera, env word); ``[]`` leaves the task whole-artifact."""
         ...
 
 
 @runtime_checkable
 class SceneRuntime(LanguageRuntime, Protocol):
-    """What the scene track asks of its language (D101): where a zone / asset lives, how the
-    entry is assembled from the zones, how the built scene is probed and rendered.  The scene
-    stages, ``Services`` and the scene tools reach a scene language only through this."""
+    """What the scene track asks of its language: zone / asset locations, entry assembly, probe and render."""
 
-    #: the environment module the env stage writes (``src/env.js`` / ``src/env.py``): the one
-    #: file a scene session owns besides the zones and assets, named by the runtime so no track
-    #: code tests a path for ``.js`` / ``.py``
+#: the environment module the env stage writes (``src/env.js`` / ``src/env.py``)
     env_file: str
 
     def zone_file(self, name: str) -> str:
@@ -80,21 +67,15 @@ class SceneRuntime(LanguageRuntime, Protocol):
         ...
 
     def lib_interface(self, ws: Workspace) -> str:
-        """The harness-owned ``src/lib/`` as facts, one line per module: the names it exports and
-        their parameter lists, read off the files (D112: the env recovery's single-shot cannot open
-        them, and invented ``gravel`` / ``pavingPatch`` / a ``roughness=`` keyword); ``""`` for a
-        language that ships none."""
+        """The harness-owned ``src/lib/`` as one fact line per module (exports and parameters); ``""`` if none."""
         ...
 
     def check_env(self, ws: Workspace) -> str:
-        """The env module alone: ``""`` when it lints clean, builds with nothing beside it and
-        lights what it builds; else the failure, quoted for a repair prompt (D112).  A check the
-        harness cannot run returns ``""`` — never a verdict on the module."""
+        """The env module alone: ``""`` when it lints, builds and lights clean; else the failure, quoted for a repair prompt."""
         ...
 
     def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
-        """Load the built scene headlessly: the ``scene_probe`` gate + the census (``census.json``),
-        under the build's own budget by default (D111)."""
+        """Load the built scene headlessly: the ``scene_probe`` gate + the census."""
         ...
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
@@ -105,9 +86,7 @@ class SceneRuntime(LanguageRuntime, Protocol):
 
 
 class RuntimeLayout:
-    """``expected_files`` / ``files_for`` for a runtime whose entry file (+ ``extra_files``) owns
-    the whole artifact — or, when it sets ``part_file``, one file per plan part too.  The scene
-    runtime lays out zones / assets / env and overrides both."""
+    """``expected_files`` / ``files_for`` for a runtime whose entry file (+ ``extra_files``) owns the whole artifact."""
 
     language: Language
     #: files a whole-artifact session owns besides the entry (urdf: robot.urdf; glsl_shader: common.glsl)
@@ -128,8 +107,7 @@ class RuntimeLayout:
         return [ENTRY_FILE[self.language]] if key in ("overall", "assembly", "object", "") else []
 
 
-#: Language → (module, class).  Adding a language is a row, and the import stays lazy
-#: (a runtime pulls in bpy / moderngl / node bindings the other six do not need).
+#: Language → (module, class); the import is lazy.
 _RUNTIMES: dict[Language, tuple[str, str]] = {
     Language.BLENDER: ("codeverse3d.languages.blender", "BlenderRuntime"),
     Language.CADQUERY: ("codeverse3d.languages.cadquery", "CadQueryRuntime"),

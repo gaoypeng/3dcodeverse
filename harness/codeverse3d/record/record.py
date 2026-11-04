@@ -1,10 +1,7 @@
 """Run records: finalise / load / iterate.
 
-``finalize_record`` is the last step of every track run: it fills the
-environment (tool versions + harness git sha), reads the run's total off its cost ledger
-(``telemetry/cost.jsonl``, the one record of money), writes ``telemetry/`` and writes ``record.json`` atomically.  ``deliverable/`` is not
-the run's: which round to hand over is ``codeverse3d.addons.select``'s question
-(2026-09-22).  Telemetry is best-effort: a run is never failed by it.
+``finalize_record`` fills the environment, reads the run's total off its cost ledger, writes
+``telemetry/`` and ``record.json`` atomically.  Telemetry is best-effort and never fails a run.
 """
 
 from __future__ import annotations
@@ -53,13 +50,8 @@ def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str] | None:
 def _harness_git_sha(pkg_file: Path | None = None) -> str:
     """Commit of the harness checkout this package runs from (``""`` outside a checkout).
 
-    The repository root is wherever git finds it — ``harness/`` is a subdirectory of
-    the 3dcodeverse repo, so ``.git`` lives one level ABOVE the package (the old
-    ``parents[2] / ".git"`` probe never matched and every record shipped an empty sha).
-    Two guards keep a wheel or a venv copy from borrowing an unrelated repo's sha:
-    the file itself must be tracked by the repo git resolves to, and a modified
-    working tree is marked ``-dirty`` so a score is never attributed to a clean commit
-    it did not run on.
+    The file itself must be tracked (a wheel or venv copy must not borrow an unrelated repo's
+    sha); a modified tree is marked ``-dirty``.
     """
     here = (pkg_file or Path(__file__)).resolve()
     tracked = _git(["ls-files", "--error-unmatch", here.name], here.parent)
@@ -89,7 +81,7 @@ def _chrome_version() -> str:
 def _node_pkg_version(name: str) -> str:
     try:
         pkg = node_modules_dir() / name / "package.json"
-    except RuntimeError:  # no runtime_js: a provenance field, never the end of a finished run
+    except RuntimeError:  # no runtime_js: provenance only
         return ""
     return str((read_json_or_none(pkg) or {}).get("version", ""))
 
@@ -117,23 +109,19 @@ def environment_versions() -> dict[str, str]:
 
 # --------------------------------------------------------------------------- derived fields
 def effective_judgment(r: RoundRecord):
-    """The round's judgment, or ``None`` when it is a degraded (judge-outage)
-    verdict — the flywheel must treat those as 'no score', never as a 0.0."""
+    """The round's judgment, or ``None`` when degraded (never a 0.0 score)."""
     j = r.judgment
     return None if j is None or j.degraded else j
 
 
 def previous_verdict(rounds: Iterable[RoundRecord | None], index: int) -> Judgment | None:
-    """The verdict round ``index``'s judge is shown as the last one: round ``index - 1``'s effective
-    judgment, None when that round went unjudged — never an older round's (the judge prompt calls
-    it round N-1).  The round loop's rule; ``3dcode judge`` and calibration replay it."""
+    """Round ``index - 1``'s effective judgment (None when unjudged), never an older round's."""
     prev = next((r for r in rounds if r is not None and r.index == index - 1), None)
     return effective_judgment(prev) if prev is not None else None
 
 
 def rubric_of(record: RunRecord) -> str:
-    """The rubric ``record``'s run is judged on: the one it stamped (``extra["rubric"]``), else —
-    an older record — its last judged round's, else the run rule (``judges.base.run_rubric``)."""
+    """The run's rubric: the stamped one, else its last judged round's, else ``judges.base.run_rubric``."""
     from codeverse3d.judges.base import run_rubric
 
     judged = (r.judgment.rubric for r in reversed(record.rounds) if r.judgment is not None and r.judgment.rubric)
@@ -141,7 +129,7 @@ def rubric_of(record: RunRecord) -> str:
 
 
 def stop_reason(record: RunRecord) -> str:
-    """Why the run stopped: ``extra["stop_reason"]`` (what the loop stamped), else its status."""
+    """Why the run stopped: the stamped ``stop_reason``, else its status."""
     return str(record.extra.get("stop_reason") or record.status.value)
 
 
@@ -156,19 +144,14 @@ def _n_gate_errors(r: RoundRecord) -> int:
 
 
 def round_complexity(r: RoundRecord) -> dict[str, Any] | None:
-    """The round's objective complexity vector, as measured on its own build.
-
-    ``spatial/measure.py`` stores it in ``Measurement.extra["complexity"]``; a
-    round measured before that existed (or one whose build failed) has none."""
+    """The round's objective complexity vector (``Measurement.extra["complexity"]``), or None."""
     m = r.measurement
     block = (m.extra.get("complexity") if m is not None else None)
     return block if isinstance(block, dict) else None
 
 
 def round_summary(r: RoundRecord) -> dict[str, Any]:
-    """Compact per-round digest (the dataset sample's ``rounds_summary``).
-
-    A degraded judgment shows up as score/passed None + ``judge_degraded``."""
+    """Compact per-round digest; a degraded judgment shows as score/passed None + ``judge_degraded``."""
     j = effective_judgment(r)
     cx = round_complexity(r)
     return {
@@ -189,8 +172,7 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
 
 
 def fill_derived(record: RunRecord) -> RunRecord:
-    """Fill finished_at/environment when absent and the complexity block.  No best round,
-    baseline or final score: which round counts is ``addons.select``'s question (2026-09-22)."""
+    """Fill finished_at/environment when absent and the complexity block."""
     if record.finished_at is None:
         record.finished_at = datetime.now(UTC)
     env = dict(environment_versions())
@@ -203,11 +185,7 @@ def fill_derived(record: RunRecord) -> RunRecord:
 
 
 def complexity_block(record: RunRecord) -> dict[str, Any] | None:
-    """``record.extra["complexity"]``: the complexity vector of the last measured round —
-    the build ``src/`` and ``artifacts/`` end at — plus what the plan asked for and the
-    per-round trail.  ``plan_parts`` / ``parts_per_plan_part`` say whether the build
-    reached the plan's ambition or collapsed it (eval/docs/COMPLEXITY.md).  A reader that
-    wants the picked round's vector reads that round's own (:func:`round_complexity`)."""
+    """``record.extra["complexity"]``: the last measured round's vector, plus plan parts and the per-round trail."""
     cx = next((c for c in (round_complexity(r) for r in reversed(record.rounds)) if c), None)
     if cx is None:
         return None
@@ -224,21 +202,16 @@ def complexity_block(record: RunRecord) -> dict[str, Any] | None:
 
 # --------------------------------------------------------------------------- io
 def package_run(ws: Workspace, record: RunRecord) -> None:
-    """Read the run's total off its ledger, materialise ``telemetry/`` and mirror it onto the
-    record.  ``record.total_usage`` is the sum of ``telemetry/cost.jsonl`` at list price — every
-    billed row once: the planner, an aborted round, a retried session, a round-trip the
-    provider billed and the call discarded, and post-run work (a pairwise pick) once it
-    joined the ledger.  A run with no ledger keeps what it has.
+    """Read the run's total off its ledger (``record.total_usage`` = its sum at list price), write ``telemetry/``.
 
-    Best-effort by contract: a failure is logged and the run still gets its
-    ``record.json`` (the old layout is always enough to read a run)."""
+    Best-effort: a failure is logged and the run still gets its ``record.json``."""
     from codeverse3d.record.telemetry import build_telemetry
 
     if existing_ledger_path(ws.root) is not None:
         record.total_usage = ledger_usage(load_ledger(ws.root))
     try:
         ws.ensure_layout()
-    except OSError as e:  # read-only mount, exotic filesystem
+    except OSError as e:  # read-only mount
         log.warning("run layout not created in %s: %s", ws.root, e)
         return
     try:
@@ -248,8 +221,7 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
 
 
 def repackage(ws: Workspace) -> RunRecord | None:
-    """Re-package a finished run's ``record.json`` after its ledger grew (:func:`package_run`), and
-    return it; None — nothing written — when the run keeps no ledger or no readable record."""
+    """Re-package a finished run's ``record.json`` after its ledger grew; None when there is no ledger or record."""
     if existing_ledger_path(ws.root) is None:
         return None
     try:
@@ -263,10 +235,8 @@ def repackage(ws: Workspace) -> RunRecord | None:
 
 @contextmanager
 def join_post_run(ws: Workspace) -> Iterator[None]:
-    """Work on a FINISHED run that may spend money (a re-judge, a pairwise
-    pick): its rows join the run's ledger when it keeps one (``run_ledger(create=False)``), and
-    on the way out — also when the work raised after paying — the record is re-packaged, so
-    ``record.total_usage`` stays the ledger's sum (D84)."""
+    """Work on a finished run that may spend money: rows join its ledger, and the record is
+    re-packaged on the way out (even on error) so ``total_usage`` stays the ledger's sum."""
     from codeverse3d.cost.instrument import run_ledger
 
     try:
@@ -291,33 +261,24 @@ def load_record(ws: Workspace | Path | str) -> RunRecord:
         raise RecordError(f"no record.json in {ws.root}")
     try:
         return RunRecord.model_validate_json(ws.record_path.read_text())
-    except Exception as e:  # pydantic ValidationError / JSON error
+    except Exception as e:
         raise RecordError(f"invalid record.json in {ws.root}: {e}") from e
 
 
-# Battery layouts nest their runs at these depths below the battery root: run_bench
-# ``runs/<id>`` = 2, compare_backends ``cells/<id>/<arm>/run`` = 4, ab_plan
-# ``arms/<arm>/cells/<id>/<slug>/run`` = 6.  Seven covers all three with a margin and
-# stops a mistyped root from walking a whole home directory.
+# deepest battery layout is 6 levels; 7 also stops a mistyped root from walking a home directory
 RUN_SEARCH_DEPTH = 7
 
 #: subdirectories that mark a bench battery directory rather than a plain runs root
 BATTERY_MARKERS = ("runs", "cells", "arms")
-#: run-layout directories that hold a SUB-workspace (a scene asset candidate, a rejected
-#: best-of-N candidate): their files belong to that sub-run, not to the run above them.
-#: :func:`unique_files` and the bench survey scripts skip them by this one name.
+#: directories holding a sub-workspace (asset / best-of-N candidate): their files are not the parent run's
 SUBRUN_DIRS: frozenset[str] = frozenset({"_cand", "_assets"})
 
 
 def unique_files(root: Path | str, name: str, *, subruns: bool = False) -> list[Path]:
     """Every file called ``name`` under ``root``, once per file on disk.
 
-    Battery trees symlink each other's cells and every run has
-    ``run/telemetry/trajectories -> run/trajectories``, so a walk must say what it does
-    about symlinks: this one follows them (``recurse_symlinks=True``) and collapses the
-    two paths of one file by its resolved path.  Sub-workspaces (:data:`SUBRUN_DIRS`) are
-    skipped unless ``subruns`` (a best-of-N candidate's session is a session).  The one walker for every survey that counts sessions, records or artefacts —
-    each hand-rolled copy of it has at some point counted a file twice."""
+    Follows symlinks and collapses duplicates by resolved path; sub-workspaces
+    (:data:`SUBRUN_DIRS`) are skipped unless ``subruns``."""
     seen: dict[Path, Path] = {}
     root = Path(root)
     for p in sorted(root.rglob(name, recurse_symlinks=True)):
@@ -332,8 +293,7 @@ def is_run_dir(p: Path) -> bool:
 
 
 def battery_label(root: Path | str) -> str:
-    """Label for a scan root: the battery name for ``eval/bench/out/<battery>/runs``,
-    else the directory's own name (the same rule the gallery sections use)."""
+    """Label for a scan root: the battery name for ``.../out/<battery>/runs``, else the directory name."""
     root = Path(root)
     if root.name == "runs" and root.parent.name and root.parent.parent.name == "out":
         return root.parent.name
@@ -341,14 +301,11 @@ def battery_label(root: Path | str) -> str:
 
 
 def run_id_for(root: Path | str, run_dir: Path) -> RunId:
-    """The :class:`~codeverse3d.contracts.run.RunId` of ``run_dir`` as found under scan
-    root ``root``.  Identity is minted HERE, at discovery time — the Workspace
-    resolves its root and forgets where the scan started, so it cannot do this."""
+    """The ``RunId`` of ``run_dir`` under scan root ``root`` (minted here: a Workspace forgets the scan root)."""
     return RunId(battery=battery_label(root), rel=run_dir.relative_to(Path(root)).as_posix())
 
 
 class FoundRun(NamedTuple):
-    """One discovered run: workspace + parsed record + identity within the scan root."""
 
     ws: Workspace
     record: RunRecord
@@ -359,14 +316,8 @@ def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_ru
                   max_depth: int = RUN_SEARCH_DEPTH) -> list[Path]:
     """Run directories under ``root``, sorted.
 
-    Direct children win when there are any — that is the ``3dcode`` runs root and the
-    run_bench ``runs/`` layout, and it keeps the common case a single ``iterdir()``.
-    Only when there are none do we descend, which is what makes a compare_backends or
-    ab_plan BATTERY directory work: those hold their runs four and five levels down, so
-    every exporter used to scan one level, find nothing and report "0 runs" as a success.
-    A directory that IS a run is never descended into (a run holds candidate workspaces
-    of its own).  A run reached through more than one path (``eval/bench/out``'s batteries
-    symlink each other's cells) is listed once, at the path it physically lives at.
+    Direct children win; only when there are none does it descend (battery layouts).
+    A run is never descended into, and one reached through several paths is listed once, at its physical path.
     """
     root = Path(root)
     if not root.is_dir():
@@ -401,19 +352,16 @@ def _once(root: Path, dirs: list[Path]) -> list[Path]:
 
 
 def skip_unreadable(run_dir: Path, error: Exception) -> None:
-    """``iter_runs(on_error=...)`` for a reader that indexes what it can: one unreadable
-    record.json is a warning, not the end of the whole pass."""
+    """``iter_runs(on_error=...)`` handler: log and skip an unreadable record.json."""
     log.warning("skipping %s: %s", run_dir, error)
 
 
 def iter_runs(
     runs_dir: Path | str, *, on_error: Callable[[Path, Exception], None] | None = None
 ) -> Iterator[FoundRun]:
-    """Yield a :class:`FoundRun` ``(ws, record, run_id)`` for every run directory
-    holding a record.json.
+    """Yield a :class:`FoundRun` for every run directory holding a record.json.
 
-    Invalid records raise ``RecordError`` unless ``on_error`` is given, in which
-    case it is called and iteration continues (exporters collect skip reasons).
+    Invalid records raise ``RecordError`` unless ``on_error`` is given.
     """
     root = Path(runs_dir)
     if not root.is_dir():
@@ -421,12 +369,7 @@ def iter_runs(
     children = find_run_dirs(root)
     battery_dirs = [m for m in BATTERY_MARKERS if (root / m).is_dir()]
     if not children and battery_dirs:
-        # Silence must not look like an empty dataset.  This guard used to test only for
-        # ``<root>/runs`` — true for the run_bench layout, false for compare_backends
-        # (cells/) and ab_plan (arms/), i.e. exactly today's batteries, which therefore
-        # reported "0 runs" as a success.  find_run_dirs now FINDS all three layouts, so
-        # reaching here means a battery directory that really is empty; an ordinary runs
-        # root with no runs in it stays a legitimate empty result.
+        # a battery directory that holds no run must not look like an empty dataset
         raise FileNotFoundError(
             f"no run directories under {root} — it looks like a battery directory "
             f"({', '.join(battery_dirs)}/) but holds no record.json within "

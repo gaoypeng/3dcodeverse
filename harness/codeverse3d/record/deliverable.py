@@ -1,23 +1,7 @@
-"""``<run>/deliverable/`` — the hand-over folder for ONE round, and what every round keeps
-so that any of them can be handed over later without a rebuild.
+"""``<run>/deliverable/``: the hand-over folder for ONE round, regenerated as copies from the run's evidence.
 
-Everything in the folder is a *copy*, regenerated from the run's own evidence, so it can
-be zipped and sent on its own:
-
-* ``src/**`` (+ ``public/**`` for scenes, their GLB assets included) — the raw code at the
-  round's commit;
-* the round's artifact — ``object.glb`` (+ ``.stl`` / ``.step``), or
-  ``robot.urdf`` + ``meshes/*.glb``, or ``frames/*.png`` (the judged frames) +
-  ``frames_sheet.png`` + ``preview.gif`` — from ``artifacts/rNN/`` (:func:`keep_round_artifacts`);
-* ``sheet.png`` — the round's contact sheet (one picture of the result);
-* ``captions.json`` when the run is captioned;
-* ``manifest.json`` — every OTHER file with its role, size and sha256.  It does not list
-  itself: a file cannot carry its own hash, and the returned object must be exactly what
-  is on disk.
-
-WHICH round is not decided here: since 2026-09-22 the run keeps every round and ends at the
-last one, and ``codeverse3d.addons.select`` picks a round and packages it.  Renders per
-round, gates, judge verdicts and measurements stay in ``artifacts/``; tokens, prices and settings stay in ``telemetry/``.
+Holds the round's raw code, its artifact (GLB/STL/STEP, URDF + meshes, or judged frames + sheet + GIF),
+``sheet.png``, ``captions.json`` and ``manifest.json`` (every other file with role, size and sha256).
 """
 
 from __future__ import annotations
@@ -37,9 +21,7 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-#: a round's build output → its role in the hand-over.  Exactly these (and ``meshes/``)
-#: are what a round keeps under ``artifacts/rNN/``: the census, build.json, the .blend and
-#: the export scratch dirs are evidence of the build, not part of what was built.
+#: a round's build output → its role in the hand-over (these and ``meshes/`` are what a round keeps)
 _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
     ("object.glb", "model"),
     ("object.stl", "model"),
@@ -53,16 +35,12 @@ _MESH_DIR = "meshes"
 
 
 def keep_round_artifacts(ws: Workspace, round_index: int) -> list[str]:
-    """Copy the round's build outputs to ``artifacts/rNN/`` (names relative to
-    ``artifacts/``); ``[]`` when the round built nothing to keep.
+    """Copy the round's build outputs to ``artifacts/rNN/`` (names relative to ``artifacts/``).
 
-    Only the files a hand-over needs, and real copies: the next round's build replaces the
-    canonical ones, and a kept round must never change under a writer that happens to
-    write in place (a hard link would share that inode).  A scene keeps nothing here — its
-    hand-over (``src/`` + ``public/``, GLB assets included) is the round's git commit — and
-    a graphics round keeps its sheet and GIF; its judged frames are in ``renders/rNN/``."""
+    Real copies, never hard links, so a later in-place build cannot change a kept round.
+    A scene keeps nothing here (its hand-over is the git commit)."""
     dest = ws.round_artifacts(round_index)
-    if dest.exists():  # the same round built again (a transport retry): its last build wins
+    if dest.exists():  # the same round built again: its last build wins
         shutil.rmtree(dest)
     names = [n for n, _ in _ARTIFACT_ROLES if (ws.artifacts / n).is_file()]
     meshes = sorted((ws.artifacts / _MESH_DIR).glob("*.glb")) if (ws.artifacts / _MESH_DIR).is_dir() else []
@@ -74,9 +52,7 @@ def keep_round_artifacts(ws: Workspace, round_index: int) -> list[str]:
 
 
 class _Writer:
-    """Collects files into ``deliverable/`` and remembers role/size/hash.  Every file is a real
-    copy, never a hard link: a user editing the delivered file would otherwise mutate the
-    canonical evidence in ``artifacts/`` and break the sha256 recorded in the manifest."""
+    """Collects files into ``deliverable/`` as real copies (a hard link would let edits break the manifest sha256)."""
 
     def __init__(self, ws: Workspace):
         self.ws = ws
@@ -151,8 +127,7 @@ def _copy_captions(ws: Workspace, record: RunRecord, w: _Writer) -> None:
 
 
 def _stable_timestamp(previous: RunDeliverable | None, current: RunDeliverable) -> datetime:
-    """Keep the old timestamp when the content is byte-identical, so re-running the
-    packager (or the migration) is a no-op instead of a diff."""
+    """Keep the old timestamp when the content is byte-identical."""
     if previous is None or previous.generated_at is None:
         return current.generated_at or datetime.now(UTC)
     same = {(f.path, f.sha256) for f in previous.files} == {(f.path, f.sha256) for f in current.files}
@@ -160,10 +135,7 @@ def _stable_timestamp(previous: RunDeliverable | None, current: RunDeliverable) 
 
 
 def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None, *, clean: bool = True) -> RunDeliverable:
-    """(Re)build ``<run>/deliverable/`` for round ``round_index`` and return the typed manifest.
-
-    Idempotent: the folder is rebuilt from scratch every time, so a second call
-    on an unchanged run produces byte-identical content."""
+    """(Re)build ``<run>/deliverable/`` for round ``round_index`` and return the manifest (idempotent)."""
     rnd = next((r for r in record.rounds if r.index == round_index), None)
     previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None
     out = round_outputs(ws, rnd)
@@ -186,11 +158,11 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     )
     manifest.generated_at = _stable_timestamp(previous, manifest)
     write_json_atomic(ws.deliverable_manifest_path, manifest.model_dump(mode="json"))
-    return manifest  # exactly what is on disk: len(files) and total_bytes == sum(f.bytes)
+    return manifest
 
 
 def load_deliverable(ws: Workspace) -> RunDeliverable | None:
-    """``deliverable/manifest.json`` (the round ``codeverse3d.addons.select`` packaged), else None."""
+    """``deliverable/manifest.json``, else None."""
     path = ws.deliverable_manifest_path
     if not path.is_file():
         return None

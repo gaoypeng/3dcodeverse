@@ -1,6 +1,5 @@
 """Environment checks behind ``3dcode doctor`` — python deps, Blender, node/three/
-puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP.  Moved out of ``cli/`` 2026-08-28: only the typer
-shim is a CLI concern (tests/install imports these checks as documentation facts).
+puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP.
 """
 
 from __future__ import annotations
@@ -17,17 +16,8 @@ Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
             "scipy", "shapely", "networkx", "matplotlib", "google.genai", "anthropic", "openai",
             "yourdfpy", "mcp", "moderngl", "cadquery")
-#: modules that come from an OPTIONAL extra: missing means one track is unavailable, not a
-#: broken install, so they are a WARN naming the extra to install.  `moderngl` and `cadquery`
-#: were absent from the list entirely until 2026-08-24, so an environment installed without
-#: [graphics] passed doctor "21/21 importable" and then failed in the graphics track with
-#: "no usable OpenGL context: No module named 'moderngl'" — a missing pip package reported
-#: as a GPU/driver problem (docs/INSTALL.md §4 promises every extra is listed here).
-#: EVERY module of every extra must be here, or the base install misreports itself: the
-#: map was missing scipy/networkx/pyarrow, so a fresh clone installed exactly as
-#: docs/INSTALL.md §1 documents (no extras) got `python deps FAIL 14/23` — "your install
-#: is broken" for an install that is correct — and a remedy that named four of the five
-#: extras and could not clear the row.  Verified on a 3.13 clean clone, 2026-08-24.
+#: modules from an OPTIONAL extra: missing is a WARN naming the extra, not a broken install.
+#: Every module of every extra must be listed here or the base install misreports itself.
 _OPTIONAL_DEPS = {"shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
                   "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
                   "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
@@ -76,11 +66,9 @@ def check_blender() -> list[Row]:
     return [("blender", "OK" if okk else "FAIL", f"{v} @ {b}")]
 
 
-#: one headless Blender run: the Cycles CUDA device list, one timed 256x144 32-spp Cycles frame on it
-#: (the judged-frame fast path: GPU OIDN + persistent data, render_bpy_scene.setup_render) and (with
-#: EEVEE) a 32x18 EEVEE frame whose GL renderer string says whether the d3d12 env put it on the GPU
-#: or it fell to llvmpipe.  OptiX is never probed (no libnvoptix under WSL2: init error 7804, and
-#: switching the compute device type back afterwards crashes Blender 5.2.2).
+#: one headless Blender run: the Cycles CUDA device list, a timed Cycles frame, and (with EEVEE) a
+#: tiny EEVEE frame whose GL renderer says GPU or llvmpipe.  OptiX is never probed (it crashes
+#: Blender under WSL2).
 _BLENDER_RENDER_PROBE = """
 import json, sys, time
 import bpy
@@ -127,8 +115,7 @@ print("C3D_DOCTOR " + json.dumps(out))
 
 
 def check_blender_render(*, eevee: bool = True, timeout_s: int = 120) -> list[Row]:
-    """What scene_blender's judged frames render on (owner D1/D8): Cycles on CUDA or on the CPU,
-    EEVEE on the GPU or silently on llvmpipe, and the machine-wide GPU render slots."""
+    """What scene_blender's judged frames render on: Cycles CUDA / CPU, EEVEE GPU / llvmpipe, GPU slots."""
     import json
 
     from codeverse3d.languages.blender import blender_env
@@ -191,7 +178,6 @@ def check_node() -> list[Row]:
     except RuntimeError as e:   # non-editable install without C3D_RUNTIME_JS
         rows.append(("runtime_js", "FAIL", str(e)))
         return rows
-    # a missing, torn or non-object package.json is the same broken install: never a crash
     three = read_json_or_none(rj / "node_modules" / "three" / "package.json")
     pup = read_json_or_none(rj / "node_modules" / "puppeteer" / "package.json")
     if three is not None:
@@ -210,9 +196,8 @@ def check_node() -> list[Row]:
     return rows
 
 
-#: ``release()``, never ``browser.close()``: by default the handle is the daemon's SHARED
-#: browser, and close() sends CDP Browser.close, which takes it down under any concurrent
-#: run rendering on it.  release() disconnects a shared browser and closes an owned one.
+#: ``release()``, never ``browser.close()``: the handle may be the daemon's shared browser, which
+#: close() would take down under concurrent runs.
 _PROBE_JS = (
     "const {launchBrowser}=require(process.argv[1]);"
     "launchBrowser({gpu:'auto'}).then(async r=>{console.log(JSON.stringify({gpu:r.gpu,renderer:r.renderer}));"
@@ -249,10 +234,6 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
 
 
 def check_pool(live: bool) -> list[Row]:
-    """The key pool's live picture: in-flight, and the outcomes this process has seen.
-
-    Only meaningful once something has used the pool this process, so it is part
-    of ``--live`` (``check_keys`` makes one call just before)."""
     from codeverse3d.models.gemini import shared_pool
 
     s = get_settings()

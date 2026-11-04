@@ -1,14 +1,4 @@
-"""GraphicsTrack: plan (GraphicsPlan) → skeleton → baseline → refine rounds → finalise.
-
-Languages: glsl_shader (Shadertoy-style fragment shader) · opengl_python (raw
-moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
-unchanged; the track-specific pieces are the prompt context (no 3D frame) and the
-render step (the sampled frames + contact sheet as the RenderSet
-the ``shader`` judge sees); the ``gl_frames`` gate is the build's own
-(``BuildResult.gates``).  Planning is ``tracks/planner.py``'s, like every track's
-(template, worked example, T = 0.5, acceptance: all dispatched on the track there).
-Refinement is always one whole-program task.
-"""
+"""GraphicsTrack."""
 
 from __future__ import annotations
 
@@ -56,8 +46,7 @@ def passes_table(plan: GraphicsPlan | None) -> str:
 
 
 def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
-    """Every variable the graphics templates may reference (StrictUndefined): the base
-    context (``prompting.base_prompt_context``) plus the graphics plan's own fields."""
+    """Every variable the graphics templates may reference (StrictUndefined)."""
     plan = ctx.plan if isinstance(ctx.plan, GraphicsPlan) else None
     res = plan.resolution if plan else (1280, 720)
     return base_prompt_context(ctx, **{
@@ -103,9 +92,7 @@ def frames_render_set(ws: Workspace, build: BuildResult, round_index: int) -> Re
 
 
 def frame_stats_text(ws: Workspace, round_index: int | None = None) -> str:
-    """The frame metrics as judge / refine text: round ``round_index``'s own copy
-    (``renders/rNN/metrics.json``), else the canonical file, quoted only for the round it belongs
-    to — the LAST build's (no later round in the journal)."""
+    """The frame metrics as judge / refine text."""
     where = ws.renders_dir(round_index) if round_index is not None else None
     if round_index is not None and where is not None and not (where / METRICS_NAME).is_file():
         later = any(int(p.stem[1:]) > round_index for p in (ws.root / "rounds").glob("r[0-9][0-9].json"))
@@ -123,8 +110,7 @@ def frame_stats_text(ws: Workspace, round_index: int | None = None) -> str:
 
 
 class GraphicsPipeline:
-    """No measurement; no gates of its own — the build's ``gl_frames`` report is the round's
-    gate (``BuildResult.gates``, appended by ``steps``); render = the frames."""
+    """No measurement."""
 
     def measure(self, ctx: RunContext, build: BuildResult) -> Measurement | None:
         return None

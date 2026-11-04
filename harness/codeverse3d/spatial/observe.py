@@ -1,13 +1,5 @@
-"""Helpers that keep tool Observations compact and workspace-safe.
-
-* ``fmt_numbers``   – one-line ``k=v`` rendering with sane float precision.
-* ``truncate``      – head/tail truncation with a marker (never mid-line when possible).
-* ``rel_path``      – workspace-relative display path (never leak host paths in text).
-* ``lint_lines`` / ``build_failure_lines`` – the one lint / BUILD FAILED report
-  format shared by the ``build`` and ``gl_probe`` / ``gl_frames`` tools.
-* ``text_observation`` / ``gate_observation`` / ``render_observation`` – the
-  standard Observation builders (truncation applied once).
-"""
+"""Helpers that keep tool Observations compact and workspace-safe: number/path formatting,
+truncation, the shared lint / BUILD FAILED report, and the standard Observation builders."""
 
 from __future__ import annotations
 
@@ -95,15 +87,7 @@ def text_observation(
     images: Sequence[str | Path] = (),
     limit: int = MAX_TEXT,
 ) -> Observation:
-    """Observation from text lines: joined, truncated to ``limit``, images capped.
-
-    The plain-text counterpart of :func:`gate_observation` / :func:`render_observation`
-    — every tool that assembles its own report (build, gl_probe, gl_frames, …)
-    goes through here so truncation and the image budget are applied exactly once, in
-    one place.  ``ok=False`` is a verdict (LINT/BUILD
-    FAILED is the answer, and the text says so first); ``failed`` is only for a
-    tool that could not run.
-    """
+    """Observation from text lines, truncated to ``limit``.  ``ok=False`` is a verdict; ``failed`` means the tool could not run."""
     body = lines if isinstance(lines, str) else "\n".join(str(x) for x in lines)
     return Observation(ok=ok, failed=failed, text=truncate(body, limit), numbers=dict(numbers or {}),
                        images=[str(i) for i in images if i])
@@ -116,8 +100,7 @@ _SEV_TAG = {Severity.ERROR: "ERROR", Severity.WARN: "WARN", Severity.INFO: "info
 
 # --------------------------------------------------------------------------- build reports
 def lint_lines(report: GateReport, root: Path, *, errors_only: bool) -> list[str]:
-    """``- ERROR (src/x.py): msg`` (+ ``    fix: …``) for the errors or the warnings
-    of a lint report — INFO findings are never shown to the agent."""
+    """``- ERROR (src/x.py): msg`` (+ fix hint) lines for the errors or the warnings; INFO is never shown."""
     want = Severity.ERROR if errors_only else Severity.WARN
     out = []
     for f in report.findings:
@@ -131,20 +114,16 @@ def lint_lines(report: GateReport, root: Path, *, errors_only: bool) -> list[str
 
 
 def error_file_display(error_file: str, root: Path) -> str:
-    """``BuildResult.error_file`` for the agent: runtimes report either an absolute
-    path (→ workspace-relative) or an already-relative one (kept — ``rel_path``
-    would resolve it against the cwd and fall back to the bare file name)."""
+    """``error_file`` for the agent: absolute paths become workspace-relative, relative ones are kept."""
     if not error_file or not Path(error_file).is_absolute():
         return error_file
     return rel_path(error_file, root)
 
 
 def build_failure_lines(br: BuildResult, root: Path, lint_warns: Sequence[str], *, tail_n: int) -> list[str]:
-    """``BUILD FAILED: <type>: <message> at <file>:<line>`` + stderr tail (when it
-    adds to the message) + up to 10 lint hints — the failure report of every
-    build-running tool."""
+    """``BUILD FAILED: <type>: <message> at <file>:<line>`` + stderr tail + up to 10 lint hints."""
     where = f" at {error_file_display(br.error_file, root)}:{br.error_line}" if br.error_file else ""
-    # the location stays on the headline even when the message is multi-line (GLSL)
+    # the location stays on the headline when the message is multi-line
     head, _, rest = sanitize_text(br.error_message, root).partition("\n")
     lines = [f"BUILD FAILED: {br.error_type or 'Error'}: {head}{where}"] + ([rest] if rest else [])
     tail = proc.tail(sanitize_text(br.stderr_tail, root).rstrip("\n"), max_lines=tail_n)
@@ -159,11 +138,7 @@ def gate_observation(report: GateReport, *, title: str = "", max_findings: int =
                      images: Iterable[str] = (), failed: bool = False) -> Observation:
     """Errors first, each with its fix hint; counts in ``numbers``.
 
-    The verdict leads the text for every gate, ``title`` or not: a failing gate is a
-    result, not a tool error (``Observation.failed`` stays False), so PASS/FAIL is all
-    the model has to go on.  ``title`` names the gate, never the verdict.  ``failed`` is
-    for the one caller whose gate report can also mean the tool did not run (the scene
-    probe driver dying); it forces ``ok=False``, because a call that failed has no verdict.
+    The PASS/FAIL verdict leads the text.  ``failed`` marks a tool that could not run and forces ``ok=False``.
     """
     findings = sorted(report.findings, key=lambda f: _SEV_ORDER.get(f.severity, 3))
     n_err = sum(1 for f in findings if f.severity == Severity.ERROR)
@@ -188,15 +163,7 @@ def gate_observation(report: GateReport, *, title: str = "", max_findings: int =
 def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individual: int = 4) -> Observation:
     """Contact sheet first, individual views when few; text lists views + cameras.
 
-    The negative outcomes are NOT one answer.  **Console errors** are a verdict
-    (``ok=False``, ``failed=False``) whether or not any view came back: the scene ran
-    far enough to log them and the agent fixes them in ``src/`` — a scene that fails to
-    boot returns an empty RenderSet whose ``console_errors`` say why (``render_scene``),
-    and reporting that as a broken call would buy a blind retry of the very thing that
-    just explained itself.  **No views and nothing logged** is a failure
-    (``failed=True``): the tool's product is pictures, it has none and no reason, and
-    nothing the agent edits changes that.  Either way the verdict leads the text, since
-    a negative verdict now only reaches the model as text.
+    Console errors are a verdict (``ok=False``); no views and nothing logged is a failure (``failed=True``).
     """
     images: list[str] = []
     if rs.contact_sheet:

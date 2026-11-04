@@ -1,23 +1,4 @@
-"""SceneTrack: the plan, the pre-round stages (``SceneTrack.stages``: the whole baseline), rounds.
-
-Languages: every scene language, through its ``SceneRuntime`` (D101).  Generation is staged (each stage cached by
-``StageRunner`` for resume); the round loop then builds (probe + shaders — the
-build's two gate reports join the round's gates),
-renders authored cameras + orbit at t=0 and t=1.5, judges with ``scene``
-(console/shader errors become gate ERRORS) and dispatches refine tasks per
-zone / asset / env / camera, in parallel when file-disjoint.
-
-Cost/latency shaping (the baseline used to eat the whole budget, leaving the
-refine rounds nothing):
-
-* assets are single-shot by default (``scene_assets``);
-* **one session writes every zone** (D70) and exclusively owns their files;
-  ``scene.js`` is assembled deterministically, without a session;
-* every stage session gets a timeout clipped to the wall-clock actually left;
-* the baseline runs against a **soft sub-budget** (``soft_budget_fraction``);
-  when it is spent the stages degrade (single-shot instead of an agent session,
-  fewer assets, no asset judge) instead of dying at the hard cap.
-"""
+"""SceneTrack."""
 
 from __future__ import annotations
 
@@ -69,19 +50,14 @@ log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
-# No cookbook (D106 / D107): the four ENV and six ZONE chapters once inlined into every session were
-# executed verbatim by the 60 iteration-0 scenes.  Interface facts live in contract.md / system.md,
-# the craft in the skills as short optional practices; the prompts state requirements and what measures them.
+
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
-#: what round 0 still needs once the zones are written — assemble, build, render, gates and the judge
-#: (4-8 min measured in iteration 2) — and what the zone window therefore never eats into
+#: what round 0 still needs once the zones are written; the zone window never eats into it
 ROUND0_RESERVE_S = 600.0
-#: the shortest zone window worth opening: an agent session spends its first minutes reading the
-#: briefs, the skills and the asset files (24-27 reads in the two sessions killed at 180 s)
+#: the shortest zone window worth opening (a session spends its first minutes reading)
 ZONE_MIN_S = 300.0
-#: a refine session that runs for half an hour (the desert-canyon round 1 did) spends the
-#: wall clock the NEXT round needed; clip it to what the hard budget still allows
+#: clips a refine session to what the hard budget still allows
 REFINE_TIMEOUT_S = 900
 
 
@@ -95,16 +71,14 @@ class SceneTemplates:
     asset: str
 
 
-#: per language — the three.js templates stay the files they were (byte-identical), the bpy
-#: twins carry the same context keys with Blender wording and the bpy library's calls
+
 SCENE_TEMPLATES: dict[Language, SceneTemplates] = {
     Language.SCENE_THREEJS: SceneTemplates("tracks/scene_env.j2", "tracks/scene_zone.j2", "tracks/scene_refine.j2",
                                            "tracks/scene_asset.j2"),
     Language.SCENE_BLENDER: SceneTemplates("tracks/scene_env_bpy.j2", "tracks/scene_zone_bpy.j2", "tracks/scene_refine_bpy.j2",
                                            "tracks/scene_asset_bpy.j2"),
 }
-#: ``SceneRuntime.env_file`` per language, for a runtime that does not state it (a fake, an
-#: older runtime): the typed fallback of :func:`env_file`, never a ``.js`` / ``.py`` test
+#: fallback for a runtime that does not state ``SceneRuntime.env_file``
 ENV_FILES: dict[Language, str] = {Language.SCENE_THREEJS: "src/env.js", Language.SCENE_BLENDER: "src/env.py"}
 
 
@@ -114,17 +88,11 @@ def scene_templates(language: Language) -> SceneTemplates:
 
 
 def env_file(ctx: RunContext) -> str:
-    """The environment module of this run's scene language: the runtime's word (``env_file``),
-    else the typed per-language table."""
+    """The environment module of this run's scene language."""
     return getattr(ctx.runtime, "env_file", None) or ENV_FILES[ctx.language]
 
 
 def plan_vec(v: Sequence[float], language: Language, *, extents: bool = False) -> tuple[float, float, float]:
-    """A plan (GLB-frame, Y-up) vector in ``language``'s authoring frame — the identity for a
-    Y-up language, so the three.js prompts keep their numbers byte for byte; a Z-up author (bpy)
-    reads ``(x, -z, y)`` points and ``(w, d, h)`` sizes (D12: the plan itself never changes frame).
-    ``+ 0.0`` folds the ``-0.0`` a negated zero leaves into ``0.0`` (``fmt3`` would print ``-0.000``)
-    and is the identity on every other finite value."""
     x, y, z = to_authoring_frame(v, language.value, extents=extents)
     return (x + 0.0, y + 0.0, z + 0.0)
 
@@ -142,18 +110,14 @@ def plan_camera_line(c: CameraPlan, language: Language) -> str:
 
 
 class ScenePipeline:
-    """No GLB measurement; the placement gate from the build's census (the build's own probe and
-    preflight reports join the round through ``BuildResult.gates``); render_scene; console caps."""
+    """No GLB measurement."""
 
     def measure(self, ctx: RunContext, build: BuildResult) -> Measurement | None:
         return None
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
-        # scene_placement (2026-08-26): floating / sunken / unsupported / interpenetrating assets from
-        # the probe census's placement table — the first deterministic placement gate on this track
-        # (before it, the scene_v1 floating_part cap could never fire) — plus the plan checks.  The
-        # check_placement tool returns the same verdict.  Advisory instrumentation: a failure is a
-        # WARN finding, never an exception, so it cannot kill a round.
+        # placement gate (floating / sunken / interpenetrating assets) plus the plan checks;
+        # advisory: a failure is a WARN finding, never an exception.
         placement = placement_gate(ctx.ws, build.census, ctx.plan)
         return [placement] if placement is not None else []
 
@@ -170,9 +134,7 @@ class ScenePipeline:
                     for e in errs[:MAX_CONSOLE_ERRORS]]
         out = [GateReport.of("render_console", findings)]
         try:
-            # scene_frames: exposure / camera-in-geometry / coverage checks from metrics.json
-            # (missing metrics → a passing empty report); its ERROR findings carry fix hints
-            # that build_refine_instructions routes into the next round's tasks.
+            # scene_frames checks from metrics.json; ERROR findings carry fix hints into the next round
             out.append(ctx.services.frame_gate(renders))
         except Exception as e:  # noqa: BLE001 — the frame gate is advisory instrumentation
             log.warning("scene frame gate failed: %s", e)
@@ -180,15 +142,13 @@ class ScenePipeline:
         return out
 
     def judge_views(self, ctx: RunContext, renders: RenderSet) -> RenderSet:
-        """The ≤ 10 views the judge sees (authored@t0 first); the full set stays on disk:
-        the per-view ``judge`` flags ``render_scene`` stamps on every set it returns."""
+        """The ≤ 10 views the judge sees (authored@t0 first)."""
         return judged_subset(renders)  # type: ignore[return-value]
 
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         if not isinstance(plan, ScenePlan):
             return ""
-        # the measured motion goes FIRST: this block is clipped to ~2.5 k chars in the judge
-        # prompt and a long environment plan used to push everything after it off the end
+        # the measured motion goes FIRST: this block is clipped in the judge prompt
         lines = [t for t in (motion_text_for(ws.renders_dir(round_index)),) if t]
         lines.append(f"Environment plan: {plan.environment}"[:1200])
         lines.append("Animation plan: " + "; ".join(plan.animation))
@@ -197,8 +157,7 @@ class ScenePipeline:
 
 
 def _plan_agent(ctx: RunContext) -> dict[str, Any]:
-    # the WHOLE plan (+ agent), not enumerated fields (2026-08-31): a mood/title/bounds/camera-only
-    # re-plan used to hit a stale cached stage
+    # the WHOLE plan (+ agent), not enumerated fields
     return {"plan": ctx.plan, "agent": ctx.agent_id}
 
 
@@ -209,19 +168,14 @@ class SceneTrack(BaseTrack):
     #: the pre-round graph writes the whole baseline; round 0 builds, renders and judges it
     stages = (
         SKELETON, MATERIALIZE,
-        # side by side (2026-08-30): the env brief reads no asset output — la_boulevard's 15 + 12 min ran
-        # in max(15, 12), a whole refine round saved.  Each is its OWN cached stage (2026-08-31): a failing
-        # sibling never costs a succeeded one its paid result.  Layouts: L2 zone layouts, an accelerator
-        # (C3D_ZONE_LAYOUTS, default on), riding along at no wall clock (beb6605)
+        # side by side; each is its OWN cached stage so a failing sibling never costs a succeeded one
         (StageNode("assets", lambda t, c: run_asset_stage(c), key=_plan_agent),
          StageNode("env", lambda t, c: t._env_stage(c), key=_plan_agent),
          StageNode("layouts", lambda t, c: t._layouts_stage(c), key=_plan_agent, when=lambda s: s.zone_layouts)),
         StageNode("asset_api", lambda t, c: t._asset_api(c)),
-        # ONE session writes every zone (D70)
         StageNode("zones", lambda t, c: t._zones_stage(c), key=lambda c: {
             "plan": c.plan, "asset_api": c.extra["asset_api"], "layouts": c.extra.get("layouts", {}), "agent": c.agent_id}),
-        # after the zones are recorded: a run the clock stops here keeps them (salvage assembles
-        # them; a resume serves them instead of paying the session again)
+        # after the zones are recorded: a clock stop here keeps them
         CLOCK,
         # scene.js, deterministic: no session
         StageNode("assemble", lambda t, c: t._assemble_stage(c), key=lambda c: {"plan": c.plan}),
@@ -230,8 +184,7 @@ class SceneTrack(BaseTrack):
     def make_pipeline(self) -> ScenePipeline:
         return ScenePipeline()
 
-    #: the baseline (the pre-round stages → round 0) may use this share of the run budget; the
-    #: rest belongs to the refine rounds.
+    #: share of the run budget the baseline may use; the rest is for refine rounds
     soft_budget_fraction = 0.55
 
     # ------------------------------------------------------------------ stages
@@ -248,10 +201,7 @@ class SceneTrack(BaseTrack):
             return {}
 
     def _asset_api(self, ctx: RunContext) -> str:
-        """What the zones are told about the assets.  The asset results come back revived (a cached
-        stage is JSON), with the merge map the STAGE used: its cap depends on the soft budget at the
-        time (a degraded run folded more), so it is read back for a resumed run and the zones to
-        agree."""
+        """What the zones are told about the assets."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (ctx.extra.get("assets") or {}).items()}
         alias = read_dedupe_note(ctx.ws)
@@ -260,8 +210,7 @@ class SceneTrack(BaseTrack):
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
-        """The context a stage should generate with: the agent normally, single-shot
-        once the baseline has spent its soft sub-budget (never dying at the hard cap)."""
+        """The context a stage should generate with."""
         reason = ctx.budget.soft_exceeded()
         if not reason:
             return ctx
@@ -281,18 +230,7 @@ class SceneTrack(BaseTrack):
     # ---- the stage session ------------------------------------------------
     def _stage_session(self, ctx: RunContext, stage: str, kind: str,
                        task_for: Callable[[RunContext], GenerationTask]) -> GenerationResult:
-        """The one way a baseline stage (env, zones) runs its session: the strategy the soft budget
-        leaves (``_strategy``), the task built for it, this stage's skills routed into the workspace
-        and — single-shot — inlined, the session, its skills telemetry and the stage's commit.  A
-        session that raises still leaves its telemetry and its commit before the exception goes on.
-
-        The skills are this hook's job, not ``steps.run_round``'s: a scene builds its whole baseline
-        in its pre-round ``stages``, in sessions that never pass through ``run_round`` (``scene.js`` is
-        assembled, not written), so the router's ``kinds=("env", "zone")`` rows were selected and
-        delivered to nobody — 0 opens out of 30 listings, measured 2026-08-25.  ``index=0``: these
-        stages ARE round 0's generation.  One attach per stage keeps it to one AGENTS.md write, and
-        closing the telemetry row per session keeps ``3dcode skills report`` from reading a stage's
-        listing as "listed, unread"."""
+        """The one way a baseline stage (env, zones) runs its session."""
         gen = self._strategy(ctx, stage)
         task = task_for(gen)
         skills_hook.attach_for_round(gen, index=0, kind=kind)
@@ -300,13 +238,8 @@ class SceneTrack(BaseTrack):
             task = skills_hook.with_inlined_skill(gen, [task])[0]
             res = generate_for(gen, task)
             if (res.transient or res.stalled) and not res.ok and ctx.policy.can_open(ctx.budget, single_shot=gen.single_shot):
-                # ONE transport retry, the round loop's rule (lifecycle: a 503 storm / dropped
-                # socket / a session that HUNG is not a verdict on the work — the session never
-                # really happened): the same task again under the ``.a2`` label the CLI's own second
-                # session wears, so the ledger and the trajectory dir tell the two apart.  Typed:
-                # ``GenerationResult.transient`` / ``.stalled`` only — a quota wall or a session that
-                # worked to its hard limit is not retried — and only when the clock still holds a
-                # minimum window plus the judge reserve (``RoundPolicy.can_open``, D112).
+                # ONE transport retry (transient / stalled only, never a quota wall) under the ``.a2``
+                # label, and only when the clock holds a minimum window plus the judge reserve.
                 ctx.events.emit("stage.transport_retry", stage=stage, label=task.label, stalled=res.stalled and not res.transient,
                                 detail=res.notes[:500])
                 res = generate_for(gen, task.model_copy(update={"label": f"{task.label}.a2"}))
@@ -316,13 +249,6 @@ class SceneTrack(BaseTrack):
             ctx.ws.commit(stage)
 
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
-        """The env session, honest (D111): ``ok`` only when the env module ITSELF was written in this
-        stage — the session's ``files_changed`` (its ``files_hint`` alone: ``shared_tree``) or the
-        file's mtime, the test the zone stage uses.  Iteration 4 of the argon loop (scene_threejs,
-        2026-10-15): the session read for 7-10 minutes and wrote nothing in 12 of 15 runs, was
-        credited with the asset files the single-shots wrote beside it, and the stage read ``ok``;
-        round 0 was unlit and the one refine round wrote the whole environment from the skeleton.
-        A failed stage gets ONE recovery before the zones are written (:meth:`_recover_env`)."""
         rel, t0 = env_file(ctx), time.time()
         res = self._stage_session(ctx, "env", "env", self._env_task)
         written = {c.path for c in res.files_changed}
@@ -333,25 +259,6 @@ class SceneTrack(BaseTrack):
         return out
 
     def _recover_env(self, ctx: RunContext, failed: dict[str, Any]) -> dict[str, Any]:
-        """One single-shot generation of the env module the session left unwritten — the
-        :meth:`_recover_zones` rule for the env stage (D111): a fresh brief, single-shot (it cannot
-        spend its window reading), bounded by the env window the budget still allows.  It runs
-        before the zone stage starts, so no zone is authored against the skeleton's placeholder
-        (iteration 4, r1_01: a zone author built its own replacement world inside its zone file).
-
-        CHECKED (D112): the written module counts only once the runtime's env check passes
-        (``SceneRuntime.check_env``: its lint, a build with nothing beside it, something that lights
-        it); a failure gets ONE repair single-shot with the check's words and the file fed back (the
-        asset ladder's single-shot + repair).  Both prompts carry the ``src/lib/`` interface of a language
-        that ships one (``SceneRuntime.lib_interface``) — names and parameter lists, read off the files.  Iteration 5
-        (2026-10-16): 7 of 21 unchecked recoveries were broken or unlit (a SyntaxError, a non-existent
-        ``gravel`` export, a ``roughness=`` keyword no function takes) and reached round 0 as an
-        assembly without env.  A module that still fails is replaced by what was there before (the
-        placeholder: zones import its interface), and the stage reports it failed.
-
-        Under :func:`~codeverse3d.agents.cli_common.exclusive_workspace` (D112): an escalated asset
-        session may hold the workspace while this runs, and a harness commit inside its window was
-        reverted by its scope check (iteration 5, scene_blender r1_10: the recovered env erased)."""
         from codeverse3d.agents.cli_common import exclusive_workspace
 
         gen = ctx if ctx.single_shot else (single_shot_ctx(ctx) or ctx)
@@ -391,11 +298,9 @@ class SceneTrack(BaseTrack):
         return out
 
     def _env_task(self, ctx: RunContext, **recovery: str) -> GenerationTask:
-        """``recovery``: the recovery's extra facts (``lib_interface``, ``env_check_error``,
-        ``env_previous`` — :meth:`_recover_env`); the session's own brief has none."""
+        """``recovery``."""
         prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx, **recovery))
         ctx.record_prompt("scene_env", prompt)
-        # shared_tree: the asset single-shots write src/ side by side with this session (D111)
         return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=[env_file(ctx)], round=0, kind="env",
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
                               images=reference_images(ctx), shared_tree=True)
@@ -403,15 +308,13 @@ class SceneTrack(BaseTrack):
     def _zones_stage(self, ctx: RunContext) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         t0 = time.time()
-        # one author for the whole world (D70; the fan-out control arm was removed 2026-09-21)
         zones = list(plan.zones)
         try:
             r = self._stage_session(ctx, "zones", "zone", lambda gen: self._zone_task(gen, zones))
         except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the stage is still
             # recorded + committed; the boundary check after the stage stops the run
             log.warning("zones session failed: %s: %s", type(e).__name__, e)
-            # a clock that tripped as a FINISHED session was charged: what it wrote is recorded as
-            # written (salvage assembles it, a resume serves it), the stop as a note beside it
+            # a clock trip after a FINISHED session: what it wrote is recorded, the stop noted beside it
             stopped = isinstance(e, BudgetExceeded)
             out = {}
             for zone in zones:
@@ -423,9 +326,7 @@ class SceneTrack(BaseTrack):
             out = {}
             for zone in zones:
                 rel = ctx.runtime.zone_file(zone.name)
-                # a session that owns several zones must have produced EVERY file; the skeleton
-                # left a stub at every zone path, so existence proves nothing — the file
-                # must have been reported as changed or actually rewritten in this stage
+                # existence proves nothing (the skeleton left stubs): the file must be reported changed or rewritten
                 ok = r.ok and (len(zones) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
                 out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
         failed = [z for z in zones if not out[z.name]["ok"]]
@@ -435,15 +336,7 @@ class SceneTrack(BaseTrack):
         return out
 
     def _recover_zones(self, ctx: RunContext, failed: list[ZonePlan]) -> dict[str, dict[str, Any]]:
-        """One single-shot generation per zone the batched session left unwritten, side by side.
-
-        WHY.  ``zones.done`` already listed such zones as failed and nothing acted on it: the
-        skeleton's stub (``build`` returns the empty collection) went to assembly, every planned
-        content was ``zone_empty`` and ``missing_must_acceptance`` capped the run at ~0.18 — and the
-        refine round, handed "three empty zones" among its targets, spent its 15 minutes on asset
-        files (iteration 2, r1_11 / r1_15, 2026-10-15).  An unwritten zone is the stage's job, not
-        refine's: each gets its own brief again, single-shot (fast, and it cannot spend its window
-        reading), bounded by the zone window.  A recovery that also fails leaves the stub, as before."""
+        """One single-shot generation per zone the batched session left unwritten, side by side."""
         from codeverse3d.proc import fan_out
 
         gen = ctx if ctx.single_shot else (single_shot_ctx(ctx) or ctx)
@@ -471,10 +364,7 @@ class SceneTrack(BaseTrack):
         return results
 
     def _zone_task(self, ctx: RunContext, batch: list[ZonePlan]) -> GenerationTask:
-        """One task for one zone, or for every zone of the scene in one session (D70).
-
-        A batched task exclusively owns every file it lists, so ``files_hint``
-        attribution and the refine fan-out stay file-disjoint."""
+        """One task for one zone, or for every zone of the scene in one session."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         names = [z.name for z in batch]
         files = [ctx.runtime.zone_file(z.name) for z in batch]
@@ -482,10 +372,7 @@ class SceneTrack(BaseTrack):
         briefs = []
         for i, zone in enumerate(batch):
             neighbours = [f"{z.name}: {plan_bbox_line(z.bbox, ctx.language)}" for z in plan.zones if z.name != zone.name]
-            # the brief's per-zone head for every zone; the shared tail (cameras, assets, the
-            # contract, the measured list, tools, the catalog, the output rules) ONCE, after the
-            # last head — a two-zone session used to read the contract and the 25k catalog twice
-            # with "HOW TO FINISH" landing between zone 1 and zone 2 (2026-10-15)
+            # per-zone head for every zone; the shared tail (cameras, assets, contract, tools, catalog) ONCE after the last head
             briefs.append(render(template, **self._ctx(ctx, zone_name=zone.name, zone_description=zone.description,
                                                        zone_bbox=plan_bbox_line(zone.bbox, ctx.language), zone_contents=zone.contents,
                                                        zone_file=ctx.runtime.zone_file(zone.name), neighbours=neighbours,
@@ -509,7 +396,7 @@ class SceneTrack(BaseTrack):
                         "and scored 0.32 where the brief-by-brief fan-out reached 0.60.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
-        ctx.record_prompt("scene_zone", prompt)   # the whole prompt the session read, not its first brief
+        ctx.record_prompt("scene_zone", prompt)   # the whole prompt the session read
         # the batch exclusively owns its zone files; env/scene/asset files belong to other sessions
         # the window grows with the batch: one author writing four zones is four zones of work
         return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
@@ -523,9 +410,7 @@ class SceneTrack(BaseTrack):
         return {"ok": True, "deterministic": True, "result": result}  # StageRunner.stage jsonables it
 
     def prepare_salvage(self, ctx: RunContext) -> bool:
-        """The budget stopped a stage before round 0: assemble whatever the stages DID
-        write (the skeleton guarantees a stub per zone) so the run still delivers a
-        built, rendered, judged scene instead of no score at all."""
+        """The budget stopped a stage before round 0."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         zones = [z for z in plan.zones if (ctx.ws.root / ctx.runtime.zone_file(z.name)).is_file()]
         if not zones:
@@ -561,9 +446,7 @@ class SceneTrack(BaseTrack):
                               timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
-        """One repair task carrying the structured error report (build + lint; the probe's
-        and the preflight's findings are the build's log tail), targeted at the failing
-        module when the build names one."""
+        """One repair task carrying the structured build and lint error report."""
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
         report = format_error_report(last.build, lint) if last.build else "build did not run"
         files: list[str] = []
@@ -583,15 +466,7 @@ class SceneTrack(BaseTrack):
 
     # ------------------------------------------------------------------ helpers
     def _ctx(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
-        """The variables every scene template may use.  Plan numbers are printed in the AUTHORING
-        frame of the run's language (``plan_vec``: the identity for three.js, so those prompts are
-        byte-identical; a bpy author reads Z-up points and (w, d, h) sizes, D12), plus the
-        runtime's file names (``env_file`` / ``entry_file``) so a template never spells a path.
-
-        ``bounds`` is the extent of the PLANNED content and the cameras' subject — what the
-        placement gate measures placed assets against — not the edge of the world: terrain,
-        backdrop and scenery continue beyond it as the brief implies, and a template that
-        reads it must say so (owner, 2026-10-15)."""
+        """The variables every scene template may use."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         lang = ctx.language
         zones_table = "\n".join(f"- {z.name}: {z.description} — {plan_bbox_line(z.bbox, lang)}; contents: {', '.join(z.contents) or '-'}"
@@ -608,8 +483,6 @@ class SceneTrack(BaseTrack):
 
 # ----------------------------------------------------------------------------- helpers
 def _touched(path: Any, since: float) -> bool:
-    """Was ``path`` (re)written after ``since``?  (mtime beats existence: every zone
-    path already holds a skeleton stub.)"""
     try:
         return path.is_file() and path.stat().st_mtime > since
     except OSError:
@@ -617,22 +490,13 @@ def _touched(path: Any, since: float) -> bool:
 
 
 def zone_window_s(ctx: RunContext, n_zones: int) -> int:
-    """The zone session's window: ``ZONE_TIMEOUT_S`` per zone, clipped to the HARD budget minus
-    :data:`ROUND0_RESERVE_S` — never to the scene track's soft cap.
-
-    WHY.  The soft cap (0.55 of the run) protects the refine round's time, but a scene whose zones
-    are empty has nothing to refine: two iteration-2 runs reached the zone stage 0.4 min before the
-    cap (a runaway asset call had held the asset stage for 47 min), so the session was clipped to
-    the 180 s floor, read 24-27 files and was killed before writing a zone (2026-10-15).  The zones
-    are the scene; refine gets whatever they leave.  Past the soft cap the stage still degrades to
-    single-shot (``_strategy``); this only sizes the window it runs in."""
+    """The zone session's window."""
     left = (ctx.budget.hard_minutes - ctx.budget.elapsed_minutes()) * 60.0 - ROUND0_RESERVE_S
     return int(max(ZONE_MIN_S, min(float(ZONE_TIMEOUT_S * max(1, n_zones)), left)))
 
 
 def _guess_target(error: str, ctx: RunContext) -> str:
-    """The refine target a console error names: a zone or asset by its snake name, the env
-    module or the entry by the RUNTIME's file names (``env_file``, ``ENTRY_FILE``), else overall."""
+    """The refine target a console error names."""
     low = error.lower()
     for attr in ("zones", "assets"):
         for item in getattr(ctx.plan, attr, None) or []:

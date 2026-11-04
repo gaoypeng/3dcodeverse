@@ -48,11 +48,7 @@ class ChatRequest(BaseModel):
     system: str = ""
     response_schema: dict[str, Any] | None = Field(default=None, description="force JSON matching this schema")
     temperature: float = 0.7
-    #: 65 536 is the declared output limit of every gemini-3.x model the harness uses
-    #: (models.get: input 1 048 576 / output 65 536).  It is a CEILING, not a reservation —
-    #: only tokens actually produced are billed — and a low one silently truncates a
-    #: thinking model mid-answer: a 15 359-token thought hit the old 16 000 default at
-    #: 15 996 and the turn arrived with no tool call (art_med_tool_chest, 2026-08-27).
+    #: A ceiling, not a reservation: a low one truncates a thinking model mid-answer.
     max_output_tokens: int = 65_536
     thinking: Literal["off", "low", "medium", "high"] = "low"
     label: str = Field(default="", description="for logs/cost ledger: planner / judge / generate ...")

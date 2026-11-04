@@ -1,13 +1,4 @@
-"""Build → error-focused repair loop (no judge, no renders: cheap first).
-
-``build_with_repair`` runs ``runtime.lint`` + ``runtime.build``; while the
-build fails (or lint reports ERRORs) and attempts remain, it dispatches ONE
-repair task carrying a structured error report (file:line, message, traceback
-tail, lint findings with fix hints, the attached skills that answer the
-findings).  Identical consecutive error signatures escalate (higher
-temperature/thinking for single-shot; an explicit "same error again" notice
-for agents) — the tell that the previous edit did not touch the cause.
-"""
+"""Build → error-focused repair loop (no judge, no renders: cheap first)."""
 
 from __future__ import annotations
 
@@ -24,9 +15,6 @@ from codeverse3d.tracks.prompting import base_prompt_context, current_files, lan
 
 log = logging.getLogger(__name__)
 
-#: How many times a build that failed IN THE HARNESS is simply re-run before the round
-#: gives up.  Cheap (no model call) and bounded: the node driver already retries once
-#: itself, so a failure that survives this many rebuilds is not transient.
 MAX_HARNESS_REBUILDS = 2
 
 MAX_REPAIR_CONTEXT_CHARS = 40_000
@@ -54,11 +42,7 @@ def error_signature(build: BuildResult, lint: GateReport) -> str:
 
 
 def format_error_report(build: BuildResult, lint: GateReport, skills: str = "") -> str:
-    """Compact, structured error report for the fixer (the ONLY thing it must fix).
-
-    ``skills`` is the gate→skill pointer block: the bundles already in the workspace that
-    answer THESE findings, named beside them.  Pointers, not text — the bodies are on
-    disk, and the repair prompt is the volatile tail nobody caches."""
+    """Compact, structured error report for the fixer (the ONLY thing it must fix)."""
     lines: list[str] = []
     if not build.ok:
         loc = build.error_file + (f":{build.error_line}" if build.error_line else "") if build.error_file else "(unknown file)"
@@ -80,8 +64,7 @@ def format_error_report(build: BuildResult, lint: GateReport, skills: str = "") 
 
 
 def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, files_hint: list[str]) -> dict[str, str]:
-    """Current contents of the failing file(s) (≤ 40k chars total) for single-shot repair —
-    inlined by ``prompting.current_files``, which never inlines a harness-owned file."""
+    """Current contents of the failing file(s), at most 40k chars in total, for single-shot repair."""
     cands: list[str] = []
     if build.error_file:
         cands.append(_rel(ctx, build.error_file))
@@ -96,9 +79,7 @@ def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, file
 
 
 def _rel(ctx: RunContext, path: str) -> str:
-    """``path`` relative to the workspace, or ``""`` when it points outside it (an absolute
-    path elsewhere, a ``..`` escape): never a file to inline.  Was ``lstrip("./")``, which
-    strips a character SET — ``../x`` became ``x`` and ``.env.js`` became ``env.js`` (B14)."""
+    """``path`` relative to the workspace, or ``""`` when it points outside it."""
     p = path.replace("\\", "/")
     root = str(ctx.ws.root).replace("\\", "/").rstrip("/") + "/"
     p = p.removeprefix(root)
@@ -115,11 +96,7 @@ def build_once(ctx: RunContext) -> tuple[BuildResult, GateReport]:
 
 def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hint: list[str] | None = None,
                       max_attempts: int | None = None, timeout_s: int | None = None) -> RepairOutcome:
-    """Lint+build; on failure run up to ``max_repair_attempts`` error-focused repairs.
-
-    ``timeout_s`` clips every repair session (a scene asset's window is a share of the
-    run, not the 1 800 s agent default: measured 2026-09-07, a 25-minute scene could
-    spend 70 minutes on one hero's three repairs)."""
+    """Lint+build; on failure run up to ``max_repair_attempts`` error-focused repairs."""
     files_hint = list(files_hint or [])
     max_attempts = ctx.spec.budget.max_repair_attempts if max_attempts is None else max_attempts
     build, lint = build_once(ctx)
@@ -130,17 +107,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
     repeats = 0
     attempt = 0
     rebuilds = 0
-    # the rebuilds are gated by their OWN bound, not by the repair budget: a round run
-    # with max_repair_attempts=0 (a baseline arm) still gets its harness retries
     while not outcome.ok and (attempt < max_attempts or build.harness_failure):
-        # A build that failed because the HARNESS could not run it is not a defect the
-        # agent can fix, and handing it over costs the round its whole repair budget on
-        # working code.  Measured 2026-09-05 (japanese_garden): three
-        # repairs against "scene probe produced no result (driver output lost)" rewrote
-        # 5, then 14, then 3 files — the 14 included env.js and every zone — and deleted
-        # the texture use the arm existed to measure, before the fourth build passed on
-        # its own.  Re-run the build instead; the driver's own retry has already fired,
-        # so this is the second line, bounded and cheap (no model call).
         if build.harness_failure:
             if rebuilds >= MAX_HARNESS_REBUILDS:
                 log.warning("build kept failing in the harness (%s); giving up without a repair",
@@ -171,8 +138,6 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
         ctx.events.emit("build.done", round=round_index, ok=build.ok, lint_errors=len(lint.errors), attempt=attempt,
                         error=build.error_message[:200], duration_ms=build.duration_ms)
         if res.transient and not outcome.ok:
-            # the repair session died in a 503 storm (D68): whatever it wrote is built above;
-            # another session would spend its whole window at the same wall
             ctx.events.emit("repair.storm", round=round_index, attempt=attempt, notes=res.notes[:200])
             break
     return outcome
@@ -188,7 +153,7 @@ def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, r
         failing_files=sorted(files) if files else [build.error_file] if build.error_file else files_hint))
     ctx.record_prompt("repair", prompt)
     temperature = min(1.0, 0.3 + 0.25 * repeats)
-    thinking = ("", "high", "high")[min(repeats, 2)]   # "": the single-shot default (medium), agy its own (high)
+    thinking = ("", "high", "high")[min(repeats, 2)]
     return GenerationTask(label=label, prompt=prompt, system=_repair_system(ctx), files_hint=sorted(files) or files_hint,
                           round=round_index, kind="repair", temperature=temperature, thinking=thinking, timeout_s=timeout_s)
 

@@ -1,21 +1,4 @@
-"""Measure the canonical GLB (Y-up, meters, one named top-level node per part).
-
-``measure_glb`` turns a GLB into a :class:`Measurement` (bbox, extents, per-part
-rows, islands, ground gap, footprint offset, materials).  Degenerate input
-(empty meshes, parts without geometry) becomes findings in ``Measurement.extra``
-— never an exception — so agents see *what* is wrong instead of a traceback.
-
-``part_meshes`` is the shared loader other spatial modules use: it returns one
-world-space ``trimesh.Trimesh`` per top-level node (all child meshes merged).
-``cached_parts`` is the memoized front door for gates that re-read the same
-GLB (keyed on path + size + mtime_ns; ``load_scene`` itself is never cached —
-a caller mutating a scene), and ``solid_parts`` is that front door minus the
-empty parts — what connectivity / sections want.
-
-``Measurement.extra["complexity"]`` carries the objective complexity vector
-(``spatial/complexity.py``) alongside the census — additive, best-effort, and
-never a reason for a measurement to fail.
-"""
+"""Measure the canonical GLB (Y-up, meters, one named top-level node per part)."""
 
 from __future__ import annotations
 
@@ -80,18 +63,7 @@ def gltf_node_names(glb: Path | str) -> list[str | None]:
 
 
 def node_name_findings(glb: Path | str) -> list[str]:
-    """Findings for a GLB whose node names trimesh cannot key on.
-
-    trimesh names graph nodes by their glTF ``name`` and de-duplicates collisions, and
-    on THREE.GLTFExporter files with repeated / missing names (the brilliana gallery's
-    desk-lamp-q2: 21 unnamed, 'Arm' x2, 'Shade' x2, 'Rivet' x4) that walk went wrong in
-    two ways at once — the root ``pivot`` matrix was dropped from its descendants and a
-    renamed 'Arm' was re-parented to the world, so an upright lamp measured as lying on
-    its side with a part 28 mm under the floor (2026-08-30).  The harness's own exporters
-    name every node uniquely (blender, cadquery, and export_glb.mjs bake instances to
-    ``<Name>_<i>``: 0 of 14 recorded threejs GLBs differ from the naive bounds), so this
-    fires on foreign files and on an agent that reused a name — either way the numbers
-    downstream are approximate and the reader is told."""
+    """Findings for a GLB whose node names trimesh cannot key on."""
     names = gltf_node_names(glb)
     if not names:
         return []
@@ -109,8 +81,7 @@ def node_name_findings(glb: Path | str) -> list[str]:
 
 
 def _subtree_nodes(scene: trimesh.Scene, root: str) -> list[str]:
-    """All nodes under ``root`` (inclusive), depth first; cycle-safe (a malformed
-    graph, e.g. a node named like the base frame, must not hang the gate)."""
+    """All nodes under ``root`` (inclusive), depth first."""
     children = scene.graph.transforms.children
     out, stack, seen = [], [root], set()
     while stack:
@@ -124,16 +95,7 @@ def _subtree_nodes(scene: trimesh.Scene, root: str) -> list[str]:
 
 
 def world_transform(scene: trimesh.Scene, node: str) -> np.ndarray:
-    """``node``'s world matrix, composed by walking the edge matrices up to the base frame.
-
-    Not ``scene.graph.get(node)``: trimesh 4.12 leaves the SCENE-ROOT node's own matrix out
-    of its descendants' world transforms.  A GLB whose root node carries the Z-up→Y-up
-    rotation — what THREE.GLTFExporter writes for a Z-up scene (``pivot``, the brilliana
-    gallery) — therefore measured as lying on its side: desk-lamp-q2 bounds y ∈ [−0.12, 0.12],
-    z ∈ [0, 0.45] from trimesh against y ∈ [0, 0.45] from the node walk and from the render
-    rig (2026-08-30).  Every gate downstream — bbox, ground gap, floating, orientation —
-    read that wrong pose, and the judge read the gate text.  Cycle-safe (a malformed graph
-    must not hang the gate)."""
+    """``node``'s world matrix, composed by walking the edge matrices up to the base frame."""
     edges = scene.graph.transforms.edge_data
     parents = scene.graph.transforms.parents
     m = np.eye(4)
@@ -162,8 +124,6 @@ def _world_mesh(scene: trimesh.Scene, node: str) -> trimesh.Trimesh | None:
         return None
     m = geom.copy()
     m.apply_transform(transform)
-    # exporters split vertices along hard edges / UV seams; topology queries
-    # (islands, watertightness) need positions merged back together
     with contextlib.suppress(Exception):
         m.merge_vertices(merge_tex=True, merge_norm=True)
     return m
@@ -181,9 +141,8 @@ def _node_has_geometry(scene: trimesh.Scene, node: str) -> bool:
 
 
 def effective_top_nodes(scene: trimesh.Scene) -> list[str]:
-    """Direct children of the scene root, descending through single wrapper
-    nodes that carry no geometry themselves (a three.js root Group, a URDF
-    ``<robot>`` node) so that parts are found at the first meaningful level."""
+    """Direct children of the scene root, descending through single wrapper nodes that carry no
+    geometry themselves (a three.js root Group, a URDF ``<robot>`` node) so that parts are"""
     tops = _children(scene, scene.graph.base_frame)
     seen = 0
     while len(tops) == 1 and not _node_has_geometry(scene, tops[0]) and _children(scene, tops[0]) and seen < 4:
@@ -193,15 +152,7 @@ def effective_top_nodes(scene: trimesh.Scene) -> list[str]:
 
 
 def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None]:
-    """One world-space mesh per part, in scene order.
-
-    Flat scenes: a part is an effective top-level node (see
-    :func:`effective_top_nodes`) and its whole subtree is merged.
-    Hierarchical link exports (scene ``metadata['links']`` present, as written
-    by ``spatial.joints_export``): every link node is its own part; only its
-    own geometry (the node itself or ``<link>__<i>`` pieces) is merged, child
-    links stay separate.  A part with no geometry maps to ``None``.
-    """
+    """One world-space mesh per part, in scene order."""
     out: OrderedDict[str, trimesh.Trimesh | None] = OrderedDict()
     links = scene.metadata.get("links") if isinstance(scene.metadata, dict) else None
     nodes = set(scene.graph.nodes)
@@ -216,13 +167,12 @@ def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None
     for top in tops:
         meshes = [m for n in _subtree_nodes(scene, top) if (m := _world_mesh(scene, n)) is not None]
         name = str(top)
-        if name in out:  # duplicate node names: suffix so nothing is silently merged
+        if name in out:
             k = 2
             while f"{name}~{k}" in out:
                 k += 1
             name = f"{name}~{k}"
         out[name] = trimesh.util.concatenate(meshes) if meshes else None
-    # geometry that hangs directly on the root (no named node) — keep it visible
     if not tops and scene.geometry:
         for gname, geom in scene.geometry.items():
             if isinstance(geom, trimesh.Trimesh) and len(geom.faces):
@@ -231,7 +181,6 @@ def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None
 
 
 # --------------------------------------------------------------------- parse memo
-#: LRU entries: parsed parts + finished Measurement for one (path, size, mtime_ns)
 _LRU_MAX = 4
 _lru_lock = threading.Lock()
 
@@ -255,7 +204,7 @@ def _stat_key(p: Path) -> tuple[str, int, int] | None:
 
 
 def _cache_entry(key: tuple[str, int, int]) -> _CacheEntry:
-    """The (possibly fresh) LRU entry for ``key``; evicts the oldest past ``_LRU_MAX``."""
+    """The (possibly fresh) LRU entry for ``key``."""
     with _lru_lock:
         e = _lru.get(key)
         if e is None:
@@ -267,12 +216,7 @@ def _cache_entry(key: tuple[str, int, int]) -> _CacheEntry:
 
 
 def cached_parts(glb: Path | str) -> OrderedDict[str, trimesh.Trimesh | None]:
-    """``part_meshes(load_scene(glb))`` memoized on the file's stat (LRU of 4).
-
-    Rewriting the file (new size or mtime_ns) invalidates the entry.  The
-    returned dict is a fresh copy per call, but the meshes are SHARED between
-    callers — treat them as read-only (copy before transforming).
-    """
+    """``part_meshes(load_scene(glb))`` memoized on the file's stat (LRU of 4)."""
     p = Path(glb)
     key = _stat_key(p)
     if key is None:
@@ -284,9 +228,8 @@ def cached_parts(glb: Path | str) -> OrderedDict[str, trimesh.Trimesh | None]:
 
 
 def solid_parts(glb: Path | str) -> OrderedDict[str, trimesh.Trimesh]:
-    """:func:`cached_parts` without the empty ones — the loader every geometry
-    gate (connectivity, sections) starts from: one world-space mesh per part,
-    only parts that actually have faces.  Meshes are SHARED (read-only)."""
+    """:func:`cached_parts` without the empty ones — the loader every geometry gate
+    (connectivity, sections) starts from."""
     return OrderedDict((k, v) for k, v in cached_parts(glb).items() if v is not None and len(v.faces))
 
 
@@ -331,13 +274,7 @@ def _measure_part(name: str, mesh: trimesh.Trimesh) -> PartMeasure:
 
 
 def measure_glb(glb: Path | str) -> Measurement:
-    """Compute the language-agnostic census of the canonical GLB.
-
-    Raises :class:`GlbLoadError` only when the file is unreadable; an empty or
-    degenerate model yields a zero-extent ``Measurement`` with findings in
-    ``extra["findings"]``.  Memoized on the file's stat (same LRU as
-    :func:`cached_parts`); every call returns its own deep copy.
-    """
+    """Compute the language-agnostic census of the canonical GLB."""
     p = Path(glb)
     key = _stat_key(p)
     entry = _cache_entry(key) if key is not None else None
@@ -357,9 +294,7 @@ def measure_glb(glb: Path | str) -> Measurement:
 def _complexity_extra(
     scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | None], materials: int
 ) -> dict[str, Any] | None:
-    """The complexity vector as a plain dict, or ``None`` when it cannot be
-    computed.  Additive by contract: measuring must never fail because an
-    artifact defeats one complexity axis."""
+    """The complexity vector as a plain dict, or ``None`` when it cannot be computed."""
     from codeverse3d.spatial.complexity import complexity_of_parts
 
     try:
@@ -423,39 +358,30 @@ def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | Non
 
 # --------------------------------------------------------------------------- table
 def instance_groups(names: list[str]) -> OrderedDict[str, list[str]]:
-    """Group ``Leg_0, Leg_1, Leg_2`` → ``{"Leg": [...]}``; singletons keep their name."""
+    """Group instance names such as ``Leg_0, Leg_1, Leg_2`` under their shared base name ``Leg``."""
     groups: OrderedDict[str, list[str]] = OrderedDict()
     for n in names:
         groups.setdefault(split_instance(n)[0], []).append(n)
-    # a "group" with a single member is just the part itself
     out: OrderedDict[str, list[str]] = OrderedDict()
     for key, members in groups.items():
         if len(members) > 1:
-            # a bare base name ("lens" beside "lens_1") lands in the group with no
-            # index — sort it first
             members = sorted(members, key=lambda n: int(split_instance(n)[1] or -1))
         out[key if len(members) > 1 else members[0]] = members
     return out
 
 
 def fmt_extent_cm(ext: Any) -> str:
-    """``34.0×47.0×34.0`` — a size in centimetres.  THE extent formatter (measure
-    table, contract gate) so every prompt/finding states sizes the same way."""
+    """``34.0×47.0×34.0`` — a size in centimetres."""
     return "×".join(f"{float(v) * 100:.1f}" for v in ext)
 
 
 def fmt_vec(v: Any, digits: int = 3) -> str:
-    """``(+0.010, -0.000, +0.250)`` — a signed metre vector.  THE vector formatter
-    for gate hints (``+ 0.0`` keeps a rounded zero from printing as ``-0.000``)."""
+    """``(+0.010, -0.000, +0.250)`` — a signed metre vector."""
     return "(" + ", ".join(f"{round(float(x), digits) + 0.0:+.{digits}f}" for x in v) + ")"
 
 
 def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
-    """Compact markdown table for prompts (judge/agent): totals + per-part rows.
-
-    Instances (``Leg_0..3``) collapse to one row with their union bbox; rows are
-    capped at ``max_rows`` (largest parts first, then an "… n more" line).
-    """
+    """Compact markdown table for prompts (judge/agent)."""
     lines = [
         f"overall: {fmt_extent_cm(m.extents)} cm (W×H×D, Y-up) · centre ({m.center[0]:.3f}, {m.center[1]:.3f}, {m.center[2]:.3f}) m"
         f" · {m.tri_count} tris · {len(m.parts)} parts · {m.n_islands} islands"

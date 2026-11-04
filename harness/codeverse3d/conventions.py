@@ -1,8 +1,7 @@
 """Single source of truth for 3D conventions used by prompts, tools and gates.
 
-Everything that talks about axes, units, frames, view presets or naming must
-import from here — never restate a convention inline (the reference harnesses
-drifted into 3-4 incompatible ``snake_case`` helpers and two up-axes).
+Everything that talks about axes, units, frames, view presets or naming imports
+from here — never restate a convention inline.
 
 Frames
 ------
@@ -31,8 +30,6 @@ if TYPE_CHECKING:
 
 
 class Frame(StrEnum):
-    """Named coordinate conventions."""
-
     Z_UP_NEG_Y_FRONT = "z_up_neg_y_front"  # blender / cadquery / urdf
     Y_UP_POS_Z_FRONT = "y_up_pos_z_front"  # three.js / glTF
 
@@ -50,9 +47,7 @@ LANGUAGE_FRAME: dict[str, Frame] = {
     "urdf_blender": Frame.Z_UP_NEG_Y_FRONT,
     "threejs": Frame.Y_UP_POS_Z_FRONT,
     "scene_threejs": Frame.Y_UP_POS_Z_FRONT,
-    # a Blender scene is authored Z-up; its plan, gates and census GLB stay in the GLB frame (D12)
     "scene_blender": Frame.Z_UP_NEG_Y_FRONT,
-    # GL clip space is Y-up: graphics output is framed like the three.js/glTF frame.
     "glsl_shader": Frame.Y_UP_POS_Z_FRONT,
     "opengl_python": Frame.Y_UP_POS_Z_FRONT,
 }
@@ -61,15 +56,12 @@ GLB_FRAME = Frame.Y_UP_POS_Z_FRONT
 
 
 def authoring_frame(language: str) -> Frame:
-    """``language``'s authoring frame; an unknown / empty id is the GLB frame itself."""
     return LANGUAGE_FRAME.get(str(language), GLB_FRAME)
 
 
 def to_authoring_frame(v: Sequence[float], language: str, *, extents: bool = False) -> tuple[float, float, float]:
-    """A GLB-frame vector (Y-up, +Z front) in ``language``'s authoring frame: the inverse of the
-    glTF export mapping ``(x, y, z) → (x, z, -y)``, so a Z-up language reads ``(x, -z, y)``.
-    ``extents`` (sizes, size deltas) are permuted, never sign-flipped — and that permutation is
-    its own inverse: it also takes a Z-up plan's (W, D, H) into the GLB frame's (W, H, D)."""
+    """A GLB-frame vector in ``language``'s authoring frame (a Z-up language reads ``(x, -z, y)``).
+    ``extents`` (sizes) are permuted, never sign-flipped; the permutation is its own inverse."""
     x, y, z = (float(c) for c in v)
     if authoring_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
         return (x, z if extents else -z, y)
@@ -77,18 +69,15 @@ def to_authoring_frame(v: Sequence[float], language: str, *, extents: bool = Fal
 
 
 def glb_basis(language: str) -> tuple[tuple[float, float, float], ...]:
-    """The 3×3 rows taking a ``language``-frame vector into the GLB frame — the glTF export
-    mapping ``(x, y, z) → (x, z, -y)`` for a Z-up language, identity otherwise; the inverse of
-    :func:`to_authoring_frame`.  Handed to a harness writer that cannot import this module (the
-    scene_blender census-GLB writer runs inside Blender), so the mapping is still stated once."""
+    """The 3×3 rows taking a ``language``-frame vector into the GLB frame (identity for Y-up).
+    Handed to writers that cannot import this module (the census-GLB writer runs in Blender)."""
     if authoring_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
         return ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, -1.0, 0.0))
     return ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
 
 def from_authoring_frame(v: Sequence[float], language: str) -> tuple[float, float, float]:
-    """The inverse of :func:`to_authoring_frame` for a point / direction: ``language``'s frame
-    into the GLB frame — :func:`glb_basis` applied, so the mapping is stated once."""
+    """A point / direction in ``language``'s frame, in the GLB frame (:func:`glb_basis` applied)."""
     x, y, z = (float(c) for c in v)
     r = glb_basis(language)
     return (r[0][0] * x + r[0][1] * y + r[0][2] * z, r[1][0] * x + r[1][1] * y + r[1][2] * z,
@@ -96,7 +85,6 @@ def from_authoring_frame(v: Sequence[float], language: str) -> tuple[float, floa
 
 
 def frame_doc(frame: Frame) -> str:
-    """Return the one-paragraph prompt text describing ``frame``."""
     if frame is Frame.Z_UP_NEG_Y_FRONT:
         return (
             "Coordinate frame: Z is UP, -Y is the FRONT of the object (the face a "
@@ -114,16 +102,12 @@ def frame_doc(frame: Frame) -> str:
 # --------------------------------------------------------------------------- views
 @dataclass(frozen=True)
 class ViewPreset:
-    """A canonical camera direction: azimuth (deg, 0 = front, CCW from above) and
-    elevation (deg above the horizon).  Distance is fitted to the asset bbox."""
-
     name: str
     azimuth_deg: float
     elevation_deg: float
 
 
-#: Judge view set for objects — the 14-view rig (brilliana camera numbers):
-#: three rings ±30° + eye-level cardinals + poles; adopted 2026-08-31, D47.
+#: Judge view set for objects: 14 views (rings at ±30°, eye-level cardinals, poles).
 OBJECT_VIEWS: tuple[ViewPreset, ...] = (
     ViewPreset("front_right_high", 45.0, 30.0),
     ViewPreset("back_right_high", 135.0, 30.0),
@@ -141,10 +125,8 @@ OBJECT_VIEWS: tuple[ViewPreset, ...] = (
     ViewPreset("bottom", 0.0, -90.0),
 )
 
-#: The measured legacy clay cameras (the judge's geometry montage) — its OWN tuple,
-#: not a subset of the rig.  Its ``top`` (el 88) shares a name with the rig's ``top``
-#: (el 90): that is fine ONLY because nothing unions the two tuples by name — clay
-#: tiles carry ``mode != "shaded"`` and prompt_builder resolves their labels here first.
+#: Clay cameras (the judge's geometry montage), separate from the rig.  Its ``top`` shares a
+#: name with the rig's: never union the two tuples by name.
 OBJECT_CLAY_VIEWS: tuple[ViewPreset, ...] = (
     ViewPreset("front_right_34", 35.0, 22.0),
     ViewPreset("back_left_34", 215.0, 22.0),
@@ -154,22 +136,18 @@ OBJECT_CLAY_VIEWS: tuple[ViewPreset, ...] = (
 
 _OBJECT_VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
 
-#: Quick 4-view subset (cheap gates, agent contact sheets, candidates,
-#: scene assets) — by NAME so a rig reorder cannot silently change it.
+#: Quick 4-view subset (cheap gates, contact sheets, candidates), picked by name.
 OBJECT_VIEWS_QUICK: tuple[ViewPreset, ...] = tuple(
     _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front", "top")
 )
 
-#: The articulation sheet's three views per pose (``joints_export.render_poses``) — by
-#: NAME too: it was ``OBJECT_VIEWS_QUICK[:3]``, which a reorder of the quick set changes.
+#: The articulation sheet's three views per pose (``joints_export.render_poses``).
 ARTICULATION_VIEWS: tuple[ViewPreset, ...] = tuple(
     _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front")
 )
 
-#: the pre-D47 8-view rig's names → their twin in the 14-view rig.  Stored runs carry them,
-#: and the clay cameras (``OBJECT_CLAY_VIEWS``) still use them.  Every view preference list
-#: is written in rig names and matches a view by :func:`view_key`, so no list keeps its own
-#: subset of the old names.
+#: Clay-camera view names → their twin in the rig; view preference lists use rig names and
+#: match through :func:`view_key`.
 LEGACY_VIEW_ALIASES: dict[str, str] = {
     "front_right_34": "front_right_high",
     "back_left_34": "back_left_high",
@@ -178,22 +156,17 @@ LEGACY_VIEW_ALIASES: dict[str, str] = {
 
 
 def view_key(name: str) -> str:
-    """A view's rig name: ``front_right_34`` → ``front_right_high``; anything else unchanged."""
     return LEGACY_VIEW_ALIASES.get(name, name)
 
 
 def views_by_preference(views: Sequence[RenderView], names: Sequence[str]) -> list[RenderView]:
-    """The ``views`` whose :func:`view_key` is in ``names``, in the order of ``names``."""
     rank = {n: i for i, n in enumerate(names)}
     return sorted((v for v in views if view_key(v.name) in rank), key=lambda v: rank[view_key(v.name)])
 
 
-#: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).  The
-#: ``overview_*`` views reach the judge (the first ``render_scene.MAX_JUDGE_OVERVIEWS``);
-#: ``overview_low_front`` (2026-10-14, scene) is the CONTACT camera — elevation under 10°
-#: puts it at ground level just outside the content (``orbit.mjs fitContactCamera``), the
-#: angle at which daylight under a base and a part through a neighbour are visible, and the
-#: tile the judge's contact crops are cut from.  The ``eye_*`` views are diagnostics only.
+#: Scene rig (aerial + eye level).  ``overview_*`` reach the judge; ``overview_low_front``
+#: (elevation < 10°) is the ground-level contact camera the contact crops are cut from;
+#: ``eye_*`` are diagnostics only.
 SCENE_VIEWS: tuple[ViewPreset, ...] = (
     ViewPreset("overview_front_right", 40.0, 32.0),
     ViewPreset("overview_back_left", 220.0, 32.0),
@@ -211,104 +184,68 @@ _NON_WORD = re.compile(r"[^0-9A-Za-z]+")
 
 
 def to_snake(name: str) -> str:
-    """``SeatCushion`` / ``seat cushion`` / ``Seat-Cushion2`` → ``seat_cushion2``.
-
-    This is THE name normaliser; every wrapper and prompt must use it.
-    """
+    """``SeatCushion`` / ``seat cushion`` / ``Seat-Cushion2`` → ``seat_cushion2`` (THE name normaliser)."""
     s = _NON_WORD.sub("_", name.strip())
     s = _CAMEL_SPLIT.sub("_", s)
     s = re.sub(r"_+", "_", s).strip("_").lower()
     return s or "part"
 
 
-#: a part / assembly name as the contracts require it: ``SeatCushion``, instances ``SeatCushion_3``.
-#: All-caps acronyms are valid PascalCase (owner, 2026-09-22): ``LED``, ``TV``, ``A``,
-#: ``TVStand``, ``LEDStrip``, ``HDMIPort1``, ``CPU_2``.  The stdlib-only wrapper
-#: ``languages/wrappers/run_cq.py`` keeps a copy (it cannot import this package);
-#: ``tests/core/test_names.py`` pins the two together.
+#: a part / assembly name: ``SeatCushion``, instances ``SeatCushion_3``; acronyms (``LED``,
+#: ``TVStand``, ``CPU_2``) are valid.  ``wrappers/run_cq.py`` keeps a copy; tests pin them.
 PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
 
 
-#: a URDF link name — also its Blender object name and its ``meshes/<link>.glb`` stem.  The
-#: skeleton writes the plan part's snake_case key (``DoorHandle`` → ``door_handle``); the plan's
-#: PascalCase spelling is accepted too, because every gate matches parts by :func:`to_snake`.
-#: Either way a plain identifier — never ``Door.001``, a space or a path.  The Blender-run link
-#: wrapper keeps a copy (``run_bpy_links._SAFE_LINK``); ``tests/core/test_names.py`` pins them.
+#: a URDF link name (also its Blender object name and ``meshes/<link>.glb`` stem): a plain
+#: identifier.  ``run_bpy_links._SAFE_LINK`` keeps a copy; tests pin them.
 LINK_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
-#: how an instance name maps to its part: ``Leg_2`` (the contract's ``Name_N``), Blender's
-#: auto-suffix ``Leg.001`` and ``Leg-2`` all read as part ``Leg``; up to three digits, so a
-#: scene asset's hex id that happens to be all digits (``DonkeyCart_800006``) is no index.
+#: instance name → part: ``Leg_2``, ``Leg.001`` and ``Leg-2`` all read as ``Leg``; at most
+#: three digits, so an all-digit asset id (``DonkeyCart_800006``) is no index.
 _INSTANCE_RE = re.compile(r"^(?P<base>.+?)[_.-](?P<idx>\d{1,3})$")
 
 
 def split_instance(name: str) -> tuple[str, str]:
-    """``Leg_2`` → (``Leg``, ``"2"``); a name with no instance suffix → (name, ``""``).  THE
-    instance rule: the measure table, the contract match and refine grouping all read it."""
     m = _INSTANCE_RE.match(name)
     return (m.group("base"), m.group("idx")) if m else (name, "")
 
 
-#: a URDF link's geometry pieces are exported as ``<link>__<i>`` nodes under the link node
-#: (``spatial/joints_export``); ``spatial/measure`` merges them back into the link's part.
+#: separator of a URDF link's geometry-piece nodes ``<link>__<i>``.
 LINK_PIECE_SEP = "__"
 
-#: the harness's own mark on a scene's ZONE roots (D111): ``userData[ZONE_ROOT_KEY] = <zone name>`` in
-#: three.js, set by the assembler (``render_scene_js``'s ``addZone``), and the census GLB's zone node
-#: ``extras`` for scene_blender (``wrappers/_census_glb.py``, handed the key on argv — it cannot import
-#: this module), which GLTFLoader turns into the same ``userData``.  The placement table reads it
-#: (``runtime_js/lib/host_placement.mjs`` ``ZONE_ROOT_KEY``; ``tests/scene_runtime/test_zone_roots.py``
-#: pins the two): only children of a marked root are placed assets — every other root (env scenery, a
-#: zone's stray ``scene.add``) is scenery, never a row.  A key, never a name test: a zone may name its
-#: group anything, and an env group may be called anything too.
+#: userData / glTF extras key marking a scene ZONE root; only children of a marked root are
+#: placed assets.  ``host_placement.mjs`` keeps a copy; tests pin them.
 ZONE_ROOT_KEY = "c3d_zone"
 
 
 def to_pascal(name: str) -> str:
-    """``seat_cushion`` / ``seat cushion`` → ``SeatCushion``; a name that is already
-    PascalCase (no underscore) comes back unchanged, so ``TVStand`` stays ``TVStand``.
-
-    For a name without an instance suffix ``to_snake(to_pascal(n)) == to_snake(n)`` — the
-    snake name is the key every gate matches parts by (``CPU_2`` / ``Leg_0`` fold to
-    ``Cpu2`` / ``Leg0``: an instance name is not a plan name).  The reverse loses acronyms: ``to_pascal("tv_stand")``
-    is ``TvStand``, so a name rebuilt from a snake key (a file stem, a GLB key, a zone
-    module) is ``TvStand`` — code that compares such a name must compare ``to_snake``.
-    """
+    """``seat_cushion`` → ``SeatCushion``; acronyms are lost (``tv_stand`` → ``TvStand``), so compare via ``to_snake``."""
     if "_" not in name and PASCAL_RE.match(name):
         return name
     return "".join(w[:1].upper() + w[1:] for w in to_snake(name).split("_") if w) or "Part"
 
 
 def slugify(text: str, max_len: int = 48) -> str:
-    """Filesystem/URL-safe slug for run directories."""
     s = to_snake(text)[:max_len].strip("_")
     return s or "run"
 
 
 def fmt3(vec: Sequence[float]) -> str:
-    """A vector as the prompts print it: ``0.100, 0.250, -0.030`` (metres, 3 decimals)."""
     return ", ".join(f"{float(x):.3f}" for x in vec)
 
 
 # --------------------------------------------------------------------------- limits
-#: Triangle ceilings: the object one is the depth gate's upper clamp (``tracks/depth.budget_gate``),
-#: the only place an object's triangle count is enforced — no build wrapper checks it.
+#: Triangle ceilings; the object one is the depth gate's upper clamp (``tracks/depth.budget_gate``).
 MAX_TRIS_OBJECT = 600_000
 MAX_TRIS_SCENE = 3_000_000
-#: Scene draw budget on the probe census's ``totals.draws`` — one per visible mesh / points /
-#: line / sprite per material group, an InstancedMesh once (``host_census.mjs`` ``objectDraws``).
-#: ``scene_probe`` WARNs above the first and fails the build above the second, so the repair loop
-#: fixes it inside the round (D99).  Tuned on 753 recorded scene rounds: median fps drops below 5
-#: past ~5 000; every round past 15 000 ran at ≤ 5 fps, and only 0.4 % of pre-D93 harness rounds
-#: (p99 12 348) reach it.
+#: Scene draw budget on the probe census's ``totals.draws``: ``scene_probe`` WARNs above the
+#: first and fails the build above the second.
 DRAWS_WARN_SCENE = 5_000
 MAX_DRAWS_SCENE = 15_000
 #: Default tolerance for bbox contract checks, in meters.
 BBOX_TOLERANCE_M = 0.01
-#: "Stands on the ground": the lowest point within this of up = 0 (meters).  The contract gate
-#: WARNs past it (ERRORs past 3x) and the Blender skeleton's self-check asserts it; texts say
-#: "at up = 0" without the number (D93/D98).
+#: "Stands on the ground": the lowest point within this of up = 0 (meters); WARN past it, ERROR past 3x.
 GROUND_TOL_M = 0.01
 #: Parts are "touching" when the surface gap is below this (meters).
 CONTACT_GAP_M = 0.002

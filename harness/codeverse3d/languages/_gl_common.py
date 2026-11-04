@@ -1,19 +1,5 @@
-"""Shared build plumbing for the two graphics languages (glsl_shader, opengl_python).
-
-``finish_build`` turns a :class:`GlResult` into the canonical artifact set —
-``artifacts/frames/*.png`` (written by the runner), ``artifacts/frames_sheet.png``,
-``artifacts/preview.gif``, ``artifacts/metrics.json`` (frame stats + the
-``gl_frames`` gate), ``artifacts/build.json`` — and a typed :class:`BuildResult`
-(``glb_path`` is always None: the deliverable is code + frames; ``gates`` carries the
-``gl_frames`` report, which the round takes from there).
-``judge_times`` derives the judged times from the plan's duration.
-``make_host`` is the one place a runtime turns settings into a :class:`GlHost`.
-
-GLSL info-log parsing lives here too (:class:`GlslMessage`, :class:`LineMap`,
-:func:`parse_glsl_log`) so ``opengl_python`` does not depend on its sibling
-``glsl_shader`` package; ``glsl_shader/wrap.py`` composes sources and keeps
-``compose`` / ``Composed`` / ``first_error``, importing the types from here.
-"""
+"""Shared build plumbing for the graphics languages (glsl_shader, opengl_python): ``finish_build``,
+``judge_times``, ``make_host`` and the GLSL info-log parser."""
 
 from __future__ import annotations
 
@@ -47,13 +33,7 @@ MAX_PIXELS = 1920 * 1080
 
 
 def invalidate_stale_outputs(ws: Workspace) -> None:
-    """Wipe the previous build's GL artifacts at the TOP of ``build()``.
-
-    Hoisted from ``GlHost._run`` (which still wipes its own out_dir) so the
-    ``MISSING_ENTRY`` early returns — which never reach the host — also clear
-    ``frames/`` and ``gl_result.json``; sheet/gif/metrics/build.json were never
-    cleared anywhere, so a failed build left the previous round's sheet looking
-    current to every bare-existence reader (``read_metrics``, the gallery)."""
+    """Wipe the previous build's GL artifacts at the top of ``build()``, including on MISSING_ENTRY returns."""
     ws.stage_artifacts(BUILD_JSON, SHEET_NAME, GIF_NAME, METRICS_NAME).invalidate()
     (ws.artifacts / RESULT_NAME).unlink(missing_ok=True)
     frames = ws.artifacts / FRAMES_DIR
@@ -130,8 +110,6 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
     if res.ok and not res.judge_frames:
         result.error_type, result.error_message = "NoFrames", "the renderer produced no frames"
     if not result.ok:
-        # a failed build must not leave the previous round's derived artifacts
-        # (sheet / gif / metrics are written only on ok above) looking current
         ws.stage_artifacts(SHEET_NAME, GIF_NAME, METRICS_NAME).invalidate()
     ws.write_json(art / BUILD_JSON, result)
     return result
@@ -160,8 +138,7 @@ def traceback_location(tb: str, program_path: Path) -> tuple[str, int | None]:
 
 
 # --------------------------------------------------------------------------- GLSL info logs
-# The composed-source line map (``wrap.compose`` builds one) and the driver-dialect
-# log parser live here so both GL runtimes can map compiler messages to agent files.
+# Composed-source line map and driver-dialect log parser shared by both GL runtimes.
 
 
 @dataclass(frozen=True)

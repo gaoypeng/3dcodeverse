@@ -1,12 +1,5 @@
-"""The run record — ``record.json`` — and everything stored inside it.
-
-``RunRecord`` (rounds, totals, provenance: the flywheel unit), ``RunId`` (where a run
-sits in a runs dir or a battery), the per-round skills usage, and the packaged
-``telemetry/`` + ``deliverable/`` blocks.  The skills shapes live here rather than in
-``codeverse3d/skills`` so ``contracts`` stays a leaf that ``record``, ``addons`` and the
-CLI import without the router, and a stored record re-reads on a build with no skill
-library at all.
-"""
+"""The run record (``record.json``) and everything stored inside it: ``RunRecord``, ``RunId``,
+per-round skills usage, and the ``telemetry/`` + ``deliverable/`` blocks."""
 
 from __future__ import annotations
 
@@ -30,7 +23,7 @@ from codeverse3d.contracts.spec import Spec
 
 
 class SkillRead(BaseModel):
-    """The read probe's verdict for one materialised bundle (design §6.4)."""
+    """The read probe's verdict for one materialised skill bundle."""
 
     name: str
     surfaced: bool = Field(default=False, description="transcript: the agent activated the skill or opened its "
@@ -44,10 +37,7 @@ class SkillRead(BaseModel):
 
 
 class SkillsUsage(BaseModel):
-    """``RoundRecord.skills`` — listed vs read vs what it cost, per round.
-
-    The metric that replaces the former ``read_cookbook`` tool's "0 of 16 calls" is :attr:`deep_read_rate`.
-    """
+    """``RoundRecord.skills``: skills listed vs read vs what it cost, per round."""
 
     listed: list[str] = Field(default_factory=list)
     reads: list[SkillRead] = Field(default_factory=list)
@@ -77,9 +67,8 @@ class SkillsUsage(BaseModel):
 
     @property
     def deep_read_rate(self) -> float | None:
-        """None when there is nothing listed, or when the atime control says the probe is blind: git reads
-        every untracked file for ``files_changed`` and CLI activation opens ``references/``, so atime says
-        "read" when nobody chose to — only the control tells.  Transcript evidence is trusted as is."""
+        """None when nothing is listed or the atime control shows the probe is blind (git and CLI
+        activation touch files nobody chose to read).  Transcript evidence is trusted as is."""
         if not self.listed or (self.evidence == "atime" and self.control_present and self.control_read):
             return None
         return len(self.deep) / len(self.listed)
@@ -92,19 +81,10 @@ RUN_PATH_NOISE = frozenset({"arms", "cells", "runs"})
 
 
 class RunId(BaseModel):
-    """Where a run directory sits inside its scan root — and the ONE name to call it.
+    """Where a run directory sits inside its scan root, and the one name to call it.
 
-    Run identity used to be ``ws.root.name`` everywhere, which is right for the flat
-    ``runs/<id>`` layout and catastrophically wrong for nested batteries
-    (compare_backends ``cells/<id>/<arm>/run``, ab_plan
-    ``arms/<arm>/cells/<id>/<slug>/run``): hundreds of distinct runs are all named
-    ``run``, so exports rmtree'd each other
-    and the gallery collapsed whole batteries into one entry.
-
-    ``battery`` labels the scan root the run was found under; ``rel`` is the run
-    directory's posix path relative to that root.  Only the scanner still knows the
-    root, so only the scanner can mint one of these
-    (``record.record.run_id_for``)."""
+    ``battery`` labels the scan root; ``rel`` is the run dir's posix path relative to it.
+    Only the scanner knows the root, so only it mints one (``record.record.run_id_for``)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -118,15 +98,8 @@ class RunId(BaseModel):
     def slug(self) -> str:
         """The stable, filesystem-safe name of this run.
 
-        * a flat ``rel`` (no parent directories — today's ``runs/<id>`` layout) keeps
-          the basename UNCHANGED, so every existing dataset/index/side-car stays valid;
-        * a nested ``rel`` joins the meaningful path segments with ``__``, dropping the
-          structural noise (:data:`RUN_PATH_NOISE`) and a trailing ``run`` — e.g.
-          ``cells/cmp_easy_stool/harness_api/run`` → ``cmp_easy_stool__harness_api``.
-          ``.attemptN`` retry suffixes live on a kept segment and survive.
-
-        Path segments cannot contain ``/``, so the join alone makes the slug a single
-        path component; nothing else is mangled."""
+        A flat ``rel`` keeps its basename; a nested one joins its meaningful segments with ``__``
+        (dropping :data:`RUN_PATH_NOISE` and a trailing ``run``)."""
         parts = self._parts()
         if len(parts) <= 1:
             return parts[0] if parts else self.battery
@@ -139,7 +112,7 @@ class RunId(BaseModel):
 
     @property
     def cell(self) -> str | None:
-        """The prompt/cell id segment (``cells/<cell>/…``) when the layout has one."""
+        """The ``cells/<cell>/…`` segment, when the layout has one."""
         parts = self._parts()
         if "cells" in parts:
             i = parts.index("cells")
@@ -149,8 +122,7 @@ class RunId(BaseModel):
 
     @property
     def arm(self) -> str | None:
-        """The arm segment: ``arms/<arm>/…`` (ab_plan) or the directory between the
-        cell and its ``run`` (compare_backends), when the layout has one."""
+        """The ``arms/<arm>/…`` segment, or the directory between the cell and its ``run``."""
         parts = self._parts()
         if "arms" in parts:
             i = parts.index("arms")
@@ -163,10 +135,7 @@ class RunId(BaseModel):
 
 
 class RunStatus(StrEnum):
-    """Where a run is — and once it has stopped, only WHY it stopped.  Never a verdict:
-    since 2026-09-22 a run is the baseline plus ``max_rounds`` refine rounds, cut short
-    only by the clock or a hard failure, and which round to hand over is a reader's
-    question (``codeverse3d.addons.select``)."""
+    """Where a run is, and once stopped, why it stopped.  Never a verdict."""
 
     PLANNING = "planning"
     GENERATING = "generating"
@@ -181,12 +150,9 @@ class RunStatus(StrEnum):
 
 
 class StepTime(BaseModel):
-    """One timed step of a run: the clock it took and the part of that clock it lost to
-    provider errors — 503 / 429 / overloaded / timeout retries and their back-off, inside a
-    vendor CLI (``AgentResult.provider_wait_s``) or an API call (``cost.instrument``).  The
-    run's minutes are the sum of ``wall_s - lost_s`` over its steps (owner, 2026-09-22).
-    Parallel work — fan-out sessions, judge samples, the scene's assets beside its env — is
-    ONE step, so no second of the clock is counted twice."""
+    """One timed step: its wall clock and the part lost to provider errors (503 / 429 / timeouts).
+
+    Parallel work is ONE step, so no second is counted twice."""
 
     step: str = Field(description="plan | skeleton | assets+env+layouts | zones | assemble | candidates"
                                   " | generate | build | gates | render | judge")
@@ -232,11 +198,9 @@ class RoundRecord(BaseModel):
 
 # --------------------------------------------------------------------------- telemetry (settings + cost)
 class RoleSettings(BaseModel):
-    """Resolved model settings for ONE role of a run (planner/generator/judge/…).
+    """Resolved model settings for ONE role of a run.
 
-    ``source`` says where the sampling knobs came from: ``run`` (stamped by the track as it
-    ran, ``record.extra["sampling"]``) or ``spec`` (only the model is known — a vendor CLI owns
-    its knobs; the values are left empty rather than guessed)."""
+    ``source``: ``run`` (stamped as it ran) or ``spec`` (only the model is known)."""
 
     role: str
     model: str = ""
@@ -248,7 +212,7 @@ class RoleSettings(BaseModel):
 
 
 class SettingsSnapshot(BaseModel):
-    """Everything that decided HOW the run ran — the 'key step settings' block."""
+    """Everything that decided how the run ran."""
 
     schema_version: int = 1
     roles: list[RoleSettings] = Field(default_factory=list)
@@ -271,7 +235,6 @@ class SettingsSnapshot(BaseModel):
 
 
 class StageCost(BaseModel):
-    """Token + money subtotal for one stage of the run (plan / generate / judge / …)."""
 
     stage: str
     calls: int = 0
@@ -284,8 +247,7 @@ class StageCost(BaseModel):
 
 
 class CostSummary(BaseModel):
-    """``telemetry/cost.json``: the run's ledger rows summarised — what the run cost, where, and
-    its minutes against ``max_minutes``."""
+    """``telemetry/cost.json``: the run's ledger rows summarised."""
 
     schema_version: int = 1
     total_usd: float = Field(default=0.0, description="the ledger's sum at list price = record.total_usage")
@@ -300,7 +262,6 @@ class CostSummary(BaseModel):
 
 
 class RunTelemetry(BaseModel):
-    """``record.telemetry`` — accounting + settings, kept apart from the deliverable."""
 
     schema_version: int = 1
     settings: SettingsSnapshot | None = None
@@ -309,7 +270,6 @@ class RunTelemetry(BaseModel):
 
 # --------------------------------------------------------------------------- deliverable
 class DeliverableFile(BaseModel):
-    """One file handed to the user, with its identity."""
 
     path: str = Field(description="run-relative path (under deliverable/)")
     role: str = Field(description="code | model | urdf | mesh | sheet | preview | frames | captions | bundle | manifest")
@@ -318,7 +278,7 @@ class DeliverableFile(BaseModel):
 
 
 class RunDeliverable(BaseModel):
-    """``deliverable/manifest.json`` — the round that was handed over, as paths + hashes + sizes."""
+    """``deliverable/manifest.json``: the handed-over round as paths + hashes + sizes."""
 
     schema_version: int = 1
     dir: str = "deliverable"
@@ -335,7 +295,7 @@ class RunDeliverable(BaseModel):
 
 
 class RunRecord(BaseModel):
-    """One run; selection is recorded separately after generation finishes."""
+    """One run."""
 
     spec: Spec
     plan: StaticPlan | ArticulatedPlan | ScenePlan | GraphicsPlan | None = None
@@ -357,11 +317,6 @@ class RunRecord(BaseModel):
 
     @property
     def minutes(self) -> float:
-        """THE minutes of a run, the one number every reader reports: the ``wall_s - lost_s``
-        of every step, run-level and round, so time lost to 503 / 429 / token-limit errors
-        does not count (owner, 2026-09-22).  It is a statistic, not the budget: the
-        ``max_minutes`` clock (``orchestrator.BudgetGuard``) counts every active second,
-        errors included, because it must stop a run even in a 503 storm.
-
-        """
+        """The run's minutes: ``wall_s - lost_s`` over every step.  A statistic, not the budget
+        clock (``BudgetGuard`` counts provider errors too)."""
         return sum(s.active_s for s in self.steps) / 60.0 + sum(r.minutes for r in self.rounds)

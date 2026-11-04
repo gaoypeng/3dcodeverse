@@ -1,6 +1,5 @@
-"""Shared CLI plumbing: Rich formatting (run summaries, tables, observations, doctor
-rows), the run-mutation mutex, workspace opening / creation and the cost-quality dial
-resolution every command goes through."""
+"""Shared CLI plumbing: Rich formatting, the run mutex, workspace opening / creation and
+variant resolution."""
 
 from __future__ import annotations
 
@@ -54,8 +53,6 @@ def fmt_usd(v: float) -> str:
 
 
 def rounds_table(rows: list[RoundRow], picked: int | None) -> Table:
-    """One row per round (``select.round_rows``: a degraded verdict counts as unjudged);
-    "passed" is the judge's own verdict for THAT round."""
     t = Table(title="rounds (* = picked)", show_lines=False)
     for col in ("#", "kind", "build", "gate err", "score", "passed", "cost", "min", "commit"):
         t.add_column(col, justify="right" if col in ("#", "gate err", "score", "cost", "min") else "left")
@@ -68,8 +65,6 @@ def rounds_table(rows: list[RoundRow], picked: int | None) -> Table:
 
 
 def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None:
-    """The run in one panel — its stop reason, the baseline and the round ``addons/select``
-    picks (never a pass or a fail: a run has none) — and a row per round."""
     from codeverse3d.addons import select
 
     spec = record.spec
@@ -92,9 +87,7 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
         lines.append(f"workspace: {ws_root}")
         picked = next((r for r in record.rounds if r.index == s.round), None)
         if picked is not None and picked.renders is not None and picked.renders.contact_sheet:
-            # rebase, never print the stored string: record.json holds the ABSOLUTE path
-            # of the host that produced the run, so a moved/archived run printed a sheet
-            # that does not exist while the real one sat under this root.
+            # record.json stores absolute paths of the producing host; rebase onto this root
             lines.append(f"sheet: {ws.rebase(picked.renders.contact_sheet)}")
         if ws.deliverable_manifest_path.is_file():
             lines.append(f"deliverable: {ws.deliverable}")
@@ -116,8 +109,7 @@ def print_observation(obs: Any, *, as_json: bool) -> None:
     if as_json:
         console.print_json(obs.model_dump_json())
         return
-    # three states, not two: a FAIL verdict is an answer the tool computed, an error is a
-    # tool that could not run (the same split the MCP server reports as is_error)
+    # FAIL is a computed verdict; error is a tool that could not run
     state, style = ("ok", "green") if obs.ok else (("error", "red") if obs.failed else ("FAIL", "yellow"))
     console.print(Panel(obs.text, title=f"[{style}]{state}[/{style}] ({obs.duration_ms} ms)", expand=False))
     if obs.numbers:
@@ -127,7 +119,6 @@ def print_observation(obs: Any, *, as_json: bool) -> None:
 
 
 def doctor_table(rows: list[tuple[str, str, str]]) -> Table:
-    """rows: (check, status OK|WARN|FAIL, detail)."""
     t = Table(title="3dcode doctor")
     t.add_column("check", style="bold")
     t.add_column("status")
@@ -143,15 +134,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class CliError(typer.Exit):
-    """Typed, already-reported failure → exit code."""
 
     def __init__(self, message: str, code: int = 1):
         err(message)
         super().__init__(code=code)
 
 
-#: the evaluation lives NEXT TO the harness (``<repo>/eval``) and is never imported by it;
-#: the gallery only looks for the batteries' run directories under ``eval/bench/out``
+#: ``<repo>/eval``, never imported by the harness
 EVAL_ROOT = REPO_ROOT.parent / "eval"
 
 
@@ -160,7 +149,6 @@ def runs_root(runs_dir: Path | None) -> Path:
 
 
 def open_workspace(slug: str, runs_dir: Path | None = None) -> Workspace:
-    """``slug`` may be a run name under runs_dir or a path to a run directory."""
     p = Path(slug)
     if p.is_dir() and (p / "spec.json").is_file():
         return Workspace(p)
@@ -186,8 +174,8 @@ def make_slug(prompt: str, track: str, language: str, explicit: str | None = Non
 
 @contextmanager
 def mutating(target: Any, *, what: str, action: str = "enter") -> Iterator[None]:
-    """The run mutex (``runlock.exclusive``) around anything that writes into a run
-    directory, reported as a typed exit.  ``target`` is a Workspace or a run root."""
+    """The run mutex around anything that writes into a run directory; ``target`` is a
+    Workspace or a run root."""
     from codeverse3d.proc import RunLocked, exclusive
 
     root = target if isinstance(target, (str, Path)) else target.root  # NB: Path.root is "/"
@@ -201,8 +189,7 @@ def mutating(target: Any, *, what: str, action: str = "enter") -> Iterator[None]
 
 
 def create_workspace(root: Path, *, force: bool) -> Workspace:
-    """Create (or ``--force``-replace) a run directory.  The caller holds the run mutex —
-    the rmtree below would otherwise wipe a live holder's workspace."""
+    """Create (or ``--force``-replace) a run directory; the caller holds the run mutex."""
     ws = Workspace(root)
     if ws.root.exists() and any(ws.root.iterdir()):
         if not force:
@@ -213,9 +200,7 @@ def create_workspace(root: Path, *, force: bool) -> Workspace:
 
 
 def parse_kv_floats(items: list[str], flag: str) -> dict[str, float]:
-    """``key=value`` pairs of positive, finite floats (``--dim``: metres).  ``height=0``,
-    ``-1``, ``nan``, ``inf`` and a nameless ``=1`` used to be accepted, frozen on the spec and
-    handed to the planner, the contract gate and the judge as a stated dimension."""
+    """``key=value`` pairs of positive, finite floats (``--dim``: metres)."""
     out: dict[str, float] = {}
     for it in items:
         if "=" not in it:
@@ -233,9 +218,7 @@ def parse_kv_floats(items: list[str], flag: str) -> dict[str, float]:
 
 
 def check_minutes(max_minutes: float | None) -> None:
-    """``--max-minutes`` must leave the run some time: 0 planned (paid), then stopped at the
-    first clock check with no round — a ``budget`` run with nothing in it.  ``inf``/``nan`` is no clock at
-    all: the session deadline cannot be computed from it."""
+    """``--max-minutes`` must be a finite number above 0."""
     if max_minutes is not None and max_minutes <= 0:
         raise CliError(f"--max-minutes must be above 0 (got {max_minutes:g}): a run with no time builds nothing", code=2)
     if max_minutes is not None and not math.isfinite(max_minutes):
@@ -243,11 +226,7 @@ def check_minutes(max_minutes: float | None) -> None:
 
 
 def check_backends(backends: Any) -> None:
-    """Refuse a backend id this build cannot construct, before a run directory exists.
-
-    The ids were only resolved when a stage first asked for the model or agent, so an
-    unknown ``--generator`` (``antigravity:...``, a typo) surfaced AFTER the paid plan
-    stage, as a traceback and an orphan run.  The parsers are the constructors' own."""
+    """Refuse a backend id this build cannot construct, before a run directory exists."""
     from codeverse3d.agents.registry import parse_agent_id
     from codeverse3d.models.registry import parse_model_id
     from codeverse3d.tracks.generation import is_single_shot, single_shot_model_id
@@ -265,11 +244,9 @@ def check_backends(backends: Any) -> None:
             raise CliError(f"--{role} {value!r}: {e}", code=2) from None
 
 
-# --------------------------------------------------------------------------- the variant (D105)
+# --------------------------------------------------------------------------- the variant
 @dataclass(frozen=True)
 class ResolvedVariant:
-    """The prompt/skill variant a ``3dcode make`` freezes on ``RunOptions.variant``: its name
-    (``""`` = base), version and overlay hash, and where the choice came from."""
 
     name: str
     version: int
@@ -278,16 +255,12 @@ class ResolvedVariant:
 
     @property
     def label(self) -> str:
-        """One line for the run table: ``argon v1 (3f2a…) via --variant``, or ``base``."""
         return f"{self.name} v{self.version} ({self.hash}) via {self.source}" if self.name else "base"
 
 
 def resolve_variant(settings: Any | None, generator: str, flag: str | None = None) -> ResolvedVariant:
-    """THE resolver for the variant (): ``--variant NAME`` (``flag``)
-    over ``settings.variant`` (``C3D_VARIANT``) over ``settings.variants[<generator>]`` — the id as
-    typed, then by ``<kind>:<served model>`` — over the base.  An unknown name is the typed
-    'bad configuration' refusal (exit 2) BEFORE a run directory exists, never a traceback after
-    the paid plan stage."""
+    """Resolve the variant: ``flag`` over ``settings.variant`` over ``settings.variants[<generator>]``
+    over the base.  An unknown name is a typed refusal (exit 2)."""
     from codeverse3d.prompts import variants as V
 
     settings = settings or get_settings()
@@ -307,8 +280,6 @@ def resolve_variant(settings: Any | None, generator: str, flag: str | None = Non
 
 
 def record_variant(record: RunRecord) -> str:
-    """The variant a stored run used: the spec's frozen name, else what the track stamped on the record
-    (``extra["variant"]["name"]`` — a run that resolved it from the process switch)."""
     block = record.extra.get("variant")
     stamped = str(block.get("name") or "") if isinstance(block, dict) else ""
     return record.spec.options.variant or stamped
@@ -316,9 +287,7 @@ def record_variant(record: RunRecord) -> str:
 
 @contextmanager
 def replay_variant(record: RunRecord) -> Iterator[str]:
-    """Activate the variant a stored run used, so a replay (``3dcode judge``) reads the prompt files the
-    run read.  A variant this tree no longer ships is a warning and the base prompts, never a refusal:
-    the renders and gates being replayed are on disk."""
+    """Activate the variant a stored run used; an unshipped one warns and falls back to base."""
     from codeverse3d.prompts.variants import activate, variant_info
 
     name = record_variant(record)

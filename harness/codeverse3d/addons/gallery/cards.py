@@ -1,16 +1,4 @@
-"""One run, drawn three ways: a card, a table row, and a compare column.
-
-Design rules this module exists to hold in one place:
-
-* **one hero image per card.**  A card is a scanning target, not a proof sheet:
-  eight 70 px tiles in a 320 px card are eight illegible tiles.  The contact
-  sheet is still one click away (the ``⊞ n`` disclosure over the image).
-* **two links, then a menu.**  ``detail`` plus the one artifact that track
-  actually wants; everything else lives behind ``⋮`` so a wall of blue text
-  never competes with the render.
-* **the verdict is peripheral.**  A 6 px coloured rail down the left edge is
-  readable out of the corner of the eye while scrolling; a pill is not.
-"""
+"""One run, drawn three ways: a card, a table row, and a compare column."""
 
 from __future__ import annotations
 
@@ -18,8 +6,6 @@ from codeverse3d.addons.gallery.model import VERDICT_META, RunEntry, RunLink, hu
 from codeverse3d.addons.gallery.theme import esc
 from codeverse3d.addons.gallery.urls import UrlMaker
 
-#: links promoted next to ``detail`` on the card, best-first — the one artifact
-#: you actually open for that track
 PRIMARY_LINKS = ("glb", "preview.gif", "articulation", "src/")
 
 
@@ -28,11 +14,6 @@ def fmt(value: float | None, digits: int = 3, dash: str = "—") -> str:
 
 
 def complexity_chip(entry: RunEntry) -> str:
-    """``cx 0.65`` — how much artifact was actually built, next to what it scored.
-
-    Complexity is *difficulty*, not quality: the pair is the point.  A run with no
-    complexity block (a graphics/scene run, or one recorded before the vector
-    existed) simply shows nothing."""
     if entry.complexity is None:
         return ""
     axes = " · ".join(f"{k.replace('_', ' ')} {v:g}" for k, v in entry.complexity_axes.items())
@@ -50,7 +31,6 @@ def verdict_tag(entry: RunEntry) -> str:
 
 
 def _menu(entry: RunEntry, urls: UrlMaker, shown: set[str]) -> str:
-    """Everything that did not earn a place on the card, behind a ``⋮``."""
     rest = [ln for ln in entry.links if ln.label not in shown]
     if not rest:
         return ""
@@ -73,14 +53,13 @@ def card_actions(entry: RunEntry, urls: UrlMaker) -> str:
     if primary is not None:
         shown.add(primary.label)
         parts.append(f"<a href='{esc(urls.link(entry, primary))}'>{esc(primary.label)}</a>")
-    if not urls.has_detail:  # the static build has no detail page: offer the workspace instead
+    if not urls.has_detail:
         parts.insert(0, f"<a class='go' href='{esc(urls.dir(entry))}'>workspace →</a>")
         shown.add("workspace")
     return f"<div class='actions'>{''.join(parts)}{_menu(entry, urls, shown)}</div>"
 
 
 def card_shot(entry: RunEntry, urls: UrlMaker) -> str:
-    """The hero view, with the full contact sheet one disclosure click away."""
     image = entry.card_image
     if not image:
         return "<div class='shot'><div class='noshot'>no render</div></div>"
@@ -105,10 +84,6 @@ def select_box(entry: RunEntry) -> str:
 
 
 def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str:
-    """One run card.  A pending / broken run keeps the same shape and says why.
-
-    ``hidden`` pre-applies the server-side filter, so a curl'd query string shows
-    the right runs while the client can still widen the filter without a reload."""
     hide = " is-hidden" if hidden else ""
     name = entry.title or entry.slug
     head = (f"<div class='titlerow'>{tier_tag(entry)}"
@@ -136,7 +111,6 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
               + cx)
     gates = (f"<span class='tag pill-warn'>{entry.gate_errors} gate err</span>" if entry.gate_errors
              else "<span class='tag pill-ok'>gates clean</span>")
-    # why the run stopped (max_rounds / budget / agent_quota / …) — never a pass or a fail
     status = f"<span class='tag' title='why the run stopped'>{esc(entry.status)}</span>" if entry.status else ""
     caption = f"<p class='xs faint clamp1'>{esc(entry.caption)}</p>" if entry.caption else ""
     err = f"<div class='err clamp2' title='{esc(entry.error)}'>{esc(entry.error[:300])}</div>" \
@@ -187,7 +161,6 @@ def render_row(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str:
 
 
 def gallery_figure(label: str, href: str, src: str, *, eager: bool = False) -> str:
-    """A render tile whose caption floats on a gradient instead of a black bar."""
     human = humanize_view(label)
     loading = "eager" if eager else "lazy"
     return (f"<figure><a href='{esc(href)}'>"

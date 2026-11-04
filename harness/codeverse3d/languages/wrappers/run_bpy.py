@@ -1,28 +1,12 @@
-"""Blender build wrapper — executed BY Blender, never imported by the harness.
+"""Blender build wrapper; runs inside Blender, never imported by the harness.
 
     blender -b --factory-startup --python run_bpy.py -- \
-        --script /abs/src/model.py --out /abs/artifacts [--stl] [--blend] \
-        [--rlimit-gb 12] [--seed 0]
+        --script /abs/src/model.py --out /abs/artifacts [--stl] [--blend] [--rlimit-gb 12] [--seed 0]
 
-What it does (in order):
-  1. caps the address space (RLIMIT_AS) so geometry bombs die in-process;
-  2. empties the factory scene (Cube/Camera/Light + orphan data), sets metric units;
-  3. seeds ``random`` / numpy / mathutils.noise;
-  4. runs the agent's ``model.py`` with ``<ws>/src`` on ``sys.path`` (so ``from
-     parts.seat import build_seat`` and ``import parts.seat`` work) and maps any
-     exception to ``<file under src/>:<line>`` (model.py or a part file);
-  5. collects a census (``_census.py``: evaluated tri counts, world bboxes, materials, parents);
-  6. warns on leftovers (cameras, lights, touched render settings, visible cutters);
-  7. refuses a NaN / inf world matrix or evaluated vertex in what it would export (``_finite``,
-     D114: the glTF exporter drops a NaN translation silently) as the script's error;
-  8. exports ``object.glb`` (Y-up, +Z front), optionally ``object.stl`` (Z-up) and ``object.blend``
-     (in-memory images packed first: :func:`save_blend`);
-  9. writes ``build.json`` + ``census.json`` atomically and exits 0.
-
-Exit codes: 0 = reported (even if the script failed); 2 = wrapper bug (no report).
-Standalone: Blender's python cannot import ``codeverse3d``; the sibling modules
-(``_wrapper_common``, ``_census``) are imported from this file's own directory.
-"""
+Caps memory, clears the factory scene, seeds RNGs, runs the agent's ``model.py`` with ``<ws>/src``
+on ``sys.path``, collects the census and contract warnings, refuses non-finite geometry, exports
+``object.glb`` (+ optional stl / blend) and writes ``build.json`` + ``census.json``.
+Exit 0 = reported (even if the script failed); 2 = wrapper bug."""
 
 from __future__ import annotations
 
@@ -35,7 +19,7 @@ import traceback
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _census import collect_census, is_hidden  # noqa: E402  (siblings, Blender-executed)
+from _census import collect_census, is_hidden  # noqa: E402
 from _finite import Offenders, scan_objects  # noqa: E402
 from _wrapper_common import (  # noqa: E402
     PARTS_PKG,
@@ -69,7 +53,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 # ----------------------------------------------------------------------------- scene prep
 def clear_scene(bpy: Any) -> None:
-    """Remove every object + datablock of the factory scene; keep scene/world."""
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
     for coll in list(bpy.data.collections):
@@ -77,11 +60,10 @@ def clear_scene(bpy: Any) -> None:
     for attr in ("meshes", "materials", "cameras", "lights", "curves", "images", "node_groups", "textures"):
         block = getattr(bpy.data, attr)
         for item in list(block):
-            with contextlib.suppress(RuntimeError):  # data still used by a linked library
+            with contextlib.suppress(RuntimeError):
                 block.remove(item)
     scene = bpy.context.scene
-    # removing "Collection" leaves the view layer's active collection dangling → bpy.context.collection
-    # would be None; point it back at the scene master collection so `.objects.link()` works.
+    # removing "Collection" leaves the active collection dangling; point it at the master collection
     bpy.context.view_layer.active_layer_collection = bpy.context.view_layer.layer_collection
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.scale_length = 1.0
@@ -100,7 +82,6 @@ def render_fingerprint(bpy: Any) -> dict[str, Any]:
 
 # ----------------------------------------------------------------------------- errors
 def import_hint(exc: BaseException, src_dir: str) -> str:
-    """Extra guidance for the two import mistakes a multi-file model makes."""
     msg = str(exc)
     if isinstance(exc, ModuleNotFoundError) and (f"'{PARTS_PKG}." in msg or f"'{PARTS_PKG}'" in msg):
         mod = msg.split("'")[1].split(".")[-1]
@@ -120,10 +101,10 @@ def script_error(exc: BaseException, script: str) -> dict[str, Any]:
 def select_exportables(bpy: Any) -> list[Any]:
     bpy.ops.object.select_all(action="DESELECT")
     chosen = []
-    vl_names = set(bpy.context.view_layer.objects.keys())  # same predicate as the census
+    vl_names = set(bpy.context.view_layer.objects.keys())
     for obj in bpy.context.scene.objects:
         if obj.type in EXPORT_TYPES and not is_hidden(obj, vl_names):
-            with contextlib.suppress(RuntimeError):  # not in the view layer (excluded collection)
+            with contextlib.suppress(RuntimeError):
                 obj.select_set(True)
                 chosen.append(obj)
     if chosen:
@@ -132,7 +113,6 @@ def select_exportables(bpy: Any) -> list[Any]:
 
 
 def export_glb(bpy: Any, path: str) -> None:
-    """Kwargs verified on Blender 5.2.2 LTS (io_scene_gltf2; the offline suite exercises this call)."""
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format="GLB",
@@ -144,8 +124,6 @@ def export_glb(bpy: Any, path: str) -> None:
         export_image_format="AUTO",
         export_cameras=False,
         export_lights=False,
-        # a keyframed object becomes a glTF clip the scene loops (scene heroes, 2026-09-07);
-        # an object nobody keyframed exports exactly as before
         export_animations=True,
         export_frame_range=True,
         export_extras=False,
@@ -155,25 +133,21 @@ def export_glb(bpy: Any, path: str) -> None:
 
 
 def export_stl(bpy: Any, path: str) -> None:
-    """The native exporter (forward 'Y' default, Z-up); Blender 5.2 LTS only (D104)."""
     bpy.ops.wm.stl_export(filepath=path, export_selected_objects=True, apply_modifiers=True, ascii_format=False, global_scale=1.0)
 
 
 def pack_images(bpy: Any) -> list[str]:
-    """Pack every image the script made or changed IN MEMORY (``bpy.data.images.new`` + ``pixels``:
-    ``is_dirty``) into the .blend — 8-bit as PNG, float as OpenEXR — and return their names.  Unpacked,
-    the reopened file regenerates such an image blank: every material using it renders black (D114;
-    an untouched generated image regenerates itself and is left alone)."""
+    """Pack every image the script generated in memory into the .blend (8-bit PNG, float OpenEXR);
+    unpacked, the reopened file regenerates it blank.  Returns their names."""
     packed = []
     for img in bpy.data.images:
-        if img.source != "VIEWER" and img.is_dirty:   # a generated image's type is UV_TEST, not IMAGE
+        if img.source != "VIEWER" and img.is_dirty:
             img.pack()
             packed.append(img.name)
     return packed
 
 
 def save_blend(bpy: Any, path: str, *, compress: bool = False) -> list[str]:
-    """``pack_images`` + ``save_as_mainfile(copy=True)``; returns the warnings (a failed pack)."""
     warnings = []
     try:
         pack_images(bpy)
@@ -186,7 +160,7 @@ def save_blend(bpy: Any, path: str, *, compress: bool = False) -> list[str]:
 # ----------------------------------------------------------------------------- main
 def main() -> int:
     args = parse_args(wrapper_argv())
-    import bpy  # noqa: PLC0415 — only available inside Blender
+    import bpy  # noqa: PLC0415
 
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, exist_ok=True)
@@ -208,7 +182,6 @@ def main() -> int:
     if exc is not None:
         report.update(script_error(exc, script))
 
-    # the script may have left edit mode / odd selection states behind
     try:
         if bpy.context.object and bpy.context.object.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -225,7 +198,7 @@ def main() -> int:
         bad = scan_objects(chosen, bpy.context.evaluated_depsgraph_get(), Offenders())
         if bad:
             report.update(bad.report())
-            chosen = []   # nothing exported: a NaN would ship as an object at the origin
+            chosen = []
     if chosen:
         glb = os.path.join(out_dir, GLB_NAME)
         try:

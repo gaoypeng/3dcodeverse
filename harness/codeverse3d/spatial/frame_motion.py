@@ -1,18 +1,7 @@
-"""Deterministic inter-frame MOTION for scene renders.
+"""Deterministic inter-frame motion for scene renders.
 
-``render_scene`` photographs every camera at ``times`` (default t = 0 s and
-t = 1.5 s).  Whether anything actually moved between those frames is a
-*measurement*, not a perception task: a VLM comparing two tiles that live in
-different montage images cannot see a 2 % pixel change, and every scene judged
-so far was told "nothing moves" while the water and the foliage were in fact
-animating.  So the harness measures it here, in code, and hands the judge the
-number (law 3: deterministic gates/measurements run by the harness, the VLM only
-perceives).
-
-``motion_rows(metrics, out_dir)`` diffs the first and last rendered frame of
-each camera and returns one ``MotionRow`` per camera;
-``motion_summary_text(rows)`` renders the table that goes into the judge's
-context and into the ``scene_frames`` gate.
+``motion_rows`` diffs the first and last rendered frame of each camera into ``MotionRow``s;
+``motion_summary_text`` renders the table the judge and the ``scene_frames`` gate read.
 """
 
 from __future__ import annotations
@@ -112,11 +101,7 @@ def _pair_rows(entries: Sequence[dict[str, Any]], out_dir: Path) -> list[MotionR
 
 
 def motion_rows(metrics: dict[str, Any], out_dir: Path | str) -> list[MotionRow]:
-    """One row per camera rendered at ≥ 2 times (authored cameras first).
-
-    ``metrics`` is a ``render_scene`` metrics payload; the view paths inside it
-    are relative to ``out_dir``.  Unreadable or single-time views are skipped —
-    a missing row means "not measured", never "static"."""
+    """One row per camera rendered at ≥ 2 times (authored first); unreadable views are skipped (not measured, not static)."""
     entries = metrics.get("views") or []
     if not isinstance(entries, list):
         return []
@@ -132,7 +117,7 @@ def scene_moves(rows: Sequence[MotionRow]) -> bool | None:
 
 
 def motion_summary_text(rows: Sequence[MotionRow], *, max_rows: int = 10) -> str:
-    """The table the judge and the refine prompts read (empty string = nothing measured)."""
+    """The table the judge and refine prompts read (empty string = nothing measured)."""
     if not rows:
         return ""
     moves = scene_moves(rows)
@@ -153,17 +138,14 @@ def motion_summary_text(rows: Sequence[MotionRow], *, max_rows: int = 10) -> str
 
 
 def motion_from_dir(out_dir: Path | str) -> list[MotionRow]:
-    """Convenience: read ``<out_dir>/metrics.json`` and measure it."""
+    """Measure ``<out_dir>/metrics.json``."""
     d = Path(out_dir)
     metrics = read_json_or_none(d / "metrics.json")
     return [] if metrics is None else motion_rows(metrics, d)
 
 
 def motion_text_for(out_dir: Path | str) -> str:
-    """``motion_summary_text`` for one render directory; ``""`` on any problem.
-
-    This is what a track puts in front of the judge, so it must never be the reason a
-    round fails: instrumentation that cannot be read is simply absent."""
+    """``motion_summary_text`` for one render directory; ``""`` on any problem (never fails a round)."""
     try:
         return motion_summary_text(motion_from_dir(out_dir))
     except Exception as e:  # noqa: BLE001 — judge context must never break a round

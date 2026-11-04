@@ -1,15 +1,8 @@
 """Render a ``scene_threejs`` workspace through the node host (headless GPU Chrome).
 
-``render_scene(ws, out_dir, ...)`` drives ``runtime_js/render_scene.mjs``:
-authored cameras + an overview orbit rig (``conventions.SCENE_VIEWS``, fitted
-to the scene CONTENT, guarded by the plan bounds) at one or more animation
-times, deterministic instruments (console/shader errors, fps, census, camera
-checks incl. luminance + content coverage) and a labelled contact sheet built
-from the JUDGE subset of views.  Returns a ``RenderSet`` with every view; the
-full instrument payload is left at ``out_dir/metrics.json`` (``metrics_path_for``
-finds it again from a RenderSet).  Each ``RenderView`` (and each entry of the
-driver's ``views.json``) carries ``judge: true|false`` — stamped once from
-``select_judge_views`` at render time.
+``render_scene`` drives ``runtime_js/render_scene.mjs``: authored cameras + a fitted orbit rig at one or more
+times, with deterministic instruments left in ``out_dir/metrics.json`` and a contact sheet of the judge subset.
+Each view carries ``judge: true|false``, stamped once from ``select_judge_views``.
 """
 
 from __future__ import annotations
@@ -41,29 +34,18 @@ log = logging.getLogger(__name__)
 
 #: views the judge sees (contact sheet + individual images are built from these)
 JUDGE_MAX_VIEWS = 10
-#: how many overview-rig tiles the judge gets (layout / grounding X-ray; the eye-level
-#: rig views are diagnostics only and never reach the judge).  4 since scene
-#: (2026-10-14): the three high views plus ``overview_low_front``, the ground-level contact
-#: camera the judge's contact crops are cut from (``conventions.SCENE_VIEWS``).
+#: overview-rig tiles the judge gets; the eye-level rig views are diagnostics only
 MAX_JUDGE_OVERVIEWS = 4
 
 
-#: The ``probe_scene.mjs`` watchdog phases that are the scene's own construction work (D111): the
-#: module import + createScene() + the boot settle (``scene``), the census + placement table over
-#: what it built (``census``) and ``update``.  Every other phase — ``host`` (browser launch, page
-#: ready), ``report``, ``compile`` (the shader preflight), ``close`` — and a driver killed by the
-#: process clock (node itself starved: its own watchdog never got to run) are the box's.
+#: ``probe_scene.mjs`` watchdog phases that are the scene's own work; every other phase, or a process-clock kill, is the box's.
 SCENE_PHASES = frozenset({"scene", "census", "update"})
 
 
 class SceneRenderError(RuntimeError):
     """The node driver could not run (missing node/deps, timeout, crash).
 
-    ``timed_out`` (typed, D111): the driver ran out of its budget — its own watchdog's summary
-    (``lib/cli.armWatchdog``: ``timed_out: true``, exit 3) or the process clock above it — after
-    the one retry :func:`run_scene_script` grants.  ``phase`` is the watchdog's word for where the
-    driver was (empty from the process clock or a driver that names none); :attr:`scene_timed_out`
-    is the one case that is a verdict on the code (``probes.run_probe``), not the box."""
+    ``timed_out``: the driver ran out of budget after the retry; ``phase`` is the watchdog's phase (may be empty)."""
 
     def __init__(self, message: str, *, timed_out: bool = False, phase: str = ""):
         super().__init__(message)
@@ -72,27 +54,20 @@ class SceneRenderError(RuntimeError):
 
     @property
     def scene_timed_out(self) -> bool:
-        """The driver's own watchdog fired while the scene's code was running (:data:`SCENE_PHASES`)."""
+        """The driver's watchdog fired while the scene's code was running (a verdict on the code, not the box)."""
         return self.timed_out and self.phase in SCENE_PHASES
 
 
 def _driver_failed(r: NodeResult) -> bool:
-    """The DRIVER could not run (exit 2/3, or a non-zero exit with no summary line).
-    Exit 1 is a scene that failed, which is a verdict, not a driver failure."""
+    """The driver could not run (exit 2/3, or non-zero with no summary); exit 1 is a failed scene."""
     return r.rc in (2, 3) or (r.rc != 0 and not r.summary)
 
 
 def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd: Path | None = None) -> NodeResult:
-    """Run ``runtime_js/<script>`` via ``codeverse3d.spatial.node.run_node`` (which
-    delegates to ``codeverse3d.proc.run_subprocess``: own process group, group kill
-    on timeout).  The driver prints a JSON summary as its LAST stdout line; a
-    timeout or exit code 2/3 means the driver itself failed → ``SceneRenderError``.
+    """Run ``runtime_js/<script>``; the driver prints a JSON summary as its last stdout line.
 
-    A driver that lost its BROWSER (``node.BROWSER_LOST_MARKERS``) — or whose own watchdog
-    fired (``timed_out``: a wedged shared browser times out the same way, D111) — is retried
-    once on a browser of its own.  That failure is the box, not the workspace, and without the
-    retry it costs the round every render and therefore its judge — the object path
-    has retried it since 2026-08-28 (``spatial/render.py``), the scene path did not.
+    Timeout or exit 2/3 raises ``SceneRenderError``.  A lost browser, a watchdog timeout, transient failures
+    and lost output are retried once, the first two on an owned browser.
     """
     rt = runtime_js_dir()
     path = rt / script
@@ -100,7 +75,7 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
         raise SceneRenderError(f"missing node driver {path}")
     env_extra: dict[str, str] = {}
     gpu = get_settings().render.gpu
-    if gpu:  # Settings already folds the flat C3D_RENDER_GPU in; the driver reads only that spelling
+    if gpu:
         env_extra["C3D_RENDER_GPU"] = gpu
     argv = [str(a) for a in args]
 
@@ -109,7 +84,7 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
             return run_node(path, argv, cwd=cwd or rt, timeout_s=timeout_s, env_extra=env, check=False)
         except NodeError as e:
             if e.result is not None and e.result.timed_out:
-                # the PROCESS clock: node's own watchdog (timeout_s - 20 s) never ran — the box, no phase
+                # the process clock: node's own watchdog never ran (the box, no phase)
                 raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}",
                                        timed_out=True) from e
             raise SceneRenderError(f"{script} could not run: {e}") from e
@@ -117,19 +92,11 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     r = attempt(env_extra)
     err = str(r.summary.get("error", "")) if r.summary else r.stderr_tail
     lost_browser = _driver_failed(r) and browser_was_lost(err)
-    # the driver's own watchdog fired: retried on an OWNED browser, so a wedged shared one cannot
-    # time out both attempts and have the second read as the scene's construction cost (D111)
+    # watchdog timeout: retry on an owned browser so a wedged shared one cannot time out both attempts
     timed_out = not lost_browser and _driver_failed(r) and bool(r.summary.get("timed_out"))
-    # the rest of the transient vocabulary (`node.TRANSIENT_MARKERS`): a host that timed out
-    # waiting for the page under contention ("Waiting failed: 60000ms exceeded") — the object
-    # path retried it, this one did not, and a battery cell lost every render to it
+    # the rest of ``node.TRANSIENT_MARKERS``
     transient = not lost_browser and not timed_out and _driver_failed(r) and transient_failure(err)
-    # Every scene driver ends with a JSON summary line (`lib/cli.finish` / `fail`), so a run
-    # that produced none had its stdout tail dropped — `proc._ABANDONED`, which a loaded box
-    # makes routine.  That is transient and worth one more attempt; without it the empty
-    # summary reaches `probes.probe_report`, which used to render it as "[?] scene did not
-    # boot" and spend the round's repair budget on a defect that was never there
-    # (desert_canyon, bench/out/scene_baseline, 2026-09-05).
+    # every driver ends with a JSON summary line, so none means the output was lost: transient
     lost_output = not lost_browser and not r.summary
     if lost_browser or lost_output or transient or timed_out:
         log.warning(
@@ -153,29 +120,18 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
 
 
 def probe_env_args() -> list[str]:
-    """Scene-driver flags from the ``C3D_SETTLE`` / ``C3D_CAMERA_REPAIR``
-    switches (``Settings``).  Every driver invocation — standalone
-    probe, render, and the combined single-boot build — appends these, so a census is
-    always measured under the same settle / camera-repair policy the
-    renders use."""
+    """Scene-driver flags from the settle / camera-repair settings; every driver invocation appends them."""
     s = get_settings()
     args: list[str] = []
-    if not s.settle:   # A/B switch for the boot-time auto-seat
+    if not s.settle:
         args.append("--no-settle")
-    if s.camera_repair:   # default ON since 2026-08-30: pure insurance —
-        # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
-        # already keeps lenses out of furniture), and the one class it exists for
-        # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
+    if s.camera_repair:
         args.append("--camera-repair")
     return args
 
 
 def post_chain_args() -> list[str]:
-    """``--no-post`` when ``C3D_POST`` is off.  The post chain (GTAO + selective
-    bloom + grade, ``runtime_js/lib/browser/post.js``) is ON by default for scene
-    PICTURES only: object renders never touch this driver, and the scene probe runs
-    raw because it is a 320x180 geometry instrument, not a judged frame.  Kept out
-    of :func:`probe_env_args` for exactly that reason."""
+    """``--no-post`` when the post chain is off.  It applies to scene pictures only; the probe runs raw, so this is not in :func:`probe_env_args`."""
     return [] if get_settings().post else ["--no-post"]
 
 
@@ -219,15 +175,9 @@ def render_scene(
 ) -> RenderSet:
     """Render authored (+ orbit) views at ``times``; returns a RenderSet.
 
-    ``cameras=None`` uses the cameras authored in ``createScene()``.  ``bounds``
-    (default: the workspace plan's bounds) guards the orbit framing against
-    scatter that sprawls past the plan.  The contact sheet holds at most
-    ``JUDGE_MAX_VIEWS`` tiles (the ``select_judge_views`` subset).  A
-    scene that fails to boot yields an empty RenderSet whose ``console_errors``
-    say why (the build gate normally catches that earlier); a driver failure
-    raises ``SceneRenderError``.
+    ``cameras=None`` uses the cameras authored in ``createScene()``; ``bounds`` defaults to the plan's.  A scene that
+    fails to boot yields an empty RenderSet with ``console_errors``; a driver failure raises ``SceneRenderError``.
     """
-    # never read a previous run's instruments
     out_dir = out_directory(out_dir, clean=("metrics.json", "views.json"))
     settings = get_settings()
     args: list[str] = [
@@ -249,15 +199,13 @@ def render_scene(
     try:
         res = run_scene_script("render_scene.mjs", args, timeout_s=tmo + 30)
     except SceneRenderError as e:
-        # The driver died mid-run but this invocation already wrote instruments:
-        # a scene-side failure the round loop must see as a gate finding, not a
-        # harness crash.  No metrics at all = a genuine driver problem: re-raise.
+        # instruments already written: a scene-side failure for the gate; none written: a driver problem
         if not (out_dir / "metrics.json").is_file():
             raise
         driver_error = str(e).splitlines()[0][:500]
         res = NodeResult(rc=2, stdout="", stderr="", last_json={"error": driver_error}, duration_ms=0)
     metrics = read_json_or_none(out_dir / "metrics.json") or {}
-    for w in metrics.get("host_warnings") or []:   # e.g. a post chain that could not be built: judged RAW
+    for w in metrics.get("host_warnings") or []:
         log.warning("render_scene host warning: %s", w)
     extra = [driver_error] if driver_error else []
     if not metrics and res.summary.get("error"):
@@ -270,11 +218,7 @@ def render_scene(
 def render_set_from_metrics(out_dir: Path, metrics: dict[str, Any], *, width: int, height: int,
                             orbit_views: Sequence[ViewPreset] = SCENE_VIEWS, sheet: bool = True, duration_ms: int = 0,
                             renderer: str = "", extra_errors: Sequence[str] = ()) -> RenderSet:
-    """A scene driver's ``metrics.json`` payload → the RenderSet every scene language returns:
-    motion measured and persisted, the views, the console / shader / driver errors, the judge
-    subset stamped once (``select_judge_views``) into the views and ``views.json``, the contact
-    sheet.  ``render_scene`` (three.js pixels) and ``render_blender.render_blender_scene``
-    (Blender pixels) both end here, so the two languages cannot drift apart downstream."""
+    """A scene driver's ``metrics.json`` payload → the RenderSet: motion, views, errors, the stamped judge subset, the contact sheet."""
     _store_motion(out_dir, metrics)
     views: list[RenderView] = []
     for v in metrics.get("views", []):
@@ -295,9 +239,8 @@ def render_set_from_metrics(out_dir: Path, metrics: dict[str, Any], *, width: in
         duration_ms=duration_ms, console_errors=errors, fps=float(fps) if fps is not None else None,
         out_dir=str(out_dir),
     )
-    # stamp the judge subset ONCE (select_judge_views stays a pure function)
     chosen = select_judge_views(rs, max_n=JUDGE_MAX_VIEWS, orbit_names=[v.name for v in orbit_views])
-    keep = {id(v) for v in chosen.views}  # same objects, so identity is exact
+    keep = {id(v) for v in chosen.views}
     for v in rs.views:
         v.judge = id(v) in keep
     _mark_judge_views(out_dir / "views.json", rs.views)
@@ -308,11 +251,7 @@ def render_set_from_metrics(out_dir: Path, metrics: dict[str, Any], *, width: in
 
 
 def _store_motion(out_dir: Path, metrics: dict[str, Any]) -> None:
-    """Measure inter-frame motion (``spatial.frame_motion``) and persist it into the
-    payload AND into ``metrics.json``, so every later reader — the ``scene_frames``
-    gate, the judge context, the agent's frame table — sees the same numbers without
-    re-reading the PNGs.  Never fatal: a scene that could not be diffed simply has no
-    ``motion`` key (which means "not measured", never "static")."""
+    """Measure inter-frame motion into the payload and ``metrics.json``; never fatal (no ``motion`` key = not measured)."""
     from codeverse3d.spatial.frame_motion import motion_rows
 
     if not metrics.get("views"):
@@ -332,10 +271,8 @@ def _store_motion(out_dir: Path, metrics: dict[str, Any]) -> None:
 
 
 def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_names: Sequence[str] | None = None) -> RenderSet:
-    """Copy of ``rs`` with the views a judge should see (≤ ``max_n``), in priority order:
-    authored cameras at the first time · the first two overview orbit views at that time
-    · the first two authored cameras at the last time · remaining orbit / authored /
-    other views.  Tracks call this before judging; the full set stays on disk."""
+    """Copy of ``rs`` with the views a judge should see (≤ ``max_n``): authored cameras at the first time, the first
+    overviews at that time, the first two authored cameras at the last time."""
     orbit = set(orbit_names if orbit_names is not None else [v.name for v in SCENE_VIEWS])
     views = list(rs.views)
     if not views or max_n <= 0:
@@ -349,19 +286,16 @@ def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_nam
     ordered: list[RenderView] = [*at(authored, t0), *at(overview, t0)[:MAX_JUDGE_OVERVIEWS]]
     if t_last != t0:
         ordered += [v for v in at(authored, t_last) if v.name in first_two]
-    # Everything left is the harness's own eye-level rig: cameras nobody authored, fitted
-    # to the bounds, routinely staring at a fence or standing at street level under a
-    # rooftop.  They stay on disk (and in the frame gate) as diagnostics, but a judge that
-    # SEES them marks the scene unlit / undressed for pictures the builder never framed.
+    # the eye-level rig is left out: cameras nobody authored mislead the judge
     if not ordered:
         ordered = list(views)
     chosen = ordered[:max_n]
     keep = {id(v) for v in chosen}
-    return rs.model_copy(update={"views": [v for v in views if id(v) in keep]})  # disk order, judge subset
+    return rs.model_copy(update={"views": [v for v in views if id(v) in keep]})  # disk order
 
 
 def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
-    """Serialise each view's stamped ``judge`` flag into the driver's views.json."""
+    """Write each view's ``judge`` flag into views.json."""
     if not views_json.is_file():
         return
     try:
@@ -375,8 +309,7 @@ def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
 
 
 def metrics_path_for(rs: RenderSet) -> Path | None:
-    """``metrics.json`` of a RenderSet: the stamped ``out_dir`` when present, else
-    guessed as a sibling of the sheet / views (rounds recorded before stamping)."""
+    """``metrics.json`` of a RenderSet: in ``out_dir``, else beside the sheet / views."""
     if rs.out_dir:
         p = Path(rs.out_dir) / "metrics.json"
         if p.is_file():

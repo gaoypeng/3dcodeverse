@@ -64,8 +64,7 @@ BUCKET_HEADERS = ("key", "USD", "share", "calls", "input", "cached", "output", "
 
 
 def keyed_buckets(audit: Audit) -> list[CostBucket]:
-    """Per-API-key buckets (``CallCost.key``), most calls first; empty for ledgers
-    written before the key suffix was recorded (2026-08-26)."""
+    """Per-API-key buckets (``CallCost.key``), most calls first."""
     return sorted((b for b in audit.summary.dimension("key").values() if b.key != "(none)"),
                   key=lambda b: -b.n_calls)
 

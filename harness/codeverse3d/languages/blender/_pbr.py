@@ -1,24 +1,6 @@
-"""THE material-family table: real PBR numbers for the finishes objects are made of.
+"""The material-family table: PBR factors (metallic, roughness, IOR, clear-coat) per finish.
 
-Why this file exists.  The judge's weakest object criterion after ``geometry_detail``
-is ``materials`` (mean 0.701 over 110 recorded verdicts), and its complaints are
-almost always one of two sentences:
-
-* *"the chrome parts lack metallic reflections and appear as matte grey"*
-  (`mus_easy_drum` r0) / *"the drill bit and chuck lack metallic material
-  properties, appearing as flat grey plastic"* (`tool_med_hand_drill` r1);
-* *"materials are flat colors without any character such as wood grain"*
-  (`bld_easy_shed` r0) / *"the blue material lacks roughness variation or bump
-  mapping, making it look like smooth plastic rather than cast iron"*
-  (`tool_hard_bench_vise` r1).
-
-The numbers below are the ones a materials artist would type — measured
-dielectric IORs, the metallic/roughness pairs the glTF and Disney/Substance
-guides publish, and the clear-coat that separates lacquered wood from raw
-timber.  ``languages/blender`` reads them (``family_for`` / ``pbr_for``) to give a
-part whose name or material names a finish its PBR factors.
-
-Everything here is data + pure functions; nothing imports a model or touches a file.
+``languages/blender`` reads it (``family_for`` / ``pbr_for``).  Data + pure functions only.
 """
 
 from __future__ import annotations
@@ -31,13 +13,7 @@ from codeverse3d.conventions import to_snake
 
 
 class Pbr(BaseModel):
-    """One material family's physically-plausible factors.
-
-    ``ior``/``clearcoat``/``sheen``/``transmission`` have no home in core glTF
-    ``pbrMetallicRoughness`` (they are KHR extensions / Blender + three
-    ``MeshPhysicalMaterial`` inputs) — they are carried here because the Blender and
-    three.js authoring paths (Principled BSDF / MeshPhysicalMaterial) do use them.
-    """
+    """One material family's physically-plausible factors."""
 
     family: str
     metallic: float = Field(ge=0.0, le=1.0)
@@ -47,11 +23,9 @@ class Pbr(BaseModel):
     clearcoat_roughness: float = 0.1
     sheen: float = 0.0
     transmission: float = 0.0
-    #: linear-ish sRGB base colour a real sample of this finish sits near (a hint,
-    #: never forced onto an authored colour)
+#: base colour a real sample of this finish sits near (a hint, never forced)
     base_hint: tuple[float, float, float] = (0.5, 0.5, 0.5)
-    #: how far the roughness may plausibly wander before the value is "wrong for
-    #: this family" (the normaliser's confidence band)
+#: plausible roughness spread (the normaliser's confidence band)
     roughness_band: tuple[float, float] = (0.0, 1.0)
     metallic_band: tuple[float, float] = (0.0, 1.0)
     note: str = ""
@@ -68,7 +42,7 @@ def _m(
                roughness_band=rband, metallic_band=mband, note=note)
 
 
-#: family -> PBR factors (with the plausible bands each value may take).  Metals, woods, polymers, rest.
+#: family -> PBR factors with plausible bands
 MATERIALS: dict[str, Pbr] = {
     "painted_metal": _m("painted_metal", 0.0, 0.35, clearcoat=0.35, ccr=0.10, base=(0.30, 0.32, 0.36),
                         rband=(0.08, 0.7), mband=(0.0, 0.35),
@@ -116,8 +90,7 @@ MATERIALS: dict[str, Pbr] = {
                        note="paint on timber: flatter than car enamel, and the grain still shows through"),
 }
 
-#: substrate keywords — WHAT the part is made of.  Checked before finishes, because
-#: "varnished beech" is wood with a coat, not a coating on nothing.
+#: substrate keywords (what the part is made of), checked before finishes
 SUBSTRATE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("wood_hard", ("oak", "walnut", "teak", "maple", "beech", "birch", "mahogany", "cherry", "ash",
                    "hardwood", "veneer", "plywood", "bamboo", "rosewood")),
@@ -155,8 +128,7 @@ FINISH_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("gloss", ("gloss", "glossy", "shiny", "high-gloss", "highgloss")),
 )
 
-#: (substrate, finish) -> family.  ``None`` finish = bare; a substrate row missing a
-#: finish falls back to its ``None`` entry.
+#: (substrate, finish) -> family; ``None`` finish = bare
 _RESOLVE: dict[tuple[str, str | None], str] = {
     ("wood_hard", None): "hardwood", ("wood_hard", "painted"): "painted_wood",
     ("wood_soft", None): "softwood", ("wood_soft", "painted"): "painted_wood",
@@ -203,9 +175,7 @@ class FamilyMatch(NamedTuple):
 
 
 def _tokens(text: str) -> set[str]:
-    """Whole words of ``text`` as :func:`~codeverse3d.conventions.to_snake` splits them
-    (snake_case, kebab-case, CamelCase and acronyms: ``PVCPipe`` → ``pvc``, ``pipe``),
-    plus the words joined (``pvcpipe``)."""
+    """Whole words of ``text`` as ``to_snake`` splits them, plus the words joined."""
     s = str(text or "")
     parts = [w for w in to_snake(s).split("_") if w] if any(c.isascii() and c.isalnum() for c in s) else []
     joined = "".join(parts)
@@ -239,16 +209,9 @@ def _substrate(toks: set[str]) -> tuple[str, str] | None:
 
 
 def family_for(*texts: str) -> FamilyMatch | None:
-    """Resolve a material family from free text.
+    """Resolve a material family from free text; ``None`` when nothing matches.
 
-    Two orderings do the work.  Across arguments: the FIRST text that resolves wins,
-    so callers pass the most specific evidence first (material name, then node name,
-    then the plan's prose) — a node called ``SteamWand`` whose material is
-    ``SteamWandChrome`` must not become silicone because the plan's sentence
-    mentions a silicone tip.  Within one text: substrate before finish, so
-    *"varnished beech"* is ``hardwood`` (a coat on wood), *"satin white lacquer"* is
-    ``painted_metal`` and *"chrome-plated steel"* is ``chrome``.
-    ``None`` when nothing matches."""
+    The first argument that resolves wins; within one text, substrate before finish."""
     for text in texts:          # material name beats node name beats the plan's prose
         hit = _resolve_one(_tokens(text))
         if hit is not None:

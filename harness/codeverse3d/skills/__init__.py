@@ -1,38 +1,13 @@
 """The 3dcode skill library: task-scoped rule sheets, routed automatically, read-measured.
 
-A *skill* is not a recipe library — the two sides of the split in ``prompts/catalog.py``:
-PROMPT material (``contract.md`` / ``system.md``: interface, sandbox, measured requirements)
-is what the harness puts in a message; a skill is AGENT-READ material the harness only
-materialises: <=350 lines of measured requirements and a few short optional practices for
-one recurring failure class (library / API names, fences of ~12 lines at most, numbers only
-where a gate or the judge measures them — D107), attached to a session only when the track /
-language / kind / plan / **previous round's gate findings** say it applies.  (The cookbooks
-that preceded the library were deleted track by track, D106 / D107; the ``read_cookbook`` MCP
-tool that served them a chapter at a time was measured at 0 calls in 16 zone sessions.)
+A skill is AGENT-READ material (<=350 lines of requirements and short optional practices for one
+failure class) that the harness only materialises, when track / language / kind / plan / the
+previous round's gate findings say it applies.  The library ships as package data.
+``<skills_dir>/variants/<name>/`` overlays it while that variant is active: its bundles shadow
+base ones by name, its ``routes.toml`` reshapes the routing table.
 
-Why the library lives inside the package: every backend reads it from a materialised
-workspace copy, but the source of truth ships in the wheel, so it must be package data
-(``pyproject.toml`` ``[tool.setuptools.package-data]``) — a sibling wave already shipped
-a wheel whose starter tree was silently empty for want of that glob.
-
-Per-model variants (D105, 2026-10-14): ``<skills_dir>/variants/<name>/`` is an OVERLAY on
-the library while that variant is active (``codeverse3d.prompts.variants.active_variant``):
-its bundles shadow base bundles by name or add new ones (:func:`all_skills` merges the two
-roots, :func:`library_roots`), its ``_claims/`` is consulted first
-(``addons/skill_targets.claims_path``), and its ``routes.toml`` — boosts, disabled rule ids,
-extra typed rows — reshapes the routing table (:func:`variants_table`, parsed with ``tomllib``
-into typed records; ``registry.select`` applies it).  ``bundle_dirs`` never descends into it:
-``variants/`` has no ``SKILL.md``, so the base listing is what it always was — ``3dcode skills
-validate`` / ``list`` walk every shipped root through :func:`shipped_roots`.
-
-Public surface for the rest of the harness::
-
-    from codeverse3d.skills import select, attach_skills, probe_reads
-
-``select`` is pure and testable; ``attach_skills`` writes the routed bundles into a
-workspace and returns what it wrote; ``probe_reads`` says afterwards which of them were
-actually opened — from the CLI's own tool calls where its backend recorded them.  Everything
-is behind ``C3D_SKILLS``: ON by default since 2026-09-22, ``C3D_SKILLS=0`` turns it off.
+Public surface: ``select`` (pure routing), ``attach_skills`` (write the routed bundles),
+``probe_reads`` (which were opened).  Controlled by ``C3D_SKILLS`` (default on).
 """
 
 from __future__ import annotations
@@ -59,15 +34,13 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-#: the per-model overlays live under the library: ``<skills_dir>/variants/<name>/``
+#: per-model overlays: ``<skills_dir>/variants/<name>/``
 VARIANTS_SUBDIR = "variants"
-#: a variant's routing-table overlay, beside its bundles
+#: a variant's routing-table overlay
 ROUTES_FILE = "routes.toml"
 
 
 def skills_dir() -> Path:
-    """The bundle root: this package's directory, as for prompts and rubrics
-    (``C3D_SKILLS_DIR`` points it elsewhere, read at call time)."""
     override = get_settings().skills_dir
     if override:
         return override.expanduser()
@@ -75,13 +48,10 @@ def skills_dir() -> Path:
 
 
 def variant_dir(name: str) -> Path:
-    """``<skills_dir>/variants/<name>`` — the skills half of a variant overlay (it need not exist)."""
     return skills_dir() / VARIANTS_SUBDIR / name
 
 
 def library_roots(variant: str | None = None) -> list[Path]:
-    """The bundle roots in shadowing order: the base library, then the active variant's overlay
-    when the variant ships one.  ``variant`` names one explicitly instead of :func:`active_variant`."""
     name = active_variant() if variant is None else variant
     roots = [skills_dir()]
     if name:
@@ -94,10 +64,7 @@ def library_roots(variant: str | None = None) -> list[Path]:
 def bundle_dirs(root: Path | None = None) -> list[Path]:
     """Every directory under the library that looks like a bundle, sorted by name.
 
-    ``_claims/`` and ``__pycache__/`` are deliberately invisible: the library shares a
-    directory with this package's modules, and a pure tree is what ``skills-ref
-    validate`` and the CLIs expect to walk.  ``variants/`` has no ``SKILL.md`` and is skipped
-    the same way — an overlay root is listed by passing it as ``root``.
+    ``_claims/``, ``__pycache__/`` and ``variants/`` are invisible; pass an overlay as ``root``.
     """
     base = Path(root) if root is not None else skills_dir()
     if not base.is_dir():
@@ -108,11 +75,6 @@ def bundle_dirs(root: Path | None = None) -> list[Path]:
 
 
 def iter_skills(root: Path | None = None, *, strict: bool = False) -> Iterator[Skill]:
-    """Every valid bundle.  A broken one is logged and skipped unless ``strict``.
-
-    Skipping is the right default in a run: one malformed bundle must cost that skill,
-    not the battery.  ``3dcode skills validate`` and the test suite pass ``strict=True``.
-    """
     for d in bundle_dirs(root):
         try:
             yield parse_skill(d)
@@ -123,9 +85,6 @@ def iter_skills(root: Path | None = None, *, strict: bool = False) -> Iterator[S
 
 
 def all_skills(root: Path | None = None, *, strict: bool = False) -> dict[str, Skill]:
-    """name → Skill.  With no ``root``: the base library updated by the active variant's overlay
-    (a same-name bundle shadows the base one, a new name is added); with ``root``: that directory
-    alone.  Empty when no bundles ship yet."""
     if root is not None:
         return {s.name: s for s in iter_skills(root, strict=strict)}
     out: dict[str, Skill] = {}
@@ -135,8 +94,6 @@ def all_skills(root: Path | None = None, *, strict: bool = False) -> dict[str, S
 
 
 def load_skill(name: str, root: Path | None = None) -> Skill:
-    """One bundle by name — the active variant's copy first; raises :class:`SkillError` when it is
-    missing or invalid."""
     roots = [Path(root)] if root is not None else list(reversed(library_roots()))
     for base in roots:
         d = base / name
@@ -147,25 +104,20 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
 
 @dataclass(frozen=True)
 class ShippedRoot:
-    """One root the library ships: the base (``variant == ""``) or one variant's skills overlay."""
 
     variant: str
     path: Path
 
     def label(self, bundle: str) -> str:
-        """How the CLIs and the doctor name a bundle of this root: ``<variant>/<bundle>`` for an overlay."""
         return f"{self.variant}/{bundle}" if self.variant else bundle
 
 
 def shipped_roots(variants: Iterable[str] | None = None) -> list[ShippedRoot]:
-    """The base root, then the skills overlay of every shipped variant that has one — every directory
-    a run can route a bundle from, whichever variant it activates.  ``3dcode skills validate`` /
-    ``list`` walk THIS rather than :func:`bundle_dirs` alone: an overlay bundle
-    a loop iteration wrote is routed the moment its variant is active (:func:`all_skills`), so a
-    malformed one must fail validation here, not vanish from a session with a logged warning while
-    the row that named it routes nothing.  ``variants`` names the ones to walk; the default is every
-    variant ``prompts.variants.list_variants`` knows, and a ``variant.toml`` that does not parse raises
-    its ``ValueError`` (a shipped variant is never half-known)."""
+    """The base root, then the skills overlay of every shipped variant that has one.
+
+    ``3dcode skills validate`` / ``list`` walk this so a malformed overlay bundle fails validation
+    instead of silently not routing.  ``variants`` defaults to every variant ``list_variants`` knows.
+    """
     from codeverse3d.prompts.variants import list_variants
 
     names = list(list_variants()) if variants is None else list(variants)
@@ -177,9 +129,6 @@ def shipped_roots(variants: Iterable[str] | None = None) -> list[ShippedRoot]:
 # ===================================================================== the variant routing table
 @dataclass(frozen=True)
 class RouteBoost:
-    """``[[boost]]``: ``delta`` is added to the priority of every route naming ``skill``
-    (``registry.effective_priority`` clamps: a standing row stays below 90, a gate-fired row never
-    falls under it)."""
 
     skill: str
     delta: int
@@ -187,8 +136,7 @@ class RouteBoost:
 
 @dataclass(frozen=True)
 class VariantRoutes:
-    """A variant's ``routes.toml``: boosts, disabled base rule ids and extra typed rows, parsed with
-    ``tomllib`` (no regex).  The extra rows are appended AFTER the base table (ties keep base order)."""
+    """A variant's ``routes.toml``: boosts, disabled base rule ids and extra typed rows (appended after the base table)."""
 
     variant: str = ""
     routes: tuple[Route, ...] = ()
@@ -197,7 +145,6 @@ class VariantRoutes:
 
     @property
     def boost_map(self) -> dict[str, int]:
-        """skill → summed delta (what ``registry.select`` takes)."""
         out: dict[str, int] = {}
         for b in self.boosts:
             out[b.skill] = out.get(b.skill, 0) + b.delta
@@ -209,10 +156,7 @@ class VariantRoutes:
 
 
 def variants_table(name: str) -> VariantRoutes:
-    """The variant's table: ``<skills_dir>/variants/<name>/routes.toml`` parsed, or an empty table when
-    the variant ships none (or ``name`` is the base).  A table that does not type-check raises
-    ``ValueError`` naming the row and the problem — ``attach_skills`` logs it and routes with the
-    base table, so a typo costs the overlay, never the round."""
+    """The variant's parsed ``routes.toml``, or an empty table when it ships none; raises ``ValueError`` naming the bad row."""
     if not name:
         return VariantRoutes()
     path = variant_dir(name) / ROUTES_FILE
@@ -227,8 +171,7 @@ _ROUTE_TUPLES = ("tracks", "languages", "kinds", "requires_all", "requires_any",
 
 
 def parse_routes(path: Path, *, variant: str = "") -> VariantRoutes:
-    """Parse one ``routes.toml`` into typed records; every typing error is a ``ValueError`` that names
-    the row (``<path>: [[route]] #2: priority must be an integer``)."""
+    """Parse one ``routes.toml`` into typed records; every typing error is a ``ValueError`` naming the row."""
     from codeverse3d.skills.registry import GATE_FIRED_PRIORITY, ROUTES, Route
 
     try:
@@ -247,8 +190,7 @@ def parse_routes(path: Path, *, variant: str = "") -> VariantRoutes:
     for where, row in _rows(data, "route", path, _ROUTE_KEYS):
         findings = _tuple(row, "findings", where)
         priority = _int(row, "priority", where)
-        # the table's law (design §5.2 law 2): a priority >= 90 MEANS "a gate routed this" to telemetry
-        # and to Selection.gate_fired, so an extra row may only sit there when it answers a finding
+        # a priority >= 90 means "a gate routed this" (Selection.gate_fired): only rows that name findings may sit there
         if findings and priority < GATE_FIRED_PRIORITY:
             raise ValueError(f"{where}: a gate-fired row (it names findings) needs priority >= "
                              f"{GATE_FIRED_PRIORITY}, got {priority}")

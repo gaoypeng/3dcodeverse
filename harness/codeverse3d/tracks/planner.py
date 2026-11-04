@@ -1,24 +1,4 @@
-"""Planner: spec → validated Plan (StaticPlan / ArticulatedPlan / ScenePlan / GraphicsPlan).
-
-The ONE owner of what differs per track at planning time — the system-prompt template
-(``PLAN_TEMPLATES``), the worked example (``plan_example``), the sampling temperature
-(``plan_temperature``), the output-token floor, the plan budget's unit (graphics counts
-passes) and the deterministic acceptance items (``ensure_acceptance``): all dispatched on
-``spec.track``, so no track class parameterises the loop.
-
-An optional cheap **brief expansion** (``expand_brief``, below) turns the one-line
-request into an engineering brief, which — together with a **plan budget derived
-from the request** — goes into one structured ``ChatRequest`` (system prompt from
-``prompts/tracks/plan_<track>.j2``, ``response_schema`` = the plan model's JSON
-schema, reference images inline).  The answer is validated IN CODE by the pydantic
-plan models; a plan the schema rejects is re-asked twice with the exact validation
-errors, plus one restart from the request when it is degenerate (then ``PlanningError``),
-and a plan that validates but is boxes-at-different-sizes against its budget is re-asked
-once with that specific complaint (then shipped anyway — a mediocre plan beats no plan).  The harness
-finally appends deterministic acceptance items derived from the spec constraints
-and folds the brief + sub-parts into the plan's own text (generated artifacts are
-weak links — framework-owned requirements never rely on the model remembering them).
-"""
+"""Planner: spec → validated Plan (StaticPlan / ArticulatedPlan / ScenePlan / GraphicsPlan)."""
 
 from __future__ import annotations
 
@@ -72,11 +52,7 @@ def brief_cache_dir() -> Path:
 
 
 def _reference_digest(spec: Spec) -> list[dict[str, str]]:
-    """Identify the reference images by path AND content hash.
-
-    The same path can hold different bytes from one run to the next, so the path
-    alone does not separate two runs; the bytes do.  An unreadable file
-    still contributes its path, so it can never collapse onto "no references"."""
+    """Identify the reference images by path AND content hash."""
     out: list[dict[str, str]] = []
     for r in spec.references:
         try:
@@ -88,13 +64,7 @@ def _reference_digest(spec: Spec) -> list[dict[str, str]]:
 
 
 def brief_cache_key(spec: Spec, model_id: str) -> str:
-    """Every input to the call must be in the key.
-
-    ``expand_brief`` attaches ``spec.references`` to the request and tells the model
-    to read the dimensions and features off them, so a key that omits them lets an
-    ``--image`` run drink a brief generated WITHOUT the image (and vice versa) —
-    silently, from the machine-wide ~/.cache/codeverse3d/briefs, with cached=True in
-    events.jsonl."""
+    """Every input to the call must be in the key."""
     c = spec.constraints
     payload = json.dumps({
         "prompt": spec.prompt.strip(), "track": spec.track.value, "language": spec.language.value,
@@ -108,10 +78,7 @@ def brief_cache_key(spec: Spec, model_id: str) -> str:
 
 def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events: Any | None = None,
                  cache_dir: Path | None = None) -> tuple[EngineeringBrief | None, Usage]:
-    """One cheap structured call → :class:`EngineeringBrief`, cached by prompt hash.
-
-    Never raises and never blocks planning: any failure returns ``(None, usage)`` and the
-    planner runs exactly as it did before."""
+    """One cheap structured call → :class:`EngineeringBrief`, cached by prompt hash."""
     events = NULL_EVENTS if events is None else events
     usage = Usage()
     cdir = cache_dir if cache_dir is not None else brief_cache_dir()
@@ -125,7 +92,7 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
             events.emit("plan.brief", cached=True, key=key, n_sub=len(brief.sub_assemblies),
                         n_signature=len(brief.signature_features), cost_usd=0.0)
             return brief, usage
-        except (ValidationError, ValueError, OSError) as e:  # a stale/corrupt cache entry is not fatal
+        except (ValidationError, ValueError, OSError) as e:
             log.warning("brief cache %s unusable (%s); regenerating", path, e)
     if model is None:
         model = get_chat_model(model_id)
@@ -151,7 +118,7 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
         events.emit("plan.brief_failed", error=f"{type(e).__name__}: {e}"[:300])
         return None, usage
     try:
-        write_text_atomic(path, brief.model_dump_json(indent=1))  # a torn entry re-buys the call
+        write_text_atomic(path, brief.model_dump_json(indent=1))
     except OSError as e:
         log.warning("could not cache brief at %s: %s", path, e)
     events.emit("plan.brief", cached=False, key=key, n_sub=len(brief.sub_assemblies),
@@ -216,8 +183,7 @@ EVIDENCE_MIN_CHECKLIST = 4
 # --------------------------------------------------------------------- "is this a box?"
 #: construction verbs / counted repeated features that make a part description more than
 #: "a box of size X".  Stems, not bare words: `taper` alone never matches "tapered", which
-#: is how every real plan writes it (measured — the un-stemmed version fired the gate on
-#: 77 % of the recorded plans instead of 43 %).
+#: is how every real plan writes it.
 _CRAFT = re.compile(
     r"\b(bevel\w*|chamfer\w*|fillet\w*|round(?:ed)?[- ](?:edge|corner|over)\w*|bullnose\w*|taper\w*|groove\w*"
     r"|flute\w*|thread(?:ed|s)?|helix|helical|spline\w*|loft\w*|revolv\w*|extrud\w*|bezier|swept|sweep\w*"
@@ -226,22 +192,18 @@ _CRAFT = re.compile(
     r"|recess\w*|emboss\w*|moulding\w*|molding\w*|curv\w*|arc\b|arch\w*|spiral\w*|dome[ds]?|domed|ogee"
     r"|scroll\w*|pierc\w*|perforat\w*|crown\w*|swage\w*|bulg\w*|waist\w*|concave|convex|rebate[ds]?|dovetail\w*"
     r"|mortise\w*|tenon\w*|splay\w*|conical|tapering|beading|reeded|turned|rounded|radius|radii)\b"
-    r"|\br\s*=\s*\d",   # "bullnose r=10 mm" — a stated radius is construction, not a box
+    r"|\br\s*=\s*\d",
     re.I)
 _COUNTED = re.compile(
     r"\b\d+\s*(x|×)?\s*(slats?|spokes?|teeth|dentils?|panes?|rafters?|bolts?|screws?|rivets?|holes?|segments?"
     r"|facets?|ribs?|flutes?|turns?|steps?|rings?|wires?|bars?|louvres?|louvers?|vents?|grooves?|studs?|pads?)\b",
     re.I)
-#: the graphics analogue of :data:`_CRAFT`: a PASS is not "a box" when it names a real
-#: technique.  Object craft words (bevel, taper, flute) never appear in a shader plan, so
-#: the object vocabulary would flag every pass ever written.
 _GFX_CRAFT = re.compile(
     r"\b(fbm|noise|hash|sdf|raymarch|ray[- ]?march|march|domain[- ]?warp|voronoi|worley|curl|advect|feedback"
     r"|parallax|refract|reflect|fresnel|bokeh|blur|bloom|vignette|aberration|tonemap|gamma|dither|grain"
     r"|particle|instanc|scatter|caustic|godray|god[- ]ray|volumetric|shadow|ao\b|ambient occlusion|palette"
     r"|gradient|dissolve|erosion|turbulen|flow[- ]?map|displac|tessell|subsurface|halftone|posteris|posteriz)\b",
     re.I)
-#: two or more numeric literals make a pass description a recipe rather than an adjective
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 
 
@@ -257,8 +219,7 @@ def has_pass_detail(text: str) -> bool:
 
 @dataclass(frozen=True)
 class PlanBudget:
-    """What this request is worth, in plan units.  ``target_parts`` is what the prompt
-    asks the planner for; ``min_parts`` is what the quality gate insists on."""
+    """What this request is worth, in plan units.  ``target_parts`` is what the prompt"""
 
     target_parts: int
     min_parts: int
@@ -267,9 +228,6 @@ class PlanBudget:
     min_detail_parts: int
     min_assemblies: int
     reason: str = ""
-    #: is there EVIDENCE that this request needs ``target_parts``?  A checklist of four or
-    #: more items, or a brief.  Without it ``target_parts`` is an aspiration the prompt
-    #: states and the quality gate must not enforce: "a stool" is allowed to be four parts.
     evidence: bool = False
 
     def as_dict(self) -> dict[str, int | str | bool]:
@@ -278,21 +236,12 @@ class PlanBudget:
                 "min_assemblies": self.min_assemblies, "budget_evidence": self.evidence, "reason": self.reason}
 
 
-#: the graphics track counts PASSES, not parts: more than ~6 stops being a plan and starts
-#: being a wish-list.  The floor is 1 (D107): pass count correlated with the judge on
-#: graphics_v2 (visual_richness +0.40, mean 3.1 passes), but a correlation is not a requirement,
-#: and a mandated layer stack was the graphics twin of D106's three-depth-layer rule.  Only a
-#: checklist long enough to be evidence (``EVIDENCE_MIN_CHECKLIST``) raises a floor.
 GRAPHICS_CAP = 6
 GRAPHICS_MIN = 1
 
 
 def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget:
-    """Derive the plan's size budget from the REQUEST, not from a constant.
-
-    Drivers: the user's own checklist (``must_have``), and — when a brief exists — the
-    sub-assemblies × signature features a real one has.  Capped by the language's
-    practical limit (:data:`PART_CAP`)."""
+    """Derive the plan's size budget from the REQUEST, not from a constant."""
     if spec.track is Track.GRAPHICS:
         return _graphics_budget(spec)
     cap = PART_CAP.get(spec.language.value, DEFAULT_PART_CAP)
@@ -300,9 +249,6 @@ def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget
     reasons = []
     want = 0
     if n_must:
-        # one part (or sub-part) per checklist item is PARITY, not padding: the measured
-        # ratio on the hard battery was 0.91 parts per checklist item, and the runs with the
-        # highest ratio scored best on intent_fidelity (+0.26).
         want = max(want, n_must)
         reasons.append(f"{n_must} checklist items")
     n_visible = 0
@@ -311,11 +257,7 @@ def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget
         if n_sub + n_sig:
             want = max(want, n_sub + n_sig)
             reasons.append(f"{n_sub} sub-assemblies + {n_sig} signature features")
-        # externally visible features drive the LEAF budget, not the top-level part count:
-        # "six vertical flutes on the body" is a sub-part of the body, not a part of its own.
         n_visible = len(brief.visible_from_outside)
-    # ``target`` sizes the answer (plan_tokens) and never drops below MIN_PARTS; the FLOOR is the
-    # request's own count, so a 4-item checklist is never told it needs 6 parts (D107)
     target = max(MIN_PARTS, min(cap, int(want)))
     floor = max(2, int(round(0.85 * min(cap, int(want)))))
     min_assemblies = 0
@@ -347,11 +289,7 @@ def _graphics_budget(spec: Spec) -> PlanBudget:
 
 
 def budget_block(budget: PlanBudget, *, unit: str = "parts") -> str:
-    """The budget as a prompt block for the planner's user message.
-
-    A floor and a detail minimum are stated only when the request is EVIDENCE of them (a brief,
-    or a checklist of :data:`EVIDENCE_MIN_CHECKLIST` items) — the only case the quality gate
-    enforces them; otherwise the block states the ceiling and nothing that sets a count (D107)."""
+    """The budget as a prompt block for the planner's user message."""
     lines = [f"PLAN BUDGET (derived from this request: {budget.reason}):"]
     if budget.evidence:
         lines.append(f"- plan at least {budget.min_parts} top-level {unit} (ceiling {budget.cap_parts}); "
@@ -371,17 +309,7 @@ def budget_block(budget: PlanBudget, *, unit: str = "parts") -> str:
 
 # ----------------------------------------------------------------------------- quality gate
 def plan_quality_complaint(plan_obj: Any, budget: PlanBudget, *, unit: str = "parts") -> str:
-    """"" when the plan is worth building; otherwise the SPECIFIC complaint to re-ask with.
-
-    Two classes of complaint.  **Hard** ones fire on their own because they mean the plan
-    cannot carry the request: too few parts for the checklist, or boxes-at-different-sizes
-    (too few parts saying anything a primitive cannot).  **Soft** ones — no assemblies
-    nested, one material for the whole object — ride along with a hard one but never
-    trigger a re-ask by themselves, because each is routinely correct on its own (a
-    wrought-iron arch really is all one material).
-
-    Never absolute: every threshold comes from ``budget``, which comes from the request.
-    Measured retro-fire rate on the 86 recorded runs is in the wave report."""
+    """"" when the plan is worth building; otherwise the SPECIFIC complaint to re-ask with."""
     parts: list[Any] = list(getattr(plan_obj, "parts", None) or getattr(plan_obj, "passes", None) or [])
     if not parts:
         return ""
@@ -425,10 +353,7 @@ def plan_quality_complaint(plan_obj: Any, budget: PlanBudget, *, unit: str = "pa
 
 # ----------------------------------------------------------------------------- enrichment
 def _fold_pass(ps: Any) -> None:
-    """Fold a graphics pass's ``elements`` + ``detail_hint`` into its ``description``.
-
-    ``graphics.passes_table`` prints ``| name | kind | description |`` — one markdown
-    row — so the fold must stay on a single line and must be idempotent."""
+    """Fold a graphics pass's ``elements`` + ``detail_hint`` into its ``description``."""
     if not (ps.elements or ps.detail_hint) or " · " in ps.description:
         return
     bits = [ps.description.rstrip().rstrip(".")]
@@ -440,21 +365,7 @@ def _fold_pass(ps: Any) -> None:
 
 
 def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
-    """Fold what the BRIEF knows back into the plan's own fields, after validation.
-
-    A part's own depth needs no folding: ``tracks/prompting.py`` renders
-    ``PartPlan.children`` and ``PartPlan.detail_hint`` straight from the typed fields, so
-    copying them into ``description`` would print every sub-part twice.  A graphics PASS is
-    the exception — ``graphics.passes_table`` renders only ``description`` — so
-    ``elements`` are folded there, on ONE line because that table is markdown.
-
-    * the brief's signature features become ``should`` acceptance items — ``should``, not
-      ``must``: a flash brief's private wishes must never trip ``missing_must_acceptance``,
-      which caps a finished object at 0.60 (the lesson ``ensure_acceptance`` already
-      records for the scene track);
-    * ``style_notes`` gains the reference instance and what the object does NOT have —
-      the two brief facts that change how the whole object is built rather than one part.
-    """
+    """Fold what the BRIEF knows back into the plan's own fields, after validation."""
     for ps in getattr(plan_obj, "passes", None) or []:
         _fold_pass(ps)
     if brief is None:
@@ -476,11 +387,7 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
 
 # ===================================================================== worked examples
 def plan_example(track: Track, language: Language | None = None) -> dict[str, Any]:
-    """Compact, valid worked example per track (concrete beats abstract) — and, where a language
-    plans differently, per language: a scene_blender plan names ``bpy`` modules where a three.js
-    plan names ``threejs`` ones (``SCENE_ASSET_KINDS``).  Its NUMBERS are the same Y-up GLB-frame
-    numbers (D12: the plan never changes frame; the skeleton and the prompts convert for the
-    author), so the two examples differ in the asset kinds and nothing else."""
+    """Compact, valid worked example per track (concrete beats abstract) — and, where a language"""
     if track is Track.SCENE and language is Language.SCENE_BLENDER:
         example = plan_example(Track.SCENE)
         for asset in example["assets"]:
@@ -488,8 +395,6 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
                 asset["kind"] = "bpy"
         return example
     if track is Track.GRAPHICS:
-        # the SCHEMA on an effect nobody asked for (no battery prompt is a tide pool) — two passes
-        # because this effect has two, never a pass list, a layering or a post chain to copy
         return {
             "title": "Tide pool ripples", "summary": "Looking straight down into a shallow tide pool: pebbles and weed on "
             "the floor, rings spreading from drops that fall at irregular intervals; light shifts over the pebbles.",
@@ -513,10 +418,6 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
             ],
         }
     if track is Track.SCENE:
-        # ONE place's plan, shaped like that place (an L of quay on the west, open water east and
-        # running OUT of the bounds, the mole and the village street running out too, open quay-head
-        # ground the zones do not cover) — never a layout to copy.  Its bounds centre, Quay bbox and
-        # Overview position are pinned by tests/scene_blender/test_prompts.
         return {
             "title": "Harbour at dusk", "summary": "Small fishing harbour: an L of granite quay on the west side, two boats "
             "moored against it, the basin opening east to the sea; the mole runs out of the bounds to the north-east.",
@@ -550,9 +451,6 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
             "acceptance": [{"id": "a1", "text": "Two boats float on the water inside the basin", "how": "visual", "priority": "must"},
                            {"id": "a2", "text": "Quay top at y≈1.2 m, boats' waterline at y≈0", "how": "probe", "priority": "must"}],
         }
-    # The SCHEMA on an object nobody asks for (a profile, a counted repeat, a nested assembly,
-    # an instanced row) — never a part list, a layout or numbers to copy.  Upright's one-copy
-    # bbox is what c3d-repeats-and-mirrors points at.
     parts = [
         {"name": "Base", "role": "weighted foot", "description": "disc 400 mm dia, 30 mm thick, top edge rounded r=8 mm, "
          "four 20 mm square sockets for the uprights",
@@ -611,7 +509,6 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
         base["root_link"] = "Cabinet"
         base["joints"] = [{"name": "DrawerSlide", "type": "prismatic", "parent": "Cabinet", "child": "Drawer", "axis": [0, -1, 0],
                            "pivot": [0, -0.02, 0.45], "lower": 0.0, "upper": 0.35, "rest": 0.0, "motion": "drawer pulls out towards -Y"}]
-        # its own checks, not the chair's: the base's seat-height / four-legs items describe another object
         base["acceptance"] = [{"id": "a1", "text": "Cabinet top at 0.60 m ± 0.02 m above the ground", "how": "measure", "priority": "must"},
                               {"id": "a2", "text": "Cabinet stands on the ground at rest", "how": "visual", "priority": "must"},
                               {"id": "j1", "text": "Drawer slides out 0.35 m along -Y without penetrating the cabinet", "how": "articulation", "priority": "must"}]
@@ -620,51 +517,23 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
 
 P = TypeVar("P", bound=BaseModel)
 
-#: re-ask budgets — a plan the SCHEMA rejects and a plan the QUALITY gate rejects are
-#: different failures and get separate chances (see ``plan``).
-MAX_VALIDATION_REASKS = 2  # was 1: compare_art_v2 lost 5 of 14 articulated prompts at this gate (2026-08-25)
+MAX_VALIDATION_REASKS = 2
 MAX_QUALITY_REASKS = 1
-#: a validation failure whose plan is DEGENERATE (joints naming links the plan never lists)
-#: is answered by re-sampling from the original prompt instead of editing the broken answer
-#: in context; at most this many times per plan.  Measured 2026-09-02: 3-4 % of plan calls
-#: end this way, and both in-context re-asks reproduce the same broken plan verbatim.
 MAX_PLAN_RESTARTS = 1
-#: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
-#: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
-#: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —
-#: ``finish_reason=MAX_TOKENS``, no JSON, and the whole RUN dies at the plan stage.  This
-#: was measured, not guessed: the first live pass of this wave failed exactly there on both
-#: prompts.  Callers may raise the floor; this only ever raises it further.
 PLAN_TOKENS_PER_PART = 600
 PLAN_TOKENS_PER_LEAF = 400
-PLAN_TOKENS_MAX = 65_536   # the model's declared output ceiling
-#: one more attempt when the model truncates anyway, with half again as much room
+PLAN_TOKENS_MAX = 65_536
 TRUNCATION_GROWTH = 1.5
-#: retry budget (``ChatRequest.max_wait_s``) for one planner call — the owner's floor
-#: (2026-08-27): 15 minutes before a plan may be cut off.  For scale, the call itself is
-#: 13.7 s p50 / 32 s p90 / 76 s max (audit 2026-08-26 §2); the flat 300 s that once stood
-#: here is what killed grown re-asks (see the deadline-vs-answer block below).
 PLAN_MAX_WAIT_S = 900.0
-#: ...but a deadline must fit the ANSWER it asked for, or the tokens are billed and then
-#: thrown away on a timeout.  Measured over 395 real planner calls (2026-08-27): output
-#: runs at 145 tok/s p50 and 60 tok/s p10, and the largest answers seen were 32 k tokens
-#: in 152-199 s.  At the p10 rate a 32 k answer needs 532 s and a 65 k one 1 089 s, so the
-#: flat 300 s guaranteed a timeout the moment a re-ask grew the budget — which is exactly
-#: how art_med_tool_chest and fancy_bl_windsor_chair died at the planner (2026-08-27).
 PLAN_SLOW_TOKENS_PER_S = 60.0
 PLAN_WAIT_OVERHEAD_S = 60.0
 
 
-#: a retry after truncation may wait this much longer than the size rule says (the pro
-#: planner streams a 55k-token answer slower than PLAN_SLOW_TOKENS_PER_S, 2026-08-28)
 TRUNCATION_WAIT_SCALE = 1.5
 
 
 def plan_wait_s(tokens: int, guard: object | None = None, *, scale: float = 1.0) -> float:
-    """How long one planner call may take, given the answer size it asked for.
-
-    Never below :data:`PLAN_MAX_WAIT_S`, and clipped to the wall clock the run has left
-    (``BudgetGuard.timeout_s``) so a big plan cannot outlive its own run."""
+    """How long one planner call may take, given the answer size it asked for."""
     want = max(PLAN_MAX_WAIT_S, tokens / PLAN_SLOW_TOKENS_PER_S + PLAN_WAIT_OVERHEAD_S) * scale
     fn = getattr(guard, "timeout_s", None)
     return float(fn(want, floor_s=PLAN_MAX_WAIT_S)) if callable(fn) else want
@@ -691,11 +560,7 @@ _PLACEHOLDERS = {"string", "str", "name", "text", "..."}
 
 
 def _schema_echo(raw: dict[str, Any]) -> str:
-    """"" or what in ``raw`` is a JSON-schema placeholder (``"name": "string"``) rather than content.
-
-    compare_art_v4_pf0 (2026-08-28): flash answered a casement-window brief with a plan
-    whose joint was ``{"name": "string", "axis": [0, 0, 0], ...}`` and failed the zero-axis
-    validator three times; the re-ask echoed 'zero axis', which was not the problem."""
+    """"" or what in ``raw`` is a JSON-schema placeholder (``"name": "string"``) rather than content."""
     bad: list[str] = []
     if str(raw.get("object_name", "")).strip().lower() in _PLACEHOLDERS:
         bad.append("object_name")
@@ -707,11 +572,7 @@ def _schema_echo(raw: dict[str, Any]) -> str:
 
 
 def missing_link_names(raw: Any) -> list[str]:
-    """Link names the joints reference that ``parts`` does not define (snake-compared).
-
-    The one failure class measured on 200 plan calls (2026-09-02, both trees, 3-4 %): the
-    planner writes ONE top-level part and hangs every joint off links it never lists, then
-    reproduces that answer through both in-context re-asks."""
+    """Link names the joints reference that ``parts`` does not define (snake-compared)."""
     if not isinstance(raw, dict):
         return []
     parts = raw.get("parts")
@@ -747,17 +608,10 @@ def restart_note(raw: Any, missing: list[str], budget: PlanBudget) -> str:
 
 
 def restart_enabled() -> bool:
-    """Kill switch for the degenerate-plan restart (``C3D_PLAN_RESTART``, ON; docs/COST.md §30)."""
     return get_settings().plan_restart
 
 
-#: an invalid plan attempt is written here, so a run that DIES at the plan stage still says
-#: what the model wrote.  Pydantic truncates the offending value in its message, so the
-#: event log alone cannot answer "what did it actually write?" — the question every
-#: plan-stage failure class starts from (eval/docs/PAPER_WRITING.md §5.1).
 INVALID_PLAN_DIR = "stages/plan/invalid"
-#: bound per file: a plan is a few kB; anything larger is a runaway answer and the head of
-#: it is what says so
 MAX_INVALID_PLAN_BYTES = 200_000
 
 
@@ -773,21 +627,13 @@ def _record_invalid(ws: Workspace, attempt: int, raw: Any, text: str) -> None:
 
 
 def degenerate_plan(raw: Any, budget: PlanBudget) -> bool:
-    """A plan too small to be an attempt at this request: a third of the floor or less.
-
-    The quality complaint owns everything above that line — this is only the collapsed
-    answer (usually ONE top-level part) that the in-context re-ask reproduces instead of
-    fixing, which is why it is also the restart's trigger."""
+    """A plan too small to be an attempt at this request: a third of the floor or less."""
     parts = raw.get("parts") if isinstance(raw, dict) else None
     return isinstance(parts, list) and len(parts) <= max(2, budget.min_parts // 3)
 
 
 def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
-    """A second line for the validation re-ask when the invalid plan is also far too small.
-
-    compare_art_v4_pf0 (2026-08-28): flash answered an architect-lamp brief with ONE part
-    ("base") and a joint naming a link it never listed, three times in a row — the re-ask
-    only echoed the unknown-link error, so the model kept fixing the wrong thing."""
+    """A second line for the validation re-ask when the invalid plan is also far too small."""
     if not degenerate_plan(raw, budget):
         return ""
     parts = raw.get("parts")
@@ -799,18 +645,13 @@ def _truncated(exc: Exception) -> bool:
     """Did this model error mean 'the answer did not fit'?"""
     return "MAX_TOKENS" in str(exc)
 
-#: the planner's system-prompt template per (track, language); ``(track, None)`` is the track's
-#: default and the fallback for every language without a row of its own.  A scene_blender
-#: director reads the bpy twin: the same plan shape and frame (D12), the bpy library and the
-#: ``bpy`` asset kind instead of the three.js effects and ``threejs``.
 PLAN_TEMPLATES: dict[tuple[Track, Language | None], str] = {
     (Track.STATIC_OBJECT, None): "tracks/plan_static.j2",
     (Track.ARTICULATED_OBJECT, None): "tracks/plan_articulated.j2",
     (Track.SCENE, None): "tracks/plan_scene.j2",
     (Track.SCENE, Language.SCENE_BLENDER): "tracks/plan_scene_bpy.j2",
-    (Track.GRAPHICS, None): "tracks/plan_graphics.j2",   # no 3D frame: passes, uniforms, motion
+    (Track.GRAPHICS, None): "tracks/plan_graphics.j2",
 }
-#: the output-token floor ``plan_tokens`` grows from; a graphics plan starts at the model's ceiling
 PLAN_OUTPUT_FLOOR = 24_000
 
 
@@ -820,16 +661,14 @@ def plan_template(track: Track, language: Language | None = None) -> str:
 
 
 def plan_schema(spec: Spec, plan_model: type[BaseModel]) -> dict[str, Any]:
-    """The response schema the planner call carries: a scene's names the asset kinds of ITS
-    language (``scene_plan_schema``); every other plan is its model's schema as is."""
+    """The response schema the planner call carries: a scene's names the asset kinds of ITS"""
     if issubclass(plan_model, ScenePlan):
         return scene_plan_schema(spec.language)
     return plan_model.model_json_schema()
 
 
 def plan_temperature(track: Track) -> float:
-    """What the planner samples at: 0.5 for a shader brief, 0.4 for everything else.  THE value —
-    ``record/telemetry`` reports this function, not a default it guesses."""
+    """The planner sampling temperature: 0.5 for a shader brief, 0.4 otherwise."""
     return 0.5 if track is Track.GRAPHICS else 0.4
 
 
@@ -845,8 +684,6 @@ def plan_event_stats(plan_obj: Any) -> dict[str, Any]:
     parts = getattr(plan_obj, "parts", []) or []
     return {"n_parts": len(parts),
             "n_zones": len(getattr(plan_obj, "zones", []) or []),
-            # depth, so the flywheel can tell a 10-part plan of boxes from a 10-part plan of
-            # assemblies without re-reading plan.json
             "n_nested_parts": sum(1 for p in parts if getattr(p, "children", None)),
             "n_subparts": sum(len(getattr(p, "children", None) or []) for p in parts),
             "n_leaves": getattr(plan_obj, "leaf_count", len(parts)),
@@ -855,27 +692,7 @@ def plan_event_stats(plan_obj: Any) -> dict[str, Any]:
 
 def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
          events: Any | None = None, budget: Any | None = None) -> P:
-    """Plan and write ``ws.plan_path``: optional brief expansion → one structured planner
-    call → re-asks (schema, quality, a degenerate-plan restart).  ``model`` may be injected (tests).
-    Everything that differs per track is looked up from ``spec.track`` (module docstring);
-    the validated plan is finalised by ``ensure_acceptance(normalise_names(...))``.
-
-    The two re-asks have SEPARATE budgets and different complaints:
-    ``MAX_VALIDATION_REASKS`` for a plan the schema rejects, ``MAX_QUALITY_REASKS`` for a
-    plan that validates but is boxes-at-different-sizes against the derived budget
-    (:func:`plan_quality_complaint`).  A quality re-ask never eats
-    the validation re-ask, and a plan that fails quality twice is still USED — a mediocre
-    plan beats no plan.
-
-    Output room comes from :func:`plan_tokens` (the budget sizes it), and a
-    ``finish_reason=MAX_TOKENS`` error buys ONE more attempt with half again as much room
-    instead of killing the run — the deeper plan is longer JSON and Gemini bills thinking
-    against the same ceiling.
-
-    ``budget`` (the run's ``BudgetGuard``; ``guard`` below, because ``budget`` becomes this
-    request's PlanBudget) only clips each call's wait to the clock left; every call is a
-    ledger row of its own (the metered model), so success, ``PlanningError`` and a crash on
-    a LATER attempt all leave the earlier dollars on the ledger."""
+    """Plan and write ``ws.plan_path``: optional brief expansion → one structured planner"""
     guard = budget
     events = NULL_EVENTS if events is None else events
     if model is None:
@@ -896,8 +713,6 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     tokens = plan_tokens(budget, PLAN_TOKENS_MAX if spec.track is Track.GRAPHICS else PLAN_OUTPUT_FLOOR)
     thinking = "medium"
     wait_scale = 1.0
-    # 4 = the first call + truncation retries; it was 2 + the geometry re-ask's 2 (D49, code
-    # removed 2026-09-21) — the total is kept so a default run has the attempts it always had
     for attempt in range(4 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_PLAN_RESTARTS):
         req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=plan_temperature(spec.track),
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
@@ -906,14 +721,10 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
             resp = model.generate(req)
         except Exception as e:  # noqa: BLE001 — a truncated plan is retryable; anything else is not
             if not (_truncated(e) and tokens < PLAN_TOKENS_MAX):
-                raise  # not a truncation, or already at the model ceiling: nothing to grow
+                raise
             grown += 1
             tokens = min(PLAN_TOKENS_MAX, int(tokens * TRUNCATION_GROWTH))
-            # A bigger budget alone does not help when thinking ate the last one: with the pro
-            # planner a 55k-token retry ran ~16 min into the provider's deadline (504) and the
-            # cell was lost (compare_art_v4_pp, 2026-08-28).  Retry with low thinking and a
-            # compact-answer note on the last user turn.
-            thinking = "off"  # "low" still streamed past a 990 s attempt budget on 2 of 6 pro cells
+            thinking = "off"
             wait_scale = TRUNCATION_WAIT_SCALE
             messages = messages[:-1] + [_with_note(messages[-1], TRUNCATION_NOTE.format(tokens=tokens))]
             events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)
@@ -921,7 +732,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         usage = usage + resp.usage
         try:
             raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
-        except ValueError:  # JsonParseError: nothing parsed — the re-ask below says so
+        except ValueError:
             raw = None
         try:
             if not isinstance(raw, dict):
@@ -936,23 +747,11 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
             _record_invalid(ws, attempt, raw, resp.text)
             events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
             missing = missing_link_names(raw)
-            # The measured class is BOTH conditions: a collapsed plan (one top-level part)
-            # whose joints name links it never listed.  A full plan with one misspelled
-            # link is the re-ask's job — restarting throws away parts that were right.
             if (missing and degenerate_plan(raw, budget)
                     and restarts < MAX_PLAN_RESTARTS and restart_enabled()):
-                # Editing a degenerate answer in context reproduces it: the model reads its
-                # own one-part plan and returns it again (measured, both re-asks, 2026-09-02).
-                # Re-sample from the original request instead, with the rule it broke.  This
-                # replaces the conversation rather than extending it, so it spends an
-                # ATTEMPT, not one of the two re-ask slots the next invalid answer needs.
                 restarts += 1
                 events.emit("plan.restart", attempt=attempt, n_parts=len(raw.get("parts") or []),
                             missing=missing[:10])
-                # rebuilt from the ORIGINAL request, so a compact-answer note an earlier
-                # truncation retry added is rebuilt with it: this attempt keeps that
-                # retry's smaller `tokens` and thinking="off", and dropping the note
-                # while keeping the budget asks for the answer that did not fit.
                 note = TRUNCATION_NOTE.format(tokens=tokens) if thinking == "off" else ""
                 messages = base_messages[:-1] + [
                     ChatMessage.user(base_messages[-1].text + restart_note(raw, missing, budget) + note,
@@ -997,7 +796,7 @@ def _echo(raw: Any, text: str) -> ChatMessage:
 # ----------------------------------------------------------------------------- prompts
 #: the ``## `` headings of a scene contract the PLANNER acts on: it writes JSON, so it reads the
 #: files the builders will own and what is measured on them — not the assembler wiring, the shader
-#: loading or the worked modules (the copyability review of 2026-10-15: +38 % on the planner brief)
+#: loading or the worked modules.
 PLANNER_CONTRACT_SECTIONS: dict[Language, tuple[str, ...]] = {
     Language.SCENE_THREEJS: ("Files", "createScene return value", "What is measured", "Naming"),
     Language.SCENE_BLENDER: ("Files", "Frame and units", "What the renderer does", "Motion", "Naming", "Placement",
@@ -1006,8 +805,6 @@ PLANNER_CONTRACT_SECTIONS: dict[Language, tuple[str, ...]] = {
 
 
 def planner_contract(lang: Language) -> str:
-    """The contract text a planner of ``lang`` reads: the scene languages' measured sections only,
-    every other language's contract whole."""
     text = language_text(lang, "contract.md")
     headings = PLANNER_CONTRACT_SECTIONS.get(lang)
     return contract_sections(text, headings) if headings else text
@@ -1036,7 +833,7 @@ def build_user_prompt(spec: Spec, *, brief: Any | None = None, budget: PlanBudge
     block = brief_block(brief)
     if block:
         lines += ["", block]
-    if spec.track is not Track.SCENE:   # a scene is planned in zones + assets, not parts
+    if spec.track is not Track.SCENE:
         lines += ["", budget_block(budget or plan_budget(spec), unit=unit)]
     if spec.references:
         lines += ["", f"REFERENCE IMAGES: {len(spec.references)} attached — match their shape, proportions and visible details; "
@@ -1048,8 +845,7 @@ def build_user_prompt(spec: Spec, *, brief: Any | None = None, budget: PlanBudge
 # ----------------------------------------------------------------------------- deterministic acceptance
 def add_acceptance_item(items: list[AcceptanceItem], prefix: str, text: str, how: str, *,
                         priority: str = "must") -> None:
-    """Append a framework-derived acceptance item (*must* unless told otherwise) unless an
-    item with the same text exists; the id is ``<prefix><N>`` with N chosen to be unique."""
+    """Append a framework-derived acceptance item (*must* unless told otherwise) unless an"""
     if text.strip().lower() in {a.text.strip().lower() for a in items}:
         return
     ids = {a.id for a in items}
@@ -1060,19 +856,7 @@ def add_acceptance_item(items: list[AcceptanceItem], prefix: str, text: str, how
 
 
 def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
-    """Append acceptance items derived from the spec constraints when missing.
-
-    A *must* item that the judge cannot verify caps the score (``missing_must_acceptance``)
-    AND fails the run outright, so only the items the harness can hold the builder to may
-    carry that priority.  On the SCENE track the planner writes its own checklist before
-    the scene exists ("the parapet is 1.05 m high", "the gorge reads 200 m
-    deep") and there is no measurement pass to settle them — a flash planner's private
-    wishes were capping finished scenes at 0.60.  The spec's ``must_have`` list is the
-    contract with the user, so on that track the plan's own items stay on the checklist as
-    ``should`` (the judge still answers them, the refine loop still reads them) and only the
-    spec-derived items keep ``must``.  A shader has no size, triangle count or ground: the graphics
-    track gets the spec's checklist and, when the plan animates, one probe item that the frames
-    change (never 'ground contact')."""
+    """Append acceptance items derived from the spec constraints when missing."""
     items: list[AcceptanceItem] = list(plan_obj.acceptance)
     if spec.track is Track.SCENE:
         items = [a if a.priority == "should" else a.model_copy(update={"priority": "should"}) for a in items]
@@ -1097,11 +881,7 @@ def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
 
 
 def articulation_acceptance(plan_obj: Any, items: list[AcceptanceItem]) -> list[AcceptanceItem]:
-    """One ``articulation`` item per moving joint the planner's own checklist does not cover
-    (2026-08-28, phase 4 item 6): the judge reads the pose sheet — rest, lower, upper — so the
-    plan's rest-pose and motion statements become questions it answers per joint instead of
-    prose it may skip.  ``should`` priority: an unverified item steers the refine loop's
-    judge tasks but never fails the run (a *must* the judge cannot verify does)."""
+    """One ``articulation`` item per moving joint the planner's own checklist does not cover"""
     joints = [j for j in (getattr(plan_obj, "joints", None) or []) if j.type != "fixed"]
     if not joints:
         return []
@@ -1124,8 +904,7 @@ def articulation_acceptance(plan_obj: Any, items: list[AcceptanceItem]) -> list[
 
 
 def normalise_names[P: BaseModel](plan_obj: P) -> P:
-    """PascalCase part/link/zone/asset names in place — prompts ask for it; code guarantees it.
-    Normalisation keeps the snake key, so validated uniqueness/tree properties are preserved."""
+    """PascalCase part/link/zone/asset names in place — prompts ask for it; code guarantees it."""
     for attr in ("parts", "zones", "assets"):
         for item in getattr(plan_obj, attr, None) or []:
             item.name = to_pascal(item.name)

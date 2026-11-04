@@ -1,8 +1,4 @@
-"""Shared plumbing for the spatial tools: context lookups, render-output caching and
-plan/spec loading.
-
-Tools never touch globals: everything flows through :class:`ToolContext`.
-"""
+"""Shared plumbing for the spatial tools: context lookups, render-output caching and plan/spec loading."""
 
 from __future__ import annotations
 
@@ -60,22 +56,12 @@ def reference_path(ctx: ToolContext, index: int) -> tuple[Path, dict]:
 
 
 def glb_path(ctx: ToolContext) -> Path:
-    """``artifacts/object.glb``, refusing when the LATEST build did not produce it.
-
-    Bare ``is_file()`` let every consumer (measure / render_views / compare /
-    texture tools) operate on the previous round's geometry as if it were current
-    after a failed or lint-blocked build."""
+    """``artifacts/object.glb``, refusing when the latest build failed (a stale GLB must not read as current)."""
     p = ctx.workspace.artifacts / "object.glb"
-    # build.json is THE build status: every runtime publishes its final BuildResult there and
-    # a lint refusal writes one too; unreadable/absent stays permissive (a GLB placed by hand)
+    # build.json is the build status; unreadable/absent stays permissive (a GLB placed by hand)
     status = read_json_or_none(ctx.workspace.artifacts / "build.json")
-    # status FIRST: a failed build publishes nothing, so the file is missing for a
-    # reason the agent needs — it was told "run build first" right after its build
-    # failed on RestPenetration and spent the rest of its turns looking for the
-    # wrong problem (measured 2026-08-27, art_med_tool_chest).
+    # check status first: a failed build leaves no file, and the agent needs that reason
     if status is not None and not status.get("ok"):
-        # BuildResult serialises error_message, not "error" — reading the wrong key cost
-        # the agent the message and left only the type (found by review 2026-08-28)
         why = str(status.get("error_message") or status.get("error_type") or "see the build output")
         raise ToolUsageError(
             f"the last build FAILED ({why[:200]}) — there is no current object.glb to read. "
@@ -107,8 +93,7 @@ def load_plan(path: Path) -> Plan:
 
 
 def plan_or_none(path: Path) -> Plan | None:
-    """:func:`load_plan` for a caller with defaults: ``None`` when plan.json is absent,
-    unreadable or not a valid plan (the runtimes: resolution, skeleton hints)."""
+    """:func:`load_plan`, or ``None`` when plan.json is absent or invalid."""
     try:
         return load_plan(path)
     except (ToolUsageError, OSError, ValueError, TypeError):
@@ -142,9 +127,7 @@ def _file_stamp(p: Path) -> str:
 
 
 def tool_out_dir(ctx: ToolContext, name: str) -> Path:
-    """``artifacts/tool_renders/r<NN>_<name>`` (created) — THE output location for
-    anything a tool renders/writes for the agent, so every tool artifact is
-    round-stamped and lands in one place."""
+    """``artifacts/tool_renders/r<NN>_<name>`` (created): the round-stamped output dir for tool artifacts."""
     d = ctx.workspace.artifacts / "tool_renders" / f"r{ctx.round_index:02d}_{name}"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -167,16 +150,7 @@ def cached_render_glb(
     explode: float = 0.0,
     sheet: bool = True,
 ) -> RenderSet:
-    """``render_glb`` into a deterministic per-call out_dir; the CACHE lives in
-    ``spatial.render``, which is the only thing allowed to decide a PNG is still good.
-
-    This used to keep a second ``renderset.json`` marker here, keyed on the GLB's
-    size+mtime alone.  It served stale views whenever a rebuild landed on the same
-    size and mtime, ignored a rig edit / CACHE_VERSION bump entirely, and — because the
-    marker stores absolute paths — a copied workspace returned views inside the ORIGINAL
-    one.  ``render_glb``'s key (sha256 of the GLB + CACHE_VERSION + the rig signature)
-    has none of those holes, so one authority is both cheaper and correct.
-    """
+    """``render_glb`` into a deterministic per-call out_dir; the pixel cache lives only in ``spatial.render``."""
     # resolved at call time: tests patch the module attribute
     from codeverse3d.spatial.render import render_glb
 
@@ -190,11 +164,7 @@ def cached_render_glb(
 def gl_metrics_summary(ws: Workspace, *, hints: bool = True, root: Path | None = None) -> tuple[list[str], dict[str, Any], bool]:
     """Frame stats + ``gl_frames`` findings of a graphics build as (lines, numbers, ok).
 
-    Reads ``artifacts/metrics.json`` through ``languages._gl_common.read_metrics``
-    — the one reader — and formats it the same way for every caller (the ``build``
-    tool, ``gl_probe`` and ``gl_frames``).  ``hints`` appends each finding's fix
-    hint; ``root`` sanitises workspace paths out of the messages.  Returns
-    ``(["(no frame metrics)"], {}, True)`` when the build wrote none.
+    ``hints`` appends fix hints; ``root`` strips workspace paths.  ``(["(no frame metrics)"], {}, True)`` when none.
     """
     from codeverse3d.languages._gl_common import read_metrics
     from codeverse3d.spatial.observe import sanitize_text

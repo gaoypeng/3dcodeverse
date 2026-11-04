@@ -1,19 +1,7 @@
-"""Shared helpers for the language runtimes — the wrapper build of the python ones
-(blender, cadquery, urdf), and the finding locations and typed failure names every lint uses.
+"""Shared helpers for the language runtimes: the python wrapper build (blender, cadquery, urdf),
+finding locations and the typed failure names every lint uses.
 
-The python runtimes execute a *wrapper script* in a subprocess (Blender's python or the
-harness python).  The wrapper writes ``artifacts/build.json`` (+ ``census.json``)
-and the runtime turns those into a :class:`BuildResult`.  This module owns:
-
-* :func:`run_wrapper_build` — the blender / cadquery build: invalidate, missing entry,
-  wrapper subprocess, then :func:`compose_build_result`;
-* :func:`compose_build_result` — wrapper json + process outcome → BuildResult,
-  failing loud when the wrapper did not report, published as ``build.json``;
-* :func:`read_json_file` / :func:`strip_blender_noise`;
-* :func:`line_of` / :func:`ws_rel` — the lints' finding locations.
-
-Wrappers themselves are standalone scripts in ``languages/wrappers/`` (they never
-import ``codeverse3d``; Blender's bundled python cannot see this package).
+Wrappers are standalone scripts in ``languages/wrappers/``; they never import ``codeverse3d``.
 """
 
 from __future__ import annotations
@@ -28,9 +16,7 @@ from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.proc import ProcResult, read_json_or_none, run_subprocess, tail, write_json_atomic
 from codeverse3d.workspace import Workspace
 
-#: The one spelling of every runtime's typed build failures — recorded in build.json /
-#: record.json / bench cells, so the strings stay as first recorded (2026-08-29: threejs,
-#: urdf said "Timeout" and the GL runtimes "MissingEntry"; nothing keyed on either).
+#: The one spelling of every runtime's typed build failures (recorded in build.json / record.json).
 MISSING_ENTRY = "MissingEntryFile"
 BUILD_TIMEOUT = "BuildTimeout"
 
@@ -111,11 +97,7 @@ def read_json_file(path: Path) -> dict[str, Any]:
 
 
 def missing_entry(ws: Workspace, language: Language, *, write: bool = True) -> BuildResult | None:
-    """The one "entry file missing" check every runtime's ``build`` makes after wiping its
-    outputs: a typed ``MISSING_ENTRY`` failure (published as ``build.json`` unless ``write``
-    is off) when ``ENTRY_FILE[language]`` is absent, else ``None``.  Until 2026-09-24 five
-    checks gave three outcomes: urdf a ``LintError``, and a scene with no ``scene.js`` a
-    ``scene_probe`` harness failure that no repair was ever asked to fix."""
+    """Typed ``MISSING_ENTRY`` failure (published as ``build.json`` unless ``write`` is off) when the entry file is absent, else ``None``."""
     entry = ENTRY_FILE[language]
     if (ws.root / entry).is_file():
         return None
@@ -129,11 +111,9 @@ def missing_entry(ws: Workspace, language: Language, *, write: bool = True) -> B
 def run_wrapper_build(ws: Workspace, *, language: Language, extras: Mapping[str, str],
                       argv: Callable[[], list[str]], env: dict[str, str], timeout_s: float,
                       output_filter: Callable[[str], str] | None = None) -> BuildResult:
-    """Run a python wrapper build; ``extras`` maps a ``BuildResult.extra_paths`` key to its
-    artifact file name.  The outputs are invalidated BEFORE the missing-entry early return
-    (a deleted model.py must not leave the previous round's object.glb + build.json
-    (ok: true) looking current), and ``argv`` is called only after that check, so a
-    missing Blender binary raises where it always did."""
+    """Run a python wrapper build; ``extras`` maps a ``BuildResult.extra_paths`` key to its artifact file name.
+
+    Outputs are invalidated before the missing-entry return so a stale glb never looks current."""
     ws.artifacts.mkdir(parents=True, exist_ok=True)
     build_json = ws.artifacts / "build.json"
     ws.stage_artifacts("build.json", "census.json", "object.glb", *extras.values()).invalidate()
@@ -156,17 +136,10 @@ def compose_build_result(
     output_filter: Callable[[str], str] | None = None,
     publish: bool = True,
 ) -> BuildResult:
-    """Merge the wrapper's ``build.json`` with the process outcome, and write the result
-    over it: ``build.json`` is always the BuildResult, the one status file the tools read.
+    """Merge the wrapper's ``build.json`` with the process outcome and write the result over it.
 
-    Contract: success requires the wrapper to say ``ok`` AND — for a build that has one
-    (``glb_path``) — a non-empty GLB on disk.  Timeouts / crashes before ``build.json``
-    exists become a failed BuildResult with a typed error (``BUILD_TIMEOUT`` /
-    ``WrapperCrash``) — never an exception — so the orchestrator can route them to repair.
-    The wrapper's own diagnostics (traceback, warnings, exports …) land in
-    ``census["build_report"]``.  ``publish=False`` leaves ``build_json`` as the wrapper wrote it
-    (a runtime that finishes the build itself — scene_blender probes the census GLB next).
-    """
+    Success requires wrapper ``ok`` and, when ``glb_path`` is set, a non-empty GLB.  Timeouts and
+    crashes become a failed BuildResult.  ``publish=False`` leaves ``build_json`` as the wrapper wrote it."""
     stdout_tail = tail(output_filter(proc.stdout) if output_filter else proc.stdout)
     stderr_tail = tail(output_filter(proc.stderr) if output_filter else proc.stderr)
     base = dict(language=language, stdout_tail=stdout_tail, stderr_tail=stderr_tail, duration_ms=proc.duration_ms)

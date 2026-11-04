@@ -1,19 +1,4 @@
-"""Caption one finished run: ``{detailed, instruction, factory}`` (STORAGE_RULES §6).
-
-* ``detailed``     image-grounded, objective description of what was rendered
-  (parts, materials, proportions; motion / animation for articulated + scenes).
-* ``instruction``  one natural user request that asks for this as code and names
-  the target language generically ("a Blender Python script", "a Three.js scene").
-* ``factory``      code-grounded build recipe: parts + construction order + techniques.
-
-Rules enforced in code: strict JSON schema, no API/class names, no brand names,
-each field non-empty.  Captions are stored in ``record.extra["captions"]`` (with
-provenance) and ``<ws>/captions.json``; the run is re-packaged (deliverable/ +
-telemetry/ + ``record.json``, so the priced captioner call reaches the run's
-ledger and ``deliverable/captions.json`` exists) — or, with
-``out_dir`` (read-only runs), written as a side-car ``<out_dir>/<slug>.json`` that
-``export_samples(captions_dir=...)`` picks up.
-"""
+"""Caption one finished run: ``{detailed, instruction, factory}``."""
 
 from __future__ import annotations
 
@@ -36,11 +21,8 @@ from codeverse3d.workspace import Workspace
 
 MAX_CODE_CHARS = 12_000
 N_VIEWS = 2
-#: view-name fragments that show motion (articulated track) — shown to the captioner first
 MOTION_VIEW_HINTS = ("articulation", "pose_")
 
-#: how the instruction must name the target (generic, no API names), and the word that must
-#: appear in it (lower case)
 LANGUAGE_PHRASE: dict[Language, tuple[str, str]] = {
     Language.BLENDER: ("a Blender Python script", "blender"),
     Language.CADQUERY: ("a CadQuery script", "cadquery"),
@@ -51,15 +33,12 @@ LANGUAGE_PHRASE: dict[Language, tuple[str, str]] = {
     Language.GLSL_SHADER: ("a GLSL fragment shader", "glsl"),
     Language.OPENGL_PYTHON: ("an OpenGL Python program", "opengl"),
 }
-#: leaked API / platform tokens that must not appear in any caption.  NOTE:
-#: ``THREE.`` (the API namespace) is checked case-sensitively below — the
-#: platform name "Three.js" is REQUIRED in threejs instructions and must not trip it.
+#: leaked API / platform tokens banned from captions; ``THREE.`` is checked case-sensitively because "Three.js" is required.
 _FORBIDDEN = re.compile(
     r"\b(bpy|bmesh|mathutils|cq\.|cadquery\.|GLTFLoader|ShaderMaterial|MeshStandardMaterial|"
     r"Workplane|moderngl|Shadertoy|Sketchfab|Gemini|Claude|OpenAI|GPT|Antigravity)\b",
     re.IGNORECASE,
 )
-#: all-caps ``THREE.<Symbol>`` namespace usage (case-sensitive; "Three.js" / "THREE.js" stay legal)
 _FORBIDDEN_THREE_NS = re.compile(r"\bTHREE\.(?!js\b)")
 
 
@@ -143,7 +122,6 @@ def _user_prompt(record: RunRecord, code: str) -> str:
 
 
 def validate_captions(caps: Captions, language: Language) -> list[str]:
-    """Rule violations (empty list = ok)."""
     problems = []
     for field in ("detailed", "instruction", "factory"):
         m = _FORBIDDEN.search(getattr(caps, field)) or _FORBIDDEN_THREE_NS.search(getattr(caps, field))
@@ -159,15 +137,6 @@ def caption_sample(
     ws: Workspace, record: RunRecord, model_id: str, *, model: object | None = None,
     out_dir: Path | str | None = None, slug: str | None = None
 ) -> Captions:
-    """Caption the round of ``record`` a sample is made of (``sample.exported_round``).
-
-    Default: store into ``record.extra["captions"]`` + ``<ws>/captions.json`` and
-    refresh what a caption changes: telemetry/ (``package_run``), ``record.json``, and
-    ``deliverable/`` when a round has been packaged (it carries captions.json).  With ``out_dir`` the workspace is left untouched and
-    ``<out_dir>/<slug>.json`` (captions + provenance) is written instead — ``slug``
-    should be the run's :class:`~codeverse3d.contracts.run.RunId` slug; without one the
-    side-car falls back to the directory basename (flat layouts only: every nested
-    battery run is named ``run`` and the side-cars would overwrite each other)."""
     if model is None:
         model = get_chat_model(model_id)
     images, used = _round_images(ws, record)
@@ -185,7 +154,7 @@ def caption_sample(
         resp = model.generate(ChatRequest(messages=messages, system=system, response_schema=schema,
                                           temperature=0.3, thinking="low", max_wait_s=900.0, label="captioner"))  # type: ignore[attr-defined]
         cost += resp.usage.cost_usd
-        data = resp.parsed  # the adapters parse against response_schema (leniently) or raise
+        data = resp.parsed
         try:
             caps = Captions.model_validate(data)
         except Exception as e:
@@ -211,10 +180,10 @@ def caption_sample(
     from codeverse3d.record.record import package_run
 
     ws.write_json(ws.root / "captions.json", payload)
-    package_run(ws, record)  # cost.json goes stale otherwise
+    package_run(ws, record)
     ws.write_json(ws.record_path, record)
     handed = load_deliverable(ws)
-    if handed is not None and handed.round is not None:  # ... and the hand-over's captions.json + manifest
+    if handed is not None and handed.round is not None:
         build_deliverable(ws, record, handed.round)
     return caps
 

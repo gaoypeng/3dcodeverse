@@ -1,15 +1,7 @@
 """Append-only cost ledger: one JSONL row per model / agent call.
 
-Writer (``record_call``) — callers hand it the ``Usage`` they already have; the
-ledger resolves the price row, records the unit prices it used and their
-provenance, and appends one line.  It never raises and never blocks a run:
-accounting must not be able to fail a build.
-
-Reader (``load_ledger``) tolerates rows written by older/newer versions
-(unknown fields are kept, missing fields default).
-
-Aggregator (``summarise``) buckets rows by any of ``run / stage / role /
-backend / model / provider / round / outcome``.
+``record_call`` prices and appends a row (never raises); ``load_ledger`` reads rows back
+tolerantly; ``summarise`` buckets them by dimension.
 """
 
 from __future__ import annotations
@@ -47,18 +39,13 @@ from codeverse3d.proc import iter_jsonl_lines
 
 log = logging.getLogger(__name__)
 
-#: the ledger of a run lives in its telemetry bucket (``<run>/telemetry/``) — the
-#: one name it has: the root ``cost_ledger.jsonl`` and ``telemetry/usage.jsonl`` aliases went
-#: on 2026-09-22 (runs written before keep them as dangling-safe symlinks nobody reads)
+#: a run's ledger lives in ``<run>/telemetry/``
 TELEMETRY_DIR = "telemetry"
 TELEMETRY_LEDGER = f"{TELEMETRY_DIR}/cost.jsonl"
 
 DIMENSIONS = ("run", "stage", "role", "backend", "model", "provider", "round", "outcome")
 
-#: backends that bill us themselves (a subscription CLI reporting ``total_cost_usd``).
-#: Their dollar is authoritative and their reported model id is not — claude-code
-#: names one of the served models, not the one that did the work — so these rows
-#: are never re-priced from the token table.
+#: backends that report their own cost: authoritative, so never re-priced from the token table
 PROVIDER_PRICED_BACKENDS = frozenset({"claude-code"})
 
 
@@ -86,19 +73,13 @@ _fallback: CostLedger | None = None
 
 #: sentinel: "this execution context did not state a ledger"
 _UNSET: Any = object()
-#: context-local override of the default ledger.  Context-local ONLY, like
-#: ``codeverse3d.cost.context._run_var``: a bench worker running its own prompt in its
-#: own thread must not have its rows land in a sibling run's file, and a process-wide
-#: copy of it could not unwind correctly when two runs overlap (2026-08-30).
+#: context-local ONLY override of the default ledger, so parallel runs never share a file
 _default_var: ContextVar[Any] = ContextVar("c3d_cost_default_ledger", default=_UNSET)
 
 
 @contextmanager
 def bound_ledger(path: str | Path) -> Iterator[CostLedger]:
-    """Point :func:`record_call` at ``path`` for the duration of the block.
-
-    Unwinds with the ``ContextVar`` token, so nested and parallel blocks each undo
-    exactly their own binding."""
+    """Point :func:`record_call` at ``path`` for the block."""
     led = CostLedger(path)
     token = _default_var.set(led)
     try:
@@ -108,13 +89,8 @@ def bound_ledger(path: str | Path) -> Iterator[CostLedger]:
 
 
 def default_ledger() -> CostLedger:
-    """The ledger :func:`record_call` writes to when no ``ledger=`` is given: whatever
-    :func:`bound_ledger` bound here, else the per-process fallback log
-    (:func:`process_ledger_path`), so a call made outside any run — ``3dcode judge``, a
-    bench script, a notebook — is still accounted for.  There is no off switch: the
-    ledger is the only record of money (``C3D_COST_LEDGER``, which read ``off`` or a path —
-    and, as a Settings field, made every command die on anything but a boolean — went
-    2026-09-22)."""
+    """The ledger :func:`record_call` writes to: the bound one, else the per-process fallback
+    log, so a call outside any run is still accounted for.  There is no off switch."""
     global _fallback
     led = _default_var.get()
     if led is not _UNSET:
@@ -126,9 +102,7 @@ def default_ledger() -> CostLedger:
 
 
 def process_ledger_path() -> Path:
-    """The fallback log for calls made with no run context: one file per process
-    under ``<cache_dir>/cost/``.  Never inside a run directory, so it can never be
-    mistaken for a run's own ledger."""
+    """The fallback log for calls with no run context: one file per process under ``<cache_dir>/cost/``."""
     from codeverse3d.config import get_settings
 
     base = Path(get_settings().cache_dir)
@@ -137,22 +111,17 @@ def process_ledger_path() -> Path:
 
 
 def existing_ledger_path(workspace: str | Path) -> Path | None:
-    """The ledger file a run actually has, or ``None``: ``telemetry/cost.jsonl``, the only one
-    read (a walk of every run under ``$HOME`` on 2026-08-30 found 677 root ``cost_ledger.jsonl``
-    files, every one a symlink to it)."""
+    """The run's ``telemetry/cost.jsonl`` if it exists, else ``None``."""
     p = Path(workspace) / TELEMETRY_LEDGER
     return p if p.is_file() else None
 
 
 def open_run_ledger(workspace: str | Path) -> CostLedger:
-    """The run's ledger, ``telemetry/cost.jsonl``, ready to append to (the file is created by
-    its first row)."""
+    """The run's ledger (the file is created by its first row)."""
     return CostLedger(Path(workspace) / TELEMETRY_LEDGER)
 
 
-#: context._stage is the same function; ledger already imports from context.  NOT true
-#: of the neighbouring _as_role — that one returns Role.OTHER where context._role returns
-#: None, and Role.OTHER is truthy, so it survives CallContext.resolved().
+#: ``_as_role`` differs from ``context._role``: it returns Role.OTHER (truthy) where that returns None.
 _as_stage = _stage
 
 
@@ -175,10 +144,7 @@ def price_call(
 ) -> tuple[float, dict[str, Any]]:
     """``(cost_usd, price fields)`` for one call.
 
-    ``reprice=False`` keeps the cost the caller already computed (that is what
-    was actually billed at the time) and only *records* which price row would
-    explain it; ``reprice=True`` recomputes from the current table — how a cost
-    audit re-values an old run."""
+    ``reprice=False`` keeps the caller's cost and only records the price row; ``True`` recomputes it."""
     prov_model = model or usage.model
     kind, provider, name = normalise_ids(backend or usage.backend, prov_model)
     row = price_provenance(provider, name)
@@ -232,21 +198,10 @@ def record_call(
     tallies: tuple[Tally, ...] | None = None,
     **extra: Any,
 ) -> CallCost:
-    """Append one priced call to the ledger, book it into the open tallies
-    (``cost.tally`` — or ``tallies``, captured by a caller whose row lands later in a
-    thread with no context), and return the row.
+    """Append one priced call to the ledger, book it into the open tallies (or ``tallies``), return the row.
 
-    Callers pass the ``Usage`` they already hold::
-
-        from codeverse3d.cost import record_call
-        record_call(res.usage, run=ws.slug, round=idx, stage="baseline",
-                    role="generator", ledger=ws.root / "telemetry" / "cost.jsonl")
-
-    Anything the caller leaves out (``run`` / ``round`` / ``stage`` / ``role``) is
-    resolved from the ambient run context and the call label — see
-    :mod:`codeverse3d.cost.context`.
-
-    Never raises: a failure to account is logged, not propagated."""
+    Unstated ``run`` / ``round`` / ``stage`` / ``role`` resolve from the ambient context and label.
+    Never raises."""
     u = usage or Usage()
     ctx = attribute(CallContext(run=run, round=round, stage=_as_stage(stage), role=_as_role(role),
                                 label=label), label=label)
@@ -291,12 +246,7 @@ def record_call(
 
 
 def load_ledger(path: str | Path) -> list[CallCost]:
-    """Read a ledger file, or a run directory holding one (``telemetry/cost.jsonl``).
-    Bad lines are skipped with a debug log — a truncated last line never loses the
-    rest of the file.
-
-    Paid-but-discarded round-trips are ``source="extra"`` rows and always count: nothing
-    else records them."""
+    """Read a ledger file, or a run directory holding one; bad lines are skipped."""
     p = Path(path)
     if p.is_dir():
         found = existing_ledger_path(p)
@@ -322,8 +272,7 @@ def _key(row: CallCost, dim: str) -> str:
 
 
 def ledger_usage(rows: Iterable[CallCost]) -> Usage:
-    """The money and tokens of ``rows`` as one ``Usage`` — how a run's ``total_usage`` is read
-    off its ledger (list price)."""
+    """The money and tokens of ``rows`` as one ``Usage`` (list price)."""
     t = summarise(rows, dimensions=()).total
     return Usage(input_tokens=t.input_tokens, output_tokens=t.output_tokens, cached_tokens=t.cached_tokens,
                  thoughts_tokens=t.thoughts_tokens, tool_calls=t.tool_calls, cost_usd=t.cost_usd,
@@ -331,8 +280,7 @@ def ledger_usage(rows: Iterable[CallCost]) -> Usage:
 
 
 def summarise(rows: Iterable[CallCost], *, dimensions: Sequence[str] = DIMENSIONS) -> Summary:
-    """Total + per-dimension buckets.  ``dimensions`` may name any scalar field
-    of :class:`CallCost` (defaults to :data:`DIMENSIONS`)."""
+    """Total + per-dimension buckets (``dimensions`` may name any scalar ``CallCost`` field)."""
     out = Summary()
     for row in rows:
         out.total.add(row)

@@ -30,13 +30,8 @@ class ChatModel(Protocol):
 
 
 class ModelError(RuntimeError):
-    """A model call failed.  ``attempts`` is how many round-trips the retry machine
-    issued before giving up (0 = unknown / not a retried call); the cost ledger
-    records it on the error row (``docs/COST.md`` §24).  ``usage`` is what the
-    provider ALREADY billed for the failed call — a bad-JSON reply is charged like
-    a good one — so the ledger and the key pool's TPM accounting can see real
-    consumption instead of assuming a failure was free (mirrors
-    ``tracks.planner.PlanningError.usage``); empty when nothing was billed."""
+    """A model call failed.  ``attempts`` = round-trips issued (0 = unknown); ``usage`` =
+    what the provider already billed for the failed call (empty when nothing was)."""
 
     def __init__(
         self,

@@ -1,17 +1,4 @@
-"""Per-link collision bodies for the pose sweep (:mod:`joints_sweep`).
-
-FCL (``python-fcl``) answers the boolean surface-collide and
-the exact separation distance on BVH models.  Penetration *depth* is measured
-deterministically on the link's **watertight islands**: a surface sample of
-body A counts as inside body B when a fixed-direction parity ray test (forward
-and backward rays agree) places it inside one of B's islands, and its depth is
-the unsigned distance to that island's surface.  This is independent of the
-mesh winding (agent meshes routinely come out inverted) and does not depend on
-``Trimesh.contains`` / signed normals on the merged link mesh, which is usually
-non-watertight (touching panels share vertices) and was re-cast with *random*
-rays.  Islands that are not watertight are tested the same way but flagged
-``approx``.
-"""
+"""Per-link collision bodies for the pose sweep (:mod:`joints_sweep`)."""
 
 from __future__ import annotations
 
@@ -21,13 +8,12 @@ import trimesh
 from trimesh.ray import ray_util
 
 _MAX_SAMPLE_POINTS = 1500
-#: fixed, non-axis-aligned ray direction for parity tests (never re-cast at random)
 _RAY_DIR = np.array([0.4395064455, 0.617598629942, 0.652231566745])
 
 
 def components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]:
-    """Connected components of ``names`` under ``edges`` (union-find) — the contact
-    graph of the connectivity gate and the fixed-joint groups of the pose sweep."""
+    """Connected components of ``names`` under ``edges`` (union-find) — the contact graph of the
+    connectivity gate and the fixed-joint groups of the pose sweep."""
     parent = {n: n for n in names}
 
     def find(x: str) -> str:
@@ -45,11 +31,7 @@ def components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]:
 
 
 def fcl_collision_object(mesh: trimesh.Trimesh):
-    """``fcl.CollisionObject`` for ``mesh`` (identity transform).  Convex meshes get the cheap ``fcl.Convex``
-    (same choice trimesh's CollisionManager makes — building a BVH for a
-    300k-tri convex part costs ~0.7 s); everything else gets a BVH.  Shared by
-    :class:`LinkBody` and the connectivity gate so each mesh's collision
-    geometry is built exactly once."""
+    """``fcl.CollisionObject`` for ``mesh`` (identity transform)."""
     if mesh.is_convex:
         fs = np.concatenate((3 * np.ones((len(mesh.faces), 1), dtype=np.int64), mesh.faces), axis=1)
         return _fcl.CollisionObject(_fcl.Convex(np.asarray(mesh.vertices, dtype=float), len(fs), fs.flatten()),
@@ -72,8 +54,7 @@ def _sample_points(mesh: trimesh.Trimesh) -> np.ndarray:
 
 
 def oriented_islands(mesh: trimesh.Trimesh) -> list[trimesh.Trimesh]:
-    """Connected components of ``mesh``; watertight ones get outward-facing normals
-    (inverted winding → ``invert()``), so volumes/booleans are meaningful."""
+    """Connected components of ``mesh``."""
     try:
         islands = list(mesh.split(only_watertight=False))
     except Exception:
@@ -87,11 +68,7 @@ def oriented_islands(mesh: trimesh.Trimesh) -> list[trimesh.Trimesh]:
 
 
 def inside_island(island: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
-    """Deterministic parity containment (fixed ray direction, both directions must agree).
-
-    Public because the connectivity gate measures interpenetration the same way: it must
-    work on the non-watertight meshes agents actually export, where ``Trimesh.contains``
-    cannot answer at all."""
+    """Deterministic parity containment (fixed ray direction, both directions must agree)."""
     if len(points) == 0:
         return np.zeros(0, dtype=bool)
     return np.asarray(ray_util.contains_points(island.ray, points, check_direction=_RAY_DIR), dtype=bool)
@@ -134,7 +111,8 @@ class LinkBody:
         return np.vstack([pts.min(axis=0), pts.max(axis=0)])
 
     def depth_of(self, points_world: np.ndarray) -> float:
-        """Max distance-to-surface of the ``points_world`` that lie inside one of this body's islands."""
+        """Max distance-to-surface of the ``points_world`` that lie inside one of this body's
+        islands."""
         local = trimesh.transform_points(points_world, self.T_inv)
         depth = 0.0
         for island, pq in zip(self.islands, self._island_pq, strict=True):
@@ -162,8 +140,8 @@ def collide(a: LinkBody, b: LinkBody) -> bool:
 
 
 def contained(a: LinkBody, b: LinkBody, n: int | None = 24) -> bool:
-    """True when surface samples of one body lie inside the other (FCL's surface-only
-    collide misses a part fully swallowed by another).  ``n`` samples per side (None = all)."""
+    """True when surface samples of one body lie inside the other (FCL's surface-only collide
+    misses a part fully swallowed by another)."""
     if n is None:
         pa, pb = a.points, b.points
     else:
@@ -180,7 +158,6 @@ def distance(a: LinkBody, b: LinkBody) -> float:
 
 
 def penetration(a: LinkBody, b: LinkBody) -> tuple[float, bool]:
-    """Max penetration depth (m) of A's surface into B or B's into A; ``approx``
-    when an island is not watertight (the inside test is then heuristic)."""
+    """Max penetration depth (m) of A's surface into B or B's into A."""
     depth = max(b.depth_of(a.points), a.depth_of(b.points))
     return depth, not (a.watertight and b.watertight)

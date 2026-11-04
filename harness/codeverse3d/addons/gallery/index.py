@@ -1,14 +1,4 @@
-"""Build the gallery index from run roots.
-
-``build_index(roots)`` walks every run directory once, reads ``record.json`` and
-turns it into a :class:`~codeverse3d.addons.gallery.model.RunEntry` whose every path is
-**run-relative**.  It is deliberately cheap (no image work, no git): ~80 runs
-index in well under a second, which is what makes ``--reload`` free.
-
-Robustness is a feature here, not a nicety: a bench writing into these
-directories means a record can be absent, empty or half-written at any moment,
-and the gallery must still render.  Nothing in this module raises for one bad run.
-"""
+"""Build the gallery index from run roots."""
 
 from __future__ import annotations
 
@@ -40,13 +30,11 @@ from codeverse3d.record.record import (
 )
 from codeverse3d.workspace import Workspace
 
-#: run roots the CLI defaults to when the user names none
 DEFAULT_RUNS = "runs"
 DEFAULT_BENCH_GLOB = "eval/bench/out/*/runs"
 
 
 def default_roots(base: Path | str = ".") -> list[Path]:
-    """``runs/`` plus every ``eval/bench/out/*/runs`` that exists, in that order."""
     base = Path(base)
     roots: list[Path] = []
     if (base / DEFAULT_RUNS).is_dir():
@@ -83,24 +71,14 @@ def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
 
 
 def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
-    """Contact sheet of the card's round (``select.summarise().round``), else the packaged
-    deliverable sheet — never another round's."""
     return (_round_sheet(ws, rec, picked) if picked is not None else "") or _first_file(
         ws.root, "deliverable/sheet.png", "artifacts/frames_sheet.png")
 
 
-#: view names that make the best single thumbnail, most telling first.  A ¾ view
-#: shows silhouette *and* depth; a flat orthographic front hides both.  A stored pre-D47
-#: run matches through ``conventions.view_key``.
 HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low", "front_left_low", "front")
 
 
 def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, str, int]:
-    """``(rel, label, n_views)`` — the ONE image a card should show (from the picked round).
-
-    A card that shows an 8-up contact sheet at 320 px shows eight unreadable
-    thumbnails; one 320 px hero view is legible.  Costs a single ``is_file``
-    beyond what the record already told us, so the index stays cheap."""
     rnd = next((r for r in rec.rounds if r.index == picked), None)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         return "", "", 0
@@ -115,17 +93,11 @@ def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, s
 
 
 def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
-    """The card's round's pose sheet — never another round's."""
     rel = f"artifacts/renders/r{picked:02d}/poses/articulation_sheet.png" if picked is not None else ""
     return rel if rel and (ws.root / rel).is_file() else ""
 
 
 def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
-    """The working links of a card: workspace, record, code, sheet, GLB, track extras — the
-    artifact files of the handed-over round (``deliverable/``), else of the picked round
-    (``select.round_file``: ``artifacts/rNN/``, or ``artifacts/`` of a run recorded before rounds
-    kept their own, for the round it rebuilt there) — never another round's.  A run with no
-    round to show (no record yet, no round built with renders) links whatever ``artifacts/`` holds."""
     run = ws.root
     rnd = next((r for r in rec.rounds if r.index == picked), None) if rec is not None else None
     out = round_outputs(ws, rnd)
@@ -177,18 +149,14 @@ def round_rows(ws: Workspace, rec: RunRecord) -> list[RoundRow]:
             for row in select.round_rows(ws.root, record=rec)]
 
 
-#: complexity axes worth putting on a card / detail page (the index carries the rest)
 _CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
             "silhouette", "feature_density", "symmetry_groups", "hollowness")
 
 
 def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
-    """``(index, band, axes)`` of the picked round's artifact (``select.round_complexity_block``).
-    A run built before the complexity vector existed has none (``eval/bench/complexity_report.py``
-    recomputes those from the GLB)."""
     try:
         block = select.round_complexity_block(ws, next((r for r in rec.rounds if r.index == picked), None))
-    except Exception:  # noqa: BLE001 - a card is never worth an exception
+    except Exception:  # noqa: BLE001
         block = None
     if block is None or block.get("index") is None:
         return None, "", {}
@@ -197,12 +165,6 @@ def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[floa
 
 
 def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> RunEntry:
-    """A complete card from a parsed record (never raises: every field degrades).
-
-    ``slug`` is the RunId slug the scan minted; without one the directory basename is
-    used (correct for flat layouts only — nested battery runs are all named ``run``).
-    The card is the round every reader shows (``select.summarise().round``: the pick, else
-    ``select.fallback_round``): its score, sheet, hero and tier."""
     summary = select.summarise(ws.root, record=rec)
     picked = summary.round
     rnd = next((r for r in rec.rounds if r.index == picked), None)
@@ -235,17 +197,11 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
 
 
 def _spec_fields(run_dir: Path) -> dict[str, str]:
-    """Prompt / track / language straight from spec.json — a run with no record yet
-    still deserves a readable card (and spec.json can be half-written too)."""
     spec = read_json_or_none(run_dir / "spec.json") or {}
     return {k: str(spec.get(k) or "") for k in ("prompt", "track", "language")}
 
 
 def entry_for_dir(battery: str, run_dir: Path, *, slug: str | None = None) -> RunEntry:
-    """One run directory → an entry, whatever state it is in.
-
-    ``slug`` is the RunId slug the scan minted (default: the directory basename,
-    which is only unique in flat layouts)."""
     ws = Workspace(run_dir)
     slug = slug or run_dir.name
     fields = _spec_fields(run_dir)
@@ -260,17 +216,12 @@ def entry_for_dir(battery: str, run_dir: Path, *, slug: str | None = None) -> Ru
                         error=str(e)[:400], links=entry_links(ws, None, None), **fields)
     try:
         return entry_from_record(battery, ws, rec, slug=slug)
-    except Exception as e:  # noqa: BLE001 - one weird record must not break the page
+    except Exception as e:  # noqa: BLE001
         return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="broken",
                         error=f"{type(e).__name__}: {e}"[:400], links=entry_links(ws, None, None), **fields)
 
 
 def _pending_direct_children(root: Path, found: set[Path]) -> list[Path]:
-    """Direct children with a spec.json but no record.json yet — a bench mid-write
-    still deserves a readable (pending) card.  Only DIRECT children qualify: a run is
-    otherwise gated on record.json exactly like ``record.record.is_run_dir``, because
-    accepting spec-only directories during descent counted every nested ``eval/``
-    judge workspace of a battery cell as a phantom run."""
     if not root.is_dir():
         return []
     return [d for d in sorted(root.iterdir())
@@ -279,15 +230,6 @@ def _pending_direct_children(root: Path, found: set[Path]) -> list[Path]:
 
 
 def scan_root(root: Path, label: str | None = None) -> RootSection:
-    """Runs under ``root``.  Uses ``find_run_dirs`` rather than a one-level
-    ``iterdir()``: a compare_backends or ab_plan battery directory holds its runs four
-    and five levels down, so pointing the gallery at one built a page "of 0 runs" and
-    exited 0 — the silent-empty failure, on a directory full of real runs.
-
-    Every entry is named by its :class:`~codeverse3d.contracts.run.RunId` slug, so two
-    nested runs whose directories are both called ``run`` stay two entries.  A slug
-    that still repeats within the root gets ``#2``/``#3`` — the same precedent as
-    duplicate section labels in :func:`build_index`."""
     root = Path(root)
     label = label or battery_label(root)
     found = find_run_dirs(root, predicate=is_run_dir)
@@ -304,7 +246,6 @@ def scan_root(root: Path, label: str | None = None) -> RootSection:
 
 
 def build_index(roots: list[Path] | list[str]) -> GalleryIndex:
-    """Scan every root; duplicate labels get ``label#2`` so URLs stay unique."""
     t0 = time.perf_counter()
     sections: list[RootSection] = []
     used: dict[str, int] = {}

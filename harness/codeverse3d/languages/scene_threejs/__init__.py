@@ -47,7 +47,6 @@ _CREATE_SCENE_RE = re.compile(r"export\s+(?:async\s+)?function\s+createScene\b|e
 _BUILD_RE = re.compile(r"export\s+(?:async\s+)?function\s+build\b|export\s+(?:const|let)\s+build\b|export\s*\{[^}]*\bbuild\b[^}]*\}")
 _BUILD_ANY_RE = re.compile(r"export\s+(?:async\s+)?function\s+build[A-Za-z0-9_]*\b|export\s+(?:const|let)\s+build[A-Za-z0-9_]*\b")
 
-#: (regex, severity, message, hint, kind)
 _PATTERNS: list[tuple[re.Pattern[str], Severity, str, str, LintKind]] = [
     (re.compile(r"\brequestAnimationFrame\s*\("), Severity.ERROR, "requestAnimationFrame: the host drives update(t, dt)", "delete your render loop; animate inside update(t, dt)", LintKind.HARNESS_OWNED),
     (re.compile(r"\bsetAnimationLoop\s*\("), Severity.ERROR, "renderer.setAnimationLoop: the host drives rendering", "remove it; animate inside update(t, dt)", LintKind.HARNESS_OWNED),
@@ -69,17 +68,8 @@ def _f(kind: LintKind, sev: Severity, msg: str, *, target: str, hint: str = "", 
 
 
 def _is_lib(path: Path, ws: Workspace) -> bool:
-    """Is this one of the harness's own effect modules (``src/lib/*.js``)?
-
-    They ship into every workspace (D51) and are verified by the harness's own
-    suite — ``tests/scene_runtime/lib/`` — not by the workspace gate, whose job
-    is to police the code the AGENT writes.  Linting them as agent code was
-    three hard ERRORs (a node-only font fallback importing
-    ``node:module`` / ``node:fs/promises`` / ``node:url``, which the browser
-    half never touches) plus twelve "large file" WARNs telling the agent to
-    split files it does not own.  Syntax is still checked below: a library file
-    the agent broke must still fail loudly.
-    """
+    """Is this one of the harness's own effect modules (``src/lib/*.js``)?  They are verified by the
+    harness suite, not linted as agent code; syntax is still checked."""
     return path.parent == ws.src / "lib"
 
 
@@ -89,11 +79,8 @@ def _syntax_finding(p: SyntaxProblem, rel: str) -> GateFinding:
 
 
 def _check_imports(rel: str, text: str, ws: Workspace, path: Path, export_cache: ExportsCache) -> list[GateFinding]:
-    """The import policy on one agent file: the specifier kinds, then — for a relative target
-    that exists — every imported name against what the target exports.  ``src/lib`` modules
-    are never linted as agent code, but they ARE read here as targets (``export_cache`` holds
-    each one's surface for the whole lint): a name the catalog does not list is a SyntaxError
-    at module link, which drops the whole zone at assembly."""
+    """The import policy on one agent file: specifier kinds, then every name imported from a relative
+    target against what it exports (an unknown name is a SyntaxError at module link)."""
     def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
         tgt = f"{rel}:{line}"
         if v.kind is ImportKind.ESCAPES:
@@ -117,7 +104,6 @@ def _check_imports(rel: str, text: str, ws: Workspace, path: Path, export_cache:
 
 
 def lint(ws: Workspace) -> GateReport:
-    """Run all static checks; passed iff no ERROR findings."""
     t0 = time.time()
     findings: list[GateFinding] = []
     files = js_sources(ws.src, dotfiles=True, mjs=True)
@@ -136,7 +122,7 @@ def lint(ws: Workspace) -> GateReport:
         if _is_lib(path, ws):
             continue
         findings.extend(_check_imports(rel, text, ws, path, export_cache))
-        code = strip_js(text, strings=False)   # a comment quoting the contract is not a call
+        code = strip_js(text, strings=False)
         for pat, sev, msg, hint, kind in _PATTERNS:
             m = pat.search(code)
             if m:
@@ -156,17 +142,12 @@ def lint(ws: Workspace) -> GateReport:
 
 # ===================================================================== skeleton
 STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
-#: the harness-owned effect library (``src/lib/*.js``), shipped into EVERY workspace by both
-#: skeleton paths (a planned run once got the effects catalog in its prompt and no ``src/lib/``
-#: to import from — every ``from './lib/grass.js'`` a 2026-09-01 agent wrote was a build error).
-#: The example scene's own files (``zones/``, ``assets/``, ``shaders/``) ship ONLY without a plan:
-#: a planned workspace used to carry a pine tree, a windmill and a pond shader whatever the brief,
-#: and its stubs cited them as the pattern (the de-templating of 2026-10-15).
+#: the harness-owned effect library (``src/lib/*.js``), shipped into every workspace; the example
+#: scene's own files (``zones/``, ``assets/``, ``shaders/``) ship only without a plan
 LIB_DIR = STARTER_DIR / "lib"
 
 
 def lib_files() -> list[Path]:
-    """The effect-library modules shipped into a workspace, sorted."""
     return sorted(LIB_DIR.glob("*.js"))
 
 
@@ -182,13 +163,8 @@ def _write_lib(ws: Workspace, written: list[Path]) -> None:
 
 
 def write_example(ws: Workspace) -> list[Path]:
-    """Copy the full example scene into ws.src (overwrites).
-
-    Raises when the starter tree is not there: rglob over a missing directory yields
-    nothing, so this used to write ZERO files and report success — which is exactly what
-    a non-editable (wheel) install produced before the starter tree was added to
-    package-data, and it surfaced much later as an empty scene rather than a bad install.
-    """
+    """Copy the full example scene into ws.src (overwrites); raises when the starter tree is missing
+    (an rglob over an absent directory would silently write nothing)."""
     if not STARTER_DIR.is_dir():
         raise FileNotFoundError(
             f"scene_threejs starter tree missing: {STARTER_DIR} — this install has no package data "
@@ -202,23 +178,17 @@ def write_example(ws: Workspace) -> list[Path]:
     return written
 
 
-#: the stub plate's side as a multiple of the plan span: its edge then sits 1.5 spans from the
-#: centre — past the 2 × span the ``fog_short`` gate measures once the author's fog is in — so no
-#: authored camera reads a plate edge before the land is built.  Derived from the plan alone: no
-#: minimum world size.
+#: the stub plate's side as a multiple of the plan span
 PLACEHOLDER_GROUND_SPANS = 3.0
 
 _AZIMUTH_RE = re.compile(r"azimuth[^0-9\-]{0,12}(-?\d+(?:\.\d+)?)", re.I)
 _ELEVATION_RE = re.compile(r"elevation[^0-9\-]{0,12}(-?\d+(?:\.\d+)?)", re.I)
-#: the overview rig's own guess when a scene states no sun azimuth (``sun_azimuth`` below)
+#: the overview rig's guess when a scene states no sun azimuth
 SUN_AZIMUTH_GUESS_DEG = 45.0
 
 
 def sun_from_plan(plan: ScenePlan) -> tuple[float | None, float | None]:
-    """The sun azimuth and elevation (degrees) the plan's ``environment`` paragraph states
-    ("sun azimuth 250° elevation 8°"), ``None`` for each it does not: the skeleton carries the
-    PLAN's light into the env stub rather than a light of its own (the de-templating of
-    2026-10-15: a hardcoded azimuth 60 / elevation 38 / mood 'day' shipped in every env)."""
+    """The sun azimuth and elevation (degrees) the plan's ``environment`` paragraph states, ``None`` for each it does not."""
     text = plan.environment
     az = _AZIMUTH_RE.search(text)
     el = _ELEVATION_RE.search(text)
@@ -278,13 +248,8 @@ export function buildEnv(ctx) {{
 
 
 def _env_for_plan(plan: ScenePlan) -> str:
-    """``src/env.js`` as an interface stub under the plan's data: the plate side from the span, the
-    sun azimuth / elevation the plan states, the room box for an interior — and no light, sky or
-    atmosphere.  The starter's finished landscape (a level disc inside the bounds' radius with
-    hills and a ridge beyond) was kept byte for byte by 29 of 30 iteration-0 scenes, and the
-    passing placeholder that replaced it (a day sun rig at azimuth 60, a grey fog) built and
-    passed for any brief, so it was kept too: a placeholder that passes is a template by another
-    name (the de-templating of 2026-10-15)."""
+    """``src/env.js`` as an interface stub under the plan's data: plate side, stated sun angles, the
+    room box for an interior; no light, sky or atmosphere."""
     ex = plan.bounds.extents
     span = max(ex[0], ex[2], 1.0)
     az, el = sun_from_plan(plan)
@@ -312,29 +277,23 @@ def _env_for_plan(plan: ScenePlan) -> str:
 
 
 # ===================================================================== layout
-#: what a whole-scene session edits: the entry and the environment (every zone and asset module
-#: has its own session and its own file below)
+#: what a whole-scene session edits: the entry and the environment
 SCENE_FILES: tuple[str, ...] = ("src/scene.js", "src/env.js")
 #: refine targets that are the environment's, whatever the plan calls its zones
 ENV_WORDS = frozenset({"env", "environment", "lighting", "sky", "fog", "ground", "water", "light"})
 
 
 def zone_file(name: str) -> str:
-    """``src/zones/<snake>.js`` — the module that builds zone ``name``."""
     return f"src/zones/{to_snake(name)}.js"
 
 
 def asset_file(asset: AssetPlan) -> str:
-    """A three.js asset's factory module; a Blender hero's compiled GLB (built in its own sub-workspace)."""
     snake = to_snake(asset.name)
     return f"src/assets/{snake}.js" if asset.kind == "threejs" else f"public/assets/{snake}.glb"
 
 
 def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-    """The files that own a scene refine target.  A three.js asset is fixed in its factory — a merged
-    asset's (``alias``: the dedupe note) in its survivor's, its own file being only the variant shim; a
-    hero ships as a GLB, so it is fixed where it is placed: the zones that list it.  Cameras belong to
-    ``scene.js``, env words to ``env.js``; "Zone/Asset" (the placement gate) to the zone's file."""
+    """The files that own a scene refine target: an aliased asset in its survivor, a hero where it is placed, cameras in ``scene.js``, env words in ``env.js``."""
     zone_plans = list(getattr(plan, "zones", None) or [])
     zones = {to_snake(z.name) for z in zone_plans}
     assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
@@ -381,9 +340,6 @@ export function build{pascal}(T = THREE) {{
 
 
 def _zone_stub(z: ZonePlan, assets: dict[str, AssetPlan]) -> str:
-    """The zone's interface and a TODO naming the plan's contents — no positions.  The stub used
-    to tile the contents on a quarter-extent grid inside the bbox and say "keep everything inside
-    the plan bbox": the seed of the blocks-in-a-rectangle look (the de-templating of 2026-10-15)."""
     snake, pascal = to_snake(z.name), to_pascal(z.name)
     c, e = z.bbox.center, z.bbox.extents
     imports, todo = [], []
@@ -423,10 +379,7 @@ export function build(ctx) {{
 
 
 def _scene_for_plan(plan: ScenePlan) -> str:
-    """The skeleton's entry point IS the assembled shape (``render_scene_js`` over the
-    plan's zones, cameras and GLB assets) under the starter's contract header: the
-    assemble stage overwrites this file with that very emitter, so the env / zone
-    sessions author against the ``createScene`` they will actually ship with."""
+    """The skeleton's entry is the assembled shape under the starter's contract header."""
     header = (STARTER_DIR / "scene.js").read_text().split("import * as THREE")[0]
     glbs = [to_snake(a.name) for a in plan.assets if a.kind == "blender_glb"]
     body = render_scene_js([to_snake(z.name) for z in plan.zones], list(plan.cameras[:6]), glbs, env_ok=True)
@@ -435,7 +388,6 @@ def _scene_for_plan(plan: ScenePlan) -> str:
 
 
 def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
-    """Write starter files into ``ws.src``; returns the written paths."""
     if plan is None or not isinstance(plan, ScenePlan):
         return write_example(ws)
     written: list[Path] = []
@@ -469,8 +421,6 @@ class ZoneProbe(BaseModel):
 
 
 class ZoneProbeReport(BaseModel):
-    """``probe_zone_modules`` outcome; ``camera_specs`` carries the driver-fitted cameras
-    (``{azimuth, overview, zones:[{group, position, lookAt, fov}]}``)."""
 
     probes: dict[str, ZoneProbe] = Field(default_factory=dict)
     census: dict[str, Any] = Field(default_factory=dict)
@@ -507,25 +457,11 @@ def sun_azimuth(ws: Workspace, default: float = 45.0) -> float:
     return default
 
 
-# --------------------------------------------------------------------------- probing
-#: How a Blender-built asset is preloaded in EVERY assembled entry point.  One
-#: spelling, because there are three of them (the assembled `src/scene.js`, the
-#: assembler's probe module, and `render_scene_js`) and they had drifted into three.
-#:
-#: The loaded root is NAMED after its asset.  A glTF root arrives called whatever the
-#: exporter wrote — Blender writes "Scene" — and every check that reads the scene
-#: graph by name then cannot see it.  Measured on bench/out/scene_baseline
-#: (2026-09-05): rooftop_garden's `lounge_sofa.glb` loaded fine (`glb_assets:
-#: meshes_in_scene 1, in_scene true`) and `scene_placement` still reported
-#: "zone PergolaLounge is missing planned contents: LoungeSofa", because the object
-#: in the zone was called "Scene".  `to_pascal` on the file key rebuilds exactly the
-#: plan's asset name, which is where the key came from.
+#: How a Blender-built asset is preloaded in every assembled entry point.  The loaded root is
+#: NAMED after its asset (``to_pascal`` of the file key): a glTF root arrives as "Scene", which
+#: name-based checks cannot see.
 def _glb_preload_js(glbs: list[str], *, target: str, on_error: str, indent: str = "  ") -> str:
-    """The `assetFiles` literal + preload loop, or "" when the plan has no GLB asset.
-
-    ``target`` is the assets object to fill (``assets`` / ``ctx.assets``); ``on_error``
-    is the JS statement run in the catch, with ``e`` and ``a`` (the asset entry) bound.
-    """
+    """The `assetFiles` literal + preload loop, or "" when the plan has no GLB asset; ``on_error`` is the JS catch statement."""
     if not glbs:
         return ""
     files = ", ".join(f"{g}: {{ name: '{to_pascal(g)}', url: '/assets/{g}.glb' }}" for g in glbs)
@@ -537,8 +473,7 @@ def _glb_preload_js(glbs: list[str], *, target: str, on_error: str, indent: str 
         "    const root = gltf.scene;",
         "    root.animations = gltf.animations || [];   // a keyframed Blender part is a clip; .clone() keeps it",
         "    root.name = a.name;   // a glTF root is called 'Scene' until someone names it",
-        # what every procedural asset sets on its meshes; GLTFLoader leaves both false, so a
-        # hero neither cast nor received a shadow in any recorded scene (8/8 GLBs, 2026-09-07)
+        # GLTFLoader leaves castShadow / receiveShadow false; set them like procedural assets
         "    root.traverse((o) => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });",
         f"    {target}[key] = root;",
         "  } catch (e) { " + on_error + " }",
@@ -600,13 +535,6 @@ export async function createScene({{ renderer, loaders }}) {{
 
 
 def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_deg: float | None = None) -> ZoneProbeReport:
-    """Probe env + every zone module independently in the browser host.
-
-    Returns a :class:`ZoneProbeReport` (zone probes by snake name, census, other
-    console errors).  When
-    ``sun_azimuth_deg`` is given the driver also fits overview + per-group
-    cameras from the measured bboxes (``camera_specs``).
-    """
     from codeverse3d.spatial.render_scene import run_scene_script
 
     zones = zone_files(ws)
@@ -615,10 +543,9 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
     from codeverse3d.spatial.render_scene import _bounds_json, plan_bounds, probe_env_args
 
     args = ["--ws", str(ws.root), "--scene", PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000))]
-    args += probe_env_args()  # the zone probe sees the same settle/repair/exposure world as the renders
+    args += probe_env_args()
     if sun_azimuth_deg is not None:
         args += ["--sun-azimuth", str(sun_azimuth_deg)]
-        # the overview is framed like the render rig's: inside the plan's bounds
         if (bounds := plan_bounds(ws)) is not None:
             args += ["--bounds", _bounds_json(bounds)]
     try:
@@ -654,14 +581,12 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
 
 
 # --------------------------------------------------------------------------- the env module alone
-#: the env check's probe entry (deleted after use; the leading ``_`` keeps it out of every listing)
+#: the env check's probe entry (deleted after use)
 ENV_PROBE_REL = "src/_c3v_env_probe.js"
 
 
 def lib_interface(ws: Workspace) -> str:
-    """The workspace's ``src/lib/`` surface, one line per module: every exported name, a function
-    with its parameter list as written (:func:`~codeverse3d.languages._js_lint.export_signatures`).
-    Facts read off the files — what a single-shot writer, which cannot open them, may import (D112)."""
+    """The workspace's ``src/lib/`` surface, one line per module: exported names and parameter lists."""
     from codeverse3d.languages._js_lint import export_signatures
 
     lib = ws.src / "lib"
@@ -671,11 +596,8 @@ def lib_interface(ws: Workspace) -> str:
 
 
 def check_env(ws: Workspace, *, timeout_s: float = 90.0) -> str:
-    """``""`` when ``src/env.js`` passes the lint (its own findings), loads and runs ``buildEnv`` in the
-    browser host with no zone beside it, and lights what it builds (``probes.unlit``); else the first
-    failure, quoted.  A probe that cannot run is the harness's, not the module's: ``""`` (logged).
-    What the scene track asks of a recovered env before it counts as written (D112): 5 of 21
-    recovered env modules of argon loop iteration 5 failed only later, at assembly."""
+    """``""`` when ``src/env.js`` lints clean, runs ``buildEnv`` alone in the browser host and lights what
+    it builds; else the first failure, quoted.  A probe that cannot run gives ``""`` (logged)."""
     import logging
 
     from codeverse3d.spatial.probes import unlit
@@ -700,7 +622,7 @@ def check_env(ws: Workspace, *, timeout_s: float = 90.0) -> str:
     finally:
         probe_path.unlink(missing_ok=True)
     s = res.summary
-    # nothing but the env module (and the library it imports) runs in this probe: every console error is its
+    # only the env module and its library run here: every console error is the env's
     errors = [e for e in s.get("console_errors", []) if not e.startswith("boot[")]
     boot = s.get("boot") or {}
     if not boot.get("ok"):
@@ -713,9 +635,6 @@ def check_env(ws: Workspace, *, timeout_s: float = 90.0) -> str:
 
 # --------------------------------------------------------------------------- cameras
 def fallback_camera(plan: ScenePlan | None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> CameraPlan:
-    """An overview when nothing was measurable: on the lit side (``azimuth_deg`` is the scene's
-    ``SUN_AZIMUTH_DEG``, 0 = +X, 90 = +Z), at the bounds' span from their centre, looking at it —
-    derived, not the fixed +X+Z corner shot every example once showed."""
     if plan is None:
         c, r = (0.0, 0.0, 0.0), 30.0
     else:
@@ -733,10 +652,8 @@ def _plan_from_spec(spec: dict[str, Any], *, name: str, purpose: str) -> CameraP
 
 def cameras_from_specs(specs: dict[str, Any], probes: dict[str, ZoneProbe], *, max_cameras: int = 6,
                        plan: ScenePlan | None = None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> list[CameraPlan]:
-    """Convert driver-fitted camera specs (``probe_scene.mjs --sun-azimuth``;
-    math owned by ``runtime_js/lib/orbit.mjs``) into CameraPlans: overview
-    first, then per-zone cameras, largest footprints first.  Falls back to a
-    fixed overview when nothing was measurable."""
+    """Convert driver-fitted camera specs into CameraPlans (overview first, then zones by footprint);
+    falls back to a fixed overview when nothing was measurable."""
     healthy = [p for p in probes.values() if p.ok and p.bbox]
     overview = (specs or {}).get("overview")
     if not healthy or not overview:
@@ -760,11 +677,9 @@ def _cam_literal(c: CameraPlan) -> str:
 
 
 def render_scene_js(zones: list[str], cameras: list[CameraPlan], glbs: list[str], *, env_ok: bool = True) -> str:
-    """Deterministic src/scene.js source for the given healthy zone snake names."""
     imports = "\n".join(f"import {{ build as build{to_pascal(z)} }} from './zones/{z}.js';" for z in zones)
     calls = "\n".join(f"  await addZone(build{to_pascal(z)}, '{to_pascal(z)}');" for z in zones)
     env_import = "import { buildEnv, heightAt } from './env.js';" if env_ok else ""
-    # buildEnv/build may be async (lint + the assembler probe both accept it): await consistently
     env_build = "  const env = (await buildEnv(ctx)) || {};\n  ctx.env = env;" if env_ok else "  const env = {};"
     height = "heightAt" if env_ok else "() => 0"
     glb_preload = _glb_preload_js(
@@ -822,7 +737,6 @@ export async function createScene({{ renderer, loaders }}) {{
 
 def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "derive", probe: bool = True,
              timeout_s: float = 90.0) -> AssembleResult:
-    """Probe zones, derive cameras, write ``src/scene.js``.  ``cameras='plan'`` keeps the plan's."""
     warnings: list[str] = []
     zones = zone_files(ws)
     if not zones:
@@ -868,7 +782,6 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 class SceneThreeJsRuntime:
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
-    #: ``SceneRuntime.env_file``: the module the env stage writes (``SCENE_FILES[1]``)
     env_file: str = SCENE_FILES[1]
 
     zone_file = staticmethod(zone_file)
@@ -899,7 +812,7 @@ class SceneThreeJsRuntime:
         return write_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
-        return lint(ws)  # the module-level gates function (class ns is not in method scope)
+        return lint(ws)
 
     def lib_interface(self, ws: Workspace) -> str:
         return lib_interface(ws)
@@ -908,15 +821,8 @@ class SceneThreeJsRuntime:
         return check_env(ws)
 
     def render_asset(self, ws: Workspace, name: str, out_dir: Path, *, timeout_s: float = 180.0) -> RenderSet:
-        """Quick sheet of ONE procedural asset module, on the rig a Blender hero's GLB gets.
-
-        ``src/assets/<snake>.js`` is exported to a GLB by the object track's own build
-        (``ThreeJsRuntime.build`` on a scratch workspace whose two-line entry calls
-        ``build<Pascal>``: the same memory cap, heap flag and typed errors) and rendered with
-        ``spatial.render.render_glb``.  This is the hook ``scene_assets`` looks
-        for before judging a threejs asset; nothing defined it until 2026-09-07, so no
-        procedural asset was ever judged (0 of 860 recorded) while every hero was.
-        """
+        """Quick sheet of ONE procedural asset module: exported to a GLB by the object track's build
+        on a scratch workspace and rendered like a hero GLB."""
         from codeverse3d.languages.threejs import ThreeJsRuntime
         from codeverse3d.spatial.render import RenderError, render_glb
 
@@ -933,15 +839,10 @@ class SceneThreeJsRuntime:
         return render_glb(res.glb_path, out_dir, views=list(OBJECT_VIEWS_QUICK), width=512, height=512, sheet=True)
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
-        """Probe + shader preflight (one browser boot); ok iff the module loads
-        and no shader errors.  The two GateReports are the build's own
-        (``BuildResult.gates``, which the round appends to its gates) and land
-        under ``artifacts/gates/`` as well."""
+        """Probe + shader preflight (one browser boot); ok iff the module loads and no shader errors."""
         t0 = time.time()
         ws.artifacts.mkdir(parents=True, exist_ok=True)
-        # a probe/driver crash must not leave the previous round's census or the root
-        # driver outputs (scene_probe.json / shader_preflight.json) looking current;
-        # census.json is only rewritten `if census:` below, so it MUST be wiped here
+        # wipe stale driver outputs so a crashed probe never looks current (census.json is only rewritten `if census:`)
         ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
         if (missing := missing_entry(ws, self.language)) is not None:
             return missing
@@ -972,9 +873,7 @@ class SceneThreeJsRuntime:
             duration_ms=int((time.time() - t0) * 1000),
             census=census,
             gates=[probe, shaders],
-            # a driver that could not run is not a defect in the scene; `probes.probe_report`
-            # and `run_probe` already mark it, and `build_with_repair` reads this
-            # so the round does not spend its repair budget rewriting working code
+            # a driver that could not run is not a scene defect; the round must not spend repair budget on it
             harness_failure=bool(first is not None and first.data.get("harness_failure")),
         )
         ws.write_json(ws.artifacts / "build.json", res)

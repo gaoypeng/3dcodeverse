@@ -1,31 +1,7 @@
-"""Standalone moderngl runner (never imports codeverse3d).
+"""Standalone moderngl runner (never imports codeverse3d): ``python run_gl.py --job job.json``.
 
-Usage: ``python run_gl.py --job job.json``
-
-``job.json``::
-
-    {"mode": "shader" | "program",
-     "out_dir": "...",                      # frames/ + result.json are written here
-     "width": 1280, "height": 720,
-     "times": [0.0, 1.0, 2.5],              # judged frames
-     "extra_times": [0.5, 1.5],             # gif-only frames (optional)
-     "fps": 30,                             # simulation step for feedback shaders
-     "max_steps": 240,
-     # shader mode: fully wrapped sources (header already prepended by the harness)
-     "frag_src": "...", "buffer_a_src": "..." | null, "feedback": false,
-     # program mode
-     "program_path": "/abs/src/program.py", "program_cwd": "/abs/src"}
-
-Writes ``<out_dir>/frames/f<NN>_t<T>.png`` (8-bit RGB, top-down) and
-``<out_dir>/gl_result.json``::
-
-    {"ok": bool, "stage": "context|compile|compile_buffer_a|setup|render|import",
-     "error_type": "", "error_message": "", "traceback": "", "renderer": "...",
-     "frames": [{"index", "time", "path", "judge": bool, "nan": int, "inf": int,
-                 "mean": float}], "duration_ms": int}
-
-Exit code 0 whenever gl_result.json was written (even for agent errors); 3 when the
-GL context could not be created (the harness retries with another driver env).
+Writes ``<out_dir>/frames/f<NN>_t<T>.png`` and ``<out_dir>/gl_result.json``.  Exit code 0 whenever
+gl_result.json was written (even for agent errors); 3 when the GL context could not be created.
 """
 
 from __future__ import annotations
@@ -147,7 +123,7 @@ def _schedule(job: dict) -> list[tuple[float, bool]]:
 
 
 def run_shader(ctx, job: dict, out_dir: Path) -> dict:
-    import moderngl  # noqa: F401  (already imported by caller; explicit for clarity)
+    import moderngl  # noqa: F401
 
     w, h = int(job["width"]), int(job["height"])
     quad = ctx.buffer(np.array([-1, -1, 1, -1, -1, 1, 1, 1], dtype="f4").tobytes())

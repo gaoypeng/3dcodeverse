@@ -1,11 +1,5 @@
-"""The whole Gemini stack in one module (merged 2026-08-28, d512ccc):
-
-* conversion — ``ChatRequest`` ⇄ google-genai types (``to_contents``, ``build_config``,
-  ``extract_candidate``, ``parse_usage``); pure, unit-testable offline;
-* ``GeminiModel`` — the ``ChatModel``: a shared ``KeyPool`` over the configured keys,
-  ``rotate_with_retries`` with the hedge, streaming with stall detection, per-attempt
-  ledger rows;
-"""
+"""Gemini backend: ``ChatRequest`` ⇄ google-genai conversion, and ``GeminiModel`` (shared
+``KeyPool``, ``rotate_with_retries`` with hedge, streaming with stall detection, per-attempt ledger rows)."""
 
 from __future__ import annotations
 
@@ -45,12 +39,12 @@ from codeverse3d.models.pricing import estimate_cost
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
 
-#: thinking level → token budget; ``off`` → 0 where the model allows it
+#: thinking level → token budget
 THINKING_BUDGET: dict[str, int] = {"off": 0, "low": 1024, "medium": 4096, "high": 16384}
 
-#: finish reasons that are worth one more attempt (transient model glitches)
+#: finish reasons worth one more attempt
 RETRYABLE_FINISH = {"RECITATION", "MALFORMED_FUNCTION_CALL", "OTHER", "UNEXPECTED_TOOL_CALL"}
-#: finish reasons that will not improve by retrying
+#: finish reasons retrying cannot fix
 FATAL_FINISH = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY"}
 
 
@@ -68,7 +62,7 @@ def to_contents(messages: list[ChatMessage]) -> list[types.Content]:
         parts: list[types.Part] = message_blocks(msg, text=lambda t: types.Part.from_text(text=t), image=_image_part)
         if not parts:
             continue
-        # merge consecutive same-role turns (Gemini wants strict alternation)
+        # Gemini wants strict role alternation
         if out and out[-1].role == role:
             out[-1].parts.extend(parts)  # type: ignore[union-attr]
         else:
@@ -106,12 +100,7 @@ def build_config(
 def clip_timeout(
     config: types.GenerateContentConfig, timeout_ms: int
 ) -> types.GenerateContentConfig:
-    """A copy of ``config`` whose per-request HTTP timeout is ``timeout_ms`` (the
-    SAME object when it already matches — the common full-budget case allocates
-    nothing).  :func:`build_config` owns the initial ``timeout_ms``; this is the
-    one sanctioned way to shorten it for a single attempt whose remaining retry
-    budget is smaller than the configured read timeout
-    (``GeminiModel._attempt_config``)."""
+    """``config`` with its HTTP timeout set to ``timeout_ms`` (same object if unchanged)."""
     current = config.http_options.timeout if config.http_options is not None else None
     if current == timeout_ms:
         return config
@@ -134,8 +123,7 @@ def parse_usage(resp: types.GenerateContentResponse, model: str) -> Usage:
 
 
 def _guard_candidates(resp: types.GenerateContentResponse, usage: Usage | None, what: str) -> Any:
-    """The first candidate, or the two billed failures every Gemini reply can carry:
-    a blocked prompt (non-retryable) and no candidates at all (retryable)."""
+    """The first candidate, or a blocked-prompt (fatal) / no-candidates (retryable) error."""
     pf = resp.prompt_feedback
     if pf is not None and pf.block_reason:
         raise ModelError(
@@ -150,10 +138,7 @@ def _guard_candidates(resp: types.GenerateContentResponse, usage: Usage | None, 
 def extract_candidate(
     resp: types.GenerateContentResponse, usage: Usage | None = None
 ) -> tuple[str, str]:
-    """→ ``(text, finish_reason)``.  Raises ``ModelError`` on blocked
-    prompts (non-retryable) or empty candidates (retryable); ``usage`` (what the caller
-    already parsed off ``resp``) rides on the error, because every one of these
-    failures was billed."""
+    """→ ``(text, finish_reason)``; raises ``ModelError`` carrying ``usage`` (these failures are billed)."""
     cand = _guard_candidates(resp, usage, "Gemini")
     finish = str(cand.finish_reason.value if cand.finish_reason else "") or "UNKNOWN"
     texts: list[str] = []
@@ -167,10 +152,8 @@ def extract_candidate(
                 f"Gemini produced no content (finish_reason={finish})", retryable=False, usage=usage
             )
         if finish == "MAX_TOKENS":
-            # Gemini 3 models always think (budget 0 is accepted but ignored); a tiny
-            # max_output_tokens is eaten by thoughts.  Retrying cannot help — and this is
-            # the most expensive failure on Gemini 3: every thought token was billed.  The
-            # finish reason stays in the text: the planner's grow-the-budget retry keys on it.
+            # Gemini 3 always thinks; a small max_output_tokens is eaten by thoughts.  The
+            # "finish_reason=MAX_TOKENS" text is matched by the planner's grow-the-budget retry.
             thoughts = resp.usage_metadata.thoughts_token_count if resp.usage_metadata else None
             raise ModelError(
                 f"Gemini produced no content (finish_reason=MAX_TOKENS): max_output_tokens exhausted by thinking "
@@ -187,15 +170,8 @@ log = logging.getLogger(__name__)
 
 _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
 
-#: ceiling of the per-READ (inter-chunk) HTTP timeout under streaming.  Five runs
-#: died tonight (drill/vise/clamp x2, one plan hang) because a hung NON-streaming
-#: read holds the socket for the whole attempt budget — up to model_timeout_s
-#: (1200 s) — and the timeout is then terminal.  Streaming separates the two
-#: cases: a hung socket delivers no chunk and dies within this ceiling with the
-#: rest of the retry budget intact, while a legitimate 930 s plan streams tokens
-#: continuously (145 tok/s p50, audit 2026-08-27) and is bounded only by its
-#: attempt budget.  Generous vs the longest silent prefix we allow for thinking
-#: before the first chunk.  ``C3D_STREAM=off`` restores the buffered call.
+#: ceiling of the inter-chunk read timeout under streaming: a hung socket dies within it,
+#: while a long healthy stream is bounded only by its attempt budget (``C3D_STREAM=off`` buffers)
 STREAM_STALL_S = 300.0
 
 _pools: dict[tuple[str, ...], KeyPool] = {}
@@ -204,18 +180,15 @@ _registry_lock = threading.Lock()
 
 
 def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool:
-    """One ``KeyPool`` per distinct (key list, in-flight cap) per process; an unset cap comes
-    from ``Settings.rate.max_in_flight``.  Its slots are machine-wide: every process draws
-    from the same ``<cache_dir>/slots/gemini/NN.lock`` files (``retry.Slots``, COST §23)."""
+    """One ``KeyPool`` per (key list, in-flight cap) per process; slots are machine-wide
+    (``<cache_dir>/slots/gemini/NN.lock``)."""
     cap = _rate().max_in_flight if max_in_flight is None else max_in_flight
     sig = (*keys, f"|{cap}")
     with _registry_lock:
         pool = _pools.get(sig)
         if pool is None:
             slots = get_settings().cache_dir / "slots" / "gemini" if cap else None
-            # a random first key: every process makes the same calls in the same order, so
-            # parallel runs starting at key 0 all put their planner calls and agy sessions
-            # on the same few keys (live, 2026-10-13: 4 parallel runs, one planner key)
+            # random first key, so parallel processes do not all start on key 0
             pool = KeyPool(keys, max_in_flight=cap or 0, slots_dir=slots, start=random.randrange(len(keys)))
             _pools[sig] = pool
         return pool
@@ -237,7 +210,7 @@ def _keys_or_raise(keys: list[str] | None, pool: KeyPool | None) -> list[str]:
 
 
 def _client_for(key: str, timeout_s: float, factory: Callable[[str], Any] | None) -> Any:
-    """One ``genai.Client`` per (key, timeout), process-wide; ``factory`` (tests) bypasses the cache."""
+    """One ``genai.Client`` per (key, timeout), process-wide; ``factory`` bypasses the cache."""
     if factory is not None:
         return factory(key)
     ck = (key, int(timeout_s * 1000))
@@ -274,11 +247,8 @@ def _retry_after_s(exc: BaseException) -> float | None:
 
 
 def _ipv4_client_args() -> dict[str, Any]:
-    """Bind the sync transport to IPv4.  Every one of tonight's five hung reads sat
-    on an IPv6 destination (2001:4860::/32) with the response headers never arriving
-    — the WSL2 IPv6 path drops these silently and a buffered read then holds the
-    socket for the whole attempt budget.  ``C3D_IPV4=off`` restores the default
-    (dual-stack) resolution."""
+    """Bind the sync transport to IPv4: the WSL2 IPv6 path silently hangs reads
+    (``C3D_IPV4=off`` restores dual-stack)."""
     return {"transport": httpx.HTTPTransport(local_address="0.0.0.0")} if get_settings().ipv4 else {}
 
 
@@ -287,11 +257,8 @@ def _drain_stream(
     deadline: float,
     clock: Callable[[], float] = time.monotonic,
 ) -> list[types.GenerateContentResponse]:
-    """Collect every chunk, enforcing the ATTEMPT budget between chunks.  The wire
-    timeout under streaming only bounds the silence BETWEEN chunks (httpx applies
-    the read timeout per network read), so a healthy-but-endless stream is cut
-    here instead.  Tokens generated before the cut were billed but cannot be
-    counted: usage_metadata only arrives on the final chunk."""
+    """Collect every chunk, enforcing the attempt ``deadline`` between chunks (the wire
+    timeout only bounds silence between chunks)."""
     chunks: list[types.GenerateContentResponse] = []
     for ch in it:
         chunks.append(ch)
@@ -306,9 +273,8 @@ def _drain_stream(
 def _merge_stream_chunks(
     chunks: list[types.GenerateContentResponse],
 ) -> types.GenerateContentResponse:
-    """One response out of a chunk sequence: parts concatenate in arrival order;
-    finish_reason, usage_metadata and prompt_feedback come from the last chunk
-    that carries each (usage is cumulative and final-chunk-only on this API)."""
+    """One response from a chunk sequence: parts concatenate; finish_reason, usage_metadata
+    and prompt_feedback come from the last chunk carrying each."""
     if not chunks:
         raise ModelError("Gemini stream yielded no chunks", retryable=True)
     parts: list[types.Part] = []
@@ -328,7 +294,7 @@ def _merge_stream_chunks(
                 parts.extend(cand.content.parts)
             if cand.finish_reason is not None:
                 finish = cand.finish_reason
-    if base is None:  # no chunk carried a candidate: let extract_candidate raise its way
+    if base is None:  # no candidates: extract_candidate raises
         base = chunks[-1]
     else:
         base.candidates[0].content = types.Content(role="model", parts=parts)
@@ -340,9 +306,7 @@ def _merge_stream_chunks(
 
 
 class GeminiModel:
-    """ChatModel for ``gemini:<model>``: a shared ``KeyPool``, ``rotate_with_retries``
-    (hedge, ``ChatRequest.max_wait_s`` deadline), streaming with stall detection and
-    per-attempt ledger rows."""
+    """ChatModel for ``gemini:<model>``."""
 
     provider = "gemini"
 
@@ -360,12 +324,9 @@ class GeminiModel:
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self.model = model
-        #: None = rotate_with_retries' default (60).  0 = a 503 is final: for probes,
-        #: whose whole point is a fast verdict — the storm branch does NOT consume
-        #: max_attempts, so max_attempts=1 alone still retried a 503 for up to 15 min.
+        #: None = rotate_with_retries' default; 0 = a 503 is final (the storm branch ignores max_attempts)
         self.storm_attempts = storm_attempts
-        #: keys a retry is raced on after the call's first 503 (``Settings.rate.hedge``,
-        #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §27
+        #: keys a retry is raced on after the first 503 (1 = off)
         self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys)
@@ -388,7 +349,7 @@ class GeminiModel:
         state = {"config": self._config(request)}
 
         def downgrade_thinking(err: ModelError) -> bool:
-            """Free-retry hook: model rejects ThinkingConfig → retry without it, once."""
+            """Model rejects ThinkingConfig → retry without it, once."""
             if not (self._thinking_ok and err.status == 400 and "thinking" in str(err).lower()):
                 return False
             with self._lock:
@@ -398,7 +359,7 @@ class GeminiModel:
             return True
 
         budget = retry_budget_s(request.max_wait_s)
-        deadline = time.monotonic() + budget  # mirrors rotate_with_retries' own deadline
+        deadline = time.monotonic() + budget
         stats: dict[str, Any] = {}
         resp = rotate_with_retries(
             self.pool,
@@ -418,7 +379,6 @@ class GeminiModel:
             on_attempt=self._attempt_hook(),
             **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
         )
-        # how hard the call was, next to which key served it (``_once``): ledger fields
         resp.raw["attempts"] = int(stats.get("attempts", 0))
         return resp
 
@@ -432,18 +392,12 @@ class GeminiModel:
     def _attempt_config(
         self, config: types.GenerateContentConfig, deadline: float
     ) -> types.GenerateContentConfig:
-        """The config for ONE attempt: its HTTP read timeout is the remaining retry
-        budget, capped at ``self.timeout_s`` and floored at
-        :data:`parts.SDK_TIMEOUT_FLOOR_S`.  A 20 s-budget turn used to hand the provider
-        a 300 s socket — the dominant deadline overshoot (audit 2026-08-27)."""
+        """Config whose HTTP timeout is the remaining retry budget (see ``attempt_timeout_s``)."""
         return clip_timeout(config, int(attempt_timeout_s(deadline, self.timeout_s) * 1000))
 
     def _attempt_hook(self) -> OnAttempt:
-        """Per-round-trip observer: feeds the ledger's per-attempt sink when the metering
-        layer installed one (``cost.instrument.MeteredChatModel``) — a DISCARDED round-trip
-        that still cost money is booked there as an ``extra`` row, the only record of it (D84).
-        Captured once per logical call so a hedge loser landing later, in its own thread,
-        still reports through it."""
+        """Per-round-trip observer feeding the ledger's attempt sink (books discarded round-trips).
+        The sink is captured once per call so a late hedge loser still reports."""
         sink = attempt_sink()
 
         def on_attempt(t: _Try, no: int, discarded: bool) -> None:
@@ -475,11 +429,7 @@ class GeminiModel:
                     model=self.model, contents=contents, config=config
                 )
         else:
-            # the attempt budget (what _attempt_config put on the wire for the
-            # buffered call) becomes an in-loop deadline; the wire timeout drops
-            # to the stall ceiling, which under streaming bounds only the gap
-            # between chunks.  A hung socket now costs <=STREAM_STALL_S of the
-            # retry budget instead of all of it.
+            # the attempt budget becomes an in-loop deadline; the wire timeout drops to the stall ceiling
             cfg_ms = config.http_options.timeout if config.http_options is not None else None
             attempt_s = (float(cfg_ms) / 1000.0) if cfg_ms else self.timeout_s
             wire = clip_timeout(config, int(min(attempt_s, STREAM_STALL_S) * 1000))
@@ -491,7 +441,7 @@ class GeminiModel:
                     time.monotonic() + attempt_s,
                 )
             resp = _merge_stream_chunks(chunks)
-        usage = parse_usage(resp, self.model)  # BEFORE extract_candidate: its raises carry it
+        usage = parse_usage(resp, self.model)  # before extract_candidate, whose raises carry it
         usage.latency_ms = sw.ms
         usage.cost_usd = estimate_cost("gemini", self.model, usage)
         text, finish = extract_candidate(resp, usage)
@@ -501,12 +451,11 @@ class GeminiModel:
                 parsed = parse_json_lenient(text)
             except JsonParseError as exc:
                 if finish in FATAL_FINISH or finish == "MAX_TOKENS":
-                    # blocked, or truncated: retrying the same request cannot help
                     raise ModelError(
                         f"structured output unavailable (finish_reason={finish}; "
                         f"raise max_output_tokens if truncated): {exc}",
                         retryable=False,
-                        usage=usage,  # the provider billed this reply; the ledger wants it
+                        usage=usage,
                     ) from exc
                 raise ModelError(
                     f"structured output is not valid JSON (finish_reason={finish}): {exc}",

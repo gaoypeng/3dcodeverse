@@ -1,16 +1,11 @@
-"""CadQuery build wrapper — run by the harness in a subprocess, never imported.
+"""CadQuery build wrapper; run by the harness in a subprocess, never imported.
 
     python run_cq.py --script /abs/src/model.py --out /abs/artifacts \
         [--rlimit-gb 8] [--tolerance 0.001] [--angular-tolerance 0.15] [--seed 0]
 
-Steps: RLIMIT_AS → seed → exec model.py with traceback→line mapping (``_wrapper_common``,
-shared with the Blender wrappers) → read the module-level ``result`` (cq.Assembly
-preferred, or Workplane / Shape) → tessellate each part (world location applied) →
-``object.glb`` (Y-up, +Z front, named nodes, PBR base colour from cq.Color) +
-``object.step`` + ``object.stl`` → ``census.json`` + ``build.json`` (atomic).  Exit 0
-whenever a report was written; 2 on wrapper bugs.  Standalone: imports cadquery / numpy /
-trimesh and its sibling ``_wrapper_common`` only (never ``codeverse3d``).
-"""
+Runs ``model.py``, reads its module-level ``result`` (Assembly, Workplane or Shape), tessellates
+each part and writes ``object.glb`` (Y-up, +Z front), ``.step``, ``.stl``, ``census.json`` and
+``build.json``.  Exit 0 whenever a report was written; 2 on a wrapper bug.  Standalone."""
 
 from __future__ import annotations
 
@@ -22,7 +17,7 @@ import time
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _wrapper_common import (  # noqa: E402  (sibling module)
+from _wrapper_common import (  # noqa: E402
     exit_after,
     map_exception,
     new_report,
@@ -51,12 +46,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def entry_relative(script_path: str) -> str:
-    """``src/model.py`` for the entry script itself."""
     return src_relative(script_path, os.path.dirname(os.path.abspath(script_path))) or os.path.basename(script_path)
 
 
 def occ_hint(exc: BaseException) -> str:
-    """What an OCC kernel refusal usually means, appended to its message."""
     if "BRep_API: command not done" in str(exc) or "StdFail_NotDone" in type(exc).__name__:
         return (" — OCC kernel refused the operation: fillet/chamfer radius >= adjacent wall/face size, conflicting "
                 "adjacent fillets, or degenerate geometry. Clamp radii (< 0.45 x min thickness), select fewer edges, "
@@ -70,12 +63,8 @@ def script_error(exc: BaseException, script: str) -> dict[str, Any]:
 
 # ----------------------------------------------------------------------------- parts
 def _as_shape(cq: Any, obj: Any, warnings: list[str] | None = None, label: str = "result") -> Any:
-    """Workplane / Shape → one Shape (compound when several solids).
-
-    A Workplane whose stack holds only Faces/Edges/Wires/Vertices (a trailing selector such
-    as ``.faces(">Z")``) is NOT exported as a sheet: the solid it was selected from is used
-    (``findSolid``) with a warning, or an error names the stack types when there is none.
-    """
+    """Workplane / Shape -> one Shape.  A stack of only Faces/Edges/Wires/Vertices falls back to
+    its source solid (``findSolid``) with a warning, or errors naming the stack types."""
     if isinstance(obj, cq.Workplane):
         vals = [v for v in obj.vals() if isinstance(v, cq.Shape)]
         if not vals:
@@ -84,7 +73,7 @@ def _as_shape(cq: Any, obj: Any, warnings: list[str] | None = None, label: str =
             kinds = sorted({type(v).__name__ for v in vals})
             try:
                 solid = obj.findSolid(searchStack=True, searchParents=True)
-            except Exception as e:  # noqa: BLE001 — ValueError from cadquery; anything else is equally "no solid"
+            except Exception as e:  # noqa: BLE001
                 raise ValueError(f"{label}: Workplane stack holds only {'/'.join(kinds)} objects, not a Solid — "
                                  f"end the chain with a solid (.extrude()/.box()/.revolve(); drop the trailing selector) [{e}]") from e
             if warnings is not None:
@@ -98,7 +87,6 @@ def _as_shape(cq: Any, obj: Any, warnings: list[str] | None = None, label: str =
 
 
 def flatten_assembly(cq: Any, assy: Any, warnings: list[str] | None = None) -> list[dict[str, Any]]:
-    """Depth-first leaves: {name, shape (world-located), rgba, path}."""
     out: list[dict[str, Any]] = []
 
     def walk(node: Any, parent_loc: Any, parent_rgba: Any, path: list[str]) -> None:
@@ -139,7 +127,7 @@ def part_census(part: dict[str, Any], n_tris: int) -> dict[str, Any]:
         rec["volume_m3"] = round(float(shape.Volume()), 9)
         rec["n_solids"] = len(shape.Solids())
         rec["valid"] = bool(shape.isValid())
-    except Exception as e:  # noqa: BLE001 — census must not kill the build
+    except Exception as e:  # noqa: BLE001
         rec["census_error"] = str(e)
     return rec
 
@@ -199,7 +187,7 @@ def main() -> int:
     t0 = time.monotonic()
     report = new_report(args.rlimit_gb)
     seed_everything(args.seed)
-    import cadquery as cq  # noqa: PLC0415 — after the rlimit, before the script
+    import cadquery as cq  # noqa: PLC0415
 
     script = os.path.abspath(args.script)
     err: dict[str, Any] | None = None
@@ -247,7 +235,7 @@ def main() -> int:
             build_glb(meshes, glb)
             report["exported"]["glb"] = glb
             export_step_stl(cq, ns["result"], parts, out_dir, args.tolerance, args.angular_tolerance, report)
-        except Exception as e:  # noqa: BLE001 — export-time failure in agent geometry
+        except Exception as e:  # noqa: BLE001
             err = script_error(e, script)
             if not err["error_file"]:
                 err["error_type"], err["error_message"] = "ExportError", f"{type(e).__name__}: {e}"

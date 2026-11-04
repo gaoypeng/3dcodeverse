@@ -1,5 +1,4 @@
-"""three.js (static object) language runtime: raw ESM authored by the agent,
-GLB export + census by ``runtime_js/export_glb.mjs``."""
+"""three.js (static object) language runtime: raw ESM, GLB export + census by ``runtime_js/export_glb.mjs``."""
 
 from __future__ import annotations
 
@@ -117,8 +116,7 @@ def _f(kind: LintKind, sev: Severity, target: str, message: str, hint: str) -> G
 
 
 def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding], export_cache: ExportsCache) -> set[Path]:
-    """Validate import specifiers and, on a relative target, the imported names (a name the
-    part does not export is a SyntaxError at link); return the set of resolved relative targets."""
+    """Validate import specifiers and imported names; return the set of resolved relative targets."""
     rel = ws_rel(ws, path)
 
     def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
@@ -264,11 +262,7 @@ def render_object(plan: StaticPlan) -> str:
 
 
 def write_skeleton(ws: Workspace, plan: Plan, *, overwrite: bool = False) -> list[Path]:
-    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; return written paths.
-
-    Existing files are kept unless ``overwrite`` (so re-running on a refined
-    workspace never clobbers agent work).
-    """
+    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; existing files are kept unless ``overwrite``."""
     if not isinstance(plan, StaticPlan):
         raise TypeError(f"threejs skeleton needs a StaticPlan, got {type(plan).__name__}")
     written: list[Path] = []
@@ -313,17 +307,13 @@ class ThreeJsRuntime(RuntimeLayout):
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
         """Run ``runtime_js/export_glb.mjs`` on ``src/object.js`` → ``artifacts/object.glb``.
 
-        Never raises for agent-code failures: they come back as ``ok=False`` with
-        ``error_type/message/file/line`` and the stdout/stderr tails.  Harness
-        misconfiguration (missing node, missing script) still raises.
-        """
+        Agent-code failures return ``ok=False``; harness misconfiguration raises."""
         settings = get_settings()
         timeout_s = timeout_s or settings.limits.build_timeout_s
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         glb = ws.artifacts / GLB_NAME
         census = ws.artifacts / CENSUS_NAME
-        # build.json is in the wipe too: the node-missing raise below returns before
-        # _write_build_json, and a stale ok:true build.json must not survive it
+        # build.json is wiped too: the node-missing raise below skips _write_build_json
         ws.stage_artifacts(GLB_NAME, CENSUS_NAME, BUILD_JSON, "export_error.json").invalidate()
         if (missing := missing_entry(ws, self.language)) is not None:
             return missing
@@ -386,12 +376,7 @@ class ThreeJsRuntime(RuntimeLayout):
 
     @staticmethod
     def _part_file(ws: Workspace | None, part: object) -> str:
-        """``src/parts/<snake>.js`` for the plan part named in a validation error (when that file exists).
-
-        Contract errors raised by the exporter (NaN geometry, empty bbox) carry no src
-        frame — the throw site is export_glb.mjs — but name the offending part; the
-        naming convention (``conventions.to_snake``) turns that into the file to repair.
-        """
+        """``src/parts/<snake>.js`` for the plan part named in a validation error (when that file exists)."""
         if ws is None or not isinstance(part, str) or not part.strip():
             return ""
         rel = part_file_rel(part)

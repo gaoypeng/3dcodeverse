@@ -1,15 +1,4 @@
-"""Human-readable labels for the gallery.
-
-Two small vocabularies live here so the page renderers never invent wording:
-
-* :func:`humanize_view` — the render pipeline's machine view names
-  (``front_right_34``, ``t=2.5s``, ``pose_door_hinge@upper``) become the words a
-  person would say ("Front Right ¾", "t = 2.5 s", "Pose · door_hinge@upper");
-* :data:`VERDICTS` — the three **disjoint** triage buckets every run falls into
-  exactly once, so a status breakdown always sums to the number of runs shown.  None of
-  them is a pass or a fail: a run has none since 2026-09-22 — its card shows the score of
-  the round ``addons/select`` picks.
-"""
+"""Human-readable labels for the gallery."""
 
 from __future__ import annotations
 
@@ -21,20 +10,16 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.addons import select
 
-#: the three buckets, in the order they are always displayed
 VERDICTS = ("judged", "unjudged", "error")
 
-#: bucket → (short label, css class, what it means)
 VERDICT_META: dict[str, tuple[str, str, str]] = {
     "judged": ("judged", "v-judged", "a round was judged: the card shows the picked round's score"),
     "unjudged": ("unjudged", "v-none", "the run finished but no round has a verdict"),
     "error": ("error", "v-err", "no record.json, or a corrupt / half-written one"),
 }
 
-#: view-name tokens that are not words
 _TOKENS = {"34": "¾", "3q": "¾", "hdri": "HDRI", "uv": "UV", "ao": "AO", "id": "ID"}
 
-#: whole names the render pipeline emits that deserve a written-out label
 _WHOLE = {
     "articulation_sheet": "Articulation poses",
     "articulation": "Articulation poses",
@@ -57,15 +42,6 @@ def _word(token: str) -> str:
 
 
 def humanize_view(name: str) -> str:
-    """A render view's machine name as a person would read it.
-
-    >>> humanize_view("view_front_right_34.png")
-    'Front Right ¾'
-    >>> humanize_view("t=2.5s")
-    't = 2.5 s'
-    >>> humanize_view("pose_door_hinge@upper")
-    'Pose · door_hinge@upper'
-    """
     raw = (name or "").strip()
     if not raw:
         return ""
@@ -89,17 +65,13 @@ def humanize_view(name: str) -> str:
 
 
 # ===================================================================== model
-#: how an entry's link should be opened: raw bytes, a directory listing, the code
-#: viewer, the GLB viewer, or another gallery page
 LinkKind = Literal["file", "dir", "code", "viewer"]
 RunState = Literal["ok", "pending", "broken"]
 
-#: filter names the index page understands
 FILTER_KEYS = ("q", "track", "lang", "tier", "backend", "verdict", "battery")
 
 
 class RunLink(BaseModel):
-    """One artifact of a run, addressed relative to the run directory."""
 
     label: str
     rel: str = Field(default="", description="run-relative posix path ('' = the run dir itself)")
@@ -107,20 +79,12 @@ class RunLink(BaseModel):
 
 
 class RoundRow(select.RoundRow):
-    """``select.RoundRow`` plus what the detail page's rounds table draws: the gate
-    breakdown and the round's contact sheet."""
 
     gates: dict[str, int] = Field(default_factory=dict, description="gate name → error count")
     sheet: str = Field(default="", description="run-relative contact sheet of this round")
 
 
 class RunEntry(BaseModel):
-    """A run as the gallery shows it.  ``state`` is the honest one:
-
-    * ``ok``      — ``record.json`` parsed
-    * ``pending`` — a run directory with a spec but no record yet (a bench still writing)
-    * ``broken``  — a record that is missing/corrupt/half-written; the card says why
-    """
 
     battery: str = Field(description="section label — the run root's name")
     slug: str
@@ -165,23 +129,16 @@ class RunEntry(BaseModel):
 
     @property
     def key(self) -> str:
-        """Stable id used in URLs and as the DOM key: ``<battery>/<slug>``."""
         return f"{self.battery}/{self.slug}"
 
     @property
     def verdict(self) -> str:
-        """The triage bucket — exactly one of :data:`~codeverse3d.addons.gallery.model.VERDICTS`.
-
-        The three are disjoint *and* exhaustive on purpose: a status breakdown built
-        from them always sums to the number of runs on screen.  A run whose record
-        is missing or corrupt is an ``error``, never a silent "unjudged"."""
         if self.state != "ok":
             return "error"
         return "unjudged" if self.score is None else "judged"
 
     @property
     def card_image(self) -> str:
-        """What the card shows: the single hero view, else the contact sheet."""
         return self.hero or self.sheet
 
     def search_text(self) -> str:
@@ -189,7 +146,6 @@ class RunEntry(BaseModel):
                          self.language, self.generator)).lower()
 
     def card_data(self) -> dict[str, object]:
-        """The compact record the page's JS filters / sorts / summarises on."""
         return {
             "key": self.key, "battery": self.battery, "slug": self.slug, "name": self.title or self.slug,
             "track": self.track, "lang": self.language, "backend": self.generator, "tier": self.tier,
@@ -200,7 +156,6 @@ class RunEntry(BaseModel):
 
 
 class RootSection(BaseModel):
-    """All runs found under one root (``runs/`` or one bench battery)."""
 
     label: str
     path: str
@@ -208,11 +163,6 @@ class RootSection(BaseModel):
 
 
 class Summary(BaseModel):
-    """The numbers in the summary strip — computed over whatever is *currently* selected.
-
-    ``breakdown`` is the load-bearing one: disjoint buckets that **sum to ``n``**, so the
-    strip can state "89 runs = 80 judged · 4 unjudged · 5 error".  There is no pass rate:
-    a run is not passed or failed (2026-09-22) — the scores say how the runs went."""
 
     n: int = 0
     n_judged: int = 0
@@ -226,7 +176,6 @@ class Summary(BaseModel):
 
 
 def verdict_breakdown(entries: list[RunEntry]) -> dict[str, int]:
-    """``{bucket: count}`` over every bucket (zeros included), summing to ``len(entries)``."""
     counts = dict.fromkeys(VERDICTS, 0)
     for e in entries:
         counts[e.verdict] += 1
@@ -234,7 +183,6 @@ def verdict_breakdown(entries: list[RunEntry]) -> dict[str, int]:
 
 
 def summarize(entries: list[RunEntry]) -> Summary:
-    """Summary strip for ``entries`` (the same arithmetic the page's JS does)."""
     scored = [e.score for e in entries if e.score is not None]
     total = sum(e.cost_usd for e in entries)
     return Summary(
@@ -249,8 +197,6 @@ def summarize(entries: list[RunEntry]) -> Summary:
 
 
 class GalleryIndex(BaseModel):
-    """Everything the index page needs, plus the (battery, slug) → entry lookup
-    the server routes on (a request can only ever reach a run that is in here)."""
 
     sections: list[RootSection] = Field(default_factory=list)
     built_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -267,7 +213,6 @@ class GalleryIndex(BaseModel):
         return None
 
     def facets(self) -> dict[str, list[str]]:
-        """Sorted distinct values for every drop-down filter."""
         es = self.entries()
         return {
             "track": sorted({e.track for e in es if e.track}),
@@ -279,7 +224,6 @@ class GalleryIndex(BaseModel):
 
 
 def match(entry: RunEntry, flt: dict[str, str]) -> bool:
-    """Does ``entry`` survive the filter dict (the same rule as the page's JS)?"""
     q = (flt.get("q") or "").strip().lower()
     if q and q not in entry.search_text():
         return False
@@ -293,7 +237,6 @@ def match(entry: RunEntry, flt: dict[str, str]) -> bool:
 
 
 def sort_entries(entries: list[RunEntry], key: str) -> list[RunEntry]:
-    """Sort a copy of ``entries``: score/cost/time/complexity descending, name ascending."""
     if key == "cost":
         return sorted(entries, key=lambda e: (-e.cost_usd, e.slug))
     if key == "time":

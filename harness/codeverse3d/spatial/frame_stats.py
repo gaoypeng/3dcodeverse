@@ -1,12 +1,6 @@
-"""Visual + temporal metrics for a rendered frame sequence (numpy + PIL only).
+"""Per-frame and temporal metrics of a rendered frame sequence, and the ``gl_frames`` gate built on them.
 
-Per frame: mean luminance, luminance std, % near-black, % blown-out pixels,
-colourfulness (Hasler–Süsstrunk), edge density (gradient magnitude above a
-threshold).  Temporal: mean absolute difference between consecutive frames
-(0 → static), duplicate frames, flicker (very large diffs), plus NaN/Inf counts
-reported by the GL runner (float readback).  ``frame_gate`` turns the sequence
-into the ``gl_frames`` GateReport the graphics track + rubric caps consume
-(``data["kind"]`` ∈ nan · black · blown · static · flicker · duplicate · low_detail).
+``data["kind"]`` of a finding is one of nan · black · blown · static · flicker · duplicate · low_detail.
 """
 
 from __future__ import annotations
@@ -81,7 +75,7 @@ def luminance(rgb: np.ndarray) -> np.ndarray:
 
 
 def colourfulness(rgb: np.ndarray) -> float:
-    """Hasler & Süsstrunk (2003) metric on 0..1 floats (≈0 grey, ~0.3+ vivid)."""
+    """Hasler-Süsstrunk colourfulness on 0..1 floats (≈0 grey, ~0.3+ vivid)."""
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     rg = r - g
     yb = 0.5 * (r + g) - b
@@ -133,10 +127,7 @@ def sequence_stats(frames: Sequence[tuple[float, str | Path]], *, nan_counts: Se
         seq.mean_diff = float(np.mean(diffs))
         seq.max_diff = float(np.max(diffs))
         seq.n_duplicates = sum(1 for d in diffs if d < DUPLICATE_DIFF)
-        # MAX, not mean: 'static' is a scoring cap (shader.yaml static_frames), so it must
-        # require that NO sampled pair changed.  With the mean, an effect whose motion is
-        # concentrated between two of the five sampled times (0/1/2.5/4/6 s) is averaged down
-        # by the three quiet pairs and convicted while animating.
+        # MAX, not mean: 'static' is a scoring cap, so no sampled pair may have changed.
         seq.static = seq.max_diff < STATIC_DIFF
         seq.flicker = seq.max_diff > FLICKER_DIFF and len(diffs) >= 2
     return seq
@@ -144,7 +135,7 @@ def sequence_stats(frames: Sequence[tuple[float, str | Path]], *, nan_counts: Se
 
 # --------------------------------------------------------------------------- gate
 def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = GATE) -> GateReport:
-    """Deterministic findings the judge/refiner/caps consume (``data["kind"]`` set)."""
+    """Findings the judge, refiner and caps consume."""
     f: list[GateFinding] = []
 
     def add(sev: Severity, kind: str, msg: str, hint: str, target: str = "overall", **data: object) -> None:

@@ -1,36 +1,10 @@
-"""The scheduling machine under every model call (merged 2026-08-28, d512ccc):
+"""The scheduling machine under every model call.
 
-1. ``KeyPool``: a multi-key pool with 429 cooldown, dead-key benching, a health score
-   and the ``max_in_flight`` ceiling, which is machine-wide (``Slots``: flock'd lock
-   files every process shares) — used by ``GeminiModel`` (22 keys on the owner's box)
-   but provider-neutral;
-2. ``rotate_with_retries``, the one retry loop (the pool, hedging, the ``RETRY_DEADLINE_S``
-   deadline) — the SDK adapters run it over a one-key pool (``parts.retry_one_key``).
-
-Every wait anywhere in here clips to ``MAX_WAIT_S``.
-
-The pool:
-
-* ``acquire()`` picks the next healthy key round-robin, honouring 429 cool-downs; it
-  blocks (bounded) when every key is cooling and raises ``KeyPoolExhausted`` after
-  ``timeout_s``.  ``max_in_flight`` additionally caps how many calls may be out at
-  once on the whole machine, and :meth:`KeyPool.release` (a ``finally`` in
-  ``rotate_with_retries``) hands the slot back.  ``try_acquire()`` is the never-waiting
-  variant a hedged retry uses for its extra keys; ``lease_session_key()`` picks a key for a
-  vendor CLI session, which makes its own calls and holds no slot.  There is no RPM /
-  TPM bucket: the ledgers since the api-agent went (2026-08-29 .. 09-22, 2 080 calls)
-  peaked at 3.9 % of one key's TPM and 2.6 % of its RPM, so the buckets never engaged
-  (docs/COST.md §19).
-* ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead | skip`` so the
-  pool can cool a key down and adjust its health score.  ``skip`` is a content
-  failure the key did not cause (bad JSON, empty candidates): health and counters are
-  untouched.  ``dead`` is for key-scoped auth/permission failures (revoked / suspended /
-  invalid key): the key is benched for ``dead_cooldown_s`` (default one hour) and
-  re-probed once that elapses — a dead key must never keep failing its share of calls.
-* ``stats()`` exposes counters for logs / ``3dcode doctor --live``: per-key health and
-  cooldown, in-flight and peak in-flight.
-
-Thread-safe; ``clock`` / ``sleep`` are injectable for deterministic tests.
+``KeyPool``: multi-key pool with 429 cooldown, dead-key benching, health scores and a
+machine-wide ``max_in_flight`` ceiling (``Slots``, flock'd lock files).  ``rotate_with_retries``:
+the one retry loop (pool, hedging, ``RETRY_DEADLINE_S``); SDK adapters run it over a one-key pool.
+Every wait clips to ``MAX_WAIT_S``.  ``report`` outcomes: ok | 429 | 5xx | error | dead | skip
+(``skip`` = a content failure the key did not cause).  Thread-safe; ``clock`` / ``sleep`` injectable.
 """
 
 from __future__ import annotations
@@ -56,8 +30,7 @@ class KeyPoolExhausted(RuntimeError):
     """Every key is cooling down (or every slot is busy) and the wait budget ran out."""
 
 
-# message fragments of key-scoped failures (revoked / suspended / expired / disabled
-# project); HTTP 401 / 403 are key-scoped regardless of wording
+# message fragments of key-scoped failures; HTTP 401 / 403 are key-scoped regardless
 _DEAD_KEY_MARKERS = (
     "api_key_invalid",
     "api key not valid",
@@ -72,8 +45,7 @@ _DEAD_KEY_MARKERS = (
 
 
 def is_dead_key_error(err: ModelError) -> bool:
-    """True when ``err`` indicts the API key rather than the request, so the call
-    should move to another key instead of failing."""
+    """True when ``err`` indicts the API key rather than the request."""
     if err.status in (401, 403):
         return True
     text = str(err).lower()
@@ -81,9 +53,7 @@ def is_dead_key_error(err: ModelError) -> bool:
 
 
 def failure_outcome(err: ModelError) -> Outcome:
-    """``KeyPool.report`` outcome for a failed call (``rotate_with_retries``' default
-    ``outcome_of``).  Content-level failures (bad JSON, empty candidates) carry no status
-    and are not the key's fault: ``skip`` leaves health / counters alone."""
+    """``KeyPool.report`` outcome for a failed call; status-less content failures are ``skip``."""
     if err.status == 429:
         return "429"
     if (err.status or 0) >= 500:
@@ -93,23 +63,13 @@ def failure_outcome(err: ModelError) -> Outcome:
     return "error" if err.status else "skip"
 
 
+#: Longest single retry / cooldown wait (seconds): the pool rotates keys rather than sitting out
+#: a long backoff, so patience comes from the number of attempts, never from one sleep.
 MAX_WAIT_S = 3.0
-"""The longest any single retry / cooldown wait may be (seconds).
 
-House rule (owner, 2026-08-24, tightened 5 s -> 3 s on 2026-08-27): with 22 keys
-there is always another key to try, so the harness rotates rather than sitting
-out a long backoff.  Patience comes from the NUMBER of attempts, never from the
-length of one sleep.  This is the single source for every wait — generic
-backoff, storm sleeps and 429 cooldowns all clip to it.
-"""
-
+#: Default total wait budget of one :meth:`KeyPool.acquire` (seconds): the in-flight slot wait plus
+#: the key / cooldown wait; ``None`` waits forever.
 ACQUIRE_TIMEOUT_S = 120.0
-"""Default total wait budget of one :meth:`KeyPool.acquire` (seconds).
-
-Covers BOTH the ``max_in_flight`` slot wait and the key/cooldown wait; a caller
-with a deadline passes something smaller (``retry.rotate_with_retries`` passes
-``min(ACQUIRE_TIMEOUT_S, remaining budget)``).  ``None`` waits forever.
-"""
 
 
 @dataclass
@@ -134,22 +94,12 @@ class _KeyState:
 
 
 class Slots:
-    """``n`` machine-wide in-flight slots: the docs/COST.md §20 knee, enforced across processes.
-
-    One lock file per slot, ``<root>/NN.lock``, held with ``fcntl.flock`` while ONE model call
-    is out.  Every process pointed at the same ``root`` draws from ``00 .. n-1``, so the
-    machine never has more calls in flight than the largest ``n`` any of them runs with, and
-    a process with a smaller cap only ever uses its own first ``n`` files.  flock locks an
-    open file DESCRIPTION and every take opens its own, so two threads of one process
-    exclude each other exactly as two processes do.  The kernel drops the lock when its
-    holder dies — SIGKILL and the OOM killer included — so a dead process never strands a
-    slot: the staleness problem that kept a machine-wide limiter deferred in §23 does not
-    exist for flock (``proc.exclusive`` relies on the same property).
+    """``n`` machine-wide in-flight slots: one lock file per slot, ``<root>/NN.lock``, held with
+    ``fcntl.flock`` while one model call is out.  The kernel drops a dead holder's lock, so a
+    killed process never strands a slot.
     """
 
-    #: how long a waiter naps between two sweeps of the files while every slot is busy
-    #: (seconds, jittered x0.5..1.5).  A model call takes seconds, so this bounds the extra
-    #: latency a free slot costs a waiter, and a sweep is n non-blocking flock calls.
+    #: nap between sweeps while every slot is busy (seconds, jittered x0.5..1.5)
     POLL_S = 0.05
 
     def __init__(self, n: int, root: Path | str) -> None:
@@ -163,9 +113,8 @@ class Slots:
         return self.root / f"{i:02d}.lock"
 
     def try_take(self) -> int | None:
-        """A held slot (its file descriptor), or ``None`` when all ``n`` are busy — never
-        waits.  The sweep starts at a random slot, so a process with a small cap is not
-        starved by a big one that always fills the low numbers first."""
+        """A held slot (its file descriptor), or ``None`` when all are busy; never waits.
+        The sweep starts at a random slot so a small-cap process is not starved."""
         start = random.randrange(self.n)
         for step in range(self.n):
             fd = os.open(self._path((start + step) % self.n), os.O_RDWR | os.O_CREAT, 0o666)
@@ -181,8 +130,7 @@ class Slots:
         return None
 
     def take(self, timeout_s: float | None) -> int:
-        """Wait for a slot, at most ``timeout_s`` (``None`` = forever); its descriptor.
-        Raises ``KeyPoolExhausted`` once the wait is over."""
+        """Wait up to ``timeout_s`` (``None`` = forever) for a slot; raises ``KeyPoolExhausted``."""
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
         while (fd := self.try_take()) is None:
             left = None if deadline is None else deadline - time.monotonic()
@@ -194,16 +142,14 @@ class Slots:
 
     @staticmethod
     def give(fd: int) -> None:
-        """Hand a slot back.  LOCK_UN first: a descriptor a forked child inherited must not
-        keep the slot held after this process is done with it."""
+        """Hand a slot back; LOCK_UN first so a forked child's inherited descriptor does not keep it held."""
         try:
             fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 
     def busy(self) -> int:
-        """How many slots somebody holds right now, machine-wide (``3dcode doctor``).  A
-        shared probe per file, released at once: it never takes a slot from a caller."""
+        """How many slots are held machine-wide (``3dcode doctor``); never takes one."""
         n = 0
         for i in range(self.n):
             try:
@@ -220,7 +166,7 @@ class Slots:
 
 
 class KeyPool:
-    """Round-robin key pool with cooldowns and an in-flight ceiling.  See module docstring."""
+    """Round-robin key pool with cooldowns and an in-flight ceiling."""
 
     def __init__(
         self,
@@ -246,13 +192,11 @@ class KeyPool:
         self._rr = start % len(uniq)
         self._in_flight = 0
         self._peak_in_flight = 0
-        # Machine-wide ceiling on concurrent model calls, independent of the caller's
-        # thread pools: blender/node/chrome workers are CPU-bound and sized by cores,
-        # while this is sized by the provider (docs/COST.md Part III).  0 = unlimited.
+        # machine-wide ceiling on concurrent model calls; 0 = unlimited
         self._max_in_flight = int(max_in_flight or 0)
         if self._max_in_flight and slots_dir is None:
             raise ValueError("max_in_flight needs slots_dir: the slots are lock files every process shares")
-        #: the machine-wide slots (``None`` when uncapped); ``3dcode doctor`` reads it
+        #: the machine-wide slots (``None`` when uncapped)
         self.slots = Slots(self._max_in_flight, slots_dir) if self._max_in_flight else None
         self._held: list[int] = []  # slot descriptors of this process's in-flight calls
         now = clock()
@@ -269,15 +213,9 @@ class KeyPool:
         exclude: set[str] | frozenset[str] | None = None,
         timeout_s: float | None = ACQUIRE_TIMEOUT_S,
     ) -> str:
-        """Return the next usable key, blocking (bounded by ``timeout_s``) while all
-        keys are cooling down.  ``exclude`` skips keys that already failed this call.
-        Raises ``KeyPoolExhausted`` at once when no key can become available before
-        the deadline (e.g. every key is dead) — availability only moves later.
-
-        When ``max_in_flight`` is set the call also waits for a free machine-wide slot;
-        :meth:`release` hands it back.  ``timeout_s`` bounds the slot wait AND the key
-        wait together (``None`` = wait forever): the slot wait used to be unbounded, so
-        a caller 20 s from its deadline could sit on the semaphore for minutes."""
+        """Next usable key, blocking up to ``timeout_s`` (slot wait + key wait) while all keys cool.
+        ``exclude`` skips keys that already failed this call; raises ``KeyPoolExhausted`` at once
+        when no key can become available before the deadline."""
         slot = None
         if self.slots is not None:
             t0 = self._clock()
@@ -295,13 +233,8 @@ class KeyPool:
         return key
 
     def try_acquire(self, *, exclude: set[str] | frozenset[str] | None = None) -> str | None:
-        """:meth:`acquire` that never waits: a key usable *right now* (and a free
-        ``max_in_flight`` slot), else ``None`` — nothing is reserved or counted then.
-
-        For the extra keys of a hedged retry (``rotate_with_retries(hedge=...)``): the
-        primary request is already in flight, so a partner that is not free at once
-        is not worth waiting for.  A returned key holds a slot like any other and
-        must be :meth:`release`-d."""
+        """:meth:`acquire` that never waits: a key usable now, else ``None``.  Used for hedge
+        partners; a returned key holds a slot and must be :meth:`release`-d."""
         slot = None
         if self.slots is not None and (slot := self.slots.try_take()) is None:
             return None
@@ -317,18 +250,10 @@ class KeyPool:
         return key
 
     def lease_session_key(self, leases: Path | str, *, timeout_s: float | None = ACQUIRE_TIMEOUT_S) -> tuple[str, int | None]:
-        """A key for a session that makes its own calls — a vendor CLI: rotation, 429 cooldowns
-        and dead-key benching like :meth:`acquire`, but no in-flight slot (a session is minutes of
-        agent time; a machine-wide slot held that long would starve every planner and judge call)
-        — and one live session per key MACHINE-wide while there are keys enough.
-
-        A key's per-minute quota is what a long CLI session runs out of (live, 2026-10-13: one
-        agy session, 11 M prompt tokens in 18 min, 429'd), and every parallel ``3dcode make``
-        is its own process with its own pool — so a session holds ``fcntl.flock`` on
-        ``<leases>/<key hash>.lock`` for its length, and the next one, in any process, skips a
-        key that is held.  Only when every ready key is in a session is one shared (lease
-        ``None``).  Returns ``(key, lease)``; close the lease with :meth:`end_lease`.  The kernel
-        drops a dead holder's lock, so a killed run never strands a key (as :class:`Slots`)."""
+        """A key for a vendor-CLI session: rotation, cooldowns and benching like :meth:`acquire`
+        but no in-flight slot, and one live session per key machine-wide while keys suffice
+        (a ``flock`` on ``<leases>/<key hash>.lock``).  Returns ``(key, lease)``; close the lease
+        with :meth:`end_lease`.  When every ready key is in a session one is shared (lease ``None``)."""
         root = Path(leases)
         root.mkdir(parents=True, exist_ok=True)
         busy: set[str] = set()
@@ -388,13 +313,7 @@ class KeyPool:
             self._sleep(wait)
 
     def release(self) -> None:
-        """Mark one :meth:`acquire`-d call finished (call it in a ``finally``).
-
-        Frees the in-flight gauge and one of this process's slots (they are
-        interchangeable: the count is what the machine sees); outcome accounting is
-        :meth:`report`, which may legitimately be called more than once for one call (a
-        key that looked dead is reported again once a sibling proves the request fine).
-        A stray ``release`` is a no-op."""
+        """Mark one :meth:`acquire`-d call finished (call in a ``finally``); a stray release is a no-op."""
         with self._lock:
             if self._in_flight <= 0:
                 return
@@ -404,8 +323,7 @@ class KeyPool:
             Slots.give(slot)
 
     def report(self, key: str, outcome: Outcome, *, retry_after_s: float | None = None) -> None:
-        """Feed back the result of a call made with ``key`` (``retry_after_s``: a 429's
-        suggested delay, clipped to ``MAX_WAIT_S``)."""
+        """Feed back a call's result (``retry_after_s``: a 429's delay, clipped to ``MAX_WAIT_S``)."""
         with self._lock:
             st = self._by_key.get(key)
             if st is None:
@@ -419,15 +337,14 @@ class KeyPool:
                 st.n_429 += 1
                 st.health *= 0.5
                 cool = retry_after_s if retry_after_s and retry_after_s > 0 else self._cooldown_s
-                # House rule (owner, 2026-08-24): no single wait exceeds MAX_WAIT_S — we
-                # rotate to another key instead of sitting out a provider's suggested delay.
+                # rotate to another key rather than sit out the provider's delay
                 cool = min(cool, MAX_WAIT_S)
                 st.cooldown_until = max(st.cooldown_until, now + cool)
             elif outcome == "5xx":
                 st.n_5xx += 1
                 st.health *= 0.8
             elif outcome == "dead":
-                # key-scoped failure: bench it; re-probed once the long cooldown passes
+                # key-scoped failure: bench until the long cooldown passes
                 st.n_dead += 1
                 st.health = 0.0
                 st.dead_until = max(st.dead_until, now + self._dead_cooldown_s)
@@ -437,7 +354,7 @@ class KeyPool:
                 st.health *= 0.9
 
     def stats(self) -> dict[str, Any]:
-        """Counters per key (keys are redacted to their last 4 chars)."""
+        """Counters per key (keys redacted to their last 4 chars)."""
         with self._lock:
             now = self._clock()
             per_key = [
@@ -471,8 +388,7 @@ class KeyPool:
 
     # ----------------------------------------------------------------- private
     def _pick(self, now: float, exclude) -> _KeyState | None:
-        """Round-robin scan; prefer the first healthy, ready key; otherwise the
-        healthiest ready key.  Advances the RR cursor past the chosen key."""
+        """Round-robin: the first healthy ready key, else the healthiest ready key."""
         n = len(self._states)
         best: _KeyState | None = None
         best_idx = -1
@@ -495,23 +411,11 @@ class KeyPool:
 
 
 # ===================================================================== retry
-#: the longest ONE logical call may spend being retried, waits and timeouts included.
-#: The storm branch used to be bounded only in ATTEMPTS: 60 storm attempts x (a 300 s
-#: read timeout + a <=5 s wait) is **5.1 hours** for a single call, though the docstring
-#: claimed "~5 min".  Measured 2026-08-24: that, plus a wall-clock ceiling only checked
-#: when a call is BILLED (a stalled call bills nothing), let a run with --max-minutes 90
-#: reach 200 minutes during a flash outage.  Past this deadline the call gives up and the
-#: cell is recorded infra_failed, which is re-runnable (`--redo-status infra_failed`).
-#: This is the CEILING; a caller that cannot afford it passes a smaller ``max_total_s``
-#: (``ChatRequest.max_wait_s``) — audit 2026-08-26 §5.1: 66 give-up spans of 900 s, up to
-#: three in a row on one agent turn, were 30 % of a storm day's waiting.
-MIN_HEALTH = 0.3   # a key below this health is passed over while a healthier one is ready
-RETRY_DEADLINE_S = 1800.0   # owner 2026-08-27: generous time, zero timeouts (was 900)
+#: a key below this health is passed over while a healthier one is ready
+MIN_HEALTH = 0.3
+RETRY_DEADLINE_S = 1800.0   # ceiling of one logical call, retries included
 
-#: how many keys a retry is spread over once a call has met its first 503/529.
-#: Measured 2026-08-26 §5.2: a failed 503 costs the 21-50 s round-trip the provider
-#: holds before rejecting (not the <= MAX_WAIT_S sleep), storm streaks average 4.7 attempts,
-#: and a 503 bills nothing — so racing the next attempt on two fresh keys is free.
+#: keys a retry is raced on once a call has met its first 503/529
 DEFAULT_HEDGE = 2
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -521,24 +425,11 @@ log = logging.getLogger(__name__)
 
 
 def cause_for(err: BaseException, exc: BaseException | None) -> BaseException | None:
-    """The cause to raise ``err`` from — ``None`` when it would be ``err`` itself.
-
-    Every adapter's ``classify()`` returns an already-classified ``ModelError``
-    unchanged (gemini.py, openai.py, anthropic.py), so ``raise err from exc`` below is
-    often ``raise e from e``, and CPython's ``raise ... from ...`` does NOT check for a
-    cycle the way it does for ``__context__``.  The result — ``e.__cause__ is e`` — is a
-    chain no naive walker survives: on 2026-08-27 it took ``eval/bench/_infra.py`` to a
-    RecursionError inside ``run_cell``'s except handler and a compare matrix lost 11
-    finished cells.  Dropping the self-cause is invisible otherwise: none of these
-    raises sits inside an ``except`` block, and ``__suppress_context__`` is already set.
-    """
+    """The cause to raise ``err`` from, ``None`` when it would be ``err`` itself (a
+    self-cause chain recurses forever in naive walkers)."""
     return None if exc is err else exc
 
-#: per-round-trip hook of :func:`rotate_with_retries`: ``(try, attempt_no, discarded)``.
-#: ``attempt_no`` is the 1-based issue order within the logical call; ``discarded``
-#: is True for every round-trip that is not the winning one (hedge losers included).
-#: Fired exactly once per round-trip: buffered tries flush when the call settles,
-#: and a hedge loser still in flight reports the moment it lands (its own thread).
+#: per-round-trip hook of :func:`rotate_with_retries`: ``(try, attempt_no, discarded)``; fired once per round-trip
 OnAttempt = Callable[["_Try", int, bool], None]
 
 
@@ -576,69 +467,23 @@ def rotate_with_retries[T](
 ) -> T:
     """Run ``call(key)`` against a rotating :class:`KeyPool` until it succeeds.
 
-    The state machine (used by ``GeminiModel``):
+    * success: report ok, bench keys that looked dead, return.
+    * ``on_free_retry(err)`` true: retry at once, free (e.g. thinking-config downgrade).
+    * dead key (auth failure): rotate free; benched only once a sibling key succeeds.
+    * 429 / 503 / 529: the key joins the call's failed set; rotation to an untried key is
+      free.  Only when every key has failed within this call is a 503 a capacity storm:
+      up to ``storm_attempts`` waits (capped at ``storm_max_delay``) outside ``max_attempts``.
+    * other retryable errors: exponential backoff + jitter up to ``max_attempts``;
+      non-retryable raise at once.
+    * everything is bounded by ``max_total_s``.
 
-    * success → ``pool.report(key, "ok")``; keys that looked dead during this call are
-      benched (another key proved the request itself is fine) and the result is returned.
-    * ``on_free_retry(err)`` returning ``True`` → retry at once, for free
-      (no sleep, no budget) — e.g. a thinking-config downgrade.
-    * ``outcome_of(err) == "dead"`` (key-scoped auth failure) → rotate at once
-      for free; the key is only benched once a sibling key proves the request
-      is fine.  Every key failing the same way raises without benching.
-    * ``"429"`` → cool the key down (honouring ``retry_after``); rotation is
-      FREE while an untried key remains (0.5 s courtesy pause), otherwise the
-      429 counts against ``max_attempts`` with exponential backoff.
-    * ``"503"``/529 → EXACTLY like the 429 path: the key is added to this call's
-      failed set and rotation to an untried key is FREE (no sleep, no budget, no
-      ``max_attempts``) for as long as ANY untried key remains — a 20-key pool
-      rotates 19 times before it ever waits.  Measured 2026-08-26 with one tiny
-      request per key in parallel, three rounds 20 s apart, during the day's
-      "high demand" storm — gemini-3.7-flash answered on 15/22, 18/22 and 21/22
-      keys while only 5, 4 and 1 keys said 503 at the same instant.  A 503 is per
-      key at any moment, so the next key is the cure and a wait is the last
-      resort.  Only once EVERY key in the pool has 503'd within this one logical
-      call is it a
-    * **capacity storm** (the whole pool is out of capacity, the backstop): that gets
-      its own patience budget — up to ``storm_attempts`` waits with
-      backoff capped at ``storm_max_delay`` = ``MAX_WAIT_S`` (3 s) per wait (the house
-      rule), so patience comes from the NUMBER of waits (60 x <=3 s) rather than from
-      long sleeps that do NOT consume ``max_attempts`` — all inside the
-      ``RETRY_DEADLINE_S`` / ``max_total_s`` deadline.  Observed 2026-08-23: a
-      multi-minute gemini-3.7-flash "high demand" outage killed 8 bench runs
-      under the plain 6-attempt budget.
-    * other retryable errors → exponential backoff + jitter until
-      ``max_attempts``; non-retryable errors raise immediately.
+    Hedging (``hedge``; 1 disables): from the first 503/529 on, each attempt runs on up to
+    ``hedge`` distinct keys at once and the first success wins.  Extra keys come from
+    ``try_acquire`` (never waited for); losers finish on their own and report to the pool and
+    ``on_attempt``.  When all fail, the worst error decides the branch (``_severity``).
 
-    **Hedging** (``hedge``, default :data:`DEFAULT_HEDGE`; ``1`` disables).  From the
-    FIRST 503/529 of a call onwards, every further attempt is issued on up to ``hedge``
-    distinct keys at once and the first success wins.  Why: on the 2026-08-26 storm
-    day the cost of a failed 503 was the **21-50 s round-trip** the provider held
-    before rejecting, not the <= MAX_WAIT_S sleep (logged sleep was 13 % of the wait), and
-    storm streaks averaged **4.7 attempts** — racing two keys cuts the expected number
-    of rounds to ~1.7.  A 503 bills nothing, so while it is storming the hedge is free;
-    the price is paid only when BOTH keys answer: the second success is discarded and
-    that call's tokens are wasted (a few cents for a chat turn).
-    Mechanics: the attempt's first key is acquired as usual (it may wait for a slot or
-    a cooldown); the extra keys come from :meth:`KeyPool.try_acquire` and are simply
-    skipped when no fresh key or ``max_in_flight`` slot is free *right now*, so a hedge
-    never waits for a partner and every hedged request holds its own slot.  The calls
-    run in a per-attempt ``ThreadPoolExecutor`` that is shut down without waiting: a
-    loser keeps running until its own round-trip ends, then reports its outcome to
-    the pool and releases its slot; the winner is returned the moment it lands.  When
-    every hedged key fails, the attempt is ONE attempt for the storm / backoff
-    accounting and the worst error decides the branch (a non-retryable error first,
-    then a plain retryable one, a 429, a dead key, and a 503 last).
-
-    ``stats`` (optional, caller-owned dict) receives the call's telemetry on the way
-    out — success or failure: ``attempts`` = round-trips issued (hedged siblings
-    included; 1 = clean), ``hedged`` = hedged attempts, ``storm`` = storm waits.  A
-    raised ``ModelError`` carries ``attempts`` itself (the cost ledger's error row);
-    ``GeminiModel`` copies it into ``ChatResponse.raw`` on success.
-
-    ``on_attempt`` (optional) hears every round-trip exactly once — see
-    :data:`OnAttempt`; the cost layer uses it to write per-attempt ledger rows so a
-    hedge loser's and a charged-but-invalid reply's tokens stop vanishing.
-    Exceptions from the hook are swallowed: accounting must never break a call.
+    ``stats`` receives ``attempts``, ``hedged`` and ``storm`` counts.  ``on_attempt`` hears
+    every round-trip once (exceptions from it are swallowed).
     """
     failed_keys: set[str] = set()  # keys that 429'd / 503'd or looked dead during this call
     dead_keys: set[str] = set()
@@ -647,24 +492,21 @@ def rotate_with_retries[T](
     winner: _Try | None = None
 
     def bench() -> None:
-        # mark keys that failed with key-scoped errors dead — called once the call
-        # got past the auth layer on some other key (success, 429, 5xx, bad JSON …)
+        # bench dead-looking keys once another key got past the auth layer
         for k in dead_keys:
             pool.report(k, "dead")
         dead_keys.clear()
 
     def run_one(key: str) -> _Try:
-        """One round-trip on ``key``: report its outcome to the pool and hand the slot
-        back.  Runs inline for a single key and in a worker thread when hedged, so it
-        touches none of this call's state and never raises a ``ModelError`` itself."""
+        """One round-trip on ``key``: report to the pool and release the slot.  Touches none of
+        this call's state (it may run in a hedge thread)."""
         try:
             try:
                 result = call(key)
             except Exception as exc:  # noqa: BLE001 - classification is delegated
                 err = classify(exc)
                 outcome = outcome_of(err)
-                # a key that looks dead is reported "error" now and benched only once a
-                # sibling proves the request itself is fine (bench())
+                # a dead-looking key is benched later, by bench()
                 pool.report(key, "error" if outcome == "dead" else outcome,
                             retry_after_s=retry_after(exc) if (outcome == "429" and retry_after) else None)
                 return _Try(key, None, err, exc, outcome)
@@ -674,10 +516,7 @@ def rotate_with_retries[T](
             pool.release()
 
     def run_attempt(keys: Sequence[str]) -> list[_Try]:
-        """Issue ``call`` on every key; return the tries that completed up to and
-        including the first success, in completion order.  Losers still in flight
-        finish on their own (``run_one`` reports and releases for them, and the
-        ``on_attempt`` hook hears their tokens when they land)."""
+        """Issue ``call`` on every key; return tries completed up to the first success."""
         first_no = counts["attempts"] + 1
         counts["attempts"] += len(keys)
         if len(keys) == 1:
@@ -699,8 +538,7 @@ def rotate_with_retries[T](
             if t.err is None:
                 for other in futures:
                     if id(other) not in consumed_futs:
-                        # fires at once when the sibling already landed — either way
-                        # exactly once, so the hook still hears a loser's tokens
+                        # fires once, at once if the sibling already landed
                         other.add_done_callback(
                             partial(_discard_loser, on_attempt=on_attempt,
                                     attempt_no=nos[id(other)])
@@ -719,7 +557,7 @@ def rotate_with_retries[T](
         return monotonic() >= deadline
 
     def clip(delay: float) -> float:
-        """A sleep never outlives the budget: waking only to give up helps nobody."""
+        """A sleep never outlives the budget."""
         return delay if deadline == float("inf") else min(delay, max(0.0, deadline - monotonic()))
 
     def gave_up(err: ModelError) -> ModelError:
@@ -732,16 +570,13 @@ def rotate_with_retries[T](
     try:
         while attempt < max_attempts:
             if out_of_time() and last_err is not None:
-                # checked wherever the loop can spend time, not only around the
-                # sleeps: a free rotation must not out-live the caller's budget
+                # free rotations must not out-live the budget
                 raise gave_up(last_err) from cause_for(last_err, last_exc)
             attempt += 1
-            # never go back to a key that looked dead this call; throttled keys are
-            # excluded while an untried one remains, else acquire() waits for a cooldown
+            # skip dead-looking keys; skip throttled ones while an untried key remains
             exclude = dead_keys | (failed_keys if len(failed_keys) < len(pool) else set())
             budget_left = None if deadline == float("inf") else max(0.0, deadline - monotonic())
             try:
-                # the key/slot wait must fit the remaining budget, never outlive it
                 keys = [pool.acquire(
                     exclude=exclude,
                     timeout_s=ACQUIRE_TIMEOUT_S if budget_left is None
@@ -755,8 +590,6 @@ def rotate_with_retries[T](
                     break  # no fresh key / slot right now: never wait for a hedge partner
                 keys.append(extra)
             tries = run_attempt(keys)
-            # bookkeeping for every failed try of this attempt: a hedged loser's dead
-            # key or 503 counts exactly as a lone one would
             free = False
             for t in tries:
                 if t.err is None:
@@ -773,7 +606,6 @@ def rotate_with_retries[T](
                 winner = won
                 bench()
                 return won.result
-            # every key of this attempt failed: the worst error decides the branch
             worst = min(tries, key=_severity)
             err, exc, key = worst.err, worst.exc, worst.key
             assert err is not None
@@ -783,8 +615,6 @@ def rotate_with_retries[T](
                 attempt -= 1
                 continue
             if worst.outcome == "dead":
-                # key-scoped: move on at once (no budget, no sleep); the key is only
-                # benched once another key proves the request itself is fine
                 if len(dead_keys) < len(pool):
                     if out_of_time():
                         raise gave_up(err) from cause_for(err, exc)
@@ -795,22 +625,16 @@ def rotate_with_retries[T](
             if is_storm(err) and storm < storm_attempts and not out_of_time():
                 failed_keys.update(t.key for t in tries)
                 if len(failed_keys) < len(pool):
-                    # a 503 is per key at any instant (see the docstring): the next
-                    # UNTRIED key is the cure — free rotation, no sleep, no budget,
-                    # no storm yet.  Same rule as the 429 path: while an untried key
-                    # remains, rotation is free; it is only a storm once the WHOLE
-                    # pool has 503'd inside this one call.
+                    # a 503 is per key: while an untried key remains rotation is free
                     attempt -= 1
                     log.warning("%s key …%s 503 (%s); rotating to a fresh key (%d/%d tried%s)",
                                 label, key[-4:], err, len(failed_keys), len(pool),
                                 f", hedging x{hedge}" if hedging else "")
                     continue
-                # capacity storm: EVERY key in the pool said 503 in this call, so
-                # waiting is the only cure — paid from its own budget, not max_attempts
+                # capacity storm: every key said 503, so wait (own budget, not max_attempts)
                 storm += 1
                 counts["storm"] = storm
-                # jitter FIRST, cap LAST: capping before a >1 jitter factor let a
-                # "<=5 s" wait land at 6.25 s in the wild (observed 2026-08-24).
+                # jitter first, cap last, so the wait never exceeds the cap
                 raw = base_delay * (2 ** min(storm, 8)) * (0.75 + 0.5 * random.random())
                 delay = clip(min(storm_max_delay, raw))
                 log.warning("%s capacity storm %d/%d (%s); waiting %.0fs",
@@ -823,7 +647,6 @@ def rotate_with_retries[T](
                 if len(failed_keys) < len(pool):
                     if out_of_time():
                         raise gave_up(err) from cause_for(err, exc)
-                    # an untried key remains: rotation is free, only a courtesy pause
                     attempt -= 1
                     log.warning(
                         "%s key …%s throttled (%s); rotating to a fresh key", label, key[-4:], err
@@ -852,8 +675,7 @@ def rotate_with_retries[T](
         if stats is not None:
             stats.update(counts)
         if on_attempt is not None:
-            # flush every completed round-trip now that the winner is known; a hedge
-            # loser still in flight reports itself when it lands (_discard_loser)
+            # flush completed round-trips; a loser still in flight reports via _discard_loser
             for no, t in finished:
                 try:
                     on_attempt(t, no, t is not winner)
@@ -873,8 +695,7 @@ class _Try:
 
 
 def _severity(t: _Try) -> int:
-    """Rank a failed try so the worst one decides a hedged attempt's branch:
-    non-retryable (0) < plain retryable (1) < 429 (2) < dead key (3) < 503/529 (4)."""
+    """Rank a failed try: non-retryable 0 < retryable 1 < 429 2 < dead key 3 < 503/529 4."""
     err = t.err
     assert err is not None
     if t.outcome == "dead":
@@ -889,10 +710,7 @@ def _severity(t: _Try) -> int:
 def _discard_loser(
     fut: Future[_Try], on_attempt: OnAttempt | None = None, attempt_no: int = 0
 ) -> None:
-    """A hedged sibling that finished after the winner: its pool report and slot
-    release already happened in ``run_one``; here it is logged and handed to the
-    ``on_attempt`` hook — always as discarded, a late success included — so its
-    paid tokens reach the cost ledger at all."""
+    """A hedge sibling that finished after the winner: handed to ``on_attempt`` as discarded."""
     try:
         t = fut.result()
     except BaseException as exc:  # noqa: BLE001 - a crashed loser must not crash the caller

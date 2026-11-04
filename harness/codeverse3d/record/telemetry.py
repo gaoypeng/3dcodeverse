@@ -1,19 +1,5 @@
-"""Run telemetry: the resolved settings snapshot + the summary of the money ledger.
-
-Beside the ledger itself, ``telemetry/cost.jsonl`` (one priced row per model call, written
-while the run happens — ``codeverse3d.cost``), two files under ``<run>/telemetry/``:
-
-* ``settings.json`` — how the run was configured: model id per role, thinking
-  level / temperature / judge samples, rounds + budget, rubric and its content
-  hash, prompt and skill hashes, tool versions, harness git sha, key-pool size,
-  price-table hash, render + limit settings.
-* ``cost.json`` — the run-layout summary of the ledger rows: totals, per stage, per
-  role, per model, per round, the run's minutes against ``max_minutes``.
-
-The same content is mirrored into ``record.telemetry`` so a consumer that only
-has ``record.json`` sees it too.  Nothing here is required for a run to
-succeed: every builder degrades to "what could be read".
-"""
+"""Run telemetry: ``telemetry/settings.json`` (how the run was configured) and ``cost.json``
+(summary of the ledger rows), mirrored into ``record.telemetry``.  Builders degrade to what could be read."""
 
 from __future__ import annotations
 
@@ -41,7 +27,7 @@ log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- settings snapshot
 def price_table_version() -> str:
-    """Content hash of the USD price table — the run was costed with THIS table."""
+    """Content hash of the USD price table."""
     from codeverse3d.models.pricing import PRICES
 
     payload = json.dumps(
@@ -52,7 +38,7 @@ def price_table_version() -> str:
 
 
 def backend_kind(model_id: str) -> str:
-    """``api-agent:gemini:gemini-3.8-flash`` → ``api-agent``; ``gemini:x`` → ``gemini``."""
+    """``gemini:x`` → ``gemini``."""
     return model_id.split(":", 1)[0] if ":" in model_id else model_id
 
 
@@ -69,10 +55,7 @@ def rubric_hash(name: str) -> str:
 
 
 def _role_settings(record: RunRecord) -> list[RoleSettings]:
-    """The model per role from the spec; the sampling knobs from what the track stamped as it
-    ran (``record.extra["sampling"]``: the planner's temperature, the judge's temperature /
-    thinking / samples).  A vendor CLI owns its own knobs, and a record written before
-    2026-09-22 carries none: left empty, never guessed."""
+    """The model per role from the spec; sampling knobs from ``record.extra["sampling"]``, else left empty."""
     b = record.spec.backends
     sampling = record.extra.get("sampling") or {}
     roles: list[RoleSettings] = []
@@ -89,7 +72,7 @@ def _role_settings(record: RunRecord) -> list[RoleSettings]:
 
 
 def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
-    """The resolved 'how was this run configured' block (no secrets, ever)."""
+    """The resolved configuration block (no secrets)."""
     spec = record.spec
     rubric = rubric_of(record)
     s = get_settings()
@@ -120,9 +103,7 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
 
 
 def _variant_fields(record: RunRecord) -> tuple[str, int, str]:
-    """``(name, version, hash)`` of the variant the run used (D105): what the track stamped as it ran
-    (``record.extra["variant"]``), else the environment / the spec's frozen name with no version or hash
-    (a record written by another tool); the base is ``("", 0, "")``."""
+    """``(name, version, hash)`` of the variant the run used; the base is ``("", 0, "")``."""
     block = record.extra.get("variant")
     block = block if isinstance(block, dict) else {}
     name = str(block.get("name") or record.environment.get("variant") or record.spec.options.variant or "")
@@ -139,7 +120,7 @@ _TOOL_KEYS = frozenset({"python", "platform", "host", "blender", "blender_path",
 
 # --------------------------------------------------------------------------- the ledger (codeverse3d.cost)
 def ledger_rows(ws: Workspace) -> list[CallCost]:
-    """The run's priced per-call rows, ``telemetry/cost.jsonl`` (none when it has no ledger)."""
+    """The run's priced per-call rows (none without a ledger)."""
     try:
         return load_ledger(ws.root)
     except Exception as e:  # noqa: BLE001 - accounting must never fail a run
@@ -148,9 +129,7 @@ def ledger_rows(ws: Workspace) -> list[CallCost]:
 
 
 def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
-    """The ledger rows as the run layout shows them: total, per stage / role / model (the
-    ledger's own ``summarise`` — money by stage is computed there and nowhere else), per round,
-    and the run's minutes against ``max_minutes``."""
+    """The ledger rows as the run layout shows them: total, per stage / role / model / round, and minutes."""
     summ = summarise(rows, dimensions=("stage", "role", "model"))
     rank = {s: i for i, s in enumerate(STAGE_ORDER)}
     by_stage = [StageCost(stage=b.key, calls=b.n_calls, input_tokens=b.input_tokens, output_tokens=b.output_tokens,
@@ -200,6 +179,6 @@ def load_telemetry(ws: Workspace, record: RunRecord | None = None) -> RunTelemet
             settings=SettingsSnapshot.model_validate(settings) if settings else None,
             cost=CostSummary.model_validate(cost) if cost else None,
         )
-    except Exception as e:  # a hand-edited file must not break status/export
+    except Exception as e:
         log.warning("unreadable telemetry in %s: %s", ws.root, e)
         return None

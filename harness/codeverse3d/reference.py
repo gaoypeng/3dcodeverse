@@ -1,12 +1,8 @@
 """Reference comparison: judge a render against the user's own ``--image`` pictures.
 
-The user's reference images ride in ``spec.references``.  This module is what
-measures and names the distance between one of them and a render: the brief's
-dimension band vs the picture's outline (:func:`dimension_conflict` — when they
-disagree the BRIEF wins and the picture is a shape target only), and one vision
-call that lists concrete mismatches (:func:`compare`).  The planner, the
-generator's ``compare_reference`` tool, the silhouette gate and the judge
-(:class:`codeverse3d.judges.vlm_judge.ReferenceJudge`) all read it.
+Measures and names the distance between a ``spec.references`` image and a render: the brief's
+dimension band vs the picture's outline (:func:`dimension_conflict`; the BRIEF wins on a conflict)
+and one vision call listing concrete mismatches (:func:`compare`).
 """
 
 from __future__ import annotations
@@ -36,8 +32,6 @@ _SEVERITY_ORDER = {"critical": 0, "major": 1, "minor": 2}
 
 
 class Mismatch(BaseModel):
-    """One concrete difference between the reference and the render."""
-
     kind: MismatchKind
     target: str = Field(default="overall", description="part name from the plan, or 'overall'")
     detail: str = Field(description="what the reference shows vs what the render shows")
@@ -62,11 +56,9 @@ class ReferenceDiff(BaseModel):
     error: str = ""
 
     def top(self, n: int = 3) -> list[Mismatch]:
-        """The ``n`` mismatches worth spending a refine task on (severity first)."""
         return sorted(self.mismatches, key=lambda m: _SEVERITY_ORDER.get(m.severity, 3))[:n]
 
     def as_text(self, n: int = 6) -> str:
-        """Compact block for a judge / agent prompt (empty when nothing to say)."""
         if self.error or not (self.mismatches or self.matches):
             return ""
         lines = ["REFERENCE DIFF (harness vision pass, target = the REFERENCE image):"]
@@ -83,7 +75,6 @@ class ReferenceDiff(BaseModel):
 
 # ===================================================================== spec_text
 def brief_text(spec: Spec) -> str:
-    """The prompt + the constraints a picture could show, as one block."""
     lines = [spec.prompt.strip()]
     c = spec.constraints
     if c.style:
@@ -142,15 +133,8 @@ _WIDTH_KEYS = ("width", "length", "depth", "diameter")
 
 
 def expected_aspect_range(spec: Spec) -> tuple[float, float] | None:
-    """The width/height band any straight-on elevation of the brief could show.
-
-    A brief does not say which face a photograph shows, so the honest expectation
-    is a RANGE: the narrowest and the widest horizontal extent the brief states,
-    each over the stated height.  Only a picture outside that band by more than
-    :data:`ASPECT_TOL` disagrees with the brief — which keeps a chair whose photo
-    is a little wide from being flagged while still catching a 0.14 m grinder body
-    photographed with its 0.12 m crank arm.
-    """
+    """The width/height band any straight-on elevation of the brief could show (a RANGE, since the
+    brief does not say which face a photograph shows)."""
     dims = spec.constraints.dimensions_m or {}
     height = dims.get("height")
     if not height or height <= 0:
@@ -162,18 +146,13 @@ def expected_aspect_range(spec: Spec) -> tuple[float, float] | None:
 
 
 def expected_front_aspect(spec: Spec) -> float | None:
-    """Mid-point of :func:`expected_aspect_range` (``None`` if unstated)."""
     rng = expected_aspect_range(spec)
     return None if rng is None else (rng[0] + rng[1]) / 2
 
 
 def dimension_conflict(spec: Spec, image: Path | str) -> dict[str, Any]:
-    """``{conflict, expected_aspect, image_aspect, error}`` — never raises.
-
-    ``conflict`` is True only when the brief states a height plus one horizontal
-    dimension AND the image's own silhouette aspect is off by more than
-    :data:`ASPECT_TOL`.  An unmeasurable image is never a conflict.
-    """
+    """``{conflict, expected_aspect, image_aspect, error}`` — never raises; conflict only when the
+    image's silhouette aspect is off the brief's band by more than :data:`ASPECT_TOL`."""
     rng = expected_aspect_range(spec)
     out: dict[str, Any] = {"conflict": False, "expected_aspect": expected_front_aspect(spec),
                            "expected_range": list(rng) if rng else None, "image_aspect": None, "error": ""}
@@ -198,7 +177,6 @@ def dimension_conflict(spec: Spec, image: Path | str) -> dict[str, Any]:
 
 
 def conflict_note(info: dict[str, Any]) -> str:
-    """One line for a judge / CLI, empty when there is no conflict."""
     if not info.get("conflict"):
         return ""
     lo, hi = info.get("expected_range") or (0.0, 0.0)

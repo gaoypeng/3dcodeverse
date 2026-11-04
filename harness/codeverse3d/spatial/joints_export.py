@@ -1,13 +1,5 @@
-"""Export a posed :class:`Robot` to the canonical GLB (node hierarchy mirroring
-links, joint extras) and render articulation sheets.
-
-GLB convention: Y-up, +Z front (``codeverse3d.conventions.GLB_FRAME``).  The
-URDF world (Z-up, -Y front) is rotated by ``Rx(-90°)`` at the ``<robot name>``
-node; every link is a child node (name = link name) whose local matrix is the
-joint transform ``T_origin · Motion(q)``; geometry lives in the link frame.
-Non-root link nodes carry ``extras.joint`` and the scene carries
-``extras.joints / links / pose`` (same keys as the owner's dataset builder).
-"""
+"""Export a posed :class:`Robot` to the canonical GLB (node hierarchy mirroring links, joint extras)
+and render articulation sheets."""
 
 from __future__ import annotations
 
@@ -27,9 +19,7 @@ from codeverse3d.spatial.render import render_glb
 from codeverse3d.spatial.sheet import contact_sheet
 
 ARTICULATION_SHEET_NAME = "articulation_sheet.png"
-#: URDF (Z-up, -Y front) → glTF (Y-up, +Z front):  (x, y, z) → (x, z, -y)
 ZUP_TO_YUP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float)
-#: scene-graph base frame of the exported GLB (not a glTF node; must not collide with a link name)
 SCENE_BASE_FRAME = "__scene__"
 
 
@@ -43,10 +33,7 @@ def joint_extras(j: Joint) -> dict[str, Any]:
 
 
 def robot_node_name(robot: Robot) -> str:
-    """Name of the ``<robot>`` root node (carries the Z-up → Y-up rotation).  Scene-graph
-    node names must be unique, so a robot named like one of its links (``<robot
-    name="body">`` with a link ``body``) gets a ``__root`` suffix instead of silently
-    aliasing the link node — which would drop the rotation and the link's placement."""
+    """Name of the ``<robot>`` root node (carries the Z-up → Y-up rotation)."""
     name = robot.name or "robot"
     while name in robot.links or name == SCENE_BASE_FRAME:
         name += "__root"
@@ -56,11 +43,8 @@ def robot_node_name(robot: Robot) -> str:
 def robot_scene(robot: Robot, pose: dict[str, float] | None = None) -> trimesh.Scene:
     """Build the trimesh.Scene (hierarchical, Y-up) for ``robot`` at ``pose``."""
     fk(robot, pose or {})  # validates joint names
-    # the RESOLVED pose: a <mimic> follower moves with its driver in the export too, not
-    # only in fk.  The sheet the judge sees and the sweep's collision check are the same
-    # mechanism only if both pose it the same way (review, 2026-09-04: they did not).
     pose = resolve_q(robot, pose or {})
-    scene = trimesh.Scene(base_frame=SCENE_BASE_FRAME)  # never a link name (a link 'world' would close a cycle)
+    scene = trimesh.Scene(base_frame=SCENE_BASE_FRAME)
     robot_node = robot_node_name(robot)
     meta = {"links": robot.link_order(), "frame": "y_up_pos_z_front", "pose": dict(pose), "units": "meters"}
     meta["joints"] = [joint_extras(j) for j in robot.joints.values()]
@@ -77,7 +61,7 @@ def robot_scene(robot: Robot, pose: dict[str, float] | None = None) -> trimesh.S
         if len(pieces) == 1:
             scene.add_geometry(pieces[0].copy(), node_name=name, geom_name=name, parent_node_name=parent_node,
                                transform=local, metadata=extras)
-        else:  # several materials: link node + one geometry child per piece (names stay unique)
+        else:
             scene.graph.update(frame_to=name, frame_from=parent_node, matrix=local, metadata=extras)
             for i, piece in enumerate(pieces):
                 scene.add_geometry(piece.copy(), node_name=f"{name}{LINK_PIECE_SEP}{i}", geom_name=f"{name}{LINK_PIECE_SEP}{i}", parent_node_name=name,
@@ -105,9 +89,7 @@ def render_poses(
     width: int = 512,
     height: int = 512,
 ) -> list[tuple[str, RenderSet]]:
-    """Export one GLB per pose, render ``views`` for each (default: ``ARTICULATION_VIEWS``)
-    and write ``out_dir/articulation_sheet.png`` (rest / each joint at lower & upper
-    by default — the image the judge sees).  Returns ``[(pose_name, RenderSet)]``."""
+    """Export one GLB per pose and render ``views`` of each."""
     out_dir = out_directory(out_dir)
     poses = poses if poses is not None else limit_poses(robot)
     views = tuple(views or ARTICULATION_VIEWS)

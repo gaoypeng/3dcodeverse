@@ -1,16 +1,6 @@
-"""``3dcode show`` — THE single-run view, in four sections:
-
-* **STATUS** — where the run stands: the run, the rounds, the process holding the run
-  lock, run_state, best-of-N candidates, the latest events.  It needs no
-  record.json, so it works mid-run; ``3dcode status`` is ``show --section status``;
-* **DELIVERABLE** — what the run produced and where to find it;
-* **QUALITY EVIDENCE** — why we believe it is good (score, rubric, gates, acceptance);
-* **COST & SETTINGS** — tokens and dollars per stage, model ids, thinking levels,
-  rubric hash, budget vs spent, wall clock.
-
-Works on the new layout and on runs written before it: the cost / settings block
-is computed on the fly when ``telemetry/`` is not there yet.
-"""
+"""``3dcode show`` — the single-run view: STATUS (works mid-run, without record.json;
+``3dcode status`` is ``show --section status``), DELIVERABLE, QUALITY EVIDENCE and
+COST & SETTINGS."""
 
 from __future__ import annotations
 
@@ -55,8 +45,6 @@ def _section(title: str) -> None:
 
 # --------------------------------------------------------------------------- status
 def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None:
-    """Where the run stands.  Needs no record.json: a run in flight shows its spec, its lock
-    holder, run_state and the latest events."""
     from codeverse3d.proc import EventLog, holder_of, read_json_or_none
 
     _section("STATUS — where the run stands")
@@ -68,7 +56,7 @@ def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None
             "prompt": spec.prompt, "track": spec.track.value, "language": spec.language.value,
             "generator": spec.backends.generator, "judge": spec.backends.judge, "workspace": ws.root}))
     state: dict[str, Any] = {}
-    if (held := holder_of(ws.root)) is not None:  # kill THAT pid, never `pkill -f 3dcode`
+    if (held := holder_of(ws.root)) is not None:
         state["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcode'})"
     if ws.state_path.is_file():
         raw = read_json_or_none(ws.state_path)
@@ -106,8 +94,6 @@ MAX_ROWS_PER_ROLE = 6
 
 
 def _deliverable_table(d: RunDeliverable) -> Table:
-    """One row per file, except roles with many files (frame stacks, link meshes,
-    a multi-file source tree) which collapse into a single counted row."""
     t = Table(title="files (deliverable/)", show_lines=False)
     for col in ("role", "path", "size"):
         t.add_column(col, justify="right" if col == "size" else "left")
@@ -126,7 +112,6 @@ def _deliverable_table(d: RunDeliverable) -> Table:
 
 
 def _unpackaged_artifact_rows(ws: Workspace) -> dict[str, Any]:
-    """A run not yet packaged: show physical artifacts instead of ``deliverable/``."""
     rows: dict[str, Any] = {}
     for name in ("object.glb", "object.stl", "object.step", "robot.urdf", "preview.gif"):
         p = ws.artifacts / name
@@ -164,7 +149,7 @@ def print_evidence(ws: Workspace, record: RunRecord) -> None:
 
     _section("QUALITY EVIDENCE — why we believe it")
     s = select.summarise(ws.root, record=record)
-    rnd = next((r for r in record.rounds if r.index == s.round), None)   # the pick, else select.fallback_round
+    rnd = next((r for r in record.rounds if r.index == s.round), None)
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)
     rows: dict[str, Any] = {
@@ -178,11 +163,7 @@ def print_evidence(ws: Workspace, record: RunRecord) -> None:
         rows["acceptance"] = f"{sum(1 for v in acc.values() if v)}/{len(acc)} met" if acc else "-"
         rows["judge summary"] = j.summary[:300]
     if rnd is not None and rnd.renders is not None and rnd.renders.contact_sheet:
-        # rebase, never print the stored string: record.json holds the ABSOLUTE path the
-        # renderer wrote, so an archived / rsynced / moved run made `3dcode show` print a
-        # sheet under the ORIGINAL root — a path that is not there, next to an object.glb
-        # that resolved correctly (it is recomputed from the workspace), which is what
-        # made the breakage silent and partial.  ``_fmt`` does the same for `3dcode status`.
+        # record.json stores absolute paths of the producing host; rebase onto this root
         rows["contact sheet"] = ws.rebase(rnd.renders.contact_sheet)
     if rnd is not None and rnd.measurement is not None:
         mm = rnd.measurement
@@ -224,7 +205,7 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
     tele = load_telemetry(ws, record)
     computed = False
     if tele is None or tele.cost is None:
-        tele = build_telemetry(ws, record, write=False)  # incomplete telemetry: compute without writing
+        tele = build_telemetry(ws, record, write=False)
         computed = True
     cost, settings = tele.cost, tele.settings
     if cost is not None:

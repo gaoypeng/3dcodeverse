@@ -1,17 +1,9 @@
-"""scene_blender: multi-file bpy scenes on the ``scene`` track (DESIGN 2026-09-24 §3, phase 1).
+"""scene_blender: multi-file bpy scenes on the ``scene`` track.
 
 The agent writes ``src/env.py`` / ``src/zones/<snake>.py`` / ``src/assets/<snake>.py`` in the Blender
-frame (``conventions.LANGUAGE_FRAME``: Z up, −Y front, metres); the harness assembles ``src/scene.py``
-(data only: which zones / assets / heroes, and the plan's cameras converted to that frame) and builds
-it in ONE Blender process (``languages/wrappers/run_bpy_scene.py``): every builder isolated, a zone
-that raises dropped with its ``file:line``.  The geometry gates are the JS ones, run on the
-harness-written census GLB (``wrappers/_census_glb.py`` → ``runtime_js/lib/glb_scene.mjs``) — one
-implementation of census, placement and camera fitting for both scene languages.  The plan stays in
-the GLB frame (D12): only the files the agent reads are converted.
-
-This module: lint (the object track's bpy traps + a scene policy table), layout, skeleton, assembler,
-and the ``SceneRuntime``.  Rendering (``render_scene``) is DESIGN phase 2 and not here yet.
-"""
+frame; the harness assembles ``src/scene.py`` and builds it in one Blender process
+(``wrappers/run_bpy_scene.py``).  Geometry gates run on the harness-written census GLB.
+This module holds lint, layout, skeleton, assembler and the ``SceneRuntime``."""
 
 from __future__ import annotations
 
@@ -79,41 +71,35 @@ if TYPE_CHECKING:
 
 LANGUAGE = Language.SCENE_BLENDER
 log = logging.getLogger(__name__)
-ENTRY_REL = ENTRY_FILE[LANGUAGE]   # "src/scene.py"
+ENTRY_REL = ENTRY_FILE[LANGUAGE]
 GATE = "lint:scene_blender"
-#: the harness's frame clock: ``frame(t) = 1 + round(t * FPS)`` — the wrapper sets it, the render
-#: driver samples it (t = 0 → frame 1, t = 1.5 → frame 46)
+#: the harness frame clock: ``frame(t) = 1 + round(t * FPS)``
 FPS = 30
 TIMES: tuple[float, ...] = (0.0, 1.5)
 
 
 def frame_of(t: float) -> int:
-    """The Blender frame that shows animation time ``t`` (seconds)."""
     return 1 + round(t * FPS)
 
 
 # ===================================================================== layout
-#: what a whole-scene session edits: the entry and the environment (zones and assets have their own)
-SCENE_FILES: tuple[str, ...] = (ENTRY_REL, "src/env.py")   # == (ENTRY_REL, ENV_FILE); ENV_FILE is defined with the starter tree
+#: what a whole-scene session edits
+SCENE_FILES: tuple[str, ...] = (ENTRY_REL, "src/env.py")
 #: refine targets that are the environment's, whatever the plan calls its zones
 ENV_WORDS = frozenset({"env", "environment", "lighting", "sky", "fog", "ground", "water", "light", "world", "sun"})
 
 
 def zone_file(name: str) -> str:
-    """``src/zones/<snake>.py`` — the module that builds zone ``name``."""
     return f"src/zones/{to_snake(name)}.py"
 
 
 def asset_file(asset: AssetPlan) -> str:
-    """A procedural asset's module (``bpy``; a three.js-kind asset in a Blender plan is one too); a
-    hero's compiled GLB."""
     snake = to_snake(asset.name)
     return f"public/assets/{snake}.glb" if asset.kind == "blender_glb" else f"src/assets/{snake}.py"
 
 
 def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-    """The files that own a scene refine target — the same routing as scene_threejs's
-    (``languages.scene_threejs.scene_files_for``), over this language's file table."""
+    """The files that own a scene refine target (same routing as scene_threejs)."""
     zone_plans = list(getattr(plan, "zones", None) or [])
     zones = {to_snake(z.name) for z in zone_plans}
     assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
@@ -135,7 +121,6 @@ def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | N
 
 
 def module_files(ws: Workspace, sub: str) -> list[Path]:
-    """``src/<sub>/*.py`` (sorted; ``_`` helper modules excluded)."""
     d = ws.src / sub
     return sorted(p for p in d.glob("*.py") if not p.name.startswith("_")) if d.is_dir() else []
 
@@ -149,10 +134,9 @@ def hero_files(ws: Workspace) -> list[Path]:
 ALLOWED_IMPORTS = frozenset({
     "bpy", "bmesh", "mathutils", "math", "random", "numpy", "itertools", "functools", "collections", "typing",
     "dataclasses", "colorsys", "statistics", "operator", "enum", "copy", "__future__", "bpy_extras",
-    "env", "zones", "assets",   # the workspace's own packages (src/ is on sys.path)
+    "env", "zones", "assets",
 })
-#: the object track's floor + everything that reads a clock or the file system: a scene is
-#: deterministic by construction and the harness owns every file
+#: the object track's floor + everything that reads a clock or the file system
 FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {"os", "sys", "pathlib", "time", "datetime", "tempfile",
                                                         "glob", "io", "shlex"})
 #: numpy's random module is fine only through a seeded generator
@@ -180,8 +164,7 @@ CALL_POLICY: tuple[tuple[str, Severity, LintKind, str, str], ...] = (
     ("bpy.ops.view3d.", Severity.WARN, LintKind.API_TRAP, "view3d operators fail in background mode (no 3D viewport)", "delete it"),
     ("bpy.ops.screen.", Severity.WARN, LintKind.API_TRAP, "screen operators fail in background mode", "delete it"),
 )
-#: scene settings the harness owns: an assigned dotted target that CONTAINS one of these (a
-#: material's ``cycles`` or a modifier's ``render_levels`` are the agent's, so the dots matter)
+#: scene settings the harness owns: an assigned dotted target that CONTAINS one of these
 _STORE_OWNED_IN: tuple[tuple[str, str], ...] = (
     ("scene.render.", "render settings"), ("scene.cycles.", "Cycles settings"), ("scene.eevee.", "EEVEE settings"),
     ("scene.view_settings.", "colour management"), ("scene.display_settings.", "colour management"),
@@ -191,8 +174,7 @@ _STORE_OWNED_END: tuple[tuple[str, str], ...] = (
     ("scene.camera", "the active camera"), ("scene.frame_start", "the frame range"), ("scene.frame_end", "the frame range"),
     ("scene.frame_current", "the current frame"), ("scene.render", "render settings"),
 )
-#: Blender's simple-expression driver subset (verified on 5.0.1: ``driver.is_simple_expression``);
-#: anything else runs Python, which a ``--factory-startup`` build silently evaluates to 0 (D10)
+#: Blender's simple-expression driver subset; anything else evaluates to 0 under ``--factory-startup``
 SIMPLE_DRIVER_FUNCS = frozenset({
     "radians", "degrees", "abs", "fabs", "floor", "ceil", "trunc", "round", "int", "sin", "cos", "tan", "asin",
     "acos", "atan", "atan2", "exp", "log", "sqrt", "smoothstep", "fmod", "pow", "min", "max", "clamp", "lerp",
@@ -203,7 +185,6 @@ _SIMPLE_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Compare, ast.BoolOp
 
 
 def simple_driver(expr: str) -> bool:
-    """Is ``expr`` inside Blender's simple-expression subset (no Python needed to evaluate it)?"""
     try:
         tree = ast.parse(expr.strip(), mode="eval")
     except (SyntaxError, ValueError, RecursionError, MemoryError):
@@ -220,8 +201,6 @@ def simple_driver(expr: str) -> bool:
 
 
 class _SceneFacts(ast.NodeVisitor):
-    """What the scene policy needs beyond the object-track collector: primitive operators inside
-    loops, handler access, driver expressions, unseeded randomness, links into the scene root."""
 
     def __init__(self) -> None:
         self.loop_ops: list[tuple[str, int]] = []
@@ -238,7 +217,7 @@ class _SceneFacts(ast.NodeVisitor):
         self.generic_visit(node)
         self._loops -= 1
 
-    visit_For = visit_While = visit_ListComp = visit_GeneratorExp = _loop  # type: ignore[assignment]
+    visit_For = visit_While = visit_ListComp = visit_GeneratorExp = _loop
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if dotted(node) == "bpy.app.handlers" or dotted(node).startswith("bpy.app.handlers."):
@@ -282,7 +261,6 @@ def _f(kind: LintKind, sev: Severity, msg: str, line: int | None, hint: str, tar
 
 
 def _regate(findings: list[GateFinding], target: str) -> list[GateFinding]:
-    """The object track's bpy traps, re-stamped as this gate's findings on ``target``."""
     out = []
     for f in findings:
         line = f.data.get("line")
@@ -352,10 +330,9 @@ def _policy(c: BpyCollector, facts: _SceneFacts, *, target: str, role: str) -> l
 
 
 def lint_scene_source(source: str, *, target: str, role: str) -> list[GateFinding]:
-    """Lint one scene module; ``role`` is ``entry`` / ``env`` / ``zone`` / ``asset`` / ``helper``."""
     tree, exc = safe_parse(source, target)
     if tree is None:
-        msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
+        msg, hint, line = describe_parse_failure(exc)
         return [_f(LintKind.SYNTAX, Severity.ERROR, msg, line, hint, target)]
     c = BpyCollector()
     c.visit(tree)
@@ -396,7 +373,6 @@ def _role(ws: Workspace, p: Path) -> str:
 
 
 def lint(ws: Workspace) -> GateReport:
-    """Every ``src/**.py``; passed iff no ERROR."""
     t0 = time.monotonic()
     findings: list[GateFinding] = []
     if not (ws.root / ENTRY_REL).is_file():
@@ -418,7 +394,7 @@ STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 ENV_FILE = "src/env.py"
 
 
-#: the env check's data entry (deleted after use): no zone, asset or hero, so only build_env runs
+#: the env check's data entry (deleted after use): only build_env runs
 ENV_CHECK_REL = "src/_c3d_env_check.py"
 
 
@@ -426,11 +402,7 @@ _TB_FRAME_RE = re.compile(r'File "(?P<file>[^"]+)", line (?P<line>\d+)')
 
 
 def env_frame(traceback_text: str) -> str:
-    """``src/env.py:N`` — the deepest frame of a Python traceback that is the env module's own, with its
-    source line when the traceback quotes it — or ``""`` when no frame is.  ``check_env`` leads with it
-    when the raise surfaced inside a module the env called — a ``bpy_extras`` helper, bmesh's own python
-    (D112 review: a recovered env was reported at the helper's line while its own bad call was
-    ``env.py:287``, and the repair single-shot writes env.py)."""
+    """``src/env.py:N`` of the deepest traceback frame in the env module (with its source line), or ``""``."""
     lines = traceback_text.splitlines()
     found = ""
     for i, text in enumerate(lines):
@@ -449,10 +421,8 @@ def _put(path: Path, text: str, written: list[Path]) -> None:
 
 
 def write_example(ws: Workspace) -> list[Path]:
-    """The complete plan-less starter scene (``starter/src/**/*.py``: entry, env, zones and assets)
-    into ``ws.src`` — scene_threejs's ``write_example`` twin.  Raises when the starter tree is
-    missing: an rglob over an absent directory writes nothing and reports success, which is how a
-    wheel without package data once shipped empty scenes (tests/core/test_portability.py)."""
+    """Write the plan-less starter scene (``starter/src/**/*.py``) into ``ws.src``; raises when the
+    starter tree is missing (an rglob over an absent directory would silently write nothing)."""
     if not STARTER_DIR.is_dir():
         raise FileNotFoundError(
             f"scene_blender starter tree missing: {STARTER_DIR} — this install has no package data "
@@ -468,27 +438,16 @@ def write_example(ws: Workspace) -> list[Path]:
 
 # ===================================================================== skeleton
 def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, float]:
-    """A plan (GLB-frame) vector in this language's frame (D12: prompts and skeleton convert)."""
-    return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))  # type: ignore[return-value]
+    return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))
 
 
-#: the placeholder plate's side as a multiple of the plan span (the three.js skeleton's
-#: ``PLACEHOLDER_GROUND_SPANS``): past the 2 × span the ``fog_short`` gate measures once the author's
-#: atmosphere is in, so no authored camera reads a plate edge before the land is built.  No
-#: minimum world size.
+#: the placeholder plate's side as a multiple of the plan span
 PLACEHOLDER_GROUND_SPANS = 3.0
 
 
 def _env_source(plan: ScenePlan) -> str:
-    """``src/env.py`` as an interface stub: the plan's data (bounds, interior, glazed, the sun the
-    plan states), the two exports the wrapper calls, and a PLACEHOLDER body that builds ONE thing —
-    a level plate named Ground past the plan span — and no world, no lamp, no atmosphere: as
-    written the stub FAILS the probe (no world / no atmosphere) and the frame gate (black frames)
-    until the author writes the brief's.  It used to be a finished landscape (a level pad of the
-    bounds' half-span + 15 m, fbm hills beyond, a mossy ground, a fog box, a room shell with one
-    ceiling light): 30 of 30 iteration-0 scenes kept its shape; then a passing placeholder (a
-    neutral sun at 45° / 35°, a haze) that any brief could keep for the same reason (the
-    de-templating of 2026-10-15)."""
+    """``src/env.py`` as an interface stub: the plan's data, the two exports the wrapper calls and a
+    placeholder ground plate.  No world, lamp or atmosphere, so it fails the probe until the author writes them."""
     from codeverse3d.languages.scene_threejs import sun_from_plan
 
     c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
@@ -563,7 +522,6 @@ def build_env(ctx):
 '''
 
 
-#: the asset placeholder's blockout (``str.format`` fields)
 _ASSET_BODY = """import bmesh
 import bpy
 
@@ -591,7 +549,7 @@ def build_{snake}(ctx, variant=0):
 
 def _asset_source(a: AssetPlan) -> str:
     snake, pascal = to_snake(a.name), to_pascal(a.name)
-    w, h, d = (max(0.05, float(v)) for v in a.approx_size_m)   # plan order: width, height, depth
+    w, h, d = (max(0.05, float(v)) for v in a.approx_size_m)
     rgb, rough, metal = finish_for(a.description)
     return f'''"""src/assets/{snake}.py — asset "{pascal}": {a.description.strip()}
 
@@ -607,9 +565,6 @@ CONTRACT: build_{snake}(ctx, variant=0) -> bpy.types.Collection — link every p
 
 
 def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan]) -> str:
-    """The zone's interface and a TODO naming the plan's contents — no positions.  The stub used to
-    tile the contents on a quarter-extent grid inside the bbox and say "keep them inside the bbox":
-    the seed of the blocks-in-a-rectangle look (the de-templating of 2026-10-15)."""
     snake, pascal = to_snake(z.name), to_pascal(z.name)
     c, e = _v(z.bbox.center), _v(z.bbox.extents, extents=True)
     todo = []
@@ -652,7 +607,6 @@ def _cam(c: CameraPlan) -> str:
 
 def render_scene_py(zones: Sequence[str], assets: Sequence[str], heroes: Sequence[str], cameras: Sequence[CameraPlan],
                     *, title: str = "", summary: str = "") -> str:
-    """Deterministic ``src/scene.py``: data the wrapper reads, nothing to execute."""
     def table(keys: Sequence[str]) -> str:
         return "{\n" + "".join(f'    "{k}": "{to_pascal(k)}",\n' for k in keys) + "}" if keys else "{}"
 
@@ -676,9 +630,7 @@ CAMERAS = [
 
 
 def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
-    """Starter files for a scene plan (env, one module per zone and per procedural asset, the
-    assembled entry); ``public/assets/`` for the heroes.  Without a plan the complete example scene
-    is the skeleton (``write_example``)."""
+    """Starter files for a scene plan; without a plan the complete example scene."""
     if plan is None:
         return write_example(ws)
     if not isinstance(plan, ScenePlan):
@@ -700,14 +652,12 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
 
 # ===================================================================== build
 WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_bpy_scene.py"
-#: what a build (re)writes under ``artifacts/`` — wiped first, so nothing of a previous build reads as current
+#: what a build (re)writes under ``artifacts/``; wiped first
 BUILD_OUTPUTS = ("build.json", "census.json", "census.glb", "scene.blend", "bpy_build.json", "bpy_census.json",
                  "scene_probe.json")
 
 
 class WrapperRun(BaseModel):
-    """One Blender process over the workspace: the wrapper's report as a BuildResult (typed
-    timeout / crash / script error), its raw report and the bpy facts."""
 
     result: BuildResult
     report: dict[str, Any] = Field(default_factory=dict)
@@ -718,10 +668,7 @@ _SUN_RE = re.compile(r"^SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)", re.M)
 
 
 def _fallback_camera(plan: ScenePlan | None, ws: Workspace | None = None) -> CameraPlan:
-    """An overview when the plan names no camera (the schema requires one, so this is the plan-less
-    path): in the PLAN frame (Y up), on the lit side — the env's ``SUN_AZIMUTH_DEG`` (compass 0 = +X,
-    90 = +Y in this language's Z-up frame, i.e. -Z in the plan's), the rig's 45° guess without one —
-    at the bounds' span from their centre; derived, never a fixed corner."""
+    """An overview camera (PLAN frame) on the lit side at the bounds' span, for a plan with no camera."""
     from codeverse3d.languages.scene_threejs import SUN_AZIMUTH_GUESS_DEG
 
     azimuth = SUN_AZIMUTH_GUESS_DEG
@@ -751,7 +698,6 @@ class AssembleResult(BaseModel):
 
 
 class SceneBlenderRuntime:
-    """``SceneRuntime`` for ``Language.SCENE_BLENDER``."""
 
     language = LANGUAGE
     entry_globs: tuple[str, ...] = (ENTRY_REL, "src/zones/*.py", "src/assets/*.py", "src/env.py")
@@ -761,8 +707,6 @@ class SceneBlenderRuntime:
 
     @property
     def env_file(self) -> str:
-        """The environment module (``src/env.py``): what an env session edits, the file the
-        scene track hints for the whole-scene stage (``SceneRuntime.env_file``)."""
         return ENV_FILE
 
     def __init__(self, *, blender: str | None = None, settings: Settings | None = None) -> None:
@@ -783,16 +727,11 @@ class SceneBlenderRuntime:
         return lint(ws)
 
     def lib_interface(self, ws: Workspace) -> str:
-        return ""   # nothing harness-owned ships into a scene_blender workspace
+        return ""
 
     def check_env(self, ws: Workspace) -> str:
-        """``""`` when ``src/env.py`` lints clean, runs ``build_env`` in Blender with nothing beside
-        it, and lights what it builds (``probes.unlit``); else the first failure, quoted.  A Blender
-        that cannot run is the harness's: ``""``.  What the scene track asks of a recovered env (D112):
-        in argon loop iteration 5, three recovered env.py modules failed at assembly (a ``curb_ mats``
-        SyntaxError, an AttributeError, an unknown ``roughness=`` keyword) and two more that a scope
-        revert kept from assembly were broken too (``noise_ centered = ...`` did not parse; a tuple
-        rotation raised inside a helper the env called)."""
+        """``""`` when ``src/env.py`` lints clean, runs ``build_env`` alone and lights what it builds;
+        else the first failure, quoted.  A Blender that cannot run gives ``""``."""
         from codeverse3d.spatial.probes import unlit
 
         env = ws.root / ENV_FILE
@@ -816,8 +755,7 @@ class SceneBlenderRuntime:
             e = raised[0]
             at = f"{e.get('error_file') or ENV_FILE}:{e.get('error_line')}" if e.get("error_line") else ENV_FILE
             if (e.get("error_file") or ENV_FILE) != ENV_FILE and (own_at := env_frame(str(e.get("traceback") or ""))):
-                # the raise surfaced inside a module the env called: the repair writes env.py, so the
-                # env's own call line leads and the helper's line stays as where it surfaced
+                # the raise surfaced in a helper the env called: lead with the env's own call line
                 at = f"{own_at} (raised in {at})"
             return f"{at}: build_env raised {e.get('error_type')}: {str(e.get('error_message'))[:600]}"
         if not run.result.ok:
@@ -837,9 +775,7 @@ class SceneBlenderRuntime:
 
     def run_wrapper(self, ws: Workspace, out_dir: Path, *, zones: dict[str, str] | None = None, blend: bool = True,
                     timeout_s: float | None = None, entry: str = ENTRY_REL) -> WrapperRun:
-        """Build the workspace in Blender, outputs into ``out_dir`` (``bpy_build.json``,
-        ``bpy_census.json``, ``census.glb``, ``scene.blend``); ``zones`` overrides the entry's ZONES;
-        ``entry`` is another data entry under ``src/`` (the env check's, :func:`check_env`)."""
+        """Build the workspace in Blender into ``out_dir``; ``zones`` overrides ZONES, ``entry`` is another data entry."""
         out_dir.mkdir(parents=True, exist_ok=True)
         basis = ",".join(f"{v:g}" for row in glb_basis(LANGUAGE.value) for v in row)
         cmd = [self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
@@ -866,8 +802,7 @@ class SceneBlenderRuntime:
 
     def _measure(self, ws: Workspace, *, timeout_s: float | None, keep: tuple[str, ...] = ()
                  ) -> tuple[WrapperRun, GateReport | None, dict[str, Any]]:
-        """Wrapper + the census-GLB probe: (the Blender run, the ``scene_probe`` gate or ``None``
-        when nothing was built, the merged census).  Every output but ``keep`` is wiped first."""
+        """Wrapper + census-GLB probe: (Blender run, ``scene_probe`` gate or None, merged census)."""
         from codeverse3d.spatial.probes import PROBE_GATE, run_probe
 
         ws.artifacts.mkdir(parents=True, exist_ok=True)
@@ -880,14 +815,12 @@ class SceneBlenderRuntime:
         gate = GateReport.of(PROBE_GATE, findings, duration_ms=probe.duration_ms)
         ws.write_json(ws.artifacts / "gates" / "scene_probe.json", gate)
         if census:
-            census["language"] = LANGUAGE.value   # the placement / frame hints speak bpy for it
+            census["language"] = LANGUAGE.value
             ws.write_json(ws.artifacts / "census.json", census)
         return run, gate, census
 
     # ------------------------------------------------------------------ protocol
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
-        """Blender build + the census-GLB probe; ok iff the scene built and ``scene_probe`` passed
-        (a dropped zone, an env that raised or a Python driver fail it, with their file:line)."""
         t0 = time.time()
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         if (missing := missing_entry(ws, self.language)) is not None:
@@ -917,8 +850,6 @@ class SceneBlenderRuntime:
         return res
 
     def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
-        """The build's own measurement (Blender run + census-GLB probe), without touching
-        ``build.json``: an offline scene has no cheaper way to load."""
         from codeverse3d.spatial.probes import PROBE_GATE, probe_result
 
         if not (ws.root / ENTRY_REL).is_file():
@@ -937,8 +868,6 @@ class SceneBlenderRuntime:
         return probe_result(gate, census)
 
     def assemble(self, ws: Workspace, plan: ScenePlan) -> AssembleResult:
-        """Build every zone module on disk once (isolated, no .blend) and write ``src/scene.py``
-        with the zones that built and the plan's cameras — scene_threejs's assembler semantics."""
         return assemble(self, ws, plan)
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
@@ -950,9 +879,7 @@ class SceneBlenderRuntime:
 
 
 def stage_findings(report: dict[str, Any]) -> list[GateFinding]:
-    """The wrapper's isolated-stage failures as ``scene_probe`` findings: a zone / asset / env that
-    raised is an ERROR on its ``file:line`` (the zone is gone from the scene); a hero GLB that
-    would not import or is missing is a WARN on the file."""
+    """The wrapper's isolated-stage failures as ``scene_probe`` findings (ERROR for a dropped zone / asset / env, WARN for a bad hero GLB)."""
     from codeverse3d.spatial.probes import PROBE_GATE
 
     out: list[GateFinding] = []
@@ -998,7 +925,7 @@ def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan | None
     census: dict[str, Any] = {}
     out = ws.root / ENTRY_REL
     if probe:
-        # the probe run needs an entry that lists every asset and hero; its zones come from --zones
+        # the probe run's entry lists every asset and hero; zones come from --zones
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(render_scene_py([], assets, heroes, cams))
         run = runtime.run_wrapper(ws, ws.artifacts / _ASSEMBLE_OUT, zones={z: to_pascal(z) for z in zones}, blend=False,

@@ -1,22 +1,11 @@
-"""Blender-side build wrapper for the ``urdf_blender`` language (run BY THE HARNESS).
+"""Blender-side build wrapper for the ``urdf_blender`` language; runs inside Blender, never imported by the harness.
 
     blender -b --factory-startup --python run_bpy_links.py -- \
         --script src/model.py --urdf src/robot.urdf --out artifacts/ [--rlimit-gb 12] [--seed 0]
 
-1. empties the scene, seeds, executes ``model.py`` (``_wrapper_common``: errors mapped to
-   their ``src/`` file and line, ``sys.exit(0)`` is not a failure — as for the blender language),
-2. takes the blender language's census of the scene (``_census.collect_census``),
-   and fails a link whose world matrix or evaluated vertices hold a NaN / inf (``_finite``, D114),
-3. matches URDF link names to objects (an object named exactly ``<link>`` plus
-   anything parented under it forms that link's mesh),
-4. exports ``<out>/meshes/<link>.glb`` per link with the geometry baked in WORLD
-   coordinates at the authored rest pose, Z-up (``export_yup=False`` — the file
-   holds URDF-frame coordinates, NOT glTF Y-up), then
-5. writes ``<out>/census.json`` and ``<out>/build.json``.
-
-Self-contained on purpose: Blender's bundled python cannot import ``codeverse3d``; the
-sibling modules are imported from this file's own directory.
-"""
+Runs ``model.py``, takes the census, refuses non-finite links, matches URDF link names to objects
+(``<link>`` plus anything parented under it), exports ``<out>/meshes/<link>.glb`` per link in
+WORLD coordinates at the rest pose, Z-up (URDF frame, not glTF Y-up), and writes census.json + build.json."""
 
 import argparse
 import os
@@ -30,7 +19,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _census import (  # noqa: E402  (siblings, Blender-executed)
+from _census import (  # noqa: E402
     MEASURABLE_TYPES,
     collect_census,
     is_hidden,
@@ -54,15 +43,12 @@ def _snake(name: str) -> str:
     return re.sub(r"_+", "_", s).strip("_").lower()
 
 
-#: link names double as ``meshes/<link>.glb`` filename stems: plain identifiers only.
-#: The lint layer states the same rule (``conventions.LINK_NAME_RE``) but only WARNs,
-#: so the wrapper enforces it — ``../evil`` must be a build error, never a file written
-#: outside ``meshes/``.
+#: link names are used as ``meshes/<link>.glb`` stems; the lint only WARNs, so the wrapper
+#: enforces plain identifiers (``../evil`` must be a build error)
 _SAFE_LINK = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
 
 def _bad_links(links: list[str]) -> list[str]:
-    """Link names that are unsafe as filenames (not plain identifiers)."""
     return [name for name in links if not _SAFE_LINK.fullmatch(name or "")]
 
 
@@ -72,7 +58,6 @@ def _urdf_links(urdf_path: Path) -> list[str]:
 
 
 def _evaluated_world_mesh(ob, depsgraph):
-    """New bpy Mesh datablock of ``ob`` (modifiers applied) in WORLD coordinates."""
     ev = ob.evaluated_get(depsgraph)
     me = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=depsgraph)
     me.transform(ob.matrix_world)
@@ -80,7 +65,6 @@ def _evaluated_world_mesh(ob, depsgraph):
 
 
 def _export_link(link: str, objects: list, out_glb: Path, depsgraph) -> dict:
-    """Join ``objects`` (world space) into one temp object and export it as GLB."""
     meshes = [_evaluated_world_mesh(ob, depsgraph) for ob in objects]
     temp_objs = []
     for i, me in enumerate(meshes):
@@ -153,8 +137,7 @@ def main() -> int:
     census.update(collect_census(bpy))
     depsgraph = bpy.context.evaluated_depsgraph_get()
     by_name = {ob.name: ob for ob in bpy.data.objects if ob.type in MEASURABLE_TYPES or ob.type == "EMPTY"}
-    # a hidden object (a boolean cutter, as the census tells agents to hide one) is not
-    # geometry: the blender language's export skips it by the same predicate
+    # hidden objects (boolean cutters) are not geometry; same predicate as the blender language
     vl_names = set(bpy.context.view_layer.objects.keys())
     claimed: set[str] = set()
     for link in links:
@@ -171,12 +154,12 @@ def main() -> int:
             census["hints"][link] = f"object '{link}' has no visible mesh geometry (type {ob.type})"
             continue
         claimed.update(o.name for o in group)
-        if bad := scan_objects(group, depsgraph, Offenders()):   # D114: never a NaN baked into a link mesh
+        if bad := scan_objects(group, depsgraph, Offenders()):
             err = bad.report()
             return fail(err["error_type"], f"link {link}: {err['error_message']}")
         try:
             census["links"][link] = _export_link(link, group, out / "meshes" / f"{link}.glb", depsgraph)
-        except Exception as e:  # export failure is a build failure
+        except Exception as e:
             return fail("ExportError", f"link {link}: {e}")
     census["unmatched_objects"] = [o["name"] for o in census["objects"]
                                    if o["type"] in MEASURABLE_TYPES and not o["hidden"] and o["name"] not in claimed]

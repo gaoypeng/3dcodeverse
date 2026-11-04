@@ -1,19 +1,8 @@
 """Frame-quality gate for scene renders: ``scene_frames``.
 
-Reads the deterministic ``camera_checks`` that ``render_scene`` leaves in
-``metrics.json`` (per camera: mean luminance, dark/blown/modal fractions,
-content/ground/sky coverage, nearest geometry, eye height) and turns them into
-``GateFinding``s with copyable fix hints, so a too-dark dusk, a blown sky, a
-camera buried in a wall or an establishing shot that shows a tiny island of
-content become gate findings (→ judge caps + refine instructions) instead of
-silently lowering a VLM score.
-
-* ``frame_findings(metrics)``                → GateReport
-* ``frame_gate_from_renders(rs_or_path)``    → GateReport (RenderSet / out dir / metrics.json)
-* ``frame_summary_text(metrics)``            → per-camera table for tool observations / prompts
-
-Authored cameras get ERRORs; harness orbit views only WARN (the agent does not
-place them) except for the content-sparse overview, which is informational.
+Turns the ``camera_checks`` in ``metrics.json`` (luminance, coverage, nearest geometry, eye height) into
+``GateFinding``s with fix hints.  ``frame_findings`` / ``frame_gate_from_renders`` build the report,
+``frame_summary_text`` the per-camera table.  Authored cameras get ERRORs; harness orbit views only WARN.
 """
 
 from __future__ import annotations
@@ -29,12 +18,7 @@ FRAME_GATE = "scene_frames"
 
 # thresholds (fractions of the frame / of full white)
 DARK_MEAN_LUM = 0.12
-#: a frame this dark in the MEAN is still correctly exposed when it has real contrast --
-#: a lantern-lit night is dim on average and bright where the lanterns are.  Measured
-#: 2026-08-25 on tsr_scn_temple_night r01: the three authored cameras sat at lum_std
-#: 0.171 / 0.199 / 0.249 while the flat overview rig sat at 0.058, so lum_std separates
-#: "low-key by design" from "unlit or broken" cleanly.  ``lum_std`` has been in the
-#: camera_checks payload from host_metrics.mjs all along; this gate never read it.
+#: a dark-mean frame with at least this luminance std is low-key by design, not unlit
 LOWKEY_MIN_STD = 0.12
 DARK_FRAC = 0.35
 BLOWN_FRAC = 0.20
@@ -49,9 +33,7 @@ TARGET_BLOCKED_FRAC = 0.5      # the line of sight to lookAt is cut before this 
 BLOCKED_RAYS_MIN = 6           # of the 3 x 3 sight rays, within near_limit_m (host BLOCKED_M)
 EYE_MAX_ABOVE_GROUND_M = 80.0
 
-#: for a frame that is dark AND flat -- nothing is lit, so adding light is right.  The hints
-#: state the measurement and leave the construction open (owner's rule, 2026-10-15): a library
-#: call or a number is an example, never the fix.
+#: hint for a frame that is dark and flat (nothing is lit)
 _DARK_HINT = (
     "the frame is too dark (the gate wants mean luminance >= 0.12, or real contrast with <= 35 % near-black pixels): "
     "raise the key and the fill until the authored frames measure over the line without flattening them (scene_views: "
@@ -60,12 +42,7 @@ _DARK_HINT = (
     "fill })` is one way to a balanced rig, and a set sun (elevation < 0) is its night rig; a fog colour that matches "
     "the sky keeps the distance readable; dusk and night are colour, not black"
 )
-#: for a frame that is dark but CONTRASTY -- something IS lit, so adding fill is the
-#: wrong move and actively destroys the picture.  Measured 2026-08-25: temple_night was
-#: told by _DARK_HINT to add a HemisphereLight, did so, and the resulting flat fill
-#: washed the granite paving to near-white, flattened the scene to "snow at dawn" and
-#: drowned a working KoiWater ShaderMaterial -- the effect was running the whole time.
-#: The judge then scored the washed-out version 0.7287 and passed it.
+#: hint for a frame that is dark but contrasty (something is lit; flat fill would destroy it)
 _LOWKEY_HINT = (
     "this frame is DIM BUT LIT — it has real contrast, so flat fill (an AmbientLight / HemisphereLight, a stronger "
     "DirectionalLight) is the wrong move: it turns a night scene into a grey wash, washes dark materials out to "
@@ -107,8 +84,7 @@ _LOW_HINT = ("the eye has to be >= 0.3 m above the surface beneath it (measured:
 _HIGH_HINT = ("bring the camera below 80 m above the surface it stands over (measured: ground_below_m), to a height the "
               "brief's viewpoint justifies — a tower top, a ridge, a rooftop, eye level — still aimed at its subject")
 
-#: scene_blender's words for the same fixes (D1, lane B): bpy lamps / world nodes / keyframes, the
-#: Blender frame (z up), ``ctx.height_at``.  The thresholds are the same; only the advice differs.
+#: scene_blender's wording of the same fixes (bpy lamps / world nodes / keyframes, z up)
 _BPY_HINTS: dict[str, str] = {
     "dark": (
         "the frame is too dark (the gate wants mean luminance >= 0.12, or real contrast with <= 35 % near-black pixels): "
@@ -154,8 +130,7 @@ _BPY_HINTS: dict[str, str] = {
         "rebuild, say so in the plan: `assets[].kind: blender_glb` must not claim a hero the rendered scene does not contain."),
 }
 
-#: fix hints per scene language (``metrics["language"]``; a payload without one is three.js, as
-#: every recorded round is)
+#: fix hints per scene language (``metrics["language"]``; none means three.js)
 HINTS: dict[str, dict[str, str]] = {
     "scene_threejs": {"dark": _DARK_HINT, "lowkey": _LOWKEY_HINT, "blown": _BLOWN_HINT, "flat": _FLAT_HINT,
                       "near": _NEAR_HINT, "static": _STATIC_HINT, "small": _SMALL_HINT, "eye": _EYE_HINT, "low": _LOW_HINT,
@@ -163,11 +138,7 @@ HINTS: dict[str, dict[str, str]] = {
     "scene_blender": _BPY_HINTS,
 }
 
-#: a judged Blender frame slower than this (GPU seconds at the configured samples; the CPU
-#: fallback gets ``SLOW_FRAME_CPU_FACTOR`` x) is a WARN naming the heaviest zone (owner D2).
-#: Calibrated 2026-09-24 on this box, Cycles CUDA 32 spp + OIDN at 1024x576: 0.9 s for a
-#: 520 k-tri / 310-object scene, 3.6 s with 72 k GN grass blades + 30 point lights + glass +
-#: a world volume — 10 s is ~3x the heaviest probe scene.
+#: a judged Blender frame slower than this (GPU seconds; CPU gets ``SLOW_FRAME_CPU_FACTOR`` x) is a WARN
 SLOW_FRAME_S = 10.0
 SLOW_FRAME_CPU_FACTOR = 3.3
 
@@ -194,15 +165,12 @@ def _exposure_findings(chk: dict[str, Any], *, authored: bool, hints: dict[str, 
     name = str(chk.get("name", "?"))
     sev = Severity.ERROR if authored else Severity.WARN
     out: list[GateFinding] = []
-    # the orbit rig is the HARNESS's camera, not the scene's picture: say so in every
-    # message, or a dark ground-level rig shot of a rooftop reads to the judge as the
-    # scene being unlit (measured: it cost the rooftop battery a 0.60 cap three rounds running)
+    # the orbit rig is the harness's camera: every message says so, or the judge blames the scene
     rig = "" if authored else "harness rig view (not an authored camera): "
     mean, dark, blown, modal = (_num(chk, k) for k in ("mean_lum", "dark_frac", "blown_frac", "modal_frac"))
     std = _num(chk, "lum_std")
     is_dark = (mean is not None and mean < DARK_MEAN_LUM) or (dark is not None and dark > DARK_FRAC)
-    # dim BUT lit: real contrast and not mostly black.  A night scene must not be failed
-    # for being a night scene, and must never be told to flatten itself with fill light.
+    # dim but lit: real contrast; a night scene must not be told to add fill light
     low_key = is_dark and std is not None and std >= LOWKEY_MIN_STD and (dark is None or dark <= DARK_FRAC)
     if is_dark:
         msg = (f"frame too dark: mean luminance {mean:.2f}, {dark or 0:.0%} of pixels near black" if mean is not None
@@ -236,10 +204,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
         out.append(_f(sev, name, rig + f"camera inside / touching geometry: {where}", hints["near"],
                       kind="camera_in_geometry", view=name, nearest_hit_m=near, inside=inside[:5]))
     else:
-        # The shot is a surface: most of the 3 x 3 sight rays end within arm's reach.  cmp6's
-        # crypt (2026-09-09): a squat stone pillar 0.8 m in front of AthanorDetail filled the
-        # frame, the hero behind it was never seen, and the judge called the HERO "a massive
-        # untextured grey box" for two rounds — nothing measured said the lens was blocked.
+        # the shot is a surface: most of the 3 x 3 sight rays end within arm's reach
         near_rays, rays_total = _num(chk, "near_rays"), _num(chk, "rays_total")
         if authored and near_rays is not None and rays_total and near_rays >= BLOCKED_RAYS_MIN:
             limit = _num(chk, "near_limit_m") or 1.5
@@ -250,8 +215,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                           "sightline; render this view and look before re-judging",
                           kind="camera_blocked", view=name, near_rays=near_rays, nearest_hit_m=near,
                           nearest_hit_name=chk.get("nearest_hit_name", "")))
-        # …or the line of sight to the plan's lookAt is cut well before it (a pillar between the
-        # lens and its subject; a close-up meets its own subject near the full distance).
+        # or the line of sight to the plan's lookAt is cut well before it
         t_dist, t_hit = _num(chk, "target_distance_m"), _num(chk, "target_hit_m")
         if authored and t_dist and t_hit is not None and t_hit < TARGET_BLOCKED_FRAC * t_dist:
             cutter = str(chk.get("target_hit_name") or "geometry")
@@ -264,10 +228,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
     below = _num(chk, "ground_below_m")
     above_g = _num(chk, "ground_above_m")
     if authored and above_g is not None:
-        # A ground surface straight above the lens: a camera under the terrain looks up at back
-        # faces, so its frame renders "fine" (structures floating over a void) — cmp6's
-        # lighthouse shot its slipway from under the headland for three rounds.  The camera
-        # repair lifts it when it runs; this is the verdict when it did not.
+        # a ground surface straight above the lens: the frame looks up at back faces and renders "fine"
         under = str(chk.get("ground_above_name") or "a ground surface")
         buried = _frame_looks_buried(chk)
         out.append(_f(Severity.ERROR if buried else Severity.WARN, name,
@@ -276,11 +237,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                       kind="camera_underground" if buried else "camera_under_ground_mesh",
                       view=name, eye_height_m=eye, ground_above_m=above_g))
     elif authored and below is not None:
-        # The ray straight down from the eye (``nearGeometry``): the surface this lens
-        # actually stands over.  Scene-wide ``ground_y`` is the top of the HIGHEST ground
-        # mesh, and on relief terrain it called a camera at eye level on a low patch an
-        # "ant's-eye view" (loop 21 ski station: eye 3.20 m, snow mound 3.14 m) — a false
-        # WARN the judge then repeated as a major issue.
+        # the ray straight down from the eye: the surface this lens stands over (scene-wide ground_y is wrong on relief terrain)
         under = str(chk.get("ground_below_name") or "the surface beneath it")
         if below < EYE_MIN_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera eye only {below:.2f} m above {under} — ant's-eye view",
@@ -291,14 +248,11 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                           hints["high"],
                           kind="camera_high", view=name, eye_height_m=eye, ground_below_m=below))
     elif authored and eye is not None and ground_y is not None:
-        # Nothing beneath the lens (under the terrain, off the ground's edge) or an older
-        # census: compare with the scene's highest ground surface.
+        # nothing beneath the lens: compare with the scene's highest ground surface
         above = eye - ground_y
         if above < -0.2:
-            # ``ground_y`` is the TOP of every ground-classified mesh in the scene (census),
-            # so a hill, a terrace or a raised backdrop puts it metres above a camera
-            # that is standing in the open.  Only call the camera buried when the frame
-            # agrees: a buried camera renders dark, empty or from inside geometry.
+            # ground_y is the top of every ground mesh, so terrain can sit above an open camera:
+            # only call it buried when the frame agrees
             buried = _frame_looks_buried(chk)
             out.append(_f(Severity.ERROR if buried else Severity.WARN, name,
                           f"camera is {-above:.1f} m below the scene's highest ground surface ({ground_y:.2f} m)"
@@ -403,16 +357,7 @@ HINTS["scene_threejs"]["unused_glb"] = _UNUSED_GLB_HINT
 def _glb_findings(census: dict[str, Any], hints: dict[str, str]) -> list[GateFinding]:
     """A GLB that was loaded and contributed no geometry to the rendered scene.
 
-    Measured 2026-08-25 on tsr_scn_boat_workshop_v2: ``src/scene.js`` loads
-    ``/assets/clinker_skiff.glb`` — a real Blender hero, authored, built and copied into
-    ``public/assets`` — while ``src/zones/central_bay.js`` calls a procedural
-    ``buildClinkerSkiff(THREE)`` that a refine round wrote over the asset slot.  The hull in
-    every shipped frame is JavaScript.  Nothing flagged it, and the check the wave was
-    using to verify the multi-language claim (``plan.json`` -> ``assets[].kind``) still
-    reported ``blender_glb``, because the plan records what was PLANNED.
-
-    WARN, not ERROR: the picture is fine, and an author who deep-copies geometry
-    (``geometry.clone()``) rather than cloning the object would read as unused here.
+    WARN, not ERROR: deep-copied geometry would read as unused.
     """
     rows = census.get("glb_assets")
     if not isinstance(rows, list):
@@ -435,18 +380,12 @@ HERO_DETAIL_MIN_FRAC = 0.02      # of the frame, in the camera NAMED for the her
 
 
 def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list[GateFinding]:
-    """A Blender hero that is IN the scene but in no authored frame — or nearly absent from
-    the camera named for it.  ``camera_checks[].glb_frac`` (``glbCoverage``: a mask render
-    per GLB per camera, occlusion included).  cmp6's crypt (2026-09-09): the athanor stood
-    behind a squat pillar in every authored shot, the judge called the HERO "a massive
-    untextured grey box", and two refine rounds rebuilt the wrong thing — "in the scene"
-    (``glb_assets``) was known, "in the frame" was not."""
+    """A Blender hero that is in the scene but in no authored frame, or nearly absent from its named camera (``camera_checks[].glb_frac``)."""
     rows = census.get("glb_assets")
     if not isinstance(rows, list):
         return []
     authored = [c for c in checks if _view_kind(c) == "authored"]
-    # which camera is NAMED for which hero is the host's rule (scene_host.mjs namesHero — the one
-    # camera repair re-aims by); a census from before 2026-09-23 carries no hero_for
+    # which camera is named for which hero is the host's rule (scene_host.mjs namesHero)
     named = {str(c.get("name", "?")): c.get("hero_for") or [] for c in authored}
     out: list[GateFinding] = []
     for r in rows:
@@ -460,13 +399,11 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
             if v is not None:
                 seen[str(c.get("name", "?"))] = v
         if not seen:
-            continue     # older census, or no authored camera
+            continue
         base = url.rsplit("/", 1)[-1]
         best = max(seen.values())
         listing = ", ".join(f"{n} {v:.1%}" for n, v in list(seen.items())[:6])
-        # one instance's extent (scene_host glbUsage; until 2026-10-14 the union of every clone was the
-        # size, and a 2.2 m sofa placed three times read "6.5 m across"); the copy count says why the
-        # frame fraction and the size can disagree
+        # one instance's extent; the copy count explains why frame fraction and size can disagree
         size = _num(r, "size_m")
         copies = int(r.get("instances") or 0)
         placed = f" ({size:.1f} m across as placed{f', {copies} copies' if copies > 1 else ''})" if size else ""
@@ -490,10 +427,7 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
 
 
 def _render_time_findings(metrics: dict[str, Any]) -> list[GateFinding]:
-    """A Blender frame set whose median JUDGED frame took longer than ``SLOW_FRAME_S`` (owner
-    D2: offline rendering has no draw budget; its cost is seconds per frame).  WARN, naming the
-    zone with the most triangles — the first place to thin.  Silent for every payload without a
-    ``blender`` block (three.js)."""
+    """WARN when the median judged Blender frame took longer than ``SLOW_FRAME_S``, naming the heaviest zone; silent for three.js."""
     b = metrics.get("blender")
     if not isinstance(b, dict):
         return []
@@ -550,8 +484,7 @@ def frame_findings(metrics: dict[str, Any]) -> GateReport:
 
 
 def frame_gate_from_renders(source: RenderSet | Path | str) -> GateReport:
-    """``scene_frames`` gate from a RenderSet (locates its metrics.json), a render
-    directory or a metrics.json path.  Missing metrics → an empty passing report."""
+    """``scene_frames`` gate from a RenderSet, a render directory or a metrics.json path; missing metrics → empty passing report."""
     from codeverse3d.spatial.render_scene import metrics_path_for
 
     if isinstance(source, RenderSet):

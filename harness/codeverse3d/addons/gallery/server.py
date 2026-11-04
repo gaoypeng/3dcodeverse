@@ -1,19 +1,4 @@
-"""The local gallery server: ``3dcode gallery serve``.
-
-Stdlib only (``http.server`` + a thread pool), loopback by default, read-only by
-construction — there is no route that writes anything.  Routing is split in two
-so it can be tested without a socket: :meth:`GalleryApp.route` maps a decoded
-path + query to a :class:`Response`, and the request handler only moves bytes.
-
-Safety model (see also ``gallery/urls.py``):
-
-* a URL names a run by ``(battery, slug)`` and those must exist **in the index**,
-  which only ever contains directories found under the roots the user declared;
-* the remainder of the path is resolved with ``safe_join`` inside that run
-  directory — ``..``, absolute paths and escaping symlinks are refused with 403;
-* the only other readable tree is the vendored three.js, behind its own whitelist;
-* binding a non-loopback address requires the user to have typed ``--host``.
-"""
+"""The local gallery server: ``3dcode gallery serve``."""
 
 from __future__ import annotations
 
@@ -39,10 +24,7 @@ from codeverse3d.addons.gallery.urls import PathError, UrlMaker, content_type, s
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 STREAM_CHUNK = 256 * 1024
-#: /file/ content types a browser would EXECUTE: served with ``CSP: sandbox`` so an
-#: LLM-authored HTML/SVG artifact never runs same-origin with the gallery.  An
-#: ``<img src=….svg>`` embed keeps rendering — image loads create no document, so
-#: the sandbox directive never applies to them.
+#: /file/ types a browser would execute: served with CSP sandbox so LLM-authored HTML/SVG never runs same-origin.
 SANDBOXED_TYPES = frozenset({"text/html", "image/svg+xml"})
 
 
@@ -52,7 +34,6 @@ class GalleryError(RuntimeError):
 
 @dataclass
 class Response:
-    """What a route produced: either a body or a file to stream."""
 
     status: int = 200
     content_type: str = "text/html; charset=utf-8"
@@ -78,7 +59,6 @@ def _error_page(status: int, title: str, detail: str) -> Response:
 
 
 class GalleryApp:
-    """Index + routing.  One instance per server; safe to share across threads."""
 
     def __init__(self, roots: list[Path] | list[str], *, reload: bool = False,
                  title: str = "3dcode gallery", runtime_js: Path | str | None = None) -> None:
@@ -91,7 +71,6 @@ class GalleryApp:
         self.index = build_index(self.roots)
 
     def refresh(self) -> None:
-        """Re-scan the roots (``--reload``); cheap — records only, no images."""
         if not self.reload:
             return
         with self._lock:
@@ -101,8 +80,8 @@ class GalleryApp:
     def _entry(self, battery: str, slug: str, *, rescan: bool = True) -> RunEntry | None:
         index = self.index
         entry = index.find(battery, slug)
-        if entry is None and rescan:  # a run created since the last scan
-            with self._lock:  # one scan at a time, and a waiter never replaces a newer index
+        if entry is None and rescan:
+            with self._lock:
                 if self.index is index:
                     self.index = build_index(self.roots)
             entry = self.index.find(battery, slug)
@@ -116,8 +95,6 @@ class GalleryApp:
         return sort_entries([e for e in self.index.entries() if match(e, flt)], query.get("sort", "score"))
 
     def picked(self, keys: list[str]) -> tuple[list[RunEntry], list[str]]:
-        """``(entries, unknown_keys)`` for ``battery/slug`` keys, in the order given — with at
-        most ONE re-scan, however many keys are unknown (it was one full scan per key)."""
         found, missing, scanned = [], [], False
         for key in keys:
             battery, _, slug = key.partition("/")
@@ -130,7 +107,6 @@ class GalleryApp:
         return found, missing
 
     def _picked(self, query: dict[str, str]) -> tuple[list[RunEntry], UrlMaker, str]:
-        """What ``?runs=`` names, capped BEFORE any lookup, with a note about anything dropped."""
         self.refresh()
         keys = parse_keys(query.get("runs", ""))
         notes = []
@@ -144,7 +120,6 @@ class GalleryApp:
 
     # ----------------------------------------------------------------- routing
     def route(self, path: str, query: dict[str, str] | None = None) -> Response:
-        """Decoded ``path`` (``/run/x/y``) + query → a response.  Never raises."""
         query = query or {}
         parts = [unquote(p) for p in path.split("/") if p != ""]
         try:
@@ -153,7 +128,7 @@ class GalleryApp:
             return _error_page(403, "forbidden", str(e))
         except FileNotFoundError as e:
             return _error_page(404, "not found", str(e))
-        except Exception as e:  # noqa: BLE001 - a broken run must not kill the server
+        except Exception as e:  # noqa: BLE001
             return _error_page(500, "gallery error", f"{type(e).__name__}: {e}")
 
     def _route(self, parts: list[str], query: dict[str, str]) -> Response:
@@ -195,7 +170,7 @@ class GalleryApp:
             if not viewer_page.viewer_available(self.runtime_js):
                 return _error_page(501, "no viewer",
                                    "runtime_js/node_modules/three is not installed; open the raw GLB instead")
-            safe_join(entry.path, rel)  # validate before the page links to it
+            safe_join(entry.path, rel)
             return Response.html(viewer_page.render_viewer(entry, self.urls, rel))
         target = safe_join(entry.path, rel)
         if target.is_dir():
@@ -220,13 +195,11 @@ class GalleryApp:
             broken = entry.model_copy(update={"state": state, "error": str(e)[:400]})
             return Response.html(render_broken_detail(broken, self.urls))
 
-        fresh = entry_from_record(entry.battery, ws, rec, slug=entry.slug)  # newest rounds, even mid-bench
+        fresh = entry_from_record(entry.battery, ws, rec, slug=entry.slug)
         prev, nxt = self.neighbours(entry)
         return Response.html(render_detail(fresh, self.urls, ws, rec, prev=prev, nxt=nxt))
 
     def neighbours(self, entry: RunEntry) -> tuple[RunEntry | None, RunEntry | None]:
-        """The runs either side of ``entry`` in its battery, in the index's own order,
-        so triage can walk a battery run by run instead of bouncing off the index."""
         section = next((s for s in self.index.sections if s.label == entry.battery), None)
         if section is None:
             return None, None
@@ -240,7 +213,6 @@ class GalleryApp:
 
 
 def _js_type(path: Path) -> str:
-    """Vendor modules must be served as JavaScript for ``<script type=module>``."""
     return "text/javascript; charset=utf-8" if path.suffix in (".js", ".mjs") else content_type(path)
 
 
@@ -251,7 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
     app: GalleryApp
     quiet: bool = True
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib naming
+    def do_GET(self) -> None:  # noqa: N802
         self._respond(body=True)
 
     def do_HEAD(self) -> None:  # noqa: N802
@@ -293,13 +265,11 @@ class _Handler(BaseHTTPRequestHandler):
                 handle.close()
 
     def _stream(self, handle: Any, length: int) -> None:
-        """Write exactly ``length`` bytes so the response stays framed even if the
-        file is truncated underneath us mid-read."""
         remaining = length
         while remaining > 0:
             chunk = handle.read(min(STREAM_CHUNK, remaining))
             if not chunk:
-                self.wfile.write(b"\0" * remaining)  # file shrank: keep the framing valid
+                self.wfile.write(b"\0" * remaining)
                 return
             self.wfile.write(chunk)
             remaining -= len(chunk)
@@ -311,7 +281,6 @@ class _Handler(BaseHTTPRequestHandler):
 
 def make_server(app: GalleryApp, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
                 *, quiet: bool = True) -> ThreadingHTTPServer:
-    """A bound, not-yet-serving :class:`ThreadingHTTPServer` (``port=0`` = ephemeral)."""
     handler = type("_BoundHandler", (_Handler,), {"app": app, "quiet": quiet})
     try:
         return ThreadingHTTPServer((host, port), handler)  # type: ignore[arg-type]
@@ -322,7 +291,6 @@ def make_server(app: GalleryApp, host: str = DEFAULT_HOST, port: int = DEFAULT_P
 def serve(roots: list[Path] | list[str], *, host: str | None = None,
           port: int = DEFAULT_PORT, reload: bool = False, open_browser: bool = False,
           title: str = "3dcode gallery", on_start: Any = None) -> None:
-    """Build the index and serve it until Ctrl-C."""
     bind = host or DEFAULT_HOST
     app = GalleryApp(roots, reload=reload, title=title)
     httpd = make_server(app, bind, port)
@@ -343,5 +311,5 @@ def serve(roots: list[Path] | list[str], *, host: str | None = None,
 def _open(url: str) -> None:
     import webbrowser
 
-    with contextlib.suppress(Exception):  # headless box, no browser
+    with contextlib.suppress(Exception):
         webbrowser.open(url)

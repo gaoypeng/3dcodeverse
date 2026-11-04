@@ -1,8 +1,6 @@
 """ChatRequest ⇄ OpenAI Chat Completions dicts (messages, response_format).
 
-Chat Completions (not Responses) was chosen because every OpenAI-compatible
-endpoint (``OPENAI_BASE_URL``: vLLM, OpenRouter, Ollama, …) speaks it, while
-the Responses API is OpenAI-only.
+Chat Completions is used because every OpenAI-compatible endpoint (``OPENAI_BASE_URL``) speaks it.
 """
 
 from __future__ import annotations
@@ -50,7 +48,7 @@ def is_reasoning_model(model: str) -> bool:
 
 def reasoning_effort(model: str, thinking: str) -> str | None:
     """Map ``thinking`` onto ``reasoning_effort`` (None for non-reasoning models).  gpt-6 has no
-    off switch — ``none`` / ``minimal`` are rejected — so "off" is its lowest effort, ``low``."""
+    off switch, so "off" is ``low``."""
     if not is_reasoning_model(model):
         return None
     return "low" if thinking == "off" else thinking
@@ -127,7 +125,7 @@ log = logging.getLogger(__name__)
 
 
 def classify_exception(exc: BaseException) -> ModelError:
-    """Map openai SDK exceptions onto ``ModelError`` (the shared ladder in parts.py)."""
+    """Map openai SDK exceptions onto ``ModelError``."""
     import openai
 
     return classify_sdk_exception(exc, openai, "OpenAI")
@@ -193,7 +191,6 @@ class OpenAIModel(SdkModel):
     def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()
         with Stopwatch() as sw:
-            # the client is built once with a fixed timeout; the deadline is per call
             completion = client.chat.completions.create(
                 model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
         if not completion.choices:

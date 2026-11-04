@@ -1,11 +1,7 @@
-"""Scene census for the Blender build wrappers — executed BY Blender, never imported by the harness.
+"""Scene census for the Blender build wrappers; runs inside Blender, never imported by the harness.
 
-``run_bpy.py`` and ``run_bpy_links.py`` import it as a sibling module; it must therefore
-stay standalone (no ``codeverse3d`` imports).  It inspects the scene after the agent
-script ran: evaluated triangle counts, world bboxes, materials, parents, and the contract
-warnings the build cannot otherwise see (cameras, lights, visible boolean cutters,
-unlinked meshes, default primitive names, material slots no polygon uses).
-"""
+Imported by run_bpy.py / run_bpy_links.py as a sibling, so it stays standalone.  Reports
+evaluated triangle counts, bboxes, materials, parents and contract warnings."""
 
 from __future__ import annotations
 
@@ -19,7 +15,6 @@ MEASURABLE_TYPES = ("MESH", "CURVE", "SURFACE", "FONT", "META")
 
 
 def world_bbox(obj_eval: Any, Vector: Any) -> tuple[list[float], list[float]] | None:
-    """World-space AABB of an evaluated object (rounded to 0.01 mm); None when it has no bounds."""
     corners = [obj_eval.matrix_world @ Vector(c) for c in obj_eval.bound_box]
     if not corners:
         return None
@@ -29,17 +24,12 @@ def world_bbox(obj_eval: Any, Vector: Any) -> tuple[list[float], list[float]] | 
 
 
 def is_hidden(obj: Any, vl_names: set[str] | None = None) -> bool:
-    """True when the object will not render/export (hidden or not in the view layer).
-
-    ``vl_names`` is ``set(bpy.context.view_layer.objects.keys())``: objects that are not in
-    the view layer (e.g. their collection has ``layer_collection.exclude = True``) report
-    ``hide_get() == False`` yet are NOT exported — the census must not count them either.
-    """
+    """True when the object will not export: hidden, or not in the view layer (``vl_names``)."""
     if vl_names is not None and obj.name not in vl_names:
         return True
     try:
         return bool(obj.hide_render or obj.hide_viewport or obj.hide_get())
-    except RuntimeError:  # object not in the view layer
+    except RuntimeError:
         return True
 
 
@@ -66,9 +56,7 @@ def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str
             rec["has_uv"] = bool(me.uv_layers)
             rec["has_vertex_colors"] = bool(me.color_attributes)
             if rec["n_material_slots"] and len(me.polygons):
-                # which slots the EXPORT actually uses: modifiers can add indices the
-                # authored mesh never had (solidify's material_offset), and an index past
-                # the last slot is clamped at export instead of raising
+                # modifiers can add slot indices the mesh never had; export clamps out-of-range ones
                 per_poly = [0] * len(me.polygons)
                 me.polygons.foreach_get("material_index", per_poly)
                 rec["material_indices_used"] = sorted(set(per_poly))
@@ -84,19 +72,13 @@ def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str
 
 
 def _named(items: list[str], limit: int = 6) -> str:
-    """Join at most ``limit`` names — the build shows only 10 warnings, one must not eat them all."""
     head = ", ".join(items[:limit])
     return head if len(items) <= limit else f"{head} (+{len(items) - limit} more)"
 
 
 def material_slot_warnings(meshes: list[dict[str, Any]]) -> list[str]:
-    """Material slots the polygons never use — the part was authored in N colours and exports in one.
-
-    Every new polygon starts on slot 0, so an assignment that silently no-opped (a real run
-    read ``res['faces']`` from ``bmesh.ops.create_cube``, which returns only ``{'verts'}``,
-    and shipped an 11-slot arm in one off-white) is invisible in the census's material list:
-    the materials are all there.  Only the per-polygon indices show it.
-    """
+    """Material slots no polygon uses: an assignment that silently no-opped leaves them unused
+    while the material list still looks complete."""
     unused: list[str] = []
     clamped: list[str] = []
     for o in meshes:
@@ -160,13 +142,12 @@ def _warnings(bpy: Any, objects: list[dict[str, Any]], boolean_operands: dict[st
 
 
 def collect_census(bpy: Any) -> dict[str, Any]:
-    """Census of every object in ``bpy.data`` (visible meshes count toward the scene bbox / tris)."""
     from mathutils import Vector
 
     bpy.context.view_layer.update()
     dg = bpy.context.evaluated_depsgraph_get()
     scene_objects = set(bpy.context.scene.objects.keys())
-    vl_names = set(bpy.context.view_layer.objects.keys())  # what the exporter can actually see
+    vl_names = set(bpy.context.view_layer.objects.keys())
     boolean_operands: dict[str, list[str]] = {}
     objects: list[dict[str, Any]] = []
     total_tris = 0

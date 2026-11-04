@@ -1,34 +1,4 @@
-"""Code generation: one entry point, two strategies.
-
-* **CodingAgent path** — ``agent_id`` is any id ``codeverse3d.agents`` knows
-  (``agy:*``, ``claude-code:*``, ``codex:*``):
-  the workspace is materialised once per run (AGENTS.md + MCP config), then
-  ``agent.run(AgentJob)``.  Truth is on disk: ``ok`` means files changed.
-* **Single-shot path** — ``agent_id = "single-shot:<provider>:<model>"``: one
-  ``ChatRequest`` whose answer is a multi-file envelope (``prompts/system/singleshot_format.md``),
-  parsed by ``parse_multifile`` and written under the allowed roots.  This is
-  handled here (not in the agents registry) because it is not an agent.
-
-Neither path commits; the round commits once after all (possibly parallel)
-tasks finished.  Neither path builds; see ``tracks/repair.py``.
-
-**Turn budget — off by default, measured.**  The audit's turn-≥20 share (39.3%
-of the agent bill, docs/COST.md §4) looked like $14 of waste, so wave 2 capped
-every session at 28 turns.  A controlled A/B rejected it — same prompt, n=3 per
-arm: capped $1.381 / **0.479**, uncapped $1.360 / **0.684** (docs/COST.md §17).
-A session cut off mid-task leaves work the next round pays for again.
-
-So there is **no default cap** (``DEFAULT_AGENT_MAX_TURNS`` is 0 → the backend's own
-``AgentJob.max_turns``).  A machine may still set one (``C3D_AGENT_MAX_TURNS`` >
-``Settings.limits.agent_max_turns``; no cost profile sets one), and a cap that IS set
-stays **graceful**: the session is not killed but asked, in a short wrap-up
-(``DEFAULT_WRAPUP_TURNS``), for one last build + summary.
-
-**Every dollar is on the ledger.**  Both strategies spend through the metered model or
-agent (``cost.instrument``), one row per call or session — a retried session
-(``<label>.a2``) and a wrap-up session included, even when the *next* attempt then
-raises.  The run's clock (``BudgetGuard``) is checked at the session boundary.
-"""
+"""Code generation: one entry point, two strategies."""
 
 from __future__ import annotations
 
@@ -61,12 +31,8 @@ from codeverse3d.workspace import C3D_DIR, Workspace
 
 log = logging.getLogger(__name__)
 
-
-# ===================================================================== single-shot envelope
-# (merged back from codeverse3d/tracks/envelope.py, 2026-08-28 — the split existed only
-#  to hold a re-export shim; this module was its one importer)
 ALLOWED_ROOTS: tuple[str, ...] = ("src/", "public/")
-#: where an out-of-workspace task image is copied so a vendor CLI can read it (D9: a CLI reads only inside its workspace)
+#: where an out-of-workspace task image is copied so a vendor CLI can read it
 IMAGES_DIR = f"{C3D_DIR}/images"
 
 
@@ -89,12 +55,7 @@ _FENCE_PATH_HINT = re.compile(
 
 
 def parse_multifile(text: str, *, expected_files: list[str] | None = None) -> dict[str, str]:
-    """Parse the ``system/singleshot_format.md`` envelope → ``{path: content}``.
-
-    Tolerant to: a fenced block wrapping a file body; an answer that is ONE fenced
-    block when exactly one entry file is expected; fenced blocks preceded by a line
-    naming the path.  Raises ``MultiFileParseError`` otherwise.
-    """
+    """Parse the ``system/singleshot_format.md`` envelope → ``{path: content}``."""
     files: dict[str, str] = {}
     for m in _BLOCK.finditer(text):
         path = _clean_path(m.group("path"))
@@ -104,7 +65,6 @@ def parse_multifile(text: str, *, expected_files: list[str] | None = None) -> di
     fences = list(_FENCE.finditer(text))
     expected = [_clean_path(p) for p in (expected_files or [])]
     if fences:
-        # fenced blocks preceded by a path mention
         for m in fences:
             probe = text[: m.start()][-400:].rstrip(" \t")
             probe += ("" if probe.endswith("\n") else "\n") + "```"
@@ -127,16 +87,12 @@ _HEADER_LINE = re.compile(r"^[ \t]*===\s*FILE:\s*[^\n=]+?\s*===[ \t]*\r?\n")
 
 
 def _strip_envelope_header(body: str) -> str:
-    """A truncated answer (cut before ``=== END FILE ===``) reaches the single-file
-    fallback with its ``=== FILE: … ===`` header still attached; treat the
-    unterminated block as the file's body instead of shipping the header as line 1."""
     m = _HEADER_LINE.match(body)
     return body[m.end():] if m else body
 
 
 def _clean_path(p: str) -> str:
-    """Normalised (``//`` and ``./`` collapsed — ``src//lib/x.js`` IS ``src/lib/x.js``, so it must
-    meet the harness-owned / scope checks as that), relative; a trailing ``/`` is kept."""
+    """Normalised path with ``//`` and ``./`` collapsed, so ``src//lib/x.js`` is ``src/lib/x.js``."""
     p = p.strip().strip("`'\"").replace("\\", "/").lstrip("/")
     if not p:
         return p
@@ -160,7 +116,7 @@ def safe_relpath(path: str) -> str:
     p = _clean_path(path)
     if not p or p.startswith("/") or ".." in Path(p).parts or re.match(r"^[A-Za-z]:", p):
         raise GenerationError(f"refusing to write outside the workspace: {path!r}")
-    if p.endswith("/"):  # '=== FILE: src/parts/ ===' names a directory, not a file
+    if p.endswith("/"):
         raise GenerationError(f"path {path!r} is a directory, not a file")
     if not any(p.startswith(root) for root in ALLOWED_ROOTS):
         raise GenerationError(f"path {p!r} is outside the allowed roots {ALLOWED_ROOTS}")
@@ -175,20 +131,7 @@ def write_files(
     frozen: Collection[str] = (),
     on_skip: Callable[[str, str], None] | None = None,
 ) -> list[FileChange]:
-    """Write parsed files under the workspace; returns git-style FileChange rows.
-
-    A block whose path is unsafe, outside ``ALLOWED_ROOTS`` (flash models love
-    to add README.md / package.json despite the format rule) or unwritable is
-    SKIPPED — reported via ``on_skip`` — instead of aborting the whole write:
-    the valid files were already paid for.
-
-    ``only`` (an ``edit_only`` task's file scope, entry included when owned) skips a
-    path that ALREADY EXISTS and is not listed — new files stay allowed; ``frozen``
-    (the language's harness-owned files and directories, e.g. scene_threejs's ``src/lib/``) is
-    skipped outright (``is_harness_owned``, the CLI side's rule).
-    The single-shot envelope has no write-time gate, so this is where a scoped task is
-    stopped from rewriting a sibling's file — the mirror of the CLI backends' post-hoc
-    ``_enforce_scope`` (until 2026-08-29 only that side protected the harness files)."""
+    """Write parsed files under the workspace; returns git-style FileChange rows."""
     scope = {_clean_path(p) for p in only} if only is not None else None
     owned = {_clean_path(p) for p in frozen}
     changes: list[FileChange] = []
@@ -218,9 +161,6 @@ def write_files(
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content if content.endswith("\n") else content + "\n")
         except OSError as e:
-            # Same contract as an out-of-root path: one unwritable block (a path that
-            # is already a directory, a name the filesystem rejects) must not throw
-            # away the files that DID parse -- the whole answer was already paid for.
             if on_skip is not None:
                 on_skip(raw, str(e))
             log.warning("skipping unwritable file from generator: %s: %s", rel, e)
@@ -230,11 +170,7 @@ def write_files(
 
 SINGLE_SHOT_PREFIX = "single-shot:"
 
-#: default cap on model turns per agent session: 0 = none, the session runs under the
-#: backend's own ``AgentJob.max_turns``.  A 28-turn default was measured and rejected
-#: (A/B: no saving, −0.205 score) — see the module docstring and docs/COST.md §17.
 DEFAULT_AGENT_MAX_TURNS = 0
-#: turns granted to the wrap-up session that lands a final build + summary when a cap IS set
 DEFAULT_WRAPUP_TURNS = 6
 
 WRAPUP_PROMPT = (
@@ -250,31 +186,21 @@ WRAPUP_PROMPT = (
 
 
 def agent_max_turns(default: int = DEFAULT_AGENT_MAX_TURNS) -> int:
-    """The turn cap a machine asks for: ``Settings.limits.agent_max_turns`` (also spelled
-    ``C3D_AGENT_MAX_TURNS``) > ``default``.
-
-    ``0`` means *no cap*: the caller leaves ``AgentJob.max_turns`` at the backend's
-    own default.  That is the measured default (docs/COST.md §17)."""
+    """The turn cap a machine asks for: ``Settings.limits.agent_max_turns`` when set, else ``default``."""
     return get_settings().limits.agent_max_turns or max(0, int(default))
 
 
 def turn_capped(res: Any) -> bool:
-    """True when the agent stopped because it ran out of turns (not money/time).
-
-    claude-code reports the subtype ``error_max_turns``; it surfaces as
-    ``exit_reason="budget"``."""
     if getattr(res, "exit_reason", "") != "budget":
         return False
     return any("max_turns" in str(e) for e in (getattr(res, "errors", None) or []))
 
 
-#: what a single-shot call thinks at when its task asks for nothing (``GenerationTask.thinking`` '')
 SINGLE_SHOT_THINKING = "medium"
 
 
 def session_effort(task: GenerationTask) -> AgentEffort | None:
-    """``AgentJob.effort`` for ``task``: its ``thinking`` when the caller explicitly asked for an
-    agent effort, else None — the backend's default (agy: ``AGY_API_EFFORT`` = high)."""
+    """``AgentJob.effort`` for ``task``: its ``thinking`` when the caller explicitly asked for an"""
     return task.thinking if task.thinking in get_args(AgentEffort) else None  # type: ignore[return-value]
 
 
@@ -300,7 +226,7 @@ class GenerationTask(BaseModel):
         "explicit ask — the single-shot call uses it, and an agent session gets it as AgentJob.effort "
         "(``off`` reaches no agent).  No track asks for less than high today (D110)",
     )
-    max_output_tokens: int = 65_536   # the model's declared ceiling; unused tokens cost nothing
+    max_output_tokens: int = 65_536
     timeout_s: int | None = None
     edit_only: bool = Field(
         default=False,
@@ -353,21 +279,16 @@ class GenerationResult(BaseModel):
 
     @classmethod
     def from_error(cls, label: str, e: BaseException) -> GenerationResult:
-        """The failed result of a generation call that RAISED, classified by the error's type
-        rather than its message: the round loop reads ``transient`` / ``quota``, never text."""
+        """The failed result of a generation call that RAISED, classified by the error's type"""
         return cls(ok=False, notes=f"{type(e).__name__}: {e}", label=label, transient=is_model_outage(e))
 
 
 def is_model_outage(e: BaseException) -> bool:
-    """Is this a *service* failure (the model is down) rather than a bad answer?
-
-    Read off the ``ModelError`` the models layer raises — ``retryable`` or an HTTP status of
-    capacity / rate limiting — never off its message.  A 503 capacity storm reaches us only
-    after ``models.retry`` has already spent its whole storm budget waiting."""
+    """Is this a *service* failure (the model is down) rather than a bad answer?"""
     from codeverse3d.models.base import ModelError
     from codeverse3d.models.parts import retryable_status
 
-    if isinstance(e, ModelError):   # a spent key pool is retryable=False, status 429: an outage all the same
+    if isinstance(e, ModelError):
         return bool(e.retryable) or retryable_status(e.status)
     return False
 
@@ -383,19 +304,11 @@ def single_shot_model_id(agent_id: str) -> str:
     return agent_id[len(SINGLE_SHOT_PREFIX) :]
 
 
-#: the floor of a single-shot call's own deadline.  A task's ``timeout_s`` caps its model call:
-#: an asset task (420 s) once held a runaway stream for ~20 minutes — 1 087 chunks before the
-#: retry layer gave up — and the stage that waited for it left the zones a 180 s session that
-#: wrote nothing (iteration 2 of the argon loop, 2026-10-15: 31 of 2 697 single-shot asset calls
-#: ran past 420 s, all the way to the retry ceiling).  But a stage degraded to single-shot by a
-#: spent soft budget carries the budget's FLOOR as its timeout (120-180 s), shorter than a
-#: legitimate call (asset calls p50 96 s, p95 260 s) — the floor keeps those whole.
 SINGLE_SHOT_MIN_WAIT_S = 420.0
 
 
 def single_shot_wait_s(timeout_s: float | None, retry_deadline_s: float) -> float:
-    """The longest one single-shot generation may wait: the retry ceiling, capped by the task's own
-    timeout when it has one (never below :data:`SINGLE_SHOT_MIN_WAIT_S`)."""
+    """The longest one single-shot generation may wait: the retry ceiling, capped by the task's own"""
     if timeout_s is None:
         return retry_deadline_s
     return min(retry_deadline_s, max(float(timeout_s), SINGLE_SHOT_MIN_WAIT_S))
@@ -422,29 +335,18 @@ def generate_files(
         temperature=task.temperature,
         thinking=task.thinking or SINGLE_SHOT_THINKING,
         max_output_tokens=task.max_output_tokens,
-        # the RUN's remaining wall clock AND the task's own window, not the models' 1800 s
-        # default — and past the hard ceiling this refuses to buy the call at all
         max_wait_s=_deadline_preflight(budget, single_shot_wait_s(task.timeout_s, RETRY_DEADLINE_S)),
         label=f"{task.label}:r{task.round:02d}",
     )
 
     def ask(r: ChatRequest) -> Any:
-        # attributed like ``MeteredAgent.run``: stage from the task's kind, its round — the
-        # label alone filed ``zones_*`` under ``other`` (audit 2026-09-24 N72)
         with call_context(round=task.round, stage=stage_for_label(task.kind or task.label)):
             return model.generate(r)
 
     resp = ask(req)
     usage = resp.usage
-    # the clock is not enforced here: the response is already paid for, and raising would
-    # discard it before transcript/parse/write_files — the round's generate step does
-    # (steps.run_generation_tasks)
     retry = False
     if _is_truncated(resp):
-        # cut off by max_output_tokens: the envelope is unterminated — one retry with a
-        # DOUBLED budget beats writing a half-file.  Already at the 65,536 model ceiling
-        # there is nothing to grow: a re-ask would be byte-identical and full price, so
-        # it is not bought (the default task budget IS the ceiling since 2026-08-27).
         grown = min(task.max_output_tokens * 2, 65_536)
         retry = grown > int(req.max_output_tokens or 0)
         events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=retry)
@@ -464,7 +366,7 @@ def generate_files(
                                 label=task.label)
 
     if _is_truncated(resp):
-        if retry:   # the RETRY was cut off too; the first cut is already in the log
+        if retry:
             events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=False)
         return _result(f"truncated: finish_reason={resp.finish_reason}")
     try:
@@ -492,10 +394,7 @@ def generate_files(
 
 def _deadline_preflight(budget: BudgetGuard | None, wait_s: float, *, soft: bool = False,
                         floor_s: float = 120.0) -> float:
-    """Gate a session on the run clock: refuse to start past the HARD ceiling (a
-    timed-out session that produced nothing bills nothing, so the accounting-driven
-    check alone never fires) and clip the wait to the remaining wall clock (a flat
-    30-minute session once ran 9 minutes past the ceiling, measured 2026-08-27)."""
+    """Gate a session on the run clock: refuse to start past the hard ceiling, else return the wait to use."""
     if budget is None:
         return wait_s
     budget.check()
@@ -518,33 +417,14 @@ def run_agent_task(
     budget: BudgetGuard | None = None,
     events: Any | None = None,
 ) -> GenerationResult:
-    """CodingAgent path.  ``ok`` = the agent changed files (envelope-vs-disk truth).
-
-    A turn cap is applied only when the machine asks for one (``C3D_AGENT_MAX_TURNS`` >
-    ``Settings.limits.agent_max_turns`` > :data:`DEFAULT_AGENT_MAX_TURNS`, which is 0 = the
-    backend's own ``AgentJob.max_turns``; a 28-turn default was measured and rejected, see the
-    module docstring).  Hitting whatever cap is in force is not a failure: one
-    short wrap-up session is asked for a final build and a summary, so the money
-    already spent leaves a buildable workspace instead of a session that was cut
-    off mid-edit.  Every session — first attempt, silent-bail retry, wrap-up — is
-    charged to ``budget`` as it ends, so nothing is lost when a later attempt raises."""
+    """CodingAgent path.  ``ok`` = the agent changed files (envelope-vs-disk truth)."""
     events = NULL_EVENTS if events is None else events
     timeout = task.timeout_s or (settings or get_settings()).limits.agent_timeout_s
-    # A task that chose its own window already clipped it the way its stage wanted
-    # (scene.py: soft for env/zones/assets, hard for refine/rebuild) — re-clipping THAT
-    # against the soft share handed every scene refine session after the 0.55 share
-    # exactly the 120 s floor instead of the ≤ 900 s it asked for.  A task with no
-    # window of its own (repair) is still bounded by the soft share, so a failing
-    # baseline cannot eat the refine rounds' half.  (Both found by review 2026-08-29.)
     timeout = _deadline_preflight(budget, timeout, soft=task.timeout_s is None)
-    # Sessions sharing a workspace wait for a lock. An absolute deadline keeps that
-    # wait, retry attempts and the CLI's activity grace inside the run's hard clock.
     hard_deadline = None
     if budget is not None:
-        # ``reserve_s`` (D112): a refine session cut by the run's own edge left its edits unbuilt and
-        # unjudged (iteration 5, r1_09: the retry's camera fix was committed, never scored)
         hard_deadline = time.monotonic() + max(0.0, budget.timeout_s(float("inf"), floor_s=0, soft=False) - task.reserve_s)
-    turns_cap = agent_max_turns()  # 0 = leave AgentJob's own default
+    turns_cap = agent_max_turns()
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → the edit_only scope.
     language, track = _spec_lang_track(ws)
@@ -574,8 +454,7 @@ def run_agent_task(
     changes = res.files_changed
 
     if turn_capped(res):
-        # the turns are gone, the money is not wasted: ask for a landing, not more work
-        events.emit(  # (the money itself is the session's ledger row)
+        events.emit(
             "generate.turn_cap",
             label=task.label,
             round=task.round,
@@ -593,8 +472,6 @@ def run_agent_task(
         not changes
         and not acc.wrapped
         and res.exit_reason not in ("timeout", "budget")
-        # a provider failure or a spent usage limit is not a bail: a second session meets the
-        # same wall (the round loop's one retry handles a transient)
         and not (res.transient or res.quota)
     ):
         events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
@@ -638,13 +515,7 @@ def run_agent_task(
 
 
 class _SessionAcc:
-    """Runs the agent sessions of ONE task and keeps their accounting.
-
-    Each session is a ledger row the moment it returns (label ``<task>``/``<task>.a2`` for
-    the retry, ``<task>.wrapup`` for the landing session — ``cost.instrument.MeteredAgent``),
-    so a crash in a later session can never erase what an earlier one already spent — the
-    ``.a2`` hole of docs/COST.md §6. The run's clock is checked before and after
-    every session, including sessions whose vendor returned no usage."""
+    """Runs the agent sessions of ONE task and keeps their accounting."""
 
     def __init__(self, *, task: GenerationTask, budget: BudgetGuard | None):
         self.task = task
@@ -658,9 +529,7 @@ class _SessionAcc:
     def run(
         self, agent: Any, job: AgentJob, *, wrapup: bool = False, optional: bool = False
     ) -> AgentResult | None:
-        """One session.  ``optional`` sessions (wrap-up, silent-bail retry) never
-        take the task down: a crash there leaves the earlier, already charged
-        session as the result instead of discarding money that was really spent."""
+        """One session.  ``optional`` sessions (wrap-up, silent-bail retry) never"""
         self.sessions += 1
         self.wrapped = self.wrapped or wrapup
         label = self.task.label + (
@@ -678,8 +547,6 @@ class _SessionAcc:
             self.errors.append(f"{label}: {type(e).__name__}: {e}")
             return None
         self.usage = self.usage + res.usage
-        # the count as the BACKEND reports it: a size
-        # signal for the generate.turn_cap event, not what the cap is enforced against
         self.turns += res.turns
         if self.budget is not None:
             self.budget.check()
@@ -687,16 +554,7 @@ class _SessionAcc:
 
 
 def _images_block(images: list[ImagePart], ws: Workspace) -> str:
-    """The task's images (reference photos, the judged contact sheet) as a prompt
-    section.  No vendor CLI takes an image on argv, so the agent opens the files with
-    its own file/image tools; until 2026-08-29 the only carrier was ``AgentJob.images``,
-    which no backend read, so the contact sheet the judge scored reached no CLI session
-    (that field is gone since 2026-08-30 — this block IS the delivery).
-
-    Every image is copied into ``.3dcode/images/`` first (D9),
-    and listed workspace-relative: a CLI reads only INSIDE its workspace (``--image
-    ref.png`` stores the host's absolute path), and the judged contact sheet sits under
-    ``artifacts/renders/``, which ``.antigravityignore`` hides from agy."""
+    """The task's images (reference photos, the judged contact sheet) as a prompt"""
     paths: list[tuple[str, str]] = []
     for i in images:
         if not i.path:
@@ -706,7 +564,7 @@ def _images_block(images: list[ImagePart], ws: Workspace) -> str:
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
-        except OSError as e:  # unreadable source: naming it is still better than silence
+        except OSError as e:
             log.warning("task image %s could not be copied into %s: %s", src, dest, e)
             paths.append((i.label or "image", str(src)))
             continue
@@ -727,12 +585,7 @@ def _spec_lang_track(ws: Workspace) -> tuple[str, str]:
 
 
 def _always_writable(language: str, task: GenerationTask) -> list[str]:
-    """The entry file, exempt from ``edit_only`` — but only for a task that OWNS it.
-
-    Owning tasks: ``owns_entry=True`` (assembly / whole-object / single-file tasks, and
-    scoped refines whose prompt promises entry access) or a ``files_hint`` naming the
-    entry.  Part / zone / detail / asset tasks own nothing here — under the old
-    unconditional exemption, parallel scoped sessions raced on the entry file unopposed."""
+    """The entry file, exempt from ``edit_only`` — but only for a task that OWNS it."""
     try:
         entry = ENTRY_FILE[Language(language)]
     except (ValueError, KeyError):
@@ -741,8 +594,7 @@ def _always_writable(language: str, task: GenerationTask) -> list[str]:
 
 
 def _envelope_scope(ws: Workspace, task: GenerationTask) -> tuple[set[str] | None, list[str]]:
-    """``write_files``'s ``only`` (an ``edit_only`` task: files_hint + the entry when
-    owned) and ``frozen`` (the language's harness-owned files) for a single-shot task."""
+    """The ``only`` set for ``write_files`` (an ``edit_only`` task's files plus the always-writable ones, else ``None``) and the frozen files."""
     language, _ = _spec_lang_track(ws)
     frozen = _read_only(language)
     if not task.edit_only or not task.files_hint:
@@ -751,8 +603,7 @@ def _envelope_scope(ws: Workspace, task: GenerationTask) -> tuple[set[str] | Non
 
 
 def _read_only(language: str) -> list[str]:
-    """The harness-owned files of the language (scene_threejs's ``src/lib/``): every session
-    of the run — baseline, refine, repair — may read them, none may write them."""
+    """The harness-owned files of the language (scene_threejs's ``src/lib/``): every session"""
     try:
         return list(HARNESS_OWNED_SRC.get(Language(language), ()))
     except ValueError:
@@ -770,11 +621,7 @@ def generate(
     budget: BudgetGuard | None = None,
     events: Any | None = None,
 ) -> GenerationResult:
-    """Dispatch to the single-shot or the coding-agent strategy by ``agent_id``.
-
-    ``agent`` / ``model`` may be injected (tests, reuse); otherwise they are
-    resolved lazily through ``codeverse3d.agents`` / ``codeverse3d.models``.
-    """
+    """Dispatch to the single-shot or the coding-agent strategy by ``agent_id``."""
     if is_single_shot(agent_id):
         if model is None:
             model = get_chat_model(single_shot_model_id(agent_id))

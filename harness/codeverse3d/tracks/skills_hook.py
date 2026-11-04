@@ -1,15 +1,5 @@
-"""Where the skill system meets a round: route before generating, measure after.
+"""Skills hook: attaches the selected skills to a track's prompts."""
 
-Kept out of ``codeverse3d/skills`` so that package stays pure (no ``RunContext``, no
-workspace conventions, no environment) and testable without a run.  Kept out of
-``steps.py`` so a round's control flow does not grow a second subject.
-
-Everything here is a no-op when ``C3D_SKILLS=0`` (the system is ON by default since
-2026-09-22), and every function swallows its own failures: a skill that cannot be routed,
-written or probed must cost that skill, not the round.  The switch is ``Settings.skills``,
-read at the call.  ``record_usage`` reads what the round's sessions did
-from their CLIs' own tool calls (``skills/telemetry.probe_reads``), atime only as fallback.
-"""
 
 from __future__ import annotations
 
@@ -24,13 +14,11 @@ from codeverse3d.tracks.common import RunContext
 
 log = logging.getLogger(__name__)
 
-CTX_KEY = "skills"  # ctx.extra slot holding this round's SkillsMaterialized
+CTX_KEY = "skills"
 
 
 def attach_for_round(ctx: RunContext, *, index: int, kind: str, findings: Sequence[GateReport] = ()) -> Any | None:
-    """Route + materialise this round's skills.  Returns the ``SkillsMaterialized``.
-
-    ``findings``: the previous round's gates — the input no CLI's own loader can see."""
+    """Route + materialise this round's skills.  Returns the ``SkillsMaterialized``."""
     from codeverse3d.skills import attach_skills
 
     # drop the previous round's set first: a failure below must not leave this round
@@ -52,9 +40,6 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str, findings: Sequen
         log.warning("skills not attached for round %d (%s): %s", index, kind, e)
         return None
     ctx.extra[CTX_KEY] = got
-    # the body a session actually saw is part of what decided the run: hash it beside the
-    # prompt hashes so a later comparison of two runs can tell "same skill, new wording"
-    # from "different skill"
     for sel in got.selections:
         ctx.record_prompt(f"skill:{sel.name}", sel.skill.body)
     ctx.events.emit("skills.attached", round=index, kind=kind, skills=got.listed,
@@ -64,12 +49,7 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str, findings: Sequen
 
 
 def with_inlined_skill(ctx: RunContext, tasks: Sequence[Any]) -> list[Any]:
-    """Single-shot only: prepend the one routed body to each task prompt.
-
-    A single-shot call has no read loop, so a pointer to a file it cannot open would be
-    cost with no benefit — and, worse, would make the single-shot arm quietly
-    incomparable with the agent arms.  One body, capped, in the prompt.
-    """
+    """Single-shot only: prepend the one routed body to each task prompt."""
     got = ctx.extra.get(CTX_KEY)
     if not got or not getattr(got, "inlined", ""):
         return list(tasks)
@@ -82,14 +62,7 @@ def with_inlined_skill(ctx: RunContext, tasks: Sequence[Any]) -> list[Any]:
 
 
 def repair_pointers(ctx: RunContext, build: BuildResult, lint: GateReport) -> str:
-    """Name the attached skills that answer the CURRENT failure: the lint and the build's own
-    reports (``BuildResult.gates`` — a scene's shader_preflight), the same reports a refine
-    round routes on.
-
-    The repair prompt's only pointer to material (D107): the attached bundles whose routes
-    match the build / lint finding kinds.  It only names skills that are already in the
-    workspace, so it adds pointers rather than text.
-    """
+    """Name the attached skills that answer the CURRENT failure: the lint and the build's own"""
     got = ctx.extra.get(CTX_KEY)
     if not got or not getattr(got, "selections", None):
         return ""
@@ -97,15 +70,11 @@ def repair_pointers(ctx: RunContext, build: BuildResult, lint: GateReport) -> st
     from codeverse3d.skills.registry import ROUTES, finding_kinds
 
     kinds = finding_kinds([lint, *build.gates])
-    # ANY route for the skill, not just the rules that fired at attach time: the build/lint failure a
-    # repair session is looking at was discovered afterwards, and the sheet that answers it is
-    # already sitting in the workspace
     answering = [s.name for s in got.selections if any(r.skill == s.name and r.matches_finding(kinds) for r in ROUTES)]
     return _fmt(got.selections, agent_kind=ctx.agent_kind, answering=answering)
 
 
 def record_usage(ctx: RunContext, *, index: int, kind: str) -> SkillsUsage | None:
-    """After the round's sessions: what was read.  Also appends ``telemetry/skills.jsonl``."""
     got = ctx.extra.get(CTX_KEY)
     if not got:
         return None

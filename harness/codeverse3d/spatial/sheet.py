@@ -1,13 +1,4 @@
-"""Contact sheets: a deterministic labelled grid of PNGs (PIL only).
-
-Used for judge inputs and agent observations: one image, every view labelled
-under its tile, fixed tile size so the VLM sees consistent scale.
-
-This module is also the one home for shared PIL drawing bits: ``load_font``,
-:func:`write_gif` and the sheet geometry/palette constants (``LABEL_H``,
-``PAD``, ``BG``, ``LABEL_BG``, ``LABEL_FG``) are public and reused by
-``spatial.gl_render`` and ``judges.images``.
-"""
+"""Contact sheets: a deterministic labelled grid of PNGs (PIL only)."""
 
 from __future__ import annotations
 
@@ -17,7 +8,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-#: shared sheet geometry / palette (public — imported by other drawing modules)
 LABEL_H = 28
 PAD = 6
 BG = (250, 250, 250)
@@ -29,11 +19,7 @@ _FONTS_BOLD = ("DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "Arialbd.ttf")
 
 
 def load_font(size: int = 15, bold: bool = False) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
-    """First available truetype font at ``size`` (PIL default as last resort).
-
-    The candidate list covers the fonts present on typical Linux/CI hosts;
-    ``bold=True`` prefers the bold faces and falls back to the regular ones.
-    """
+    """First available truetype font at ``size`` (PIL default as last resort)."""
     names = (*_FONTS_BOLD, *_FONTS) if bold else _FONTS
     for name in names:
         try:
@@ -55,9 +41,7 @@ def _fit(im: Image.Image, tile_w: int, tile_h: int) -> Image.Image:
 
 
 def tile_size(tile: int | tuple[int, int], sample: str | Path | None = None) -> tuple[int, int]:
-    """Resolve the ``tile`` argument: a square side, an explicit (w, h), or a
-    width plus ``sample`` — an image whose aspect ratio the cell should keep
-    (how the graphics-track frame sheets stay 16:9)."""
+    """Resolve the ``tile`` argument."""
     if isinstance(tile, tuple):
         return max(1, int(tile[0])), max(1, int(tile[1]))
     tile_w = max(1, int(tile))
@@ -77,14 +61,7 @@ def contact_sheet(
     tile: int | tuple[int, int] = 384,
     label: bool = True,
 ) -> Path:
-    """Write a grid of ``(label, png_path)`` tiles to ``out`` and return it.
-
-    THE sheet builder: object views, scene views and graphics frame sheets all
-    come through here.  ``tile`` is a square side or an explicit ``(w, h)`` cell
-    (see :func:`tile_size`).  Missing/unreadable images become a grey tile with
-    the label so the sheet never silently drops a view.  Output is deterministic
-    for identical inputs.
-    """
+    """Write a grid of ``(label, png_path)`` tiles to ``out`` and return it."""
     if not images:
         raise ValueError("contact_sheet: no images")
     tile_w, tile_h = tile_size(tile)
@@ -120,11 +97,7 @@ def contact_sheet(
 
 
 def write_gif(frames: Sequence[str | Path], out: Path | str, *, fps: int = 12, width: int | None = None) -> Path:
-    """Animated GIF from ``frames`` (adaptive 128-colour palette, looping).
-
-    THE gif writer (the graphics preview; ``width`` downscales with BILINEAR).
-    Raises ``ValueError`` without frames.
-    """
+    """Animated GIF from ``frames`` (adaptive 128-colour palette, looping)."""
     if not frames:
         raise ValueError("write_gif: no frames")
     ims = []
@@ -148,11 +121,7 @@ def montage_2x2(
     out: Path | str,
     tile: int = 512,
 ) -> Path:
-    """A labelled ≤ 2×2 grid (1–4 tiles) — the judge-facing montage format.
-
-    VLM judges get position-biased and saturate with many tiles, so judge
-    images carry at most four views each.  Raises ``ValueError`` above 4.
-    """
+    """A labelled ≤ 2×2 grid (1–4 tiles) — the judge-facing montage format."""
     if not 1 <= len(images) <= MONTAGE_MAX_TILES:
         raise ValueError(f"montage_2x2: need 1..{MONTAGE_MAX_TILES} tiles, got {len(images)}")
     cols = 1 if len(images) == 1 else 2
@@ -166,12 +135,8 @@ def crop_region(
     *,
     min_px: int = 512,
 ) -> Path:
-    """Crop ``src`` to the fractional box ``(left, top, right, bottom)`` (0..1) and
-    upscale so the long side is ≥ ``min_px`` (a "detail crop" for judges).
-
-    Returns ``out``.  Raises ``ValueError`` for an empty box, ``OSError`` for an
-    unreadable image.
-    """
+    """Crop ``src`` to the fractional box ``(left, top, right, bottom)`` (0..1) and upscale so
+    the long side is ≥ ``min_px`` (a "detail crop" for judges)."""
     x0, y0, x1, y1 = (max(0.0, min(1.0, float(v))) for v in box_frac)
     if x1 <= x0 or y1 <= y0:
         raise ValueError(f"crop_region: empty box {box_frac}")

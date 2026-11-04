@@ -1,19 +1,4 @@
-"""Judge calibration smoke: re-judge finished runs and ask "does the judge separate good from bad?"
-
-``calibrate(run_dirs)`` reads each run's ``rounds/rNN.json`` (read-only), rebuilds
-the ``JudgeInput`` the way ``3dcode judge`` does (``cli/_judge.build_judge_input``: spec,
-renders, measurement, gates, plan digest, acceptance, previous verdict, track context,
-stored clay views, GLB) and picks the judge class it would (``make_judge``),
-re-judges every round with ``n_samples`` (montage order shuffled per sample) and
-tabulates, per round: gate error count, the stored overall, the new mean/std,
-per-criterion std, defects and caps.  Across rounds it reports the Pearson and
-Spearman correlation between gate error counts and the new scores (expected
-negative), and between stored and new overalls.  Optionally renders a clay /
-normals geometry set for the picked round (``addons/select``) when it stored none — from
-its own GLB (``select.round_file``; none when it kept none) — so the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
-
-CLI: ``python -m codeverse3d.addons.calibration runs/a runs/b --model gemini:gemini-4-argon --n 3 --out scratch/``
-"""
+"""Judge calibration smoke: re-judge finished runs and check the judge separates good from bad."""
 
 from __future__ import annotations
 
@@ -44,10 +29,6 @@ log = logging.getLogger(__name__)
 
 
 def _run_label(run_dir: Path) -> str:
-    """A label that stays unique across a battery: bench cells all end in ``.../run``, so
-    ``run_dir.name`` collided for every cell and their judgment files overwrote each other.
-    The whole filtered tail is kept — a 2-part tail (``<arm>_run``) still collided across
-    a battery's prompts, and dropped the control/treatment arm in an ab_plan layout."""
     parts = run_dir.resolve().parts
     tail = [q for q in parts[-5:] if q not in ("runs", "cells")]
     return "_".join(tail) if tail[-1] == "run" else tail[-1]
@@ -55,7 +36,6 @@ def _run_label(run_dir: Path) -> str:
 
 # --------------------------------------------------------------------------- data
 class RoundCase(BaseModel):
-    """One judgeable round reconstructed from a run directory."""
 
     run: str
     round_index: int
@@ -76,7 +56,7 @@ def _stored_weighted(case: RoundCase) -> float | None:
         return None
     try:
         return round(load_rubric(case.rubric).weighted_overall(case.stored.scores), 3)
-    except Exception:  # noqa: BLE001 — a retired rubric name must not kill the report
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -87,9 +67,6 @@ class CalibrationRow(BaseModel):
     gate_errors: int
     gate_warnings: int
     stored_overall: float | None = None
-    #: the stored PER-CRITERION scores re-weighted by today's rubric — old records exist
-    #: whose overall contradicts their own scores (a violin: scores→0.428, overall 0.018),
-    #: and a correlation against such an overall measures the corruption, not the judge
     stored_weighted: float | None = None
     stored_backend: str = ""
     mean: float
@@ -157,14 +134,13 @@ class CalibrationTable(BaseModel):
 
 # --------------------------------------------------------------------------- loading runs
 def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[RoundCase]:
-    """Rebuild judge inputs for every judgeable round of a run (rounds with renders)."""
     run_dir = Path(run_dir)
     ws = Workspace(run_dir)
     saved = [RoundRecord.model_validate_json(p.read_text()) for p in sorted((run_dir / "rounds").glob("r*.json"))]
     try:
         run = load_record(ws)
         picked = select.summarise(run_dir, record=run).round
-    except RecordError:  # an interrupted run: rounds/ + spec.json, and the same fallback rule over them
+    except RecordError:
         run = RunRecord(spec=Spec.model_validate_json(ws.spec_path.read_text()), workspace=str(run_dir))
         picked = select.fallback_round(saved)
     cases: list[RoundCase] = []
@@ -173,7 +149,6 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             continue
         if rec.renders is None or not rec.renders.views:
             continue
-        # the same input, views and paths the in-run judge and `3dcode judge` see
         cases.append(RoundCase(
             run=_run_label(run_dir), round_index=rec.index, kind=rec.kind, rubric=rubric_for(run, rec, None),
             inp=build_judge_input(ws, run, rec),
@@ -186,8 +161,6 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
 
 
 def render_geometry_views(case: RoundCase, out_dir: Path, mode: str) -> RenderSet | None:
-    """Clay/normals renders of the picked round's own GLB (object tracks only; None when that
-    round kept none — never the last build's ``artifacts/object.glb`` in its place)."""
     if case.inp.spec.track.value == "scene":
         return None
     if not case.glb:
@@ -199,14 +172,13 @@ def render_geometry_views(case: RoundCase, out_dir: Path, mode: str) -> RenderSe
     views = list(OBJECT_CLAY_VIEWS)
     try:
         return render_glb(case.glb, out_dir / case.run / f"geometry_{mode}", views=views, mode=mode, sheet=False)
-    except Exception as e:  # noqa: BLE001 — calibration must not die on a render hiccup
+    except Exception as e:  # noqa: BLE001
         log.warning("geometry render failed for %s: %s", case.run, e)
         return None
 
 
 # --------------------------------------------------------------------------- statistics
 def pearson(xs: list[float], ys: list[float], method: str = "linear") -> float | None:
-    """``statistics.correlation`` at 4 decimals; None when either side is constant or n < 2."""
     if len(xs) < 2 or len(set(xs)) < 2 or len(set(ys)) < 2:
         return None
     return round(statistics.correlation(xs, ys, method=method), 4)
@@ -254,15 +226,6 @@ def calibrate(
     chat_model: Any = None,
     fixed_order: bool = False,
 ) -> CalibrationTable:
-    """Re-judge every round of ``run_dirs`` with ``n_samples`` and tabulate separation/noise.
-
-    Writes ``calibration_<model>.json`` / ``.md`` into ``out_dir`` (default: cwd) and
-    never touches the run directories.  ``chat_model`` injects a ChatModel (tests).
-    ``fixed_order`` sends every sample the same montage order, so ``mean_std`` becomes the
-    model's own re-judge σ instead of its order-permutation σ (see ``VlmJudge.fixed_order``).
-    ``thinking`` defaults to ``Settings.judge.thinking`` — the level the in-run judge uses, so
-    a calibration measures the judge the loop runs (gemini-4-argon thinks only from 'medium', D105).
-    """
     model_id = model_id or get_settings().default_judge
     thinking = thinking or get_settings().judge.thinking
     out = Path(out_dir) if out_dir else Path.cwd()
@@ -273,11 +236,11 @@ def calibrate(
     if not cases:
         raise ValueError(f"no judgeable rounds found under {list(map(str, run_dirs))}")
     geometry: dict[int, RenderSet | None] = {}
-    for i, c in enumerate(cases):  # a round's stored clay views win; render only where there are none
+    for i, c in enumerate(cases):
         want = geometry_mode and c.is_picked and c.inp.geometry_views is None
         geometry[i] = render_geometry_views(c, out, geometry_mode) if want else None
 
-    def kind(c: RoundCase) -> tuple[str, str, bool]:  # what make_judge's choice of class depends on
+    def kind(c: RoundCase) -> tuple[str, str, bool]:
         return c.rubric, c.inp.spec.track.value, bool(c.inp.spec.references)
 
     judges = {kind(c): make_judge(c.inp.spec, c.rubric, model_id, n_samples, thinking=thinking,

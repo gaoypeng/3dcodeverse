@@ -1,14 +1,8 @@
 """ChatRequest ⇄ Anthropic Messages API dicts (messages, submit tool, thinking, parse).
 
-Model-family rules (Anthropic API, 2026-10):
-* 4.6+ family (opus-5/5.5, sonnet-5/5.5, haiku-5.5, fable-5/5.1, mythos, opus-4-6/7/8,
-  sonnet-4-6): ``thinking={"type":"adaptive"}`` + ``output_config.effort``;
-  ``budget_tokens`` is rejected; sampling params are rejected on opus-5/sonnet-5/haiku-5/
-  fable/4.7/4.8.  Fable, Mythos, Opus 5.5 and Sonnet 5.5 cannot turn thinking off
-  (``disabled`` is a 400) and reject a forced ``tool_choice``: "off" is effort ``low``.
-* older models (haiku-4-5, sonnet-4-5, opus-4-1 …): ``thinking={"type":
-  "enabled","budget_tokens":N}`` (N < max_tokens), temperature must be left
-  at default while thinking is on.
+Adaptive-thinking models take ``thinking={"type":"adaptive"}`` + ``output_config.effort``;
+some always think (``disabled`` is a 400) and reject a forced ``tool_choice``, so "off" is
+effort ``low``.  Older models take ``budget_tokens`` (< max_tokens) and need default temperature.
 """
 
 from __future__ import annotations
@@ -144,7 +138,7 @@ def build_kwargs(request: ChatRequest, model: str) -> dict[str, Any]:
         if not thinking_on:
             kw["tool_choice"] = {"type": "tool", "name": SUBMIT_TOOL}
         else:
-            # forced tool_choice is incompatible with thinking; nudge instead
+            # forced tool_choice is incompatible with thinking
             system = (
                 (system + "\n\n" if system else "")
                 + f"When you have the final answer, call the `{SUBMIT_TOOL}` tool exactly once with the complete JSON object."
@@ -174,7 +168,7 @@ def parse_content(content: list[Any]) -> tuple[str, Any]:
 
 # ===================================================================== anthropic
 def classify_exception(exc: BaseException) -> ModelError:
-    """Map anthropic SDK exceptions onto ``ModelError`` (the shared ladder in parts.py)."""
+    """Map anthropic SDK exceptions onto ``ModelError``."""
     import anthropic
 
     return classify_sdk_exception(exc, anthropic, "Anthropic")
@@ -205,7 +199,6 @@ class AnthropicModel(SdkModel):
     def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()
         with Stopwatch() as sw:
-            # the client is built once with a fixed timeout; the deadline is per call
             msg = client.messages.create(
                 model=self.model, timeout=attempt_timeout_s(deadline, self.timeout_s), **kwargs)
         text, submit = parse_content(msg.content)
@@ -219,12 +212,7 @@ class AnthropicModel(SdkModel):
         parsed: Any = None
         if request.response_schema is not None:
             if submit is not None:
-                # The SDK hands back tool input already parsed, so it never passes through
-                # parse_json_lenient -> strip_control_chars the way the gemini/openai text
-                # paths do.  A model NUL in a `submit` field would otherwise survive into
-                # plan.json and detonate stages later at subprocess.Popen ("embedded null
-                # byte"): the identical failure strip_control_chars was written to end, and
-                # sanitising at ingestion is the only place that covers every model.
+                # tool input skips parse_json_lenient; strip NULs here or they reach subprocess.Popen
                 parsed = strip_control_chars(submit)
                 if not text:
                     text = json.dumps(parsed)

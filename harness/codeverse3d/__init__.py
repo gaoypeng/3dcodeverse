@@ -1,30 +1,17 @@
 """codeverse3d — the 3dcodeverse harness.
 
-A backend harness in which LLMs (API models or agentic CLIs) write RAW,
-executable 3D code — Blender ``bpy``, CadQuery, Three.js, URDF, GLSL — for
-four tracks (static objects, articulated objects, scenes, graphics).  Every run is
-planned, generated, linted, executed, measured, rendered, judged, refined and
-finally emitted as a data-flywheel record.
+A backend harness in which LLMs write RAW, executable 3D code (Blender ``bpy``, CadQuery,
+Three.js, URDF, GLSL) for four tracks (static objects, articulated objects, scenes, graphics).
 
-Package map (each sub-package has its own docstring):
+Package map:
 
-- ``conventions``   single source of truth for frames, units, naming.
-- ``config``        settings (keys, binaries, defaults) — layered, typed.
-- ``contracts``     pydantic models shared by everything (Spec, Plan, Gate,
-                    Judgment, Usage, RunRecord ...).  No logic lives here.
-- ``models``        ChatModel backends: Gemini / Anthropic / OpenAI (+ key pool).
-- ``agents``        CodingAgent backends: the vendor CLIs — antigravity (agy,
-                    Google's models) / claude-code / codex.
-- ``languages``     LanguageRuntime per raw language: lint, build, export.
-- ``spatial``       language-agnostic 3D tools on GLB/scene: measure, render,
-                    slice, isolate, silhouette, joints, probes — also served as
-                    an MCP server to agentic harnesses.
-- ``judges``        VLM judges + rubrics + deterministic metrics.
-- ``tracks``        static_object / articulated_object / scene / graphics pipelines.
-- ``orchestrator``  stage runner, round loop, budget, candidate selection.
-- ``record``        what every run writes: record.json, deliverable/, telemetry.
-- ``addons``        optional tools that READ finished runs (gallery, dataset, cost report, …).
-- ``cli``           ``3dcode`` command line.
+- ``conventions``   frames, units, naming.      - ``config``   typed layered settings.
+- ``contracts``     shared pydantic models.     - ``models``   ChatModel backends + key pool.
+- ``agents``        vendor CLI coding agents.   - ``languages``  per-language lint / build / export.
+- ``spatial``       3D tools on GLB / scene, also an MCP server.
+- ``judges``        VLM judges + rubrics.       - ``tracks``   the four pipelines.
+- ``orchestrator``  stage runner, round loop.   - ``record``   record.json, deliverable/, telemetry.
+- ``addons``        tools that read finished runs.   - ``cli``   the ``3dcode`` command line.
 """
 
 __version__ = "0.1.0"

@@ -1,31 +1,4 @@
-"""Which round of a finished run to hand over — and the hand-over itself (``3dcode pick``).
-
-Since 2026-09-22 the run loop keeps every round, ends at the last one and calls no run
-passed or failed: the judge scores each round and its verdict shapes the next one, and
-choosing among the rounds is a READER's job.  This addon is that reader, and the one every
-other reader asks (gallery, dataset, cost report, calibration, the CLI, eval/bench):
-
-* :func:`round_rows`  one typed row per saved round — the effective judged score, the
-                      judge's own verdict for that round, gate errors, commit, cost, minutes;
-* :func:`pick`        the round to hand over: the highest judged score, ties to fewer gate
-                      errors, then the earlier round.  ``by="pairwise"`` lets the position-
-                      swapped pairwise judge decide between the top two when they sit within
-                      the judge's noise (the verdict is paid once and cached in
-                      ``artifacts/judge/``);
-* :func:`summarise`   baseline score, the picked round and its score, the delta, rounds run
-                      and the stop reason — the round ``selection.json`` names when the run
-                      was packaged, else :func:`pick`'s — and ``round``, the one a reader
-                      SHOWS: the picked round, else :func:`fallback_round`;
-* :func:`fallback_round` the round every reader shows when nothing was judged: the latest
-                      round that built and has renders;
-* :func:`round_file`  a round's OWN build output (its GLB, GIF), never the last build's —
-                      and :func:`round_complexity_block` its complexity vector;
-* :func:`package`     ``deliverable/`` for one round and ``selection.json`` (round, method,
-                      scores) beside ``record.json``.
-
-Nothing here runs during a run: ``3dcode make`` calls :func:`pick` + :func:`package` after the
-track returns (unless ``--no-pick``).
-"""
+"""Which round of a finished run to hand over — and the hand-over itself (``3dcode pick``)."""
 
 from __future__ import annotations
 
@@ -58,18 +31,14 @@ from codeverse3d.workspace import Workspace
 log = logging.getLogger(__name__)
 
 SELECTION_NAME = "selection.json"
-#: |Δscore| at or below this is judge noise: ``by="pairwise"`` asks the pairwise judge
 PAIRWISE_MARGIN = 0.03
-#: the runner-up replaces the top-scored round only when the pairwise judge is this sure
 PAIRWISE_MIN_CONFIDENCE = 0.6
 
 PickBy = Literal["score", "pairwise"]
-#: how ``selection.json``'s round was chosen: by score, by the pairwise judge, or named (``--round``)
 Method = Literal["score", "pairwise", "round"]
 
 
 class RoundRow(BaseModel):
-    """One saved round, as a reader needs it."""
 
     index: int
     kind: str = ""
@@ -84,7 +53,6 @@ class RoundRow(BaseModel):
 
 
 class RunSummary(BaseModel):
-    """A run in one line — no pass/fail: the scores say how it went."""
 
     rounds: int = Field(default=0, description="rounds run (the baseline included)")
     stop_reason: str = ""
@@ -98,7 +66,6 @@ class RunSummary(BaseModel):
 
 
 class Selection(BaseModel):
-    """``selection.json``: which round ``deliverable/`` holds, and why."""
 
     round: int
     method: Method
@@ -107,8 +74,6 @@ class Selection(BaseModel):
 
 
 class PairwiseNote(BaseModel):
-    """One paid pairwise verdict — does round ``b`` beat round ``a``? — as cached in
-    ``artifacts/judge/rAA_vs_rBB_pairwise.json`` so a second ``3dcode pick`` re-reads it."""
 
     a: str = Field(description="label of the top-scored round")
     b: str = Field(description="label of the runner-up")
@@ -126,7 +91,6 @@ def _load(run_dir: Path | str, record: RunRecord | None) -> RunRecord:
 
 
 def round_rows(run_dir: Path | str, *, record: RunRecord | None = None) -> list[RoundRow]:
-    """One row per round of the run's ``record.json`` (``record=`` skips re-reading it)."""
     rows = []
     for r in _load(run_dir, record).rounds:
         j = effective_judgment(r)
@@ -138,23 +102,17 @@ def round_rows(run_dir: Path | str, *, record: RunRecord | None = None) -> list[
 
 
 def _ranked(rows: list[RoundRow]) -> list[RoundRow]:
-    """Judged rounds, best first: highest score, then fewer gate errors, then the earlier round."""
     return sorted((r for r in rows if r.score is not None), key=lambda r: (-(r.score or 0.0), r.gate_errors, r.index))
 
 
 # --------------------------------------------------------------------------- a round's own outputs
 def round_file(ws: Workspace, rnd: RoundRecord | None, name: str = "object.glb") -> Path | None:
-    """Round ``rnd``'s own build output ``name`` (``record.deliverable.round_outputs``), else
-    None — never the canonical ``artifacts/<name>`` on its own: that is the LAST build's."""
     out = round_outputs(ws, rnd)
     p = out / name if out is not None else None
     return p if p is not None and p.is_file() else None
 
 
 def round_complexity_block(ws: Workspace, rnd: RoundRecord | None) -> dict | None:
-    """Round ``rnd``'s complexity vector: its own measurement's block, else — a run recorded
-    before rounds carried one — ``artifacts/measurement.json``'s when that canonical build is
-    this round's.  Never another round's (``record.extra["complexity"]`` is the LAST one's)."""
     block = round_complexity(rnd) if rnd is not None else None
     if block is None and rnd is not None and round_outputs(ws, rnd) == ws.artifacts:
         block = ((read_json_or_none(ws.artifacts / "measurement.json") or {}).get("extra") or {}).get("complexity")
@@ -164,13 +122,6 @@ def round_complexity_block(ws: Workspace, rnd: RoundRecord | None) -> dict | Non
 # --------------------------------------------------------------------------- pick
 def pick(run_dir: Path | str, *, by: PickBy = "score", pairwise_model: str | None = None,
          record: RunRecord | None = None, judge: Any | None = None) -> int | None:
-    """The round to hand over, or None when no round was judged.
-
-    ``by="pairwise"``: when the top two scores are within :data:`PAIRWISE_MARGIN`, the
-    pairwise judge (``pairwise_model``, default the run's judge; ``judge`` injects one)
-    compares their renders and the runner-up wins only with confidence ≥
-    :data:`PAIRWISE_MIN_CONFIDENCE`.  A verdict already paid for this pair is re-read,
-    never re-bought."""
     rec = _load(run_dir, record)
     ranked = _ranked(round_rows(run_dir, record=rec))
     if not ranked:
@@ -184,9 +135,6 @@ def pick(run_dir: Path | str, *, by: PickBy = "score", pairwise_model: str | Non
 
 
 def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: str, judge: Any | None = None) -> PairwiseNote:
-    """Does round ``b`` beat round ``a``?  Position-swapped pairwise judge, one paid verdict
-    per (pair, model), cached at ``artifacts/judge/rAA_vs_rBB_pairwise.json``.  A judge
-    outage keeps ``a`` (never a worse pick for a failed call)."""
     cache = ws.judge_path(a, f"_vs_r{b:02d}_pairwise")
     rounds = {r.index: r for r in rec.rounds}
     renders = [judged_subset(resolve_paths(ws, rounds[i].renders)) for i in (a, b)]
@@ -194,7 +142,6 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
     if renders[0] is None or renders[1] is None:
         note.error = "a round has no renders to compare"
         return note
-    # the verdict is about THESE pictures: a re-rendered round is a new comparison
     seen = hashlib.sha256("\n".join(sha256_file(v.path) if Path(v.path).is_file() else v.path
                                   for rs in renders for v in rs.views).encode()).hexdigest()
     stored = read_json_or_none(cache) or {}
@@ -209,7 +156,7 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
         with call_context(stage=Stage.PAIRWISE, role=Role.JUDGE, label="pick"):
             res = judge.compare(rec.spec, renders[0], renders[1],
                                 rubric=rubric_of(rec))
-    except Exception as e:  # noqa: BLE001 — an outage must not move the pick
+    except Exception as e:  # noqa: BLE001
         log.warning("pairwise pick failed: %s", e)
         note.error = f"{type(e).__name__}: {e}"
         return note
@@ -223,9 +170,6 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
 
 
 def fallback_round(rounds: Iterable[RoundRecord]) -> int | None:
-    """The round a reader shows when nothing was judged (no pick, no ``selection.json``): the
-    latest round that built and has renders, else None.  The ONE rule for the gallery card,
-    the dataset sample and index row, ``3dcode judge``'s default and calibration's stand-in."""
     return max((r.index for r in rounds
                 if r.build is not None and r.build.ok and r.renders is not None and r.renders.views), default=None)
 
@@ -235,14 +179,11 @@ def load_selection(ws: Workspace) -> Selection | None:
     data = read_json_or_none(ws.root / SELECTION_NAME)
     try:
         return Selection.model_validate(data) if data is not None else None
-    except ValueError:  # a hand-edited file must not break every reader
+    except ValueError:
         return None
 
 
 def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSummary:
-    """The run in one line.  The picked round is the one ``selection.json`` names (what was
-    packaged), else what :func:`pick` chooses by score; ``round`` is that, else
-    :func:`fallback_round`."""
     rec = _load(run_dir, record)
     rows = round_rows(run_dir, record=rec)
     by_index = {r.index: r for r in rows}
@@ -261,11 +202,6 @@ def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSum
 
 # --------------------------------------------------------------------------- package
 def package(run_dir: Path | str, round_index: int, *, method: Method = "round") -> Path:
-    """Write ``deliverable/`` for round ``round_index`` (from its commit and ``artifacts/rNN/``,
-    no rebuild) and ``selection.json``; returns the deliverable directory.
-
-    The record is re-packaged (``record.repackage``), so its total takes in what the hand-over
-    paid — a pairwise verdict; the run's money is its ledger's."""
     ws = Workspace(run_dir)
     rec = load_record(ws)
     if not any(r.index == round_index for r in rec.rounds):

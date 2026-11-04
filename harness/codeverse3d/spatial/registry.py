@@ -1,20 +1,6 @@
-"""Tool registry: one definition → python fn + JSON schema + MCP + prompt card.
+"""Tool registry: one ``@tool(name, ArgsModel, description)`` definition → python fn + JSON schema + MCP + prompt card.
 
-Usage::
-
-    class MeasureArgs(BaseModel):
-        parts: list[str] = Field(default_factory=list, description="limit to these part names")
-
-    @tool("measure", MeasureArgs, "Measure bbox/extents/islands of the built object (and per part).")
-    def measure(ctx: ToolContext, args: MeasureArgs) -> Observation: ...
-
-``ToolContext`` carries the workspace and settings; tools never touch globals.
-``ToolDef.call`` is the one error boundary: ``ToolUsageError`` becomes a usage
-Observation, anything else a failed Observation — a tool body never needs try/except.
-Observations: ``text`` (what the agent reads), ``numbers`` (machine-readable),
-``images`` (paths, small PNGs the agent may view), ``ok`` (the VERDICT) and
-``failed`` (the tool could not run).  The two are different answers and only
-``failed`` may reach the model as a protocol error — see :class:`Observation`.
+``ToolDef.call`` is the one error boundary: tool bodies never need try/except.
 """
 
 from __future__ import annotations
@@ -36,12 +22,10 @@ class NoArgs(BaseModel):
 class Observation(BaseModel):
     """A tool's answer: ``ok`` is the VERDICT, ``failed`` says the tool could not run.
 
-    Only ``failed`` becomes MCP ``is_error``; a negative verdict is a result, not a
-    broken call (what that cost when the two were one flag: docs/COST.md §30).
+    Only ``failed`` becomes MCP ``is_error``; a negative verdict is a result, not a broken call.
     """
 
-    # validate_assignment: the invariant below has to hold for `obs.failed = ...` at a call
-    # site as well, not only at construction (spatial/tools.scene_probe did exactly that)
+    # validate_assignment: the failed-implies-not-ok invariant must hold on later assignment too
     model_config = ConfigDict(validate_assignment=True)
 
     ok: bool = True
@@ -54,24 +38,16 @@ class Observation(BaseModel):
 
     @model_validator(mode="after")
     def _a_failure_is_never_a_pass(self) -> Observation:
-        """``failed`` implies ``not ok``: a tool that could not run has no verdict to
-        report, and ``Observation(ok=True, failed=True)`` was representable."""
+        """``failed`` implies ``not ok``."""
         if self.failed and self.ok:
             raise ValueError("Observation(ok=True, failed=True): a tool that could not run has no verdict")
         return self
 
     @classmethod
     def error(cls, text: str, **numbers: Any) -> Observation:
-        """The tool could not run: every failure caught at the :meth:`ToolDef.call`
-        boundary and every missing / unreadable artefact is built here.
+        """The tool could not run (caught exceptions, missing artefacts).
 
-        It is not the only thing that sets ``failed``.  Three results are failures
-        the tool computed rather than exceptions it caught, and they set the flag on
-        an observation they compose themselves: ``build`` (the runtime reported
-        success and left no readable GLB), ``scene_probe`` (the probe driver died)
-        and ``observe.render_observation`` (no view AND no console error — with one
-        it is a verdict).  Those four places are the whole list; nothing else may set
-        ``failed``.
+        Only ``build``, ``scene_probe`` and ``observe.render_observation`` also set ``failed`` themselves.
         """
         return cls(ok=False, failed=True, text=text, numbers=numbers)
 
@@ -103,13 +79,13 @@ class ToolDef:
     cost_hint: str = "fast"  # fast | slow
 
     def schema(self) -> dict[str, Any]:
-        """JSON schema of the arguments object (for native tool calling / MCP)."""
+        """JSON schema of the arguments object."""
         s = self.args_model.model_json_schema()
         s.pop("title", None)
         return s
 
     def card(self) -> str:
-        """Prompt card: name, one-line purpose, args with descriptions."""
+        """Prompt card: name, purpose, args with descriptions."""
         props = self.schema().get("properties", {})
         req = set(self.schema().get("required", []))
         lines = [f"- `{self.name}` ({self.cost_hint}): {self.description}"]
@@ -186,5 +162,5 @@ def tool_cards(*, track: str = "", language: str = "") -> str:
 
 
 def _ensure_loaded() -> None:
-    """Import the module that registers every tool (idempotent)."""
+    """Import the module that registers every tool."""
     import codeverse3d.spatial.tools  # noqa: F401 — its @tool decorators fill _REGISTRY

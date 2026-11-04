@@ -1,35 +1,5 @@
-"""Scene placement gate ``scene_placement``: floating / sunken / unsupported /
-interpenetrating assets, measured — not judged.
-
-Added 2026-08-26.  Audit that day: the scene track had NO deterministic placement
-check (``probes.py`` reported 2-D zone-footprint overlap as INFO; the census
-``ground_y`` fed camera checks only); the scene_v1 ``floating_part`` cap (kinds
-floating / sunken / unsupported, gate ``*``) could never fire because no scene gate
-emitted those words; ``contracts/plan.py`` declared acceptance ``how: probe`` that
-nothing probed; in 52 recorded scene sessions the object tools ``check_connectivity``
-/ ``measure`` were called 0 times (they fail on a scene workspace).  Floating /
-sunken was left to the VLM (defect −0.06).
-
-Numbers come from ``runtime_js/lib/host_placement.mjs`` (per placed asset: foot-column
-gap to the surface beneath, burial depth, water, contacts; 3-D interpenetration pairs),
-carried in the probe census under ``placement``; this module turns them into
-``GateFinding`` rows whose messages contain the cap words and whose ``fix_hint`` names
-the move ("lower X by 0.23 m onto Terrain").  Sunk is judged relative to the asset's
-height and its name words because the harness's own starter scene buries rocks
-20–50 % of their height, digs a pond basin 1.4 m under the terrain and drives jetty
-posts 0.97 m into the pond bed — a naive "> 0.10 m" rule flagged all of them
-(measured 2026-08-26).  Word matching is a set lookup on ``to_snake`` words.
-
-Thresholds are ``Settings.placement`` (``config.Placement``), read when the gate RUNS: the owner
-asked for stricter contact standards on 2026-10-14 (D105) and the defaults are those — floating
-ERROR at 0.08 m or more than 2 floaters, sunk ERROR 0.20 m + 20 % of the height, interpenetration
-WARN at 10 % / ERROR at 35 % of the smaller box — while a variant or an A/B arm sets its own
-through ``C3D_PLACEMENT__*`` and the summary INFO finding records what a round was judged by.
-Two findings the strict pass added: ``free_exempt`` (the share of assets tagged
-``placement='free'`` — w1_tearoom, 2026-10-13, tagged 17 of 36 and passed) and ``cantilevered``
-(seated on one foot column of four or more while the others hang).  Every per-asset finding
-carries ``data.bbox`` (GLB-frame centre + size) so the judge's contact crops can be aimed at it.
-"""
+"""Scene placement gate ``scene_placement``: floating / sunken / unsupported / interpenetrating
+assets, measured — not judged."""
 
 from __future__ import annotations
 
@@ -53,32 +23,14 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 GATE = "scene_placement"
-#: The metres / fractions that grade a row are ``Settings.placement`` (``config.Placement``), taken
-#: at call time — ``placement_findings(thresholds=…)``, default ``get_settings().placement`` — never
-#: at import, so an A/B child's ``C3D_PLACEMENT__FLOATING_ERROR_M`` is what its rounds are judged by.
-#: The JS probe keeps its own measurement constants (host_placement.mjs CONTACT_TOL_M / FLOATING_M /
-#: SUNK_M / OVERLAP_MIN_FRAC): those decide what is MEASURED, these decide severities.
 MAX_FINDINGS_PER_KIND = 8
-#: ``free_exempt`` needs this many ``placement='free'`` rows before their share is a finding: one
-#: hanging lantern among two placed things is 50 % and would cap a correct scene (scene caps a
-#: free_exempt ERROR at 0.75).  The case it exists for — w1_tearoom, argon, 2026-10-13 — tagged 17.
 FREE_EXEMPT_MIN_ROWS = 2
-#: ``cantilevered`` needs this many foot columns resting on at most this many: a crate seated by its
-#: lowest corner on a slope rests on 1 of 4 (what seating by the lowest vertex produces); a level box
-#: on a planar slope rests on an edge, 2 columns, and is not flagged.
 CANTILEVER_MIN_COLUMNS, CANTILEVER_MAX_RESTING = 4, 1
 
-#: setting / environment words that make a scene "indoors" (tighter floating tolerance)
 INDOOR_WORDS = frozenset({
     "attic", "basement", "bathroom", "bedroom", "cabin", "cellar", "chamber", "classroom", "cockpit", "corridor", "garage", "hall", "hut", "indoor",
     "indoors", "inside", "interior", "kitchen", "lab", "laboratory", "library", "lobby", "office", "room", "studio", "tent", "warehouse", "workshop",
 })
-#: What counts as seated, ONE file shared with the boot-time settle (``host_placement.settleScene``),
-#: so the gate never reports what the settle deliberately leaves (audit 2026-09-24 N27): name words
-#: exempt from "sunken" — below ground by definition (``buried_ok``), following the terrain
-#: (``slope_ok``), or driven / grown in up to ``partial_ok_frac`` of their height (``partial_ok``).
-#: The settle's other acceptance — a floating asset that touches a neighbour is mounted on it — is
-#: ``AssetRow.attached`` here.
 PLACEMENT_WORDS = "placement_words.json"
 
 
@@ -97,8 +49,7 @@ def _seated_words() -> _SeatedWords:
 
 
 def _nums(v: object) -> list[float] | None:
-    """Three numbers, or None: a census group with no geometry measures its box as nulls
-    (sota_sydney_opera's HarbourBridgeZone), which must skip a check, not crash the gate."""
+    """Three numbers, or None."""
     if not isinstance(v, list | tuple) or len(v) != 3:
         return None
     try:
@@ -161,8 +112,7 @@ class AssetRow(BaseModel):
         return size[1] if size else 0.0
 
     def bbox_data(self) -> dict[str, list[float]] | None:
-        """``{"center", "size"}`` of the row's box in the GLB frame, on every per-asset finding: the
-        judge's contact crops (judges/prompt_builder.plan_detail_crops) are aimed at it."""
+        """``{"center", "size"}`` of the row's box in the GLB frame, on every per-asset finding."""
         b = self.bbox or {}
         lo, hi = _nums(b.get("min")), _nums(b.get("max"))
         if lo is None or hi is None:
@@ -177,14 +127,12 @@ class Interpenetration(BaseModel):
     b: str
     zone_a: str = ""
     zone_b: str = ""
-    aabb_overlap: float = 0.0   # box overlap / smaller box (the reported number)
-    inside_frac: float = 0.0    # vertices of the smaller inside the larger (the confirmation)
+    aabb_overlap: float = 0.0
+    inside_frac: float = 0.0
 
 
 class SceneryRoots(BaseModel):
-    """The roots outside every marked zone (D111): env scenery, a zone's stray ``scene.add`` — never
-    rows and never paired with each other; their pieces support, bury, hold (``attached``) and clip
-    the zone assets, but are not measured as placed things themselves."""
+    """The roots outside every marked zone."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -214,30 +162,18 @@ def _words(name: str) -> set[str]:
 
 
 def infer_indoor(text: str) -> bool:
-    """Does the plan's setting / environment text say the scene is indoors?  (The word
-    list is the fallback for a plan written before ``ScenePlan.interior`` existed; the
-    typed flag wins — :func:`is_interior`.)"""
+    """True when the plan's setting / environment text names an indoor word (fallback for plans without ``ScenePlan.interior``)."""
     return bool(_words(text) & INDOOR_WORDS)
 
 
 def is_interior(plan: Any) -> bool:
-    """The plan's typed ``interior`` flag (D69) whenever it has one, True OR False; the setting
-    text only for a plan without it (absent or None — a plan.json older than the field).
-
-    It used to be ``bool(flag) or infer_indoor(...)``, so ``interior: False`` lost to the word
-    list: a zone named ``GiantTrunkCorridor`` snake-splits to "corridor", and "hold the frame
-    luminance inside 0.42-0.62" says "inside".  6 of 26 outdoor plans of argon loop iteration 5
-    were measured at the 2 cm indoor tolerance — three 4-5 cm gaps in a redwood forest became
-    ``floating`` ERRORs and a 0.60 gate cap (D112)."""
+    """The plan's typed ``interior`` flag whenever it has one, True OR False."""
     flag = plan.get("interior") if isinstance(plan, dict) else getattr(plan, "interior", None)
     if isinstance(flag, bool):
         return flag
     return infer_indoor(setting_text(plan))
 
 
-#: the fix hints / messages that name a language's API, per scene language (``census["language"]``;
-#: a census without one is three.js, as every recorded round is).  The checks and their numbers
-#: are the same for every language; only the words that tell the author what to type differ.
 LANGUAGE_WORDS: dict[str, dict[str, str]] = {
     "scene_threejs": {
         "seat": "seat it with heightAt(x, z) or on the surface it stands on",
@@ -309,11 +245,8 @@ def _sunk_severity(row: AssetRow, p: Placement) -> Severity | None:
 
 
 def _cantilever(row: AssetRow, p: Placement) -> bool:
-    """Seated on at most ``CANTILEVER_MAX_RESTING`` of ≥ ``CANTILEVER_MIN_COLUMNS`` foot columns while
-    another hangs past the outdoor floating tolerance: a crate seated by its lowest corner on a slope,
-    a bench with one leg on a rock.  ``gap_max_m`` / ``columns_resting`` are the column measures
-    host_placement.mjs added on 2026-10-14; a row measured before says nothing.  Slope-following names
-    (stairs, ramps, paths — placement_words.json) meet the ground unevenly by construction."""
+    """Seated on at most ``CANTILEVER_MAX_RESTING`` of ≥ ``CANTILEVER_MIN_COLUMNS`` foot columns
+    while another hangs past the outdoor floating tolerance."""
     if row.columns < CANTILEVER_MIN_COLUMNS or row.columns_resting is None or row.gap_max_m is None:
         return False
     if row.columns_resting > CANTILEVER_MAX_RESTING or row.gap_max_m <= p.floating_outdoor_m:
@@ -323,10 +256,7 @@ def _cantilever(row: AssetRow, p: Placement) -> bool:
 
 def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, ground_y: float | None,
                     words: dict[str, str], indoor: bool = False) -> list[GateFinding]:
-    """A floating / unsupported row states its gap to the millimetre and the tolerance it was
-    measured against (D112): "floating 0.05 m" for a 0.048 m gap in a forest the prompt calls
-    outdoors (0.05 m tolerance) read as a contradiction, and the refine session of iteration 5
-    r1_07 spent its whole window paging a 3 772-line probe dump to resolve it."""
+    """A floating / unsupported row states its gap to the millimetre and the tolerance it was measured against."""
     out: list[GateFinding] = []
     tolerance = f"{'indoor' if indoor else 'outdoor'} tolerance {floating_m:.2f} m"
     floating: list[tuple[AssetRow, float]] = []
@@ -342,11 +272,10 @@ def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, gr
         gap = row.ground_gap_m
         if gap is None or row.on_water:
             continue
-        if row.attached:   # mounted on what it touches: the settle leaves it, so does the gate
+        if row.attached:
             continue
         support = _support_label(row, ground_y)
         if row.sunk_m > 0 or gap <= p.contact_m:
-            # seated at its lowest column — on how many of the others?
             if _cantilever(row, p):
                 out.append(_f(Severity.WARN, f"{q} rests on {row.columns_resting} of its {row.columns} foot columns: the others "
                                              f"hang up to {row.gap_max_m:.2f} m above {support} (tilt {row.tilt_m or 0:.2f} m)",
@@ -379,13 +308,8 @@ def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, gr
 
 def _pair_findings(pairs: list[Interpenetration], p: Placement, rows: dict[str, AssetRow]) -> list[GateFinding]:
     out: list[GateFinding] = []
-    # one finding per PAIR OF NAMES, keeping the worst overlap: a zone that stamps four
-    # TerracottaPlanters against one arbour used to yield four identical ERRORs
-    # (measured on t36_santorini) and flood the refine prompt with one fact
     best: dict[tuple[str, str], Interpenetration] = {}
     for pr in pairs:
-        # the probe reports every pair past its own floor (host_placement OVERLAP_MIN_FRAC = the
-        # default overlap_warn); an arm that raises overlap_warn filters here
         if pr.aabb_overlap <= p.overlap_warn:
             continue
         key = tuple(sorted((f"{pr.zone_a}/{pr.a}", f"{pr.zone_b}/{pr.b}")))
@@ -405,11 +329,7 @@ def _pair_findings(pairs: list[Interpenetration], p: Placement, rows: dict[str, 
 
 
 def _free_exempt_finding(t: PlacementTable, p: Placement, words: dict[str, str]) -> GateFinding | None:
-    """One finding per report: the share of placed assets tagged ``placement='free'`` — exempt from
-    every check — among the assets that would otherwise have been checked.  The tag is for hanging
-    and airborne things; it is also the one line that silences the gate, and the hint on every
-    floating finding names it.  Measured on w1_tearoom (argon, 2026-10-13): 17 of 36 placed things
-    tagged free, the gate's only finding a sunken shoji screen."""
+    """One finding per report."""
     free = [r for r in t.assets if r.exempt == "free"]
     n = t.checked + len(free)
     if len(free) < FREE_EXEMPT_MIN_ROWS or n == 0:
@@ -426,8 +346,7 @@ def _free_exempt_finding(t: PlacementTable, p: Placement, words: dict[str, str])
 
 
 def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
-    """Keep the worst ``MAX_FINDINGS_PER_KIND`` per kind (ERROR first, then magnitude); the
-    rest becomes one INFO line, so 30 floating pebbles cannot flood the refine prompt."""
+    """Keep the worst ``MAX_FINDINGS_PER_KIND`` per kind (ERROR first, then magnitude)."""
     rank = {Severity.ERROR: 0, Severity.WARN: 1, Severity.INFO: 2}
     by_kind: dict[str, list[GateFinding]] = {}
     for f in findings:
@@ -443,14 +362,12 @@ def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
     return out
 
 
-#: the per-asset kinds the summary counts (``free_exempt`` is one finding per report, counted apart)
 ASSET_KINDS = ("floating", "sunken", "unsupported", "interpenetration", "cantilevered")
 
 
 def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False, language: str | None = None,
                        thresholds: Placement | None = None) -> GateReport:
-    """The ``scene_placement`` GateReport for one census placement table: pure given ``thresholds``,
-    which default to the process's ``Settings.placement`` (read now, not at import)."""
+    """The ``scene_placement`` GateReport for one census placement table."""
     t = table if isinstance(table, PlacementTable) else PlacementTable.model_validate(table or {})
     if t.error:
         return GateReport.of(GATE, [
@@ -464,8 +381,6 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
            + _pair_findings(t.interpenetrations, p, {r.qualified: r for r in t.assets}))
     free = _free_exempt_finding(t, p, words)
     findings = _cap_per_kind(raw) + ([free] if free is not None else [])
-    # `counts` are what was MEASURED, `listed` what survived the per-kind cap: the judge's measured
-    # block and the loop's diagnosis read the first, the refine prompt shows the second
     counts = {k: sum(1 for f in raw if f.data.get("kind") == k) for k in ASSET_KINDS}
     listed = {k: sum(1 for f in findings if f.data.get("kind") == k) for k in ASSET_KINDS}
     n_free = sum(1 for r in t.assets if r.exempt == "free")
@@ -492,37 +407,17 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
 
 
 # --------------------------------------------------------------------------- plan-aware checks
-#: measured 2026-08-30 across the 48 scored runs of the four scene batteries: the top
-#: standing defects are exactly the ones nothing measured — thin_atmosphere 32/48 and
-#: undressed_scene 31/48 while the census already records ``fog`` / ``background`` and
-#: every placed asset's name, zone and bbox.  These checks are pure functions of the
-#: census + the plan; their ERRORs route into refine with the zone as the target.
 SCALE_WARN, SCALE_ERROR = 2.5, 4.0
-#: linear fog must reach past the plan's far side (fog far >= this many plan spans); exp fog
-#: must not dissolve it (1/density >= span / this)
 FOG_FAR_MIN_SPANS, FOG_DENSITY_MAX_PER_SPAN = 2.0, 1.5
-#: the tolerance on a PLANNED asset's position against the plan bounds: ``max(this, 10 % of the
-#: span)``.  Generous on purpose (owner, 2026-10-15): the bounds are where the plan's named
-#: contents are measured, not a wall the place stops at — scenery past them is the world
-#: continuing, which ``world_edge`` below asks for.
 BOUNDS_MARGIN_MIN_M = 5.0
 BOUNDS_MARGIN_FRAC = 0.10
-#: the world continues past the bounds: outdoors, something standing (``WORLD_EDGE_MIN_HEIGHT_M``
-#: or taller — terrain, buildings, trees, walls, cliffs, whatever the place has) reaches past this
-#: multiple of the bounds half-extent, or the edge of the built world is in view from every camera
-#: that looks outward (world_edge_visible stood in 11/19 scene_final_v1 verdicts).  1.25x the
-#: half-extent is a deliberately lenient floor; WHAT continues the place is the brief's choice,
-#: and the fog gate covers the far distance.
 WORLD_EDGE_REACH_FACTOR = 1.25
 WORLD_EDGE_MIN_HEIGHT_M = 2.0
-#: stamped ring (host_census `stamps`): copies, where the ring sits relative to the plan's
-#: half-extent, and how even / alike it must be before it is called stamped
 RING_MIN_COPIES = 8
 RING_BACKDROP_FRAC = 0.6
 RING_RADIUS_CV_MAX = 0.08
 RING_GAP_CV_MAX = 0.25
-RING_SIZE_CV_MAX = 0.25         # loop 24's ski station: 32 peaks, radius spread 0.8 %, SIZE spread 15 % — still "identical pyramids stamped in a ring" to the judge
-#: the two hints that name no language API — the same words for both scene languages
+RING_SIZE_CV_MAX = 0.25
 RING_HINT = ("break the pattern — uneven spacing, mixed sizes and silhouettes, clusters and gaps — or close the distance "
              "some other way the place suggests (a ridge line, a treeline, buildings, open water); the check calls a ring "
              "when >= {min_n} copies have radius spread <= {rcv:.0%}, spacing spread <= {gcv:.0%} and size spread <= {scv:.0%}")
@@ -574,7 +469,7 @@ def _plan_bounds(plan: Any) -> tuple[tuple[float, ...], tuple[float, ...]] | Non
 
 
 def _layout_budget(layout: Any) -> int:
-    """Total things the L2 layout put in the zone: placements + dressing counts."""
+    """Total things the L2 layout put in the zone."""
     if layout is None:
         return 0
     get = layout.get if isinstance(layout, dict) else lambda k, d=0: getattr(layout, k, d)
@@ -588,37 +483,17 @@ def _layout_budget(layout: Any) -> int:
 
 
 def _row_names(row: AssetRow) -> str:
-    """The row's own name plus its named descendants, snake-cased for loose matching.
-
-    A zone that wraps its content in one group ("IslandAssembly") used to hide every
-    planned asset from this check: `eval/bench/out/scene_fixed` (2026-09-05) reported three
-    floating_islands zones as "missing planned contents: FloatingRock, Windmill, SkyPine"
-    while the zone module built each one and named it exactly that, one level down.
-    """
+    """The row's own name plus its named descendants, snake-cased for loose matching."""
     return " ".join(to_snake(n) for n in [row.name, *row.inner])
 
 
 def contract_findings(census: dict[str, Any] | None, plan: Any,
                       layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> list[GateFinding]:
-    """Deterministic plan-vs-census checks: env atmosphere present, the world continuing
-    past the bounds, every zone dressed with its planned contents, plausible scale, planned
-    contents inside the world bounds — and, when a zone has an L2 layout, an INFO line with
-    its census count against that layout's own budget.
-
-    ``unavailable`` = assets the asset stage could not build (the zones were told
-    "NOT AVAILABLE — do not reference"): a zone is not missing what it was told not to
-    place.  Measured 2026-09-07 (ab_temple_hero): the ERROR "missing planned contents:
-    BronzeCenser" recurred every round for a hero that never existed, with the hint
-    "clone its GLB"."""
+    """Deterministic plan-vs-census checks."""
     if not isinstance(census, dict) or plan is None:
         return []
     words = placement_words(census.get("language"))
     out: list[GateFinding] = []
-    # -- density, as a NOTE: the census count against the L2 layout's own budget.  Until
-    # 2026-10-15 a zone under half its budget was an ERROR ("underdressed"), which made the
-    # layout's prop / ground-cover bands a requirement the brief never stated (owner's rule:
-    # the harness states requirements, not templates).  The counts a brief DOES state are
-    # its acceptance items, verified by name by the judge; this line only informs.
     groups = {to_snake(g.get("name", "")): g for g in (census.get("groups") or [])
               if isinstance(g, dict)}
     for zone_name, layout in (layouts or {}).items():
@@ -633,16 +508,11 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           f"(placements + props + ground cover) — a note, not a requirement: the counts the brief "
                           "states are its acceptance items",
                           target=zone_name, kind="density_note", have=have, budget=budget))
-    # -- atmosphere: the two env facts the census measures on every boot
     if "fog" in census and census.get("fog") is None:
         out.append(_f(Severity.ERROR, words["no_fog_msg"], target="env", kind="no_fog", hint=words["no_fog"]))
     if "background" in census and census.get("background") is None:
         out.append(_f(Severity.ERROR, words["no_background_msg"], target="env", kind="no_background",
                       hint=words["no_background"]))
-    # -- fog that ends inside the world: measured 2026-09-08 over eleven exterior runs, every
-    # one with fog far >= 2 x the plan span scored >= 0.60 and the three at 1.4-1.6 x scored
-    # 0.42-0.60 with "no aerial perspective", "world edge", "backdrop floating in the sky" —
-    # past fog far the land is the background colour while the unfogged sky stays sharp
     fog = census.get("fog")
     pb = _plan_bounds(plan)
     if isinstance(fog, dict) and pb and not is_interior(plan):
@@ -658,11 +528,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           "stays sharp: a world edge and backdrops floating in the sky",
                           target="env", kind="fog_short", fog=fog, plan_span_m=round(span, 1),
                           hint=words["fog_far"].format(need=FOG_FAR_MIN_SPANS * span, spans=FOG_FAR_MIN_SPANS)))
-    # -- a stamped ring: >= 8 same-size copies evenly on a circle round the world's edge.
-    # Five of six exteriors on 2026-09-09 drew their horizon as "a ring of identical cones
-    # stamped round the perimeter" / "rocks in a perfect circle" and the judge called each a
-    # toy backdrop, twice.  The census measures the ring (host_census `stamps`); a rotunda's
-    # columns or chairs round a table sit INSIDE the content and are not it.
     bounds = _plan_bounds(plan)
     if bounds and isinstance(census.get("groups"), list):
         lo, hi = bounds
@@ -683,11 +548,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                                   radius_cv=rcv, gap_cv=gcv, size_cv=scv,
                                   hint=RING_HINT.format(min_n=RING_MIN_COPIES, rcv=RING_RADIUS_CV_MAX, gcv=RING_GAP_CV_MAX,
                                                         scv=RING_SIZE_CV_MAX)))
-    # -- the world continues past the bounds (outdoors): a WARN-level note when nothing standing
-    # reaches past WORLD_EDGE_REACH_FACTOR x the half-extent.  Until 2026-10-15 this was the
-    # "no_backdrop" ERROR whose hint prescribed a silhouette ring of 24-40 pieces — the one
-    # construction 57 of 59 iteration-0 plans then built.  The measurement is unchanged; what
-    # continues the place is the brief's.
     groups = census.get("groups")
     if bounds and isinstance(groups, list) and not is_interior(plan):
         lo, hi = bounds
@@ -715,18 +575,11 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     rows = [AssetRow.model_validate(r) for r in (table.get("assets") or [])] if table else []
     if not rows:
         return out
-    # -- every zone dressed with what the plan put there (names matched loosely on words)
     by_zone: dict[str, list[AssetRow]] = {}
     for r in rows:
         by_zone.setdefault(to_snake(r.zone), []).append(r)
     all_names = " ".join(_row_names(r) for r in rows)
     gone = {to_snake(u) for u in unavailable}
-    # a table cut by its row cap (host_placement MAX_ASSETS: rows are written zone by zone, in scene
-    # order) stops wherever it stops: a zone past the cut has no rows although the census holds its
-    # built group, and the zone AT the cut (the last row's) has only its first rows (iteration 4,
-    # r1_01: an envelope of 337 meshes filled the table and ScooterParkingNook, built and visibly
-    # present, was "zone_empty").  A table cut by its time budget still writes a row per asset
-    # (exempt "time_budget"), so a zone with no row there really placed nothing.
     cut = bool(table.get("truncated")) and int(table.get("total") or 0) > len(rows)
     at_cut = to_snake(rows[-1].zone) if cut else None
     built = {to_snake(str(g.get("name", ""))) for g in census.get("groups") or []
@@ -734,8 +587,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     for zone_name, contents in _plan_zones(plan):
         zk = to_snake(zone_name)
         placed = by_zone.get(zk, [])
-        # what the zone was allowed to place: an asset the asset stage never built was
-        # announced "NOT AVAILABLE" to it, for zone_empty exactly as for missing_content
         expected = [c for c in contents if to_snake(c) not in gone]
         if not placed and expected and cut and zk in built:
             out.append(_f(Severity.INFO, f"zone {zone_name} was not measured: the placement table was truncated before "
@@ -760,7 +611,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           hint=f"place each listed asset ({words['place']}) inside this "
                                f"zone's bbox, {words['in_zone']}, AND give the object the plan's name for it — every gate and the "
                                "judge find it by that name, so a lantern called 'LanternPost1' reads as absent"))
-    # -- plausible scale vs the plan's approx_size_m
     sizes = _plan_asset_sizes(plan)
     for r in rows:
         size = _nums((r.bbox or {}).get("size"))
@@ -770,8 +620,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         key = next((k for k in sizes if k in rk), "")
         if not key:
             continue
-        # a wrapper of instances is measured as ONE instance: the plan sized the fence panel, the
-        # row is the whole run (host_placement `families`)
         n, measured = r.instance_size(key)
         what = f"each of the {n} {key} instances in {r.qualified}" if n else r.qualified
         if not n:
@@ -786,12 +634,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         out.append(_f(sev, f"{what} measures {measured:.2f} m but the plan sized {key} at ~{sizes[key]:.2f} m ({f:.1f}x)",
                       target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone, instances=n, bbox=r.bbox_data(),
                       hint=f"scale {'each ' + key if n else r.name} so its largest dimension is ~{sizes[key]:.2f} m as planned"))
-    # -- PLANNED contents inside the world bounds: a row carrying a planned asset's name (matched
-    # the way missing_content matches it) is measured against the bounds + a generous margin,
-    # as a WARN.  Anything else past the bounds — the rest of the street, outlying trees, the far
-    # shore — is the place continuing, which the world_edge check asks for, and is not reported.
-    # Until 2026-10-15 every placed row outside bounds + max(2 m, 5 %) was an ERROR: with the
-    # world-edge check that left a ring round the centre as the only legal way to continue.
     bounds = _plan_bounds(plan)
     if bounds:
         lo, hi = bounds
@@ -819,9 +661,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
 
 def placement_census(ws: Workspace, probe: Callable[..., SceneProbeResult], *, force_probe: bool = False,
                      timeout_s: float = 60.0) -> dict[str, Any]:
-    """The census dict carrying ``placement``: the last build's ``artifacts/census.json``,
-    or a fresh ``probe`` (the language's ``SceneRuntime.probe``) when it is missing / predates
-    the table / ``force_probe``."""
+    """The census dict carrying ``placement``."""
     census = None if force_probe else read_json_or_none(ws.artifacts / "census.json")
     if isinstance(census, dict) and isinstance(census.get("placement"), dict):
         return census
@@ -835,36 +675,30 @@ def placement_census(ws: Workspace, probe: Callable[..., SceneProbeResult], *, f
 
 
 def setting_text(plan: Any) -> str:
-    """The plan text the indoor/outdoor rule reads (``setting`` / ``environment`` /
-    ``title``), from a plan dict or a ScenePlan; ``""`` for anything else."""
+    """The plan text the indoor/outdoor rule reads (``setting`` / ``environment`` / ``title``),
+    from a plan dict or a ScenePlan."""
     if isinstance(plan, dict):
         return " ".join(str(plan.get(k) or "") for k in ("setting", "environment", "title"))
     return " ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title"))
 
 
 def placement_gate(ws: Workspace, census: dict[str, Any] | None, plan: Any) -> GateReport | None:
-    """THE ``scene_placement`` verdict: the round's gate (``ScenePipeline.gates``) and the
-    ``check_placement`` tool both return it, on the same inputs — the census, the plan and
-    what the run's stages recorded in the workspace (the L2 zone layouts, the assets the
-    asset stage could not build).  Until 2026-09-22 the tool reported
-    :func:`placement_findings` alone, so it never showed the plan checks (fog, world edge,
-    zone contents, scale, bounds) the round then failed on."""
+    """THE ``scene_placement`` verdict."""
     assets = _stage_result(ws, "assets")
     unavailable = [name for name, r in assets.items() if isinstance(r, dict) and not r.get("ok", True)]
     return placement_gate_safe(census, plan=plan, layouts=_stage_result(ws, "layouts"), unavailable=unavailable)
 
 
 def _stage_result(ws: Workspace, name: str) -> dict[str, Any]:
-    """A cached stage's result (``orchestrator.StageRunner`` writes ``stages/<name>.json``), ``{}`` when absent."""
+    """A cached stage's result (``orchestrator.StageRunner`` writes ``stages/<name>.json``),
+    ``{}`` when absent."""
     res = (read_json_or_none(ws.stages / f"{name}.json") or {}).get("result")
     return res if isinstance(res, dict) else {}
 
 
 def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
                         layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> GateReport | None:
-    """Round-gate entry: ``None`` when the census has no placement table (scene did not
-    boot, or an older driver), a WARN-only report when anything raises — never an
-    exception, so the placement check cannot kill a round."""
+    """Round-gate entry."""
     try:
         table = (census or {}).get("placement")
         if not isinstance(table, dict):

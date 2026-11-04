@@ -1,8 +1,4 @@
-"""Code fingerprints, quality tiers and duplicate groups.
-
-* ``code_fingerprint(files)``  sha256 of whitespace/comment-normalised code.
-* ``code_sha256(files)``       sha256 of the raw bytes (the exact-content hash).
-"""
+"""Code fingerprints, quality tiers and duplicate groups."""
 
 from __future__ import annotations
 
@@ -19,7 +15,6 @@ _TRAILING_COMMENT = re.compile(r"\s+(#|//).*$")
 
 
 def normalise_code(text: str) -> str:
-    """Drop comment-only lines, trailing comments, blank lines and all whitespace."""
     out = []
     for line in text.splitlines():
         if _COMMENT.match(line):
@@ -32,7 +27,6 @@ def normalise_code(text: str) -> str:
 
 
 def _digest(files: Mapping[str, str | bytes], content: Callable[[str | bytes], bytes]) -> str:
-    """Order-independent sha256 over ``path \0 content(data) \0`` for every file."""
     h = hashlib.sha256()
     for path in sorted(files):
         for part in (path.encode(), content(files[path])):
@@ -42,15 +36,11 @@ def _digest(files: Mapping[str, str | bytes], content: Callable[[str | bytes], b
 
 
 def code_fingerprint(files: Mapping[str, str | bytes]) -> str:
-    """Order-independent sha256 over ``(path, normalised code)`` pairs."""
     return _digest(files, lambda data: normalise_code(
         data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data).encode())
 
 
 def code_sha256(files: Mapping[str, str | bytes]) -> str:
-    """Order-independent sha256 over the RAW ``(path, bytes)`` pairs — the
-    exact-content counterpart of :func:`code_fingerprint` (no normalisation,
-    no lossy decode)."""
     return _digest(files, lambda data: data.encode("utf-8") if isinstance(data, str) else data)
 
 
@@ -61,12 +51,10 @@ TIER_C_MIN_SCORE = 0.6
 
 
 def prompt_id(prompt: str) -> str:
-    """Stable 16-hex id of a (stripped) user prompt — shared by samples, pairs and the index."""
     return hashlib.sha256(prompt.strip().encode()).hexdigest()[:16]
 
 
 def quality_tier(*, passed: bool | None, gate_errors: int, score: float | None) -> QualityTier:
-    """Tier rule (see module docstring).  ``passed`` None = never judged."""
     if passed:
         return "A" if gate_errors == 0 else "B"
     if score is not None and score >= TIER_C_MIN_SCORE:
@@ -82,7 +70,6 @@ class DuplicateGroup(BaseModel):
 
 
 def _rank(row: dict[str, Any]) -> tuple:
-    """Lower is better: tier, -score, gate errors, un-captioned, key (stable)."""
     score = row.get("score")
     return (
         TIER_ORDER.get(str(row.get("quality_tier") or "D"), 9),
@@ -94,8 +81,6 @@ def _rank(row: dict[str, Any]) -> tuple:
 
 
 def _group(rows: Iterable[dict[str, Any]], column: str) -> list[DuplicateGroup]:
-    """Groups of ≥ 2 rows sharing ``(row[column], prompt_hash)``; blank keys never group.
-    The rows are not modified — ``mark_duplicates`` stamps them."""
     buckets: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
         key = str(r.get(column) or "")
@@ -113,18 +98,14 @@ def _group(rows: Iterable[dict[str, Any]], column: str) -> list[DuplicateGroup]:
 
 
 def find_duplicates(rows: Iterable[dict[str, Any]]) -> list[DuplicateGroup]:
-    """Exact duplicates: identical RAW ``(code_sha256, prompt_hash)`` — the only DROP set."""
     return _group(rows, "code_sha256")
 
 
 def find_near_duplicates(rows: Iterable[dict[str, Any]]) -> list[DuplicateGroup]:
-    """Normalised duplicates (``code_fingerprint``) — MARKED as ``near_duplicate_of``, never dropped."""
     return _group(rows, "code_fingerprint")
 
 
 def mark_duplicates(rows: list[dict[str, Any]]) -> list[DuplicateGroup]:
-    """Stamp ``duplicate_of`` (raw) and ``near_duplicate_of`` (normalised) in place;
-    returns the exact groups — the only ones a caller may drop."""
     groups = find_duplicates(rows)
     dup_of = {d: g.canonical for g in groups for d in g.duplicates}
     near_of = {d: g.canonical for g in find_near_duplicates(rows) for d in g.duplicates}

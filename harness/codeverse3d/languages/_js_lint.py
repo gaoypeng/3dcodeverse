@@ -1,27 +1,6 @@
-"""Shared node-side lint primitives for the JS authoring languages (threejs, scene_threejs).
-
-Replaces two copies of the same algorithm: ``threejs/lint.py:check_syntax`` +
-``_lint_imports`` and ``scene_threejs/lint.py:_node_check`` + ``_check_imports``.
-Both matched static, re-export and dynamic import specifiers with near-identical
-regexes and applied the same allowlist (``three``, ``three/addons/*``,
-``three/examples/jsm/*``, relative files under ``src/``).  They differed only in
-message text (owned by the caller via ``make_finding``, as in :mod:`_ast_lint`) and
-in two defects this module fixes: threejs's fallback message was a ``list``
-(``splitlines()[-1:]``), and scene's escape check was a ``str.startswith`` prefix
-test that let ``src2/`` pass.  Escape is decided before existence so a
-symlink/``..`` hop out of ``src/`` is reported as an escape, never as "missing".
-
-Syntax is ``runtime_js/lib/syntax_check.mjs`` (export_glb's checker too) in ONE node
-process per lint, skipping files whose bytes already parsed — it was one ``node --check``
-per file: 51 on a scene, 44 of them unchanged ``src/lib`` modules, ≈ 2.5 s a build call.
-
-:func:`check_named_imports` is the second half of the import policy: ``check_imports`` only
-asks whether the TARGET exists, so ``import { concrete } from '../lib/materials.js'`` passed
-the lint and died at module link ("does not provide an export named 'concrete'") — the
-argon loop's iteration 0 lost two whole zones to it at assembly (run
-``it00_scene_threejs_r1_18``, scored 0.47).  Exports are read from the target's source
-text (:func:`module_exports`), once per file per lint through the caller's cache.
-"""
+"""Shared node-side lint primitives for the JS authoring languages (threejs, scene_threejs):
+syntax check, import policy, named-import and export-surface checks.  The caller owns finding text
+via ``make_finding``."""
 
 from __future__ import annotations
 
@@ -36,23 +15,18 @@ from codeverse3d.languages._common import line_of
 from codeverse3d.proc import sha256_file
 from codeverse3d.spatial.node import NodeError, run_node, runtime_js_dir
 
-# threejs's regexes (the superset: side-effect ``import './x.js'``, ``export * from``,
-# ``export * as ns from`` and multi-line ``import {\n a,\n b\n} from`` all match)
 _IMPORT_RE = re.compile(
     r"""(?:^|\n)\s*(?:import\s+(?:[^'";]*?\s+from\s+)?|export\s+(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s+from\s+)['"]([^'"]+)['"]"""
 )
 _DYN_IMPORT_RE = re.compile(r"""\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 _URL_RE = re.compile(r"https?://")
-# strings and comments in ONE alternation so a '//' inside a string is not a comment
 _TOKEN_RE = re.compile(
     r"""'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`|//[^\n]*|/\*.*?\*/""", re.S
 )
 
 
 def strip_js(src: str, *, strings: bool = True) -> str:
-    """Blank out comments (and, with ``strings``, string contents), keeping newlines so line
-    numbers survive: the forbidden-token lints read code, never a comment quoting the contract.
-    scene_threejs keeps strings (its network rule matches URL literals)."""
+    """Blank out comments (and, with ``strings``, string contents), keeping newlines so line numbers survive."""
     def repl(m: re.Match[str]) -> str:
         tok = m.group(0)
         if not tok.startswith("/"):
@@ -63,22 +37,17 @@ def strip_js(src: str, *, strings: bool = True) -> str:
 
 @dataclass(frozen=True)
 class SyntaxProblem:
-    """What ``node --check`` reported: ``line`` is None when it could not be parsed
-    (or node could not run), ``stderr_tail`` is the last 600 chars of stderr."""
+    """What ``node --check`` reported: ``line`` is None when unparseable; ``stderr_tail`` is the last 600 chars."""
 
     line: int | None
     message: str
     stderr_tail: str
 
 
-#: sha256 of file contents that parsed — library modules are byte-identical build after build
 _PARSED: set[str] = set()
 
 
 def node_check_syntax(paths: Sequence[Path]) -> dict[Path, SyntaxProblem]:
-    """``{path: problem}`` for every file of ``paths`` that does not parse as an ES
-    module; one ``node`` for the lot, and none at all when every file's content
-    already parsed in this process."""
     digests: dict[Path, str] = {}
     out: dict[Path, SyntaxProblem] = {}
     for p in paths:
@@ -105,7 +74,6 @@ def node_check_syntax(paths: Sequence[Path]) -> dict[Path, SyntaxProblem]:
 
 
 def js_sources(src: Path, *, dotfiles: bool = False, mjs: bool = False) -> list[Path]:
-    """The ``*.js`` under ``src`` (never ``node_modules``); scene also lints dot-files and ``*.mjs``."""
     if not src.is_dir():
         return []
     js = sorted(p for p in src.rglob("*.js") if "node_modules" not in p.parts and (dotfiles or not p.name.startswith(".")))
@@ -113,7 +81,6 @@ def js_sources(src: Path, *, dotfiles: bool = False, mjs: bool = False) -> list[
 
 
 def import_specs(src: str) -> list[tuple[str, int]]:
-    """``(specifier, 1-based line)`` for every static, re-export and dynamic import in ``src``."""
     out = [(m.group(1), m.start(1)) for m in _IMPORT_RE.finditer(src)]
     out += [(m.group(1), m.start(1)) for m in _DYN_IMPORT_RE.finditer(src)]
     return [(spec, line_of(src, pos)) for spec, pos in out]
@@ -131,12 +98,10 @@ class ImportKind(StrEnum):
 @dataclass(frozen=True)
 class ImportVerdict:
     kind: ImportKind
-    #: resolved relative target (set for the three relative kinds), else None
     target: Path | None = None
 
 
 def classify_import(spec: str, path: Path, src_root: Path) -> ImportVerdict:
-    """Apply the JS import policy to one specifier found in ``path`` (a file under ``src_root``)."""
     if spec == "three" or spec.startswith("three/addons/") or spec.startswith("three/examples/jsm/"):
         return ImportVerdict(ImportKind.ALLOWED)
     if spec.startswith("./") or spec.startswith("../"):
@@ -160,12 +125,7 @@ def check_imports(
     *,
     make_finding: Callable[[ImportVerdict, str, int], GateFinding],
 ) -> tuple[list[GateFinding], set[Path]]:
-    """Classify every import in ``src``; return the findings for the non-allowed ones
-    and the set of resolved relative files it imports.
-
-    ``make_finding(verdict, spec, line)`` builds the finding — the caller owns
-    message, severity and hint text.
-    """
+    """Classify every import in ``src``; return the findings for non-allowed ones and the resolved relative files."""
     findings: list[GateFinding] = []
     targets: set[Path] = set()
     for spec, line in import_specs(src):
@@ -200,15 +160,12 @@ _EXPORT_DEFAULT_RE = re.compile(r"\bexport\s+default\b")
 # ``export const { a, b } = …`` / ``export const [x] = …``: names inside a pattern
 _EXPORT_PATTERN_RE = re.compile(r"\bexport\s+(?:const|let|var)\s*[\[{]")
 
-#: ``{resolved target: its exports}`` — one lint reads each ``src/lib`` module once, not once
-#: per importer (a scene has ~50 files importing the same dozen modules)
 ExportsCache = dict[Path, frozenset[str] | None]
 
 
 @dataclass(frozen=True)
 class NamedImport:
-    """One static ``import { a, b as c } from '<spec>'``: ``names`` are the IMPORTED names
-    (``a`` and ``b`` — what the target module must export, not the local aliases)."""
+    """One static ``import { a, b as c } from '<spec>'``; ``names`` are the imported names, not aliases."""
 
     spec: str
     names: tuple[str, ...]
@@ -216,8 +173,6 @@ class NamedImport:
 
 
 def named_import_specs(src: str) -> list[NamedImport]:
-    """Every static named import of ``src`` (comments blanked first, so a commented-out
-    import is not parsed); ``import * as m`` and default-only imports yield nothing."""
     code = strip_js(src, strings=False)   # the specifier is a string literal: keep strings
     out: list[NamedImport] = []
     for m in _NAMED_IMPORT_RE.finditer(code):
@@ -229,10 +184,7 @@ def named_import_specs(src: str) -> list[NamedImport]:
 
 
 def module_exports(src: str) -> frozenset[str] | None:
-    """The names an ES module's source text exports, or ``None`` when its surface cannot be
-    enumerated from the text alone: a bare ``export * from '…'`` (another module's surface —
-    not resolved transitively, so nothing is reported against such a module) or a
-    destructuring ``export const { a } = …`` pattern.  ``export default`` exports ``default``."""
+    """Names an ES module's source exports, or ``None`` when not enumerable from text (bare ``export * from``, destructured exports)."""
     code = strip_js(src)
     if _EXPORT_PATTERN_RE.search(code):
         return None
@@ -262,11 +214,7 @@ SIGNATURE_CHARS = 240
 
 
 def export_signatures(src: str) -> list[str]:
-    """Every name the module exports, an exported function — a declaration, or a ``const`` bound to
-    an arrow / function expression — as ``name(params)`` (its parameter list as written, whitespace
-    collapsed, capped at :data:`SIGNATURE_CHARS`), sorted; ``[]`` when the surface cannot be
-    enumerated (:func:`module_exports`).  Facts read off the text —
-    the index a single-shot writer gets of a library it cannot open (D112)."""
+    """Every exported name, functions as ``name(params)`` (capped at :data:`SIGNATURE_CHARS`), sorted; ``[]`` when not enumerable."""
     names = module_exports(src)
     if not names:
         return []
@@ -278,7 +226,6 @@ def export_signatures(src: str) -> list[str]:
         sigs[name] = sig if len(sig) <= SIGNATURE_CHARS else sig[:SIGNATURE_CHARS - 2] + "…)"
 
     def _close(start: int) -> int:
-        """The index just past the ``)`` matching the ``(`` before ``start``."""
         depth, i = 1, start
         while i < len(code) and depth:
             depth += {"(": 1, ")": -1}.get(code[i], 0)
@@ -297,7 +244,6 @@ def export_signatures(src: str) -> list[str]:
 
 
 def exported_names(path: Path) -> frozenset[str] | None:
-    """:func:`module_exports` of the file at ``path`` (``None`` when it cannot be read)."""
     try:
         return module_exports(path.read_text(errors="replace"))
     except OSError:
@@ -305,7 +251,6 @@ def exported_names(path: Path) -> frozenset[str] | None:
 
 
 def describe_exports(names: frozenset[str], *, limit: int = 12) -> str:
-    """``it exports: a, b, …`` (sorted, at most ``limit`` named) or ``it exports nothing``."""
     if not names:
         return "it exports nothing"
     shown = sorted(names)[:limit]
@@ -320,14 +265,9 @@ def check_named_imports(
     make_finding: Callable[[str, str, int, frozenset[str]], GateFinding],
     exports: ExportsCache | None = None,
 ) -> list[GateFinding]:
-    """A finding per imported name that its target module does not export, for every named
-    import of ``src`` whose specifier resolves to an existing ``.js`` / ``.mjs`` file under
-    ``src_root`` (``'three'`` and the non-allowed kinds are :func:`check_imports`'s business).
+    """A finding per imported name its target module does not export, for relative targets under ``src_root``.
 
-    ``make_finding(spec, name, line, exports)`` builds the finding — the caller owns message,
-    severity and hint; ``exports`` is the target's surface, for an "it exports: …" listing.
-    Pass one ``exports`` cache for the whole lint so each target is read once.
-    """
+    Pass one ``exports`` cache for the whole lint."""
     cache: ExportsCache = {} if exports is None else exports
     findings: list[GateFinding] = []
     for imp in named_import_specs(src):

@@ -1,14 +1,5 @@
-"""``3dcode judge`` implementation: re-judge a round with the SAME inputs the
-in-run judge saw.
-
-The payload is ``judges.base.round_input`` — the builder the in-run judge uses — fed from
-disk: the round's renders / measurement / gates from ``rounds/rNN.json`` (fallback: the
-round inside record.json), the typed plan from record.json (else ``plan.json``), ``previous``
-the loop's (``record.previous_verdict``: round N-1's, None when it went unjudged), the track's
-``extra_context`` rebuilt from the stored gates / frame metrics, and the clay geometry views rendered for the in-run judge
-(``renders/rNN/clay/``) reattached when present.  The judge class is the in-run one:
-``judges.vlm_judge.judge_for``, the rule the live run uses.
-"""
+"""``3dcode judge`` implementation: re-judge a stored round with the inputs the in-run judge
+saw, built by ``judges.base.round_input`` from the run directory."""
 
 from __future__ import annotations
 
@@ -28,7 +19,6 @@ from codeverse3d.workspace import Workspace
 
 
 def load_round(ws: Workspace, rec: RunRecord, index: int) -> RoundRecord | None:
-    """rounds/rNN.json (written by the round loop) beats the copy in record.json."""
     p = ws.root / "rounds" / f"r{index:02d}.json"
     if p.is_file():
         try:
@@ -39,7 +29,6 @@ def load_round(ws: Workspace, rec: RunRecord, index: int) -> RoundRecord | None:
 
 
 def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
-    """--rubric > the rubric the round was judged with > the run's (``record.rubric_of``)."""
     from codeverse3d.record.record import rubric_of
 
     if override:
@@ -50,8 +39,7 @@ def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
 
 
 def stored_plan(ws: Workspace, rec: RunRecord) -> Plan | None:
-    """The run's typed plan: record.json's, else ``plan.json`` read as the track's plan model
-    (a run that stopped before its record was written)."""
+    """The run's typed plan: record.json's, else ``plan.json``."""
     if rec.plan is not None:
         return rec.plan
     from codeverse3d.tracks import get_track
@@ -64,9 +52,6 @@ def stored_plan(ws: Workspace, rec: RunRecord) -> Plan | None:
 
 
 def extra_context_for(ws: Workspace, rec: RunRecord, plan: Plan | None, rnd: RoundRecord) -> str:
-    """The track pipeline's OWN ``judge_context`` over the stored artifacts —
-    ``judge_context(ws, plan, round_index, build, gates)`` needs no run context,
-    so the CLI never restates the per-track formatting."""
     from codeverse3d.tracks import get_track
 
     build = rnd.build if rnd.build is not None else BuildResult(ok=False, language=rec.spec.language.value)
@@ -77,7 +62,6 @@ def extra_context_for(ws: Workspace, rec: RunRecord, plan: Plan | None, rnd: Rou
 
 
 def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
-    """The clay views the in-run judge saw (``renders/rNN/clay/``), when present."""
     d = ws.renders_dir(index) / "clay"
     if not d.is_dir():
         return None
@@ -87,7 +71,6 @@ def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
 
 
 def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
-    """``round_input`` for a stored round (``3dcode judge``, calibration)."""
     plan = stored_plan(ws, rec)
     return round_input(rec.spec, plan, rnd, renders=judged_subset(resolve_paths(ws, rnd.renders)), gates=rnd.gates,
                        previous=previous_verdict([load_round(ws, rec, rnd.index - 1)], rnd.index), extra_context=extra_context_for(ws, rec, plan, rnd),
@@ -95,8 +78,7 @@ def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
 
 
 def stored_glb_path(ws: Workspace, rnd: RoundRecord) -> str | None:
-    """The round's own GLB (``select.round_file``; never the canonical one, the last build's)
-    — what lets ``3dcode judge`` reproduce the D48 conditional slice payload from the stored gates."""
+    """The round's own GLB (never the canonical one, which is the last build's)."""
     from codeverse3d.addons.select import round_file
 
     glb = round_file(ws, rnd)
@@ -104,8 +86,6 @@ def stored_glb_path(ws: Workspace, rnd: RoundRecord) -> str | None:
 
 
 def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: Any) -> Any:
-    """The class the live run would use (``vlm_judge.judge_for``); ``options`` go to the
-    judge (calibration's cache dir, thinking level, fixed order)."""
     from codeverse3d.judges import vlm_judge
     from codeverse3d.judges.rubrics import load_rubric
 
@@ -118,10 +98,8 @@ def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: A
 
 
 def count_prompt_images(inp: Any, rubric_name: str, judge: Any = None) -> int | None:
-    """Number of image parts a single judge sample will send (None on failure).
-
-    With ``judge`` given, its D48 slice payload is counted too, so a dirty round's
-    printed count matches what the verdict call actually sends."""
+    """Number of image parts a single judge sample sends (None on failure), including
+    ``judge``'s slice payload when given."""
     try:
         from codeverse3d.contracts.chat import ImagePart
         from codeverse3d.judges.prompt_builder import build_judge_messages

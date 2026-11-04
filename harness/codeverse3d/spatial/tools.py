@@ -1,10 +1,6 @@
-"""Every spatial tool registered with ``@tool``, in sections: build / measure / gates /
-sections · rendering · articulation · scenes · graphics · reference.
-``import codeverse3d.spatial.tools`` registers all of them.
+"""Every spatial tool registered with ``@tool``; importing this module registers them all.
 
-House rules: observations are compact (errors first, fix hints attached), text
-never contains absolute host paths (images are absolute — the harness converts),
-and every tool is cheap to call repeatedly.
+Observations are compact (errors first, fix hints attached) and their text never carries absolute host paths.
 """
 
 from __future__ import annotations
@@ -77,9 +73,7 @@ def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement
     return m, measure_summary_table(m)
 
 
-#: languages whose build has no GLB deliverable — build ok is reported through
-#: the language's own artifacts instead of 'no GLB path'; the scene tools serve every
-#: scene language through its ``SceneRuntime`` (D101)
+#: languages whose build has no GLB deliverable; build ok is reported through their own artifacts
 SCENE_LANGUAGES = tuple(lang.value for lang in TRACK_LANGUAGES[Track.SCENE])
 GRAPHICS_LANGS = tuple(lang.value for lang in TRACK_LANGUAGES[Track.GRAPHICS])
 
@@ -89,7 +83,6 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     ws = ctx.workspace
     census = dict(br.census) if isinstance(br.census, dict) else {}
     if language in GRAPHICS_LANGS:
-        # same frame-stats formatter the gl_probe / gl_frames tools use
         lines, numbers, ok = gl_metrics_summary(ws, hints=False, root=ws.root)
         for key in ("frames", "sheet", "gif"):
             p = br.extra_paths.get(key)
@@ -107,13 +100,7 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
 
 
 def _gl_gate_verdict(numbers: dict[str, Any]) -> list[str]:
-    """The FRAME GATE line that goes ABOVE the '… OK' headline, or [] when it passed.
-
-    The shader compiled and the frames rendered, so the gate verdict is the answer and
-    not an error to retry (``Observation.failed`` stays False) — it has to be readable
-    at the top of the text, where the '… OK' headline would otherwise be the only
-    verdict the model sees.  Shared by ``build`` (graphics), ``gl_probe``, ``gl_frames``.
-    """
+    """The FRAME GATE line that goes above the '… OK' headline, or [] when it passed (a verdict, not a tool failure)."""
     n = int(numbers.get("gate_errors", 0))
     if not n:
         return []
@@ -125,10 +112,7 @@ _LINT_WARNS_SHOWN = 10
 
 
 def _lint_gate(ctx: ToolContext, rt: Any, *, verb: str) -> tuple[Observation | None, list[str]]:
-    """Lint before any build-running tool builds: (refusal observation | None, warning
-    lines).  Lint ERRORs skip the build (docs/DECISIONS.md L5) and are recorded as the
-    LATEST build status — without that the previous build.json (ok: true) + object.glb
-    stayed readable as current."""
+    """Lint before building: (refusal observation | None, warning lines).  Lint errors skip the build and are recorded as the latest build status."""
     ws = ctx.workspace
     lint: GateReport = rt.lint(ws)
     errs = lint_lines(lint, ws.root, errors_only=True)
@@ -145,8 +129,7 @@ def _lint_gate(ctx: ToolContext, rt: Any, *, verb: str) -> tuple[Observation | N
 
 
 def _build_failed(ctx: ToolContext, br: BuildResult, warns: list[str]) -> Observation:
-    """The BUILD FAILED observation of every build-running tool; ``error_file`` is
-    workspace-relative (house rule: text never carries absolute host paths)."""
+    """The BUILD FAILED observation of every build-running tool."""
     ws = ctx.workspace
     return text_observation(build_failure_lines(br, ws.root, warns, tail_n=_STDERR_TAIL_LINES), ok=False, limit=3000,
                             numbers={"stage": "build", "ok": False, "duration_ms": br.duration_ms, "error_type": br.error_type,
@@ -154,12 +137,9 @@ def _build_failed(ctx: ToolContext, br: BuildResult, warns: list[str]) -> Observ
 
 
 def _env_unlit_only(br: BuildResult) -> str:
-    """The headline line for a scene build whose ONLY errors are ``probes.unlit`` (nothing lights the
-    scene), else ``""``.  The round's build fails on that ERROR so its repair is handed the env module
-    (D112); a session's own ``build`` reports it above a BUILD OK instead — most sessions that build
-    while the env is still the placeholder (an asset session beside the env stage, a zone session
-    after a failed env stage) cannot write the env module, and a BUILD FAILED they cannot clear would
-    cost them their window."""
+    """Headline for a scene build whose only errors are ``probes.unlit``, else ``""``.
+
+    A session's own ``build`` reports it above BUILD OK, since many sessions cannot write the env module."""
     if br.ok or br.harness_failure:
         return ""
     errors = [f for g in br.gates for f in g.errors]
@@ -172,7 +152,6 @@ def _env_unlit_only(br: BuildResult) -> str:
 
 @tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
-    # ToolDef.call stamps Observation.duration_ms for every tool — no timing here
     from codeverse3d.languages import get_runtime
 
     ws = ctx.workspace
@@ -190,7 +169,6 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         numbers["env_unlit"] = True
     broken = False
     if not br.glb_path and language in SCENE_LANGUAGES + GRAPHICS_LANGS:
-        # languages without a GLB deliverable: report the language's own artifacts
         ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
         lines = _gl_gate_verdict(extra_numbers) + [f"BUILD OK ({br.duration_ms} ms)"] + extra_lines
         numbers.update(extra_numbers)
@@ -198,8 +176,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     else:
         m, table = _measure_after_build(ctx, br)
         ok = m is not None
-        # the runtime reported success and left nothing measurable: the tool could not
-        # answer (not a verdict on the code), and the headline must not read BUILD OK
+        # success with nothing measurable: the tool could not answer, so no BUILD OK headline
         broken = m is None
         lines = [f"BUILD OK ({br.duration_ms} ms) → {rel_path(br.glb_path, ws.root)}" if ok
                  else f"BUILD PRODUCED NO USABLE GLB ({br.duration_ms} ms): {table}"]
@@ -223,8 +200,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     return text_observation(lines, ok=ok, failed=broken, numbers=numbers, limit=3000)
 
 
-#: the object-GLB toolset (everything that reads artifacts/object.glb): scene and
-#: graphics builds never write that file, so serving these there was a dead-end loop
+#: tracks whose builds write artifacts/object.glb (the object-GLB toolset)
 _OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
 
 
@@ -261,7 +237,7 @@ def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
 def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
     glb = glb_path(ctx)
     plan = load_plan(ctx.workspace.plan_path) if ctx.workspace.plan_path.is_file() else None
-    try:  # the plan's attach_to pairs in the GLB's part names — the same resolver as the track's gate
+    try:  # the plan's attach_to pairs, in the GLB's part names
         planned = planned_joins(plan, measure_glb(glb)) if plan is not None else []
     except GlbLoadError as e:
         return Observation.error(f"check_connectivity: {e}")
@@ -347,7 +323,7 @@ def render_sheet(ctx: ToolContext, args: RenderSheetArgs) -> Observation:
     obs = _render(ctx, views=[v.name for v in OBJECT_VIEWS], mode=args.mode, isolate=[], explode=0.0, size=512,
                   note=f"{args.mode} 14-view sheet")
     if obs.ok and obs.images:
-        obs.images = obs.images[:1]  # the sheet alone is the deliverable here
+        obs.images = obs.images[:1]
     return obs
 
 
@@ -394,11 +370,7 @@ class JointSweepArgs(BaseModel):
 
 
 def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, float]]] | None:
-    """``limit_poses`` narrowed to ``joints`` (rest kept); ``None`` = the full sheet.
-
-    An unknown joint name narrows to nothing but rest, which is a wrong-but-visible sheet
-    rather than a silent fallback to everything — the agent sees one tile and its typo.
-    """
+    """``limit_poses`` narrowed to ``joints`` (rest kept); ``None`` = the full sheet."""
     if not joints:
         return None
     want = set(joints)
@@ -411,17 +383,9 @@ def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, flo
       "check always covers the whole robot.",
       tracks=(Track.ARTICULATED_OBJECT.value,), cost_hint="slow")
 def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
-    """The round's own verdict (``joints_sweep.sweep_gate``) — until 2026-09-22 the tool ran a
-    second sweep with its own rules and could pass what the round then failed, or the reverse.
-
-    ``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
-    sweep still covers every joint — a change to one joint can collide with another, and
-    that check is cheap.  Rendering is not: every pose is a GLB export plus three views, so
-    a 10-joint object renders ~63 images per call, and agents call this 3-8 times a round.
-    Measured 2026-08-25: articulated rounds ran a median 1007 s against 497 s for static
-    objects, with the agent session — mostly waiting on sweeps — as the whole difference."""
+    """The round's own verdict (``sweep_gate``); ``joints`` narrows only the pose renders, the collision sweep covers every joint."""
     ws = ctx.workspace
-    if find_urdf(ws) is None:   # the gate's own rule: the built URDF only
+    if find_urdf(ws) is None:
         return Observation.error("joint_sweep: artifacts/robot.urdf not found — run `build` first")
     report, robot = sweep_gate(ws)
     images: list[str] = []
@@ -446,11 +410,7 @@ def _scene_runtime(ctx: ToolContext) -> SceneRuntime:
       "line numbers — the build's own probe + preflight, so the verdict is the build's.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
-    """The build's own probe + shader preflight (``run_probe(compile=True)``: one ``probe_scene.mjs
-    --compile`` boot under the render policy).  Until 2026-09-22 this ran a second driver,
-    check_shaders.mjs at 256x144 without the settle / camera-repair / exposure flags, whose
-    verdict could differ from the build's.  A scene that never boots gets no preflight:
-    the probe's report says why."""
+    """The build's own probe + shader preflight; a scene that never boots gets no preflight (the probe's report says why)."""
     probe, shaders, _census = run_probe(ctx.workspace, compile=True)
     died = [f.message for f in probe.findings if f.data.get("harness_failure")]
     if died:
@@ -463,8 +423,7 @@ def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
       languages=SCENE_LANGUAGES, cost_hint="slow")
 def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     res = _scene_runtime(ctx).probe(ctx.workspace)
-    # ok = the gate verdict; failed = the probe TOOL could not run (SceneProbeResult
-    # semantics): agent-fixable findings are a FAIL the agent must read, not an error
+    # ok = the gate verdict; failed = the probe tool could not run
     obs = gate_observation(res.gate, title="scene probe", failed=bool(res.errors))
     if res.errors:
         obs.text += "\nerrors:\n" + "\n".join(f"  ! {e[:200]}" for e in res.errors[:10])
@@ -504,13 +463,11 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
 
 
 def _frame_table(out_dir: Path) -> str:
-    """The deterministic numbers behind the pictures — exposure/coverage per camera plus the
-    measured motion between the times.  Without them the agent is asked to LOOK at a sheet and
-    guess whether its sway is visible or its dusk is too dark; with them it can read the answer."""
+    """The numbers behind the pictures: exposure/coverage per camera plus measured motion between the times."""
     try:
         metrics = read_json_or_none(out_dir / "metrics.json")
         return frame_summary_text(metrics) if metrics else ""
-    except Exception:  # noqa: BLE001 — a tool observation must never fail on instrumentation
+    except Exception:  # noqa: BLE001
         return ""
 
 
@@ -607,7 +564,7 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
 def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
     if len(args.times) > MAX_FRAMES:
         raise ToolUsageError(f"times must hold at most {MAX_FRAMES} values", "gl_frames() renders the judged times")
-    # empty → the build's own default, `judge_times(plan duration)`: the frames the judge will see
+    # empty → the build's default: the frames the judge will see
     times = sorted(set(float(t) for t in args.times)) if args.times else None
     err, br, warns = _run_build(ctx, times=times, width=args.width, height=args.height)
     if err is not None:
@@ -632,8 +589,7 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
 
 
 # ===================================================================== reference
-#: what the agent should compare, in the order that decides whether the object
-#: reads as the real thing (identity before polish)
+#: what the agent compares, identity before polish
 CHECKLIST = (
     "1) part inventory — is every part visible in the reference present in your model, and nothing invented? "
     "2) counts — spokes / slats / rods / panes / flutes: count them in the reference and match the number. "

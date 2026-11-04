@@ -1,35 +1,9 @@
-"""Where a call sits in a run — the attribution the ledger needs.
+"""Where a call sits in a run: the attribution the ledger needs.
 
-A :class:`CallContext` answers "which run, which round, which stage, which
-role" for the call that is about to happen.  Precedence:
-
-1. what the caller passed explicitly (a judge knows it is judging) — always wins;
-2. a label that names a **job of its own** (``judge:…``, ``planner``,
-   ``caption…``, ``pairwise:…`` — :data:`SELF_DESCRIBING`).
-   Such a call is not the work of whatever agent session happens to surround it,
-   so it outranks the ambient context.  This is the fix for a measured
-   mis-attribution: an in-process tool that bills a model *inside* an agent
-   session (a captioner, a judge invoked as a tool) was filed
-   under the session's ``stage=refine / role=generator``;
-3. the ambient context (:func:`call_context`) — set by
-   :mod:`codeverse3d.cost.instrument` around an agent session.  It beats a
-   *generation* label because the session knows more than a call made inside it
-   does: a best-of-N candidate session runs with ``job.kind="candidate"`` while a
-   tool it calls bills a model under a plain ``baseline`` label;
-4. what is left of the label (a generation stage, the round tag) — kept explicit because the
-   ambient context is bound per stage, not per call (``proc.fan_out`` does copy ContextVars into
-   its workers, D105; the label is the finer attribution).
-
-A label that names nothing (:data:`~codeverse3d.cost.types.Stage.OTHER`) states
-nothing and never displaces anything.
-
-The **run binding** (:func:`bound_run`, the run slug) is a plain ``ContextVar``.
-A bench worker that opens its own run in its own thread gets its own binding, and a
-worker thread inherits its caller's because ``codeverse3d.proc.fan_out`` copies the
-context (bb6179c).  There is deliberately no process-wide fallback: restoring one by
-value republished a sibling's run the moment the first parallel run exited, and rows
-written afterwards landed in that finished run's file (2026-08-30 — the interleave
-1756866 deleted the ``_active_ledgers`` global for, left standing on this half).
+Precedence: explicit arguments > a label naming a job of its own (:data:`SELF_DESCRIBING`)
+> the ambient context (:func:`call_context`) > the rest of the label.  The run binding
+(:func:`bound_run`) is a plain ``ContextVar`` copied into fan-out workers, with no
+process-wide fallback.
 """
 
 from __future__ import annotations
@@ -64,8 +38,7 @@ class CallContext:
         )
 
     def resolved(self) -> CallContext:
-        """Fill role from stage (and stage from label) so the row is never ``other``
-        when something better can be derived."""
+        """Fill role from stage (and stage from label) so the row is never ``other`` needlessly."""
         stage = self.stage or (stage_for_label(self.label) if self.label else None)
         role = self.role or (role_for_stage(stage) if stage else None)
         return replace(self, stage=stage, role=role)
@@ -80,11 +53,7 @@ _run_var: ContextVar[str] = ContextVar("c3d_cost_run", default="")
 
 @contextmanager
 def bound_run(run: str) -> Iterator[None]:
-    """Name the run every row written inside the block belongs to.
-
-    Unwinds with the ``ContextVar`` token instead of re-setting the previous value:
-    two of these open at once (``bench.run_bench``'s pool) must undo independently
-    — see the module docstring."""
+    """Name the run every row written inside the block belongs to (concurrent blocks unwind independently)."""
     token = _run_var.set(run or "")
     try:
         yield
@@ -111,11 +80,7 @@ def call_context(
     role: Role | str | None = None,
     label: str = "",
 ) -> Iterator[CallContext]:
-    """Set the ambient attribution for the duration of the block (this thread).
-
-    Used by :mod:`codeverse3d.cost.instrument` around an agent session and by the
-    judges around a verdict; nesting merges, so an inner block only has to name
-    what it changes."""
+    """Set the ambient attribution for the block; nesting merges."""
     ctx = _ctx.get().merge(CallContext(run=run, round=round, stage=_stage(stage), role=_role(role), label=label))
     token = _ctx.set(ctx)
     try:
@@ -143,8 +108,7 @@ def _role(value: Role | str | None) -> Role | None:
 
 
 # --------------------------------------------------------------------------- labels
-#: request-label prefix → (stage, role).  Longest prefix wins; anything else is
-#: routed through ``stage_for_label`` (which understands generation labels).
+#: request-label prefix → (stage, role); longest prefix wins, the rest goes through ``stage_for_label``.
 _LABEL_HINTS: tuple[tuple[str, Stage, Role], ...] = (
     ("planner", Stage.PLAN, Role.PLANNER),
     ("plan", Stage.PLAN, Role.PLANNER),
@@ -156,9 +120,7 @@ _LABEL_HINTS: tuple[tuple[str, Stage, Role], ...] = (
 
 
 def context_from_label(label: str) -> CallContext:
-    """Best-effort attribution from a ``ChatRequest.label``: its head names the job
-    (``judge:…``, a generation stage) and the judge's
-    ``…:r<NN>:s<k>`` tag carries the round."""
+    """Best-effort attribution from a ``ChatRequest.label`` (head names the job, ``r<NN>`` the round)."""
     low = (label or "").strip()
     if not low:
         return _EMPTY
@@ -174,8 +136,7 @@ def context_from_label(label: str) -> CallContext:
 
 
 def _stated(stage: Stage | None) -> Stage | None:
-    """``Stage.OTHER`` is "the label told us nothing" — not a statement, so it must
-    not outrank the ambient session context."""
+    """``Stage.OTHER`` states nothing, so it must not outrank the ambient context."""
     return None if stage is Stage.OTHER else stage
 
 
@@ -188,20 +149,13 @@ def _round_from_label(label: str) -> int | None:
     return None
 
 
-#: Stages a label can name that describe a job of their own.  A call whose label
-#: says "judge" / "plan" / "caption" / "pairwise" is doing that job
-#: even when an agent session surrounds it, so it outranks the ambient context;
-#: a generation stage in a label does not (see the module docstring).
+#: Stages whose label names a job of its own: they outrank the ambient session context.
 SELF_DESCRIBING: frozenset[Stage] = frozenset(
     {Stage.PLAN, Stage.JUDGE, Stage.PAIRWISE, Stage.CAPTION})
 
 
 def attribute(explicit: CallContext | None = None, *, label: str = "") -> CallContext:
-    """The final attribution for one call.
-
-    Precedence (see the module docstring): explicit > a label that names a job of
-    its own > the ambient session context > the rest of the label.  The row's
-    ``label`` is always the most specific one available."""
+    """The final attribution for one call (precedence in the module docstring)."""
     ctx = current()
     if label:
         from_label = context_from_label(label)
@@ -216,13 +170,10 @@ def attribute(explicit: CallContext | None = None, *, label: str = "") -> CallCo
 # --------------------------------------------------------------------------- per-attempt sink
 @dataclass(frozen=True)
 class AttemptRecord:
-    """One round-trip of one logical model call (``models.retry.rotate_with_retries``).
+    """One round-trip of one logical model call, reported to the sink from :func:`attempt_recording`.
 
-    The metering layer (``instrument.MeteredChatModel``) installs a sink for these
-    with :func:`attempt_recording`; the backend reports every round-trip — the
-    winner included — so a hedge loser's and a charged-but-invalid reply's tokens
-    reach the ledger instead of vanishing (audit 2026-08-27).  A discarded one that cost
-    money becomes a ``source="extra"`` row."""
+    Every round-trip is reported, winner included; a discarded one that cost money becomes a
+    ``source="extra"`` ledger row."""
 
     attempt: int  #: 1-based issue order within the logical call
     key: str  #: the full API key that served it; the ledger keeps only its last 4 chars
@@ -234,10 +185,8 @@ class AttemptRecord:
 
 AttemptSink = Callable[[AttemptRecord], None]
 
-#: Request-scoped sink for per-attempt rows.  A ContextVar rather than a new
-#: parameter because ``ChatModel.generate(request)`` is a protocol many backends
-#: implement; the backend captures the sink ONCE at call entry, so a hedge loser
-#: that lands later in its own thread still reports through the captured callable.
+#: Request-scoped sink for per-attempt rows; the backend captures it once at call entry so a
+#: hedge loser landing later in another thread still reports.
 _attempt_sink: ContextVar[AttemptSink | None] = ContextVar("c3d_cost_attempt_sink", default=None)
 
 

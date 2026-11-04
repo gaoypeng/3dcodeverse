@@ -1,11 +1,6 @@
-"""Run harness-owned node scripts (``runtime_js/*.mjs``) as subprocesses.
+"""Run harness-owned node scripts (``runtime_js/*.mjs``) as subprocesses via :func:`run_node`.
 
-All node work in the harness goes through :func:`run_node`: it sets
-``NODE_PATH`` to ``runtime_js/node_modules`` (CommonJS resolution), optionally
-adds the ESM ``--import`` hook that lets agent code outside ``runtime_js``
-import ``three`` / ``three/addons/*``, enforces a timeout, kills the whole
-process group on expiry and parses the *last JSON line* of stdout (the
-convention every runtime_js script follows).
+It sets ``NODE_PATH``, optionally the ``three`` import hook, enforces a timeout and parses the last JSON line of stdout.
 """
 
 from __future__ import annotations
@@ -25,13 +20,7 @@ from codeverse3d.proc import run_subprocess, scrub_secrets, version_line
 
 TAIL_CHARS = 4000
 
-#: Oldest node the harness runs on — the single source of truth for the floor.
-#: 20.6.0 is what ``node --import`` needs (``run_node(three_hook=True)``, the only
-#: way agent code outside runtime_js can ``import 'three'``); everything else the
-#: harness and ``runtime_js`` use is older (``node:util.parseArgs`` 18.3), and the
-#: npm dependencies bottom out at node 18.  ``runtime_js/package.json``'s
-#: ``engines.node`` restates this for npm and is pinned to it by
-#: ``tests/core/test_portability.py``.
+#: Oldest supported node (``--import`` hooks); ``runtime_js/package.json`` engines mirrors it.
 NODE_MIN: tuple[int, int, int] = (20, 6, 0)
 NODE_MIN_STR = ".".join(str(n) for n in NODE_MIN)
 
@@ -39,11 +28,7 @@ _VERSION_RE = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 
 class NodeError(RuntimeError):
-    """A node script failed (non-zero exit, timeout or missing binary).
-
-    ``result`` carries whatever was captured so callers can turn it into a
-    ``BuildResult`` / ``GateReport`` without losing the tail.
-    """
+    """A node script failed (non-zero exit, timeout or missing binary); ``result`` holds what was captured."""
 
     def __init__(self, message: str, result: NodeResult | None = None):
         super().__init__(message)
@@ -73,13 +58,7 @@ class NodeResult:
         return self.stderr[-TAIL_CHARS:]
 
 
-#: A render failure that is the BOX, not the scene: the browser or the page died
-#: under the driver — the renderer process crashed, the tab was reaped under memory
-#: pressure, the shared browser was retired mid-call.  The same workspace renders on
-#: the next attempt, so one retry is worth its wall clock.  Measured 2026-09-05: four
-#: cells of the `scenes_v1` baseline lost every render — and with it the judge, after
-#: the models had already been paid for — to "Attempted to use detached Frame" while
-#: the box sat at load 93 with swap full.
+#: Signs that the browser or page died under the driver (the box, not the scene).
 BROWSER_LOST_MARKERS = (
     "detached frame",
     "target closed",
@@ -90,10 +69,7 @@ BROWSER_LOST_MARKERS = (
     "connection closed",
 )
 
-#: Render failures that are the box, not the model — worth exactly one more attempt.  One
-#: tuple for both render paths: `render.py` had it since 2026-08-28, the scene drivers
-#: retried only the browser-loss half and lost 14 renders to "Waiting failed: 60000ms
-#: exceeded" under contention on 2026-09-07 (all green when re-run alone).
+#: Render failures of the box rather than the model; worth one more attempt.
 TRANSIENT_MARKERS = ("waiting failed", "timed out", "timeout", "produced no result", *BROWSER_LOST_MARKERS)
 
 
@@ -103,8 +79,7 @@ def transient_failure(text: object) -> bool:
     return any(marker in lowered for marker in TRANSIENT_MARKERS)
 
 
-#: Env for a retry after a browser loss: take an OWNED browser, because the shared
-#: one advertised in the cache is the suspect (`runtime_js/gpu_launch.cjs`).
+#: Retry env after a browser loss: use an owned browser, the shared one is the suspect.
 OWN_BROWSER_ENV: dict[str, str] = {"C3D_BROWSER_REUSE": "off"}
 
 
@@ -167,20 +142,13 @@ def parse_node_version(text: str) -> tuple[int, int, int] | None:
 
 @lru_cache(maxsize=8)
 def node_version(node_bin: str) -> tuple[int, int, int] | None:
-    """``node --version`` for ``node_bin``, or None when it cannot be asked.
-
-    Cached per binary: this runs at most once per interpreter per node path.
-    """
+    """``node --version`` for ``node_bin``, or None when it cannot be asked (cached)."""
     rc, line = version_line([node_bin, "--version"], timeout=20)
     return parse_node_version(line) if rc == 0 else None
 
 
 def node_version_error(version: tuple[int, int, int] | None) -> str:
-    """The actionable message for a too-old ``version``, or ``""`` when it is fine.
-
-    Unknown versions pass: a node we could not interrogate fails later with its
-    own error, and guessing here would break more than it protects.
-    """
+    """The actionable message for a too-old ``version``, or ``""``; unknown versions pass."""
     if version is None or version >= NODE_MIN:
         return ""
     got = ".".join(str(n) for n in version)
@@ -209,14 +177,9 @@ def run_node(
     mem_limit_gb: float | None = None,
     check: bool = True,
 ) -> NodeResult:
-    """Run ``node [node_args] script [args]`` and return a :class:`NodeResult`.
+    """Run ``node [node_args] script [args]``; ``three_hook`` lets the script ``import 'three'``.
 
-    * ``three_hook=True`` adds ``--import runtime_js/lib/resolve_three.mjs`` so the
-      script (and anything it imports, e.g. agent code) can ``import 'three'``.
-    * On timeout the process group is killed and ``NodeError`` is raised.
-    * With ``check=True`` (default) a non-zero exit raises ``NodeError`` whose
-      ``.result`` has the tails and ``last_json`` (a structured error record when
-      the script emitted one).
+    Timeout, or non-zero exit with ``check``, raises ``NodeError`` carrying the tails.
     """
     settings = get_settings()
     node_bin = settings.binaries.node
@@ -229,8 +192,7 @@ def run_node(
         cmd += ["--import", str(three_import_hook())]
     cmd += [str(script), *(args or [])]
 
-    # node runs harness drivers AND model-generated code (scene.js, agent modules):
-    # credential-shaped vars are stripped; env_extra (harness-owned) is applied after.
+    # node runs model-generated code: credential-shaped vars are stripped; env_extra applies after.
     env = scrub_secrets(dict(os.environ))
     env["NODE_PATH"] = str(node_modules_dir())
     env.setdefault("C3D_CACHE_DIR", str(settings.cache_dir))

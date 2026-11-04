@@ -2,17 +2,7 @@
 
     python -m codeverse3d.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N]
 
-One MCP tool per registry tool (name, description, JSON schema from
-``ToolDef.schema()``).  Results are content blocks: one ``TextContent`` with the
-observation text (+ compact numbers when small) and one ``ImageContent`` per
-observation image (base64 PNG, long side ≤ 1024 px, at most ``MAX_IMAGES``).
-``is_error`` is ``Observation.failed`` (the tool could not run) — never a
-negative verdict, which is an ordinary result whose text leads with FAIL.
-Every result is bounded here — ``MAX_TEXT_CHARS`` of text, at most
-:func:`max_images_for` images, and ``MAX_IMAGE_BYTES`` of encoded image data across
-them — because this is the last place the harness owns before the payload becomes
-the vendor's prompt.
-Track / language default to ``<ws>/spec.json`` so agents need no flags.
+One MCP tool per registry tool; a result is one bounded text block plus bounded base64 PNG images. ``is_error`` means the tool could not run, never a FAIL verdict. Track / language default to ``<ws>/spec.json``.
 """
 
 from __future__ import annotations
@@ -36,19 +26,11 @@ from codeverse3d.workspace import Workspace
 MAX_IMAGES = 4
 MAX_IMAGE_SIDE = 1024
 MAX_NUMBERS_CHARS = 1200
-#: hard ceiling on the text block of ONE result (text + numbers), twice the largest
-#: per-tool limit in ``observe`` — an Observation built by hand (``joint_sweep``,
-#: ``compare_reference``) never goes through those, and nothing may hand the model an
-#: unbounded payload from here.
+#: ceiling on the text block of one result (text + numbers)
 MAX_TEXT_CHARS = 6000
-#: ceiling on the encoded image data of ONE result.  The count and the 1024 px long side
-#: bound pixels, not bytes: the largest recorded articulation sheet (1,966,609 B,
-#: 1176x3350) still encodes to 394,988 base64 characters after the downscale, so without
-#: this a legal result could hand the model ~280 k tokens of image.  That leaves only ~1 %
-#: of headroom, so a slightly taller sheet is DOWNSCALED to fit rather than dropped
-#: (``_fit_first``): shipping no picture at all is the worse failure.
+#: ceiling on the encoded image bytes of one result; an over-budget sheet is downscaled, not dropped
 MAX_IMAGE_BYTES = 400_000
-#: long sides tried, in order, when the first image does not fit the byte bound
+#: long sides tried when the first image does not fit
 IMAGE_FALLBACK_SIDES = (768, 512, 384)
 SERVER_NAME = "3dcode"
 
@@ -78,25 +60,14 @@ def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
 
 
 def max_images_for(obs: Observation) -> int:
-    """Image budget for ONE result, by outcome: none for a call that failed, one for a
-    FAIL verdict, ``MAX_IMAGES`` for a pass.
-
-    A failed call ships none because the vendor CLI stringifies an ``is_error`` result
-    whole, base64 included — 275 kB of contact sheet arrives as ~261 k prompt tokens of
-    text (docs/COST.md §30, which also has the one-image rule's reasoning).
-    """
+    """Image budget: none for a failed call (vendor CLIs stringify ``is_error`` results, base64 included), one for FAIL, ``MAX_IMAGES`` for a pass."""
     if obs.failed:
         return 0
     return MAX_IMAGES if obs.ok else 1
 
 
 def _fit_first(path: str, budget: int) -> tuple[str | None, int]:
-    """The first image, re-encoded smaller until it fits ``budget``.
-
-    Returns ``(base64, long side used)`` or ``(None, 0)``.  ``images[0]`` is the contact
-    sheet — the one picture the round is about — and the byte bound has ~1 % of headroom
-    over the largest recorded sheet, so "over budget" means "a bit taller than last time",
-    not "unreasonable"."""
+    """The first image (the contact sheet), re-encoded smaller until it fits ``budget``: ``(base64, long side)`` or ``(None, 0)``."""
     b64 = encode_image(path)
     if b64 is not None and len(b64) <= budget:
         return b64, MAX_IMAGE_SIDE
@@ -108,21 +79,17 @@ def _fit_first(path: str, budget: int) -> tuple[str | None, int]:
 
 
 def observation_content(obs: Observation) -> list[Any]:
-    """Observation → MCP content blocks (text first, then images), both bounded."""
+    """Observation → bounded MCP content blocks (text first, then images)."""
     from mcp import types
 
     text = obs.text
     if obs.numbers:
         nums = json.dumps(obs.numbers, default=str)
         text += "\n" + (nums if len(nums) <= MAX_NUMBERS_CHARS else fmt_numbers(obs.numbers))
-    # the slice makes the ceiling hard: truncate's "N chars omitted" marker overshoots its
-    # own budget by a few characters, and this is the last bound before the vendor's prompt
+    # the slice makes the ceiling hard: truncate's omitted-marker overshoots its budget
     blocks: list[Any] = [types.TextContent(type="text", text=truncate(text, MAX_TEXT_CHARS)[:MAX_TEXT_CHARS])]
-    # images[0] is the contact sheet (the tools list it first) and every later image is
-    # a per-view repeat of it, so the budget STOPS at the first one that does not fit rather
-    # than skipping it: dropping the sheet and shipping three views of the same thing would
-    # be the worst of both.  Whatever is dropped is said in the text — a FAIL verdict that
-    # silently shipped no picture is the case this guards.
+    # images[0] is the contact sheet; later images repeat it per view, so the budget stops at
+    # the first that does not fit.  Dropped images are always said in the text.
     wanted = obs.images[:max_images_for(obs)]
     kept, spent, dropped, shrunk = [], 0, 0, 0
     for i, p in enumerate(wanted):
@@ -146,8 +113,7 @@ def observation_content(obs: Observation) -> list[Any]:
         notes.append(f"[{dropped} image(s) not attached: over the {MAX_IMAGE_BYTES}-byte "
                      "payload bound or unreadable; the files are in the workspace]")
     if notes:
-        # inside the ceiling, not appended past it: this is the last bound before the
-        # vendor's prompt, so the note takes room from the body rather than adding to it
+        # the note takes room from the body so the text ceiling holds
         tail = "\n" + "\n".join(notes)
         body = blocks[0].text[:max(0, MAX_TEXT_CHARS - len(tail))]
         blocks[0] = types.TextContent(type="text", text=body + tail)
@@ -157,15 +123,7 @@ def observation_content(obs: Observation) -> list[Any]:
 
 
 async def call_tool(ctx: ToolContext, defs: dict[str, Any], params: Any) -> Any:
-    """One MCP tool call → a ``CallToolResult``.
-
-    Module level, not a closure inside :func:`make_server`, so the coupling below can be
-    driven by a test instead of grepped for: ``is_error`` is ``Observation.failed``, NOT
-    ``not ok``.  A tool that RAN and answered FAIL is a result the model must read; an MCP
-    error is a call the vendor retries instead (a mean 119k prompt tokens, $0.030 blended)
-    — and, on gemini-cli, one whose images it re-sends as base64 TEXT.  The FAIL verdict
-    leads the text.
-    """
+    """One MCP tool call → ``CallToolResult``; ``is_error`` is ``Observation.failed``, not ``not ok`` (vendors retry MCP errors)."""
     from mcp import types
 
     tdef = defs.get(params.name)

@@ -1,32 +1,8 @@
-"""Write the routed bundles into a workspace, as real files, twice.
+"""Write the routed skill bundles into a workspace as real files, in both discovery roots.
 
-WHY twice: the discovery roots were read out of the shipped binaries, not assumed.
-codex and agy both read ``<ws>/.agents/skills/<name>/SKILL.md``; claude-code
-2.1 reads ``<ws>/.claude/skills/<name>/SKILL.md`` and has **no** ``.agents`` skill root at
-all (its ``.agents`` strings are plugin-migration paths).  So the same bytes go to both.
-
-WHY copies and not symlinks: codex refuses them outright ("Symbolic links are not allowed
-in skills").  A 2-10 KB duplicate in a disposable workspace costs nothing.
-
-WHY ``os.utime`` at the end: the read probe in ``telemetry.py`` says a bundle was opened
-when ``atime > mtime``.  That only means anything if the two start equal, so
-materialisation stamps them equal instead of trusting whatever the copy left behind.
-
-WHY a CONTROL bundle goes in beside them: because ``atime > mtime`` turned out to be a
-much weaker signal than the design assumed, and measured on 2026-08-25 it fires with
-nobody reading anything.  Two independent causes, both verified:
-
-* ``Workspace.changed_files`` runs ``git add -A -N`` then ``git diff --numstat`` after
-  every agent session, and git reads each untracked file to compute the diff.  On a real
-  git workspace that alone flips all four files of a bundle to "read".
-* every CLI (codex 0.149.0, claude-code 2.1.245, agy 1.1.20 — and gemini-cli 0.53.0, gone since D103) opens
-  ``references/*.md`` while activating a skill, including on a task whose description does
-  not match and with the prompt telling them not to activate anything.
-
-Neither can be argued away, so the probe carries its own falsification: one extra bundle
-that is never routed, never indexed and never mentioned.  If IT comes back "read", the
-session's atime evidence proves nothing and ``deep_read_rate`` reports ``None`` instead of
-a confident 100%.
+Copies, not symlinks (codex refuses symlinks).  A never-routed CONTROL bundle goes in beside
+them: if the control reads as "read" the atime probe in ``telemetry.py`` proves nothing
+(git and every CLI touch bundle files regardless).  ``os.utime`` stamps atime == mtime.
 """
 
 from __future__ import annotations
@@ -60,8 +36,7 @@ BODY_FILES = ("AGENTS.md", "CLAUDE.md")
 MARK_BEGIN = "<!-- 3dcode:skills -->"
 MARK_END = "<!-- /3dcode:skills -->"
 
-#: the never-routed bundle whose atime falsifies the probe.  Named so it sorts away from
-#: the real ones, and worded so an agent that does read it has been told it is a control.
+#: the never-routed bundle whose atime falsifies the read probe
 CONTROL_NAME = "zz-c3d-read-control"
 CONTROL_SKILL_MD = f"""---
 name: {CONTROL_NAME}
@@ -115,12 +90,7 @@ def _copy_bundle(skill: Skill, dest_root: Path) -> list[Path]:
 
 
 def materialize_skills(ws_root: Path, skills: Sequence[Skill]) -> list[Path]:
-    """Copy each bundle into both discovery roots; returns every file written.
-
-    Stale bundles from a previous round are removed, so the workspace always shows the
-    set this round actually routed — otherwise the read probe would credit a skill that
-    a later round no longer attaches.
-    """
+    """Copy each bundle into both discovery roots, removing stale bundles; returns every file written."""
     root = Path(ws_root)
     wanted = {s.name for s in skills} | {CONTROL_NAME}
     written: list[Path] = []
@@ -140,12 +110,7 @@ def materialize_skills(ws_root: Path, skills: Sequence[Skill]) -> list[Path]:
 
 
 def write_index(ws_root: Path, text: str) -> list[str]:
-    """Replace (or append) the marked skills section in every agent body file.
-
-    A marked section rather than a rewrite of the body: ``agents/materialize.py`` writes
-    the body once per run, but the routed set changes per round, and rewriting the whole
-    file from here would duplicate its knowledge of what belongs in it.
-    """
+    """Replace (or append) the marked skills section in every agent body file."""
     block = f"{MARK_BEGIN}\n{text.strip()}\n{MARK_END}\n" if text.strip() else ""
     out: list[str] = []
     for name in BODY_FILES:
@@ -180,14 +145,8 @@ def attach_skills(
 ) -> SkillsMaterialized:
     """Route → write → return what a session will see.  The one entry point tracks call.
 
-    The caller decides whether the feature is on (``Settings.skills``); this function
-    assumes it is, so a test can attach without setting the environment.
-
-    ``only`` (env ``C3D_SKILLS_ONLY``) restricts the LIBRARY before routing, which is
-    what an effect A/B needs: the delta then belongs to one bundle instead of to whatever
-    set of five the router happened to pick.  Restricting the library — rather than
-    filtering ``sel`` afterwards — also stops the cap from spending a slot on a bundle
-    that is not under test and then dropping the one that is.
+    ``only`` restricts the LIBRARY before routing (an A/B isolates one bundle; filtering
+    ``sel`` afterwards would let the cap waste a slot on a bundle not under test).
     """
     cfg = get_settings()
     picked = frozenset(n.strip() for n in cfg.skills_only.split(",") if n.strip()) if only is None else only
@@ -199,8 +158,7 @@ def attach_skills(
         if not library:
             log.warning("C3D_SKILLS_ONLY=%s matches no bundle in the library; this session attaches nothing",
                         ",".join(sorted(picked)))
-    # the active variant (D105): its overlay bundles are already in all_skills() (select's default
-    # library) and its routes.toml reshapes the table — extra rows after the base ones, boosts, disabled ids
+    # the active variant's overlay bundles are already in all_skills(); its routes.toml extends the table
     variant = active_variant()
     table = _routes_table(variant)
     sel: list[Selection] = select(
@@ -213,8 +171,7 @@ def attach_skills(
     out = SkillsMaterialized(listed=[s.name for s in sel], selections=list(sel),
                              reasons={s.name: s.reason for s in sel}, attached_at=time.time(), variant=variant)
     if not sel or single_shot:
-        # an empty selection is a legal desired set: the sweep must still run, or last
-        # round's bundles stay live where the native CLIs discover skills by directory
+        # an empty selection must still sweep, or last round's bundles stay discoverable
         with suppress(OSError):
             materialize_skills(ws_root, [])
     if not sel:
@@ -222,7 +179,7 @@ def attach_skills(
         return out
 
     if single_shot:
-        # No read loop: a pointer to a file it cannot open would be pure cost.
+        # no read loop: a pointer to a file it cannot open would be pure cost
         name, text = inline_body(sel)
         out.inlined = name
         out.index_tokens = 0
@@ -242,8 +199,7 @@ def attach_skills(
 
 
 def _routes_table(variant: str) -> Any:
-    """The variant's ``routes.toml`` as typed rows, or the empty table when it does not type-check: a
-    typo in the overlay costs the overlay (logged, base routing), never the round's skills."""
+    """The variant's ``routes.toml`` as typed rows; an invalid overlay falls back to the base table."""
     from codeverse3d.skills import VariantRoutes, variants_table
 
     try:

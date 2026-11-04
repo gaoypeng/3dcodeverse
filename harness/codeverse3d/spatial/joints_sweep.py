@@ -1,9 +1,6 @@
-"""Pose sweep QC on a :class:`Robot`: overlaps, contacts, floating links, motion
-direction.  Collision bodies live in :mod:`joints_collide` (FCL for the boolean
-collide / distance queries; deterministic per-island containment for the
-penetration depth — FCL's mesh-mesh contact depths are per-triangle artefacts).
-:func:`sweep_gate` is THE ``joint_sweep`` verdict: the round's gate and the tool's.
-"""
+"""Pose sweep QC on a :class:`Robot`: overlaps, contacts, floating links, motion direction.
+
+Collision bodies live in :mod:`joints_collide`."""
 
 from __future__ import annotations
 
@@ -26,7 +23,6 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-#: the articulated track's gate id — every finding this module emits carries it
 SWEEP_GATE = "joint_sweep"
 
 
@@ -41,9 +37,7 @@ class Overlap(BaseModel):
 
 
 class FloatingLink(BaseModel):
-    """A link that is not physically attached to its PARENT link the way its
-    joint type requires (fixed → touching; revolute/continuous → hinge edge
-    within ``hinge_clearance_m``; prismatic → inserted into / touching the parent)."""
+    """A link that is not attached to its parent link the way its joint type requires."""
 
     link: str
     nearest: str = Field(default="", description="the parent link it should attach to")
@@ -84,13 +78,7 @@ class MotionCheck(BaseModel):
     observed_dir: tuple[float, float, float]
     ok: bool
     message: str
-    #: how aligned the observed tangent is with the expected direction (dot product)
     cos: float = 0.0
-    #: an axis that WOULD send positive motion the expected way, computed from the
-    #: pivot geometry (revolute: normalize(r x want); prismatic: want) — None when the
-    #: lever arm is degenerate.  Added 2026-08-31: af_swiss_knife failed this check on
-    #: the same joints three rounds straight while the agent guessed; the geometry
-    #: admits an exact answer, so the hint should state it.
     suggested_axis: tuple[float, float, float] | None = None
 
 
@@ -103,17 +91,13 @@ def sweep_collisions(
     contact_gap_m: float = CONTACT_GAP_M,
     hinge_clearance_m: float = 0.01,
 ) -> SweepReport:
-    """Collide every link pair in every pose.  Overlaps deeper than ``tol_m``
-    are reported; at the rest pose every link is checked for attachment to its
-    PARENT link according to its joint type (``floating`` = not attached)."""
+    """Collide every link pair in every pose."""
     names = robot.meshed_links()
     if not names:
         raise UrdfError("sweep_collisions: robot has no link meshes")
     bodies = {n: collide.LinkBody(n, robot.links[n].mesh) for n in names}  # type: ignore[arg-type]
     per_pose: list[PoseReport] = []
     islands = {n: len(bodies[n].islands) for n in names}
-    # links joined only by fixed joints never move relative to each other: their overlap is
-    # structural and is measured once (at rest when the sweep has a rest pose, else first pose)
     comps = collide.components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
     rigid_group = {n: i for i, comp in enumerate(comps) for n in comp}
     labels = [pose_label(robot, q) for q in poses]
@@ -137,10 +121,10 @@ def sweep_collisions(
                 if collide.collide(ba, bb) or (gap_aabb <= 0.0 and collide.contained(ba, bb)):
                     dist = 0.0
                     if rigid and idx != rigid_pose:
-                        pass  # structural overlap, already measured in pose ``rigid_pose``
+                        pass
                     else:
                         depth, approx = collide.penetration(ba, bb)
-                        if round(depth, 4) > tol_m:  # 0.1 mm: float32 mesh coordinates carry no finer meaning
+                        if round(depth, 4) > tol_m:
                             overlaps.append(
                                 Overlap(a=a, b=b, depth_m=round(depth, 6), approx=approx, rigid=rigid)
                             )
@@ -150,7 +134,7 @@ def sweep_collisions(
                 if dist <= contact_gap_m:
                     touching.add((a, b))
         floating: list[FloatingLink] = []
-        if pose_label(robot, q) == "rest":  # attachment is a structural (rest-pose) property
+        if pose_label(robot, q) == "rest":
             for n in names:
                 j = robot.parent_joint(n)
                 if j is None or j.parent not in bodies:
@@ -160,7 +144,7 @@ def sweep_collisions(
                     thr = contact_gap_m
                 elif j.type == "prismatic":
                     if collide.aabb_gap(bodies[n].aabb, bodies[j.parent].aabb) <= 0.0:
-                        continue  # inserted into the parent's envelope (drawer in cavity)
+                        continue
                     thr = hinge_clearance_m
                 else:  # revolute / continuous / planar / floating
                     thr = hinge_clearance_m
@@ -181,7 +165,7 @@ def _summarise(per_pose: list[PoseReport], n_links: int, islands: dict[str, int]
         for o in pr.overlaps:
             if o.depth_m > s.max_penetration_m:
                 s.max_penetration_m, s.worst_pose = o.depth_m, pr.label
-            if pr.label == "rest" or o.rigid:  # structural overlaps count as rest penetration
+            if pr.label == "rest" or o.rigid:
                 s.rest_max_penetration_m = max(s.rest_max_penetration_m, o.depth_m)
         if pr.overlaps:
             s.overlapping_poses.append(pr.label)
@@ -194,13 +178,12 @@ def _summarise(per_pose: list[PoseReport], n_links: int, islands: dict[str, int]
 
 # ------------------------------------------------------------------ gate findings
 def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clearance_m: float = 0.01) -> list[GateFinding]:
-    """Turn a sweep report into gate findings (ERROR for rest penetration > ``rest_max_m``,
-    overlaps in moved poses and floating links beyond ``hinge_clearance_m``; WARN otherwise)."""
+    """Turn a sweep report into gate findings: rest penetration beyond ``rest_max_m``, moved-pose overlaps, and floating links beyond ``hinge_clearance_m``."""
     gate = SWEEP_GATE
     out: list[GateFinding] = []
     for pr in report.per_pose:
         for o in pr.overlaps:
-            at_rest = pr.label == "rest" or o.rigid  # a weld between rigidly joined links is a rest-pose property
+            at_rest = pr.label == "rest" or o.rigid
             sev = Severity.ERROR if (not at_rest or o.depth_m > rest_max_m) else Severity.WARN
             out.append(GateFinding(
                 gate=gate, severity=sev, target=f"{o.a}|{o.b}",
@@ -229,19 +212,11 @@ def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clea
     return out
 
 
-#: ERROR findings kept after aggregation (the deepest pairs); the rest fold into one WARN
 MAX_PAIR_FINDINGS = 8
 
 
 def aggregate_findings(findings: list[GateFinding]) -> list[GateFinding]:
-    """One finding per link pair (or per floating link), the worst pose first.
-
-    compare_art_v3 (2026-08-28): a run produced 59 penetration findings for a handful of
-    pairs — one per sampled pose — and the refine prompt carried them as 59 lines the
-    agent could not act on; the loop burnt its budget without converging.  Merge the
-    poses of a pair into one line that says how many poses, the worst depth and where,
-    keep the deepest ``MAX_PAIR_FINDINGS`` as ERRORs and summarise the remainder.
-    """
+    """One finding per link pair (or per floating link), the worst pose first."""
     groups: dict[tuple[str, str | None], list[GateFinding]] = {}
     order: list[tuple[str, str | None]] = []
     for f in findings:
@@ -280,14 +255,13 @@ def aggregate_findings(findings: list[GateFinding]) -> list[GateFinding]:
     return errors + warns
 
 
-#: share of a link's sampled surface that must lie inside ONE other link to call it buried
 BURIED_FRACTION = 0.98
 BURIED_SAMPLES = 200
 
 
 def _inside_fraction(body: Any, points_world: np.ndarray) -> float:
-    """Share of ``points_world`` inside any of ``body``'s islands (these LinkBodies are
-    built from world meshes, so the pose transform is the identity)."""
+    """Share of ``points_world`` inside any of ``body``'s islands (these LinkBodies are built
+    from world meshes, so the pose transform is the identity)."""
     local = trimesh.transform_points(points_world, body.T_inv)
     mask = np.zeros(len(local), dtype=bool)
     for isl in body.islands:
@@ -296,11 +270,7 @@ def _inside_fraction(body: Any, points_world: np.ndarray) -> float:
 
 
 def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float = BURIED_FRACTION) -> list[GateFinding]:
-    """Links whose surface lies (almost) entirely inside another link at rest — the part
-    can neither be seen nor move (compare_art_v4: a clamp's swivel pad was generated
-    inside the jaw and the judge reported it missing).  Uses the sweep's own
-    :class:`LinkBody` island containment, so this check and the collision sweep agree
-    about what "inside" means; works on the open meshes agents actually export."""
+    """Findings for links whose surface lies (almost) entirely inside another link at rest, so the part can neither be seen nor move."""
     meshes = link_world_meshes(robot, {})
     bodies = {n: collide.LinkBody(n, m) for n, m in meshes.items() if not m.is_empty and m.area > 0}
     out: list[GateFinding] = []
@@ -331,26 +301,13 @@ def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float
 
 # ------------------------------------------------------------------ the gate
 def find_urdf(ws: Workspace) -> Path | None:
-    """The BUILT ``artifacts/robot.urdf`` — or None, which means "run build first".
-
-    Only the build's copy pairs with ``artifacts/meshes`` (a failed build invalidates both).
-    The authored ``src/robot.urdf`` was a fallback until 2026-09-23: the round never reached
-    it (its gates run on a green build only), and the tool refused before it; what it could
-    do was sweep an edited URDF against the last build's meshes (review 2 C5)."""
+    """The BUILT ``artifacts/robot.urdf`` — or None, which means "run build first"."""
     urdf = ws.artifacts / "robot.urdf"
     return urdf if urdf.is_file() else None
 
 
 def sweep_gate(ws: Workspace) -> tuple[GateReport, Robot | None]:
-    """THE ``joint_sweep`` verdict on the built robot, and the robot (None when none loaded).
-
-    Every pose of :func:`pose_samples` collided, the findings one per link pair
-    (:func:`aggregate_findings`, D50), plus :func:`buried_links`.  The round's gate
-    (``tracks/articulated_object.default_joint_sweep``, which adds the pose renders) and
-    the ``joint_sweep`` tool both report exactly this, so the agent's check and the
-    round's can no longer disagree (until 2026-09-22 the tool failed any overlap past
-    2 mm and any gap, the gate had a 5 mm rest / 30 mm hinge WARN band and buried links).
-    """
+    """THE ``joint_sweep`` verdict on the built robot, and the robot (None when none loaded)."""
     urdf = find_urdf(ws)
     if urdf is None:
         return GateReport.of(SWEEP_GATE, [GateFinding(
@@ -382,8 +339,7 @@ _DIRS: dict[str, tuple[float, float, float]] = {
 
 def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: float | None = None) -> MotionCheck:
     """Does the child's centroid move along ``expected`` (``'+z'``, ``'-y'``, ``'up'``,
-    ``'front'``, ``'open_up'`` ...) when ``joint`` moves positively from rest?
-    Revolute joints are probed with a small angle so the initial tangent direction is tested."""
+    ``'front'``, ``'open_up'`` ...) when ``joint`` moves positively from rest? Revolute joints"""
     key = expected.strip().lower()
     if key not in _DIRS:
         raise UrdfError(f"motion_direction_check: unknown direction {expected!r}; use one of {sorted(_DIRS)}")
@@ -391,7 +347,7 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
     if j is None or not j.movable:
         raise UrdfError(f"motion_direction_check: {joint!r} is not a movable joint")
     driven_by = None
-    if j.mimic is not None:  # a driven joint has no input of its own: probe what drives it
+    if j.mimic is not None:
         driven_by = j
         while driven_by.mimic is not None:
             driven_by = robot.joints[driven_by.mimic.joint]
@@ -416,12 +372,7 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
     ok = cos > 0.5
     suggested = None
     if not ok:
-        # ``want``/``s`` are WORLD vectors, but URDF <axis> lives in the JOINT frame
-        # (fk composes parent @ origin @ motion(q), so the axis acts after origin) —
-        # express the suggestion there, or a rotated origin / rotated ancestor chain
-        # makes the "exact" repair install a provably wrong axis (repro: a hinge with
-        # rpy="0 0 1.57" kept its motion ERROR after installing the world-frame value).
-        R_joint = fk(robot, {})[j.child][:3, :3]  # motion(0) = I, so this is rot(parent @ origin)
+        R_joint = fk(robot, {})[j.child][:3, :3]
         if j.type == "prismatic":
             suggested = tuple(round(float(v), 3) for v in R_joint.T @ want)
         else:

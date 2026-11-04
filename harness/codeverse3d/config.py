@@ -4,13 +4,11 @@ Resolution order (later wins): built-in defaults < ``~/.config/3dcodeverse/confi
 < ``./3dcodeverse.yaml`` < environment variables (``C3D_*``).  Secrets are never
 written to run records.
 
-Gemini keys: ``GEMINI_API_KEYS`` (csv) or ``GEMINI_API_KEY`` or the owner's
-``~/.config/astra3d/gemini_keys.env`` file (read-only compatibility).
+Gemini keys: ``GEMINI_API_KEYS`` (csv), ``GEMINI_API_KEY`` or ``~/.config/astra3d/gemini_keys.env``.
 
-One switch grammar: every ``C3D_*`` knob the harness reads is a field here, read through
-``get_settings()`` at the call that uses it — no module reads the environment by hand.  A
-field ``x`` is ``C3D_X`` (a nested ``section.x`` is ``C3D_SECTION__X``, plus the flat
-spellings in :data:`Settings.FLAT`); an on/off switch is a :data:`Flag`.
+Every ``C3D_*`` knob is a field here, read through ``get_settings()``.  A field ``x`` is
+``C3D_X`` (nested ``section.x`` is ``C3D_SECTION__X``, plus :data:`Settings.FLAT`); an on/off
+switch is a :data:`Flag`.
 """
 
 from __future__ import annotations
@@ -48,8 +46,6 @@ log = logging.getLogger(__name__)
 
 
 def _or_default(value: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo) -> Any:
-    """A switch that does not parse warns and keeps its DEFAULT (D44 c): a typo in a bench
-    command runs the arm that never set it — not a crash mid-battery, and not the variant."""
     try:
         return handler(value.strip() if isinstance(value, str) else value)
     except ValidationError:
@@ -57,15 +53,12 @@ def _or_default(value: Any, handler: ValidatorFunctionWrapHandler, info: Validat
         raise PydanticUseDefault() from None
 
 
-#: an on/off switch: on/off, 1/0, true/false, yes/no (any case, t/f and y/n too); anything
-#: else warns and keeps the field's default
+#: an on/off switch (on/off, 1/0, true/false, yes/no); anything else keeps the default
 Flag = Annotated[bool, WrapValidator(_or_default)]
-#: a switch that is a count (>= 0); anything else warns and keeps the field's default
 Count = Annotated[int, Field(ge=0), WrapValidator(_or_default)]
 
 
-#: THE supported Blender: 5.2 LTS (owner, 2026-10-14 — developed and measured on 5.2.2; 4.2 / 5.0
-#: compatibility was dropped, D104).  ``3dcode doctor`` fails anything older.
+#: the supported Blender (5.2 LTS); ``3dcode doctor`` fails anything older.
 BLENDER_MIN: tuple[int, int] = (5, 2)
 
 
@@ -78,8 +71,6 @@ class Binaries(BaseModel):
 
 
 class Agents(BaseModel):
-    """Knobs for the CLI-backed coding agents (the subscription CLIs)."""
-
     codex_reasoning_effort: str = Field(
         default="high",
         description="`-c model_reasoning_effort=` passed to every `codex:` call (agent and one-shot).  "
@@ -103,13 +94,9 @@ class Render(BaseModel):
         "the node side reads too)")
     sheet_cols: int = 4
     sheet_tile: int = 384
-    # scene_blender pictures (spatial/render_blender.py, owner D1/D8 2026-09-24; the 5.2.2 fast path D104,
-    # 2026-10-14).  Measured on this box (RTX 5090, Blender 5.2.2 LTS, 1024x576, 460 objects): Cycles
-    # CUDA 32 spp + GPU OIDN 0.64 s/frame, 0.21 s/frame once persistent data keeps the synced scene
-    # between the cameras of one job (8 frames 5.3 s → 2.2 s); 64 spp 0.69 s, 128 spp 0.86 s; CPU 2.3 s
-    # at 32 spp.  EEVEE in background is SLOWER here: 5.2 s/frame + a 12 s shader compile per process,
-    # GPU only under the Mesa d3d12 env (spatial/gl_render.GPU_ENV) — without it EEVEE silently lands
-    # on llvmpipe (10x).  OptiX is unavailable under WSL2 (and probing it crashes Blender): CUDA only.
+    # scene_blender pictures (spatial/render_blender.py).  Cycles CUDA + GPU OIDN is the fast path;
+    # EEVEE needs the Mesa d3d12 env (spatial/gl_render.GPU_ENV) or lands on llvmpipe.
+    # OptiX is unavailable under WSL2 and probing it crashes Blender: CUDA only.
     blender_engine: Annotated[Literal["cycles", "eevee"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="cycles", description="judged-frame engine for scene_blender (C3D_RENDER__BLENDER_ENGINE)")
     blender_frame_time_limit_s: float = Field(
@@ -134,13 +121,8 @@ class Limits(BaseModel):
     render_timeout_s: int = 300
     agent_timeout_s: int = AGENT_TIMEOUT_S
     bpy_rlimit_gb: int = 12
-    # Both measured, not guessed (docs/COST.md Part III).  These size the
-    # *subprocess* side (blender / node / chrome), which is bound by cores — 24
-    # here — and NOT by the provider: the model-call ceiling is Rate.max_in_flight.
-    # 32 concurrent blender builds of a recorded model.py peaked at 16 workers
-    # (1 392 builds/min; 24 workers gave 1 168, 32 gave 1 019), so a fan-out of 12
-    # agent tasks x their own builds stays inside the knee and leaves cores for the
-    # render pass, whose tail is minutes long.
+    # These size the subprocess side (blender / node / chrome, bound by cores); the model-call
+    # ceiling is Rate.max_in_flight.
     max_parallel_agents: int = Field(default=12, ge=1, description="thread fan-out for agent tasks (>= 1)")
     max_parallel_builds: int = Field(default=8, ge=1, description="concurrent build subprocesses (>= 1)")
     agent_max_turns: Count = Field(
@@ -153,25 +135,16 @@ class Limits(BaseModel):
 
 
 class Rate(BaseModel):
-    """The model-call ceiling and the 503 hedge (``docs/COST.md`` Part III).
+    """The model-call ceiling and the 503 hedge.
 
-    ``max_in_flight`` is a MACHINE-WIDE ceiling on the harness's own concurrent model calls
-    (flock'd slot files under ``<cache_dir>/slots/``, shared by every process — COST §23)
-    and is deliberately separate from ``Limits.max_parallel_agents`` /
-    ``max_parallel_builds``: blender / node / chrome are CPU-bound and sized by cores, model
-    calls are network-bound and sized by the provider.  0 = unlimited.  A vendor CLI
-    session takes a key from the pool but no slot.  There is no RPM / TPM quota here any more:
-    since the api-agent went the harness's own calls peaked at 2.6 % of one key's RPM
-    and 3.9 % of its TPM, so the buckets they fed never engaged (COST §19).
+    ``max_in_flight`` is machine-wide (flock'd slot files under ``<cache_dir>/slots/``), separate
+    from the core-bound ``Limits`` fan-outs.  0 = unlimited.  A vendor CLI session takes a key
+    but no slot.
     """
 
     max_in_flight: int = Field(
         default=96,
-        ge=0,  # NEGATIVE is not "unlimited" here: 0 is.  Without this bound -5 survived config,
-               # was reported as FITTING the pool budget by `3dcode doctor`, poisoned the shared
-               # in-flight accounting, and finally died as a bare ValueError from
-               # threading.BoundedSemaphore inside KeyPool -- at the first model call, long
-               # after the workspace and spec.json were written.
+        ge=0,  # negative is not "unlimited" (0 is); a negative would poison the slot accounting
         description="machine-wide cap on concurrent model calls (0 = off): every process draws "
         "from the same N slot files, so the machine never exceeds the largest N any process runs "
         "with.  Measured knee: a 128-call burst of 12k-token prompts ran 29.6 calls/min at 16 "
@@ -189,8 +162,6 @@ class Rate(BaseModel):
 
 
 class Judge(BaseModel):
-    """Judge payload size — what one verdict is allowed to send (docs/COST.md §3)."""
-
     max_px: int = Field(default=1024, description="longest edge of a montage / crop sent to the judge")
     montages: int = Field(default=5, description="max 2x2 montages per verdict (14-view rig, D47)")
     detail_crops: int = Field(default=2, description="max zoomed detail crops per verdict")
@@ -210,13 +181,9 @@ class Judge(BaseModel):
 
 
 class Placement(BaseModel):
-    """The scene_placement gate's thresholds (spatial/scene_placement.py), metres / fractions.  Settings
-    fields so a per-model variant or an A/B can tighten them and the record names what a run used.
-    The defaults are the STRICT standards the owner asked for on 2026-10-14 (D105; the 2026-09
-    calibration was floating ERROR 0.15 m / > 3, sunk ERROR 0.30 m + 25 %, overlap WARN 0.20 /
-    ERROR 0.60): a 8 cm hover, a 20 cm burial or a 35 % box overlap is an ERROR now, and a
-    10 % overlap is reported.  The JS measurement (host_placement.mjs) keeps its own CONTACT /
-    FLOATING / SUNK constants: these decide severities only."""
+    """The scene_placement gate's thresholds (spatial/scene_placement.py), metres / fractions.
+    The JS measurement (host_placement.mjs) keeps its own CONTACT / FLOATING / SUNK constants:
+    these decide severities only."""
 
     contact_m: float = Field(default=0.02, ge=0, description="foot within this of a surface = seated")
     floating_outdoor_m: float = Field(default=0.05, ge=0, description="gap above which an outdoor asset floats")
@@ -233,14 +200,10 @@ class Placement(BaseModel):
 
 
 class Settings(BaseSettings):
-    # env_ignore_empty: ``C3D_X=`` is unset, never "" (an empty C3D_CACHE_DIR was the cwd)
     model_config = SettingsConfigDict(env_prefix="C3D_", env_nested_delimiter="__", extra="ignore",
                                       env_ignore_empty=True)
 
-    #: Nested knobs that also have a flat spelling — the name the docs, the node side and the
-    #: A/B commands type.  ``C3D_MAX_IN_FLIGHT=16`` went into three launch commands on
-    #: 2026-08-24 before anyone noticed only ``C3D_RATE__MAX_IN_FLIGHT`` was read.  The flat
-    #: one wins when both are set; the nested field validates it.
+    #: nested knobs with a flat spelling; the flat one wins
     FLAT: ClassVar[dict[str, tuple[str, str]]] = {
         "C3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
         "C3D_RENDER_GPU": ("render", "gpu"),
@@ -250,9 +213,7 @@ class Settings(BaseSettings):
     @classmethod
     def settings_customise_sources(cls, settings_cls: Any, init_settings: Any, env_settings: Any,
                                    dotenv_settings: Any, file_secret_settings: Any) -> tuple[Any, ...]:
-        """``C3D_*`` beats the yaml files (``get_settings`` passes those as init kwargs, which
-        pydantic-settings ranks FIRST): a switch in a config file must never override the
-        environment an A/B arm runs under."""
+        """``C3D_*`` beats the yaml files (passed as init kwargs, which would otherwise rank first)."""
         return env_settings, init_settings, dotenv_settings, file_secret_settings
 
     @model_validator(mode="before")
@@ -280,8 +241,6 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = ""
 
-    # Backend-role defaults: the literals live in ONE place — contracts/common.py::Backends
-    # (which also documents why the judge default is the pro tier).
     default_planner: str = Field(default_factory=lambda: Backends().planner)
     default_generator: str = Field(default_factory=lambda: Backends().generator)
     default_judge: str = Field(default_factory=lambda: Backends().judge)
@@ -297,11 +256,8 @@ class Settings(BaseSettings):
         "a 55 800-token plan needs ~930 s and died at the socket, its tokens billed and discarded. "
         "Owner's rule 2026-08-27: time may be generous, errors may not.")
 
-    # Per-model prompt/skill variants (D105, 2026-10-14): an overlay directory
-    # codeverse3d/prompts/variants/<name>/ (prompt files that shadow the base ones) plus
-    # codeverse3d/skills/variants/<name>/ (bundles that shadow base bundles, routes.toml with
-    # boosts).  Chosen EXPLICITLY — by name, or by an exact generator-id lookup — never by a
-    # regex over the model id (Law 4).  `3dcode make --variant` freezes the choice on the spec.
+    # Per-model prompt/skill variants: overlays under prompts/variants/<name>/ and
+    # skills/variants/<name>/, chosen by name or exact generator id, never by regex.
     variant: str = Field(default="", description="prompt/skill variant for every run of this process "
                          "(C3D_VARIANT; a name under codeverse3d/prompts/variants/); '' = base")
     variants: dict[str, str] = Field(default_factory=dict, description="exact generator id → variant name, "
@@ -310,9 +266,7 @@ class Settings(BaseSettings):
                                      "`variant` is empty, by the id as typed and then by '<kind>:<served model>'")
 
     # ------------------------------------------------------------------ switches
-    # The A/B switches and runtime overrides, each read as C3D_<NAME> at the call that uses
-    # it.  An A/B arm is a child process with its own environment (eval/bench/ab_plan.py), and
-    # tracks/plan_features.py derives which C3D_* names are live from these fields.
+    # tracks/plan_features.py derives the live C3D_* names from these fields.
     skills: Flag = Field(default=True, description="route, materialise and measure skill bundles "
                          "(D81, on since 2026-09-22); C3D_SKILLS=0 is an A/B's no-skills arm")
     skills_max: Count = Field(
@@ -345,9 +299,6 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------------ helpers
     def backends(self, **overrides: str | None) -> Backends:
-        """The ``Backends`` for a new Spec from the settings defaults.  Keyword
-        overrides (``planner`` / ``generator`` / ``judge`` / ``captioner``) win
-        when truthy; ``None`` / ``""`` falls through to the default."""
         base: dict[str, str] = {
             "planner": self.default_planner,
             "generator": self.default_generator,
@@ -363,8 +314,7 @@ class Settings(BaseSettings):
         return Backends(**base)
 
     def resolve_blender(self) -> str:
-        """The configured binary (a path or a name on PATH), else the first Blender on PATH.  A
-        configured one that is not there is "none", never a silent substitute for it."""
+        """The configured binary, else the first Blender on PATH; a configured-but-missing one is ``""``."""
         if self.binaries.blender:
             return shutil.which(self.binaries.blender) or ""
         for cand in ("blender-5.2", "blender"):
@@ -374,11 +324,7 @@ class Settings(BaseSettings):
         return ""
 
     def runtime_js_dir(self) -> Path:
-        """The Node runtime (runtime_js/) — repo-relative in an editable install.
-
-        ``C3D_RUNTIME_JS`` overrides the location (the wheel does not package
-        runtime_js, so a non-editable install MUST point this at a checkout).
-        Missing dir → a loud error at first use instead of a cryptic node crash."""
+        """The Node runtime dir; ``C3D_RUNTIME_JS`` overrides it (required for a non-editable install)."""
         d = self.runtime_js.expanduser() if self.runtime_js else Path(__file__).resolve().parent.parent / "runtime_js"
         if not d.is_dir():
             raise RuntimeError(
@@ -389,9 +335,7 @@ class Settings(BaseSettings):
 
 
 def _load_yaml(path: Path) -> dict:
-    """A config file's mapping; a file that is not one is a ``ValueError`` naming it (the CLI
-    reports that as a bad configuration — a YAML syntax error or a top-level list used to
-    escape every command as a raw traceback)."""
+    """A config file's mapping; anything else is a ``ValueError`` naming the file."""
     if not path.is_file():
         return {}
     try:
@@ -405,7 +349,6 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _legacy_gemini_keys() -> list[str]:
-    """Read ``GEMINI_API_KEYS`` from the owner's astra3d keys file (csv, quoted)."""
     if not _LEGACY_KEYS_FILE.is_file():
         return []
     m = re.search(r'GEMINI_API_KEYS="?([^"\n]+)"?', _LEGACY_KEYS_FILE.read_text())
@@ -424,16 +367,6 @@ def _env_gemini_keys() -> list[str]:
 
 
 def _deep_merge(base: dict, overlay: dict) -> dict:
-    """Recursive dict merge — ``overlay`` wins per SETTING, not per section.
-
-    ``dict.update`` replaced a whole sub-dict, so a project ``./3dcodeverse.yaml`` that
-    merely NAMED a section silently dropped every sibling key the user had set in
-    ``~/.config/3dcodeverse/config.yaml`` — those keys fell back to the built-in Field
-    defaults, not to the user's values (2026-08-24: a user's per-key TPM quota was lost to
-    a project file that set only the in-flight cap).  docs/INSTALL.md §8.3 documents the
-    order as "built-in defaults < user config < project config < env", which every reader
-    takes as per-setting.
-    """
     out = dict(base)
     for k, v in overlay.items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
@@ -445,7 +378,6 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Build the singleton Settings (cached; call ``get_settings.cache_clear()`` in tests)."""
     data: dict = {}
     for p in (_USER_CONFIG, Path("3dcodeverse.yaml")):
         data = _deep_merge(data, _load_yaml(p))

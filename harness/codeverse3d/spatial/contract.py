@@ -1,34 +1,4 @@
-"""Contract gate: does the built GLB honour the plan's part list and boxes?
-
-Plans are authored in the language's *native* frame (see ``conventions``):
-blender / cadquery / urdf are Z-up with -Y front, three.js is Y-up.  The GLB is
-always Y-up, so plan boxes are converted with the glTF mapping
-``(x, y, z) → (x, z, -y)`` before comparison — and every number in a fix hint
-(sizes, deltas, centres, translation vectors) is converted *back* into the
-authoring frame and labelled, because hints are pasted verbatim into refine
-prompts that speak the language's frame.
-
-Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
-* plan part missing in the GLB → ERROR
-* plan part still the skeleton's placeholder box (:func:`is_placeholder`: every measured row at
-  most ``PLACEHOLDER_MAX_TRIS`` triangles, a closed solid filling its box, and within
-  ``PLACEHOLDER_TOL_M`` of the plan box) → ERROR
-  ``data["kind"] == "placeholder_part"`` (D110): it passes every box check by construction, so
-  without this a session cut off mid-draft shipped stand-ins the gates called perfect
-* bbox centre / extents off by > tol → WARN (exact delta in the hint);
-  > ``ERROR_FACTOR × tol`` → ERROR
-* overall bbox vs ``overall_bbox`` → same policy
-* overall extents are the plan's with up swapped for a horizontal axis → ERROR
-  ``data["kind"] == "orientation"`` (lying down / stood on end); the two horizontal
-  extents swapped → WARN "turned" (the az-0 view then shows a side, not the front)
-* lowest point off up = 0 by > ``GROUND_TOL_M`` → WARN (> ``ERROR_FACTOR ×`` → ERROR);
-  footprint off-centre → WARN
-* GLB parts the plan never mentioned → INFO
-
-Every WARN/ERROR carries ``data["kind"]`` (missing_part · placeholder_part · instance_count · part_bbox ·
-instance_bbox · overall_bbox · orientation · ground_gap · footprint_offset): the rubric
-caps and the skill router key on it, never on the message.
-"""
+"""Contract gate: does the built GLB honour the plan's part list and boxes?"""
 
 from __future__ import annotations
 
@@ -62,29 +32,10 @@ from codeverse3d.conventions import (
 from codeverse3d.spatial.measure import fmt_extent_cm, fmt_vec
 
 GATE = "contract"
-#: relative tolerance on extents (fraction of the plan's extent)
 REL_TOL = 0.10
-#: a delta beyond ERROR_FACTOR × tolerance is an error, not a warning
 ERROR_FACTOR = 3.0
 _AXES = ("x", "y", "z")
 
-# Orientation (2026-08-30).  A 90° turn about a horizontal axis leaves the AABB of the
-# planned box with its up extent swapped for a horizontal one, so "lying down" is a
-# permutation test on extents — but planners size THIN axes badly (h2h c_clamp: 9.6 cm
-# planned for a 2.4 cm clamp), so only the planned LONG axis is required to reappear,
-# within ORIENT_FIT; the thin one may be over-planned by up to ORIENT_OVER (the h2h
-# clock: 26 cm planned, 34 cm real).  The up extent itself must have shrunk by
-# ORIENT_LYING; a build merely too short (fancy_v1 chamber_organ, 1.15 m for 3.2 m
-# planned, nothing sideways) or a 2× scale error is contract_violation, not this.
-# "Stood on end" (taller than planned, the planned width now up) needs ORIENT_STOOD:
-# planners under-size tall objects — loop_w7 orrery 0.32 m planned / 0.47 m built and
-# fancy_v1 smock_windmill 18.5 / 25.8 m are upright and sit at 1.4–1.5×.  The rotation
-# axis's own extent must not have moved by more than ORIENT_THIRD (sysprompt_ab
-# b36_v0_01r: a table 1.38 m wide for a 0.48 m chair — wrong object, not rotated), and
-# near-cubes say nothing (ORIENT_ANISO).  Over every measured static_object round under
-# eval/bench/out (629 measurements: 435 rounds + 194 final measurement.json, 217 runs) these
-# fire 0 times; on the brilliana c_clamp and gate_valve GLBs (both lying, by eye) they
-# fire with the right axis.
 ORIENT_FIT = float(np.log(1.25))
 ORIENT_LYING = float(np.log(1.5))
 ORIENT_STOOD = float(np.log(2.0))
@@ -92,15 +43,6 @@ ORIENT_THIRD = float(np.log(1.5))
 ORIENT_ANISO = 1.5
 ORIENT_OVER = 1.4
 
-#: The skeleton's stand-in for a part is ONE axis-aligned box at the plan box — blender
-#: ``add_box`` / urdf ``box`` (``primitive_cube_add``, scale applied), three.js ``BoxGeometry``,
-#: cadquery ``Workplane.box`` — which every exporter writes as 12 triangles.  A part whose every
-#: measured row is that small, that exactly placed and a closed solid FILLING its box is the
-#: placeholder, whatever its name says (no source grep, Law 4).  1 mm is a tenth of the contract
-#: tolerance (max(10 mm, 10 %)).  The fill test keeps real 12-triangle hexahedra built to plan
-#: (a tapered cadquery fretboard, fill 0.879; wedges; open panes) out: over 942 measured part rows
-#: of loop_argon iter_00/01, the 68 true placeholders were all watertight at fill 1.000.  A real
-#: part is taken for one only when it is itself a bare box built to the plan's millimetre.
 PLACEHOLDER_MAX_TRIS = 12
 PLACEHOLDER_TOL_M = 0.001
 PLACEHOLDER_MIN_FILL = 1.0 - 1e-3
@@ -108,7 +50,7 @@ PLACEHOLDER_MIN_FILL = 1.0 - 1e-3
 
 # --------------------------------------------------------------------------- frames
 def frame_label(language: str) -> str:
-    """Short frame tag for fix hints, e.g. ``"blender frame: Z-up, -Y front"``."""
+    """Short frame tag for fix hints, e.g."""
     if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
         return f"{language} frame: Z-up, -Y front"
     return f"{language} frame: Y-up, +Z front" if language else "GLB frame: Y-up, +Z front"
@@ -124,27 +66,17 @@ def plan_bbox_to_glb(bbox: BBox, language: str) -> BBox:
 
 
 def glb_vec_to_plan(v, language: str, *, extents: bool = False) -> np.ndarray:
-    """``conventions.to_authoring_frame`` as an array: hints must be written in the frame the
-    agent codes in."""
+    """``conventions.to_authoring_frame`` as an array."""
     return np.asarray(to_authoring_frame(v, language, extents=extents), dtype=float)
 
 
 # --------------------------------------------------------------------------- matching
 def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tuple[dict[str, list[PartMeasure]], list[PartMeasure]]:
-    """Map each plan part → measured rows (``Name``, ``Name_0``… accepted); plus unmatched rows.
-
-    Exact names are claimed FIRST, and the ``Name_0..Name_N`` instance pass
-    (``conventions.split_instance``) never takes a node that another plan part names
-    exactly.  The instance pattern once took ``shelf2`` for ``Shelf``, so a plan of
-    ``Shelf`` + ``Shelf2`` had ``Shelf`` swallow the ``Shelf2`` node before ``Shelf2`` was
-    considered — a false "missing from the GLB" ERROR and a real 0.75 judge cap on geometry
-    that matched the plan exactly.  ``Shelf``/``Shelf2``, ``Slat``/``Slat1``, ``Tier``/``Tier2``
-    are ordinary planner output for PascalCase part names.
-    """
+    """Map each plan part → measured rows (``Name``, ``Name_0``… accepted)."""
     remaining = {m.name: m for m in measured}
     matched: dict[str, list[PartMeasure]] = {pp.name: [] for pp in plan_parts}
     reserved = {to_snake(pp.name) for pp in plan_parts}
-    for pp in plan_parts:  # pass 1: the node this plan part names exactly
+    for pp in plan_parts:
         snake = to_snake(pp.name)
         hits = [m for n, m in list(remaining.items()) if to_snake(n) == snake]
         for m in hits:
@@ -162,13 +94,7 @@ def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tupl
 
 def is_placeholder(rows: list[PartMeasure], plan_box: BBox) -> bool:
     """Is this plan part (its measured rows, one per instance) still the skeleton's box?
-
-    ``plan_box`` is in the GLB frame (:func:`plan_bbox_to_glb`).  Every row must carry at most
-    ``PLACEHOLDER_MAX_TRIS`` triangles (0 = not measured: never a placeholder), be watertight
-    with a volume of at least ``PLACEHOLDER_MIN_FILL`` of its own box (not measured / open: never
-    a placeholder) and have the plan's extents within ``PLACEHOLDER_TOL_M`` per axis; a single
-    instance must also sit at the plan centre — the skeleton places instance copies by the
-    symmetry hint, so only their size is the plan's."""
+    ``plan_box`` is in the GLB frame (:func:`plan_bbox_to_glb`)."""
     if not rows:
         return False
     ext, ctr = np.asarray(plan_box.extents, dtype=float), np.asarray(plan_box.center, dtype=float)
@@ -186,23 +112,8 @@ def is_placeholder(rows: list[PartMeasure], plan_box: BBox) -> bool:
 
 
 def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tuple[str, tuple[str, ...]]]:
-    """The plan's ``attach_to`` edges spelled in the GLB's part names, for the connectivity ledger.
-
-    The ONE resolver: the track's gate and the MCP ``check_connectivity`` / folded build
-    check all call this, so the agent-facing ledger and the judge's read the same pairs.
-    Names resolve the way ``check_contract`` resolves them (``match_parts``: the exact node
-    first, then the ``Name_0..N`` instances).  Counted 2026-08-30 over the 357 stored
-    static_object rounds that carry attach_to edges: 965 of 2 666 raw plan names are
-    instance parts absent from the mesh under their plan spelling (``FrontLeg`` →
-    ``FrontLeg_0``/``FrontLeg_1``) — feeding raw names listed them as unresolved.
-    Each child copy joins the copy of its parent it TOUCHES by AABB (gap ≤ CONTACT_GAP_M),
-    and every touching copy when several do: a brace spanning Leg_1→Leg_3 whose box also
-    grazes Leg_0 ties at 0 for all three, and picking the first by list order sent it to
-    Leg_0 alone — a false OPEN.  The gate measures every pair exactly and reduces per
-    child (the contact row wins, else the smallest gap), so emitting candidates costs
-    nothing but a guess.  A child touching no copy joins the nearest one — the full cross
-    product would report the far apron/leg pair of every chair as OPEN.
-    """
+    """The plan's ``attach_to`` edges spelled in the GLB's part names, for the connectivity
+    ledger."""
     if plan is None or measurement is None or not measurement.parts:
         return []
     parts = list(getattr(plan, "parts", []) or [])
@@ -223,8 +134,7 @@ def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tu
 
 
 def _aabb_gap(a: np.ndarray | tuple, b: np.ndarray | tuple) -> float:
-    """Euclidean distance between two boxes given as ``(min, max)`` corners, 0 when they
-    overlap (``connectivity`` feeds it ``trimesh.bounds``: a mesh pair's lower bound)."""
+    """Euclidean distance between two ``(min, max)`` corner boxes, 0 when they overlap."""
     (lo_a, hi_a), (lo_b, hi_b) = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
     return float(np.linalg.norm(np.maximum(np.maximum(lo_a - hi_b, lo_b - hi_a), 0.0)))
 
@@ -255,9 +165,7 @@ def _fmt_delta(v: np.ndarray) -> str:
 
 def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, kind: str, language: str,
                   check_center: bool = True) -> list[GateFinding]:
-    """WARN/ERROR findings for one box comparison (empty when within tolerance).
-    ``d``/``plan`` are in the GLB frame; every number in the hint (and ``data``) is
-    written back in ``language``'s authoring frame so the agent can paste it."""
+    """WARN/ERROR findings for one box comparison (empty when within tolerance)."""
     out: list[GateFinding] = []
     ext_bad = np.abs(d.extents) > d.tol
     ctr_bad = check_center and np.any(np.abs(d.center) > d.tol)
@@ -290,11 +198,8 @@ def _log_ratio(a: float, b: float) -> float:
 
 
 def _orientation_finding(m: Measurement, plan: StaticPlan, language: str) -> GateFinding | None:
-    """Is the object lying down / stood on end (ERROR) or turned 90° about up (WARN)?
-
-    Everything is in the plan frame: ``meas`` is the measured overall extents mapped back
-    with :func:`glb_vec_to_plan`, ``up`` the frame's up axis from ``conventions``.  One
-    finding at most; the thresholds and the corpus behind them are documented at the top."""
+    """Is the object lying down / stood on end (ERROR) or turned 90° about up (WARN)? Everything
+    is in the plan frame."""
     planned = np.asarray(plan.overall_bbox.extents, dtype=float)
     meas = glb_vec_to_plan(m.extents, language, extents=True)
     if np.any(planned <= 1e-6) or np.any(meas <= 1e-6):
@@ -304,7 +209,7 @@ def _orientation_finding(m: Measurement, plan: StaticPlan, language: str) -> Gat
     horizontal = [a for a in range(3) if a != up]
     best: tuple[float, str, int] | None = None  # (fit, pose, h)
     for h in horizontal:
-        k = 3 - up - h  # the axis the object turned about keeps its extent
+        k = 3 - up - h
         if _log_ratio(meas[k], planned[k]) > ORIENT_THIRD:
             continue
         shrink = _log_ratio(meas[up], planned[up])
@@ -321,8 +226,6 @@ def _orientation_finding(m: Measurement, plan: StaticPlan, language: str) -> Gat
     if best is not None:
         _, pose, h = best
         k = 3 - up - h
-        # a disagreement with the PLANNED box, phrased as one: a plan that boxed a wall clock
-        # flat makes an upright build read "stood", and the judge treats ERROR text as fact
         verb = "is lying down relative to the planned box" if pose == "lying" else "stands on end relative to the planned box"
         return GateFinding(
             gate=GATE, severity=Severity.ERROR, target="overall",
@@ -390,22 +293,18 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             d = _box_delta(np.asarray(rows[0].bbox_min), np.asarray(rows[0].bbox_max), box, tol_m)
             findings.extend(_box_findings(target, d, box, what=f"part '{pp.name}'", kind="part_bbox", language=language))
         else:
-            # instances: each copy should have the planned extents; the centre is unknowable
             per = [_box_delta(np.asarray(r.bbox_min), np.asarray(r.bbox_max), box, tol_m) for r in rows]
             union = _box_delta(np.min([r.bbox_min for r in rows], axis=0), np.max([r.bbox_max for r in rows], axis=0), box, tol_m)
             worst_each = max(per, key=lambda d: float(np.max(np.abs(d.extents) / d.tol)))
-            # accept whichever reading (per-instance or union) fits the plan better
             if float(np.max(np.abs(union.extents) / union.tol)) < float(np.max(np.abs(worst_each.extents) / worst_each.tol)):
                 findings.extend(_box_findings(target, union, box, what=f"'{pp.name}' (all instances)", kind="instance_bbox", language=language, check_center=False))
             else:
                 findings.extend(_box_findings(target, worst_each, box, what=f"'{pp.name}' (each instance)", kind="instance_bbox", language=language, check_center=False))
-    # overall bbox
     ob = plan_bbox_to_glb(plan.overall_bbox, language)
     d = _box_delta(np.asarray(m.bbox_min), np.asarray(m.bbox_max), ob, tol_m)
     findings.extend(_box_findings("overall", d, ob, what="overall", kind="overall_bbox", language=language))
     if (orient := _orientation_finding(m, plan, language)) is not None:
         findings.append(orient)
-    # ground + footprint
     if abs(m.ground_gap_m) > GROUND_TOL_M:
         where = "above" if m.ground_gap_m > 0 else "below"
         findings.append(GateFinding(
@@ -429,8 +328,8 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
 
 
 def check_contract(measurement: Measurement, plan: StaticPlan, *, language: str, tol_m: float = BBOX_TOLERANCE_M) -> GateReport:
-    """Compare ``measurement`` (from the GLB) with an object ``plan`` authored in ``language``'s frame.
-    Scenes are checked by ``scene_placement`` from the census, never here."""
+    """Compare ``measurement`` (from the GLB) with an object ``plan`` authored in ``language``'s
+    frame."""
     t0 = time.time()
     findings = _check_object_plan(measurement, plan, language, tol_m)
     if not findings:

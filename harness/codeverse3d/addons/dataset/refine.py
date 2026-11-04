@@ -1,22 +1,4 @@
-"""Refine rounds as transitions: what the round was told, what it changed, what it scored.
-
-:mod:`codeverse3d.addons.dataset.pairs` exports whole code trees per round and never looks at what
-asked for the change, so a refine round arrives as two 30 kB files with no cause.  This
-exports the transition instead — one row per refine round::
-
-    (the previous round's judge issues + improvement plan + gate ERRORs with their
-     fix hints + the refine tasks compiled for the round)  ->  src/ diff  ->  score delta
-
-Both sides come from the round's OWN recorded commit, never ``HEAD``: only 54 of 239
-recorded runs have HEAD at their last round, and 152 end on a "restore best round rNN"
-commit.  ``instructions`` is ``RoundRecord.instructions``, the task list
-``build_refine_instructions`` compiled — not the per-group prompt text the sessions were
-handed, which is a rendering of it.
-
-The rows are data, not a training format: ``finetune/llamafactory/build_refine_sft.py``
-turns them into the message shape the finetune pipeline consumes.  ``--with-code`` inlines
-the changed files so that conversion needs no access to the runs.
-"""
+"""Refine rounds as transitions: what the round was told, what it changed, what it scored."""
 
 from __future__ import annotations
 
@@ -39,15 +21,11 @@ from codeverse3d.record.git_history import (
 from codeverse3d.record.record import effective_judgment, effective_score, iter_runs
 from codeverse3d.workspace import Workspace
 
-#: rounds that answer a judgment.  An asset round is driven by its own pass, and
-#: a repair round by a build error the judge never saw.
 REFINE_KINDS: tuple[str, ...] = ("refine", "rewrite", "detail")
-#: a diff longer than this is truncated, with the untruncated size kept on the row
 MAX_DIFF_BYTES = 200_000
 
 
 class RefineTransition(BaseModel):
-    """One refine round: its brief, its diff, its score delta."""
 
     battery: str
     run: str
@@ -73,8 +51,6 @@ class RefineTransition(BaseModel):
     score_after: float | None
     score_delta: float | None
     outcome: str = Field(description="improved | unchanged | regressed | unscored")
-    #: --with-code: the WHOLE tree before (the state the brief describes) and only the
-    #: files the round changed after (the answer), so a converter needs no run access
     before_files: dict[str, str] | None = None
     after_files: dict[str, str] | None = None
 
@@ -93,8 +69,6 @@ def _gate_errors(rnd: RoundRecord) -> list[dict[str, Any]]:
 
 
 def outcome_of(delta: float | None, threshold: float) -> str:
-    """The label.  One rule, shared with ``pairs.MIN_PREFERENCE_DELTA``, so a Δ that is a
-    preference pair there is never "unchanged" here."""
     if delta is None:
         return "unscored"
     if delta >= threshold:
@@ -117,7 +91,7 @@ def _transition(ws: Workspace, rec: RunRecord, prev: RoundRecord, cur: RoundReco
                 try:
                     out[path] = raw.decode("utf-8")
                 except UnicodeDecodeError:
-                    continue  # a binary file under src/: the diff already says it changed
+                    continue
             return out
         files_before, files_after = _text(prev.commit, None), _text(cur.commit, changed)
     return RefineTransition(
@@ -134,12 +108,6 @@ def _transition(ws: Workspace, rec: RunRecord, prev: RoundRecord, cur: RoundReco
 def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA,
                 max_diff_bytes: int = MAX_DIFF_BYTES, with_code: bool = False,
                 drops: Counter[str] | None = None) -> Iterator[RefineTransition]:
-    """Every exportable refine transition under ``runs_dir``; every one that is not is counted.
-
-    A run reachable through more than one path (54 of 239 under ``eval/bench/out``, where the
-    batteries symlink each other's cells) is found once (``find_run_dirs``), at the path it
-    physically lives at.  A row is named by its ``RunId`` (``battery``, ``run`` = the slug), the
-    key of the exported samples."""
     drops = drops if drops is not None else Counter()
     root = Path(runs_dir)
     for found in iter_runs(root, on_error=lambda p, e: drops.update([f"unreadable_record: {type(e).__name__}"])):
@@ -165,7 +133,6 @@ def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA
 
 
 def build_refine(runs_dir: Path | str, out_jsonl: Path | str, **kw: Any) -> tuple[int, Counter[str]]:
-    """Write the transitions as JSONL; return ``(rows, drops)``."""
     drops: Counter[str] = Counter()
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)

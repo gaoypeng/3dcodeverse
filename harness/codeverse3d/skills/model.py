@@ -1,10 +1,4 @@
-"""Typed shapes for the skill library — one bundle, one selection, one session's usage.
-
-Frozen on purpose: a ``Skill`` is parsed from a file on disk once and then flows into
-prompts, workspaces and the run record.  If any of those could mutate it, the body we
-measured (``body_tokens``) and the body we materialised could silently differ, and the
-telemetry in §6.4 of the design would be measuring a file nobody sent.
-"""
+"""Typed shapes for the skill library (frozen): one bundle, one selection, one session's usage."""
 
 from __future__ import annotations
 
@@ -17,10 +11,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.cost.guard import text_tokens
 
-#: `metadata.evidence` values.  A bundle whose claims are carried over from a reference
-#: library but which our own corpus cannot back yet is `inherited-unverified`, and the
-#: router refuses it when C3D_SKILLS_UNVERIFIED is off (design §5.2 law 3; the switch defaults
-#: ON since 2026-09-22, so the whole library routes unless it is set to 0).
+#: ``metadata.evidence`` values; the router refuses ``inherited-unverified`` when C3D_SKILLS_UNVERIFIED is 0.
 EVIDENCE_MEASURED = "measured"
 EVIDENCE_INHERITED = "inherited-unverified"
 EVIDENCE_MIXED = "mixed"
@@ -47,7 +38,6 @@ class Skill(BaseModel):
 
     @property
     def body_tokens(self) -> int:
-        """Estimated prompt tokens of the body — the number the budget test asserts."""
         return text_tokens(self.body)
 
     @property
@@ -60,16 +50,11 @@ class Skill(BaseModel):
 
     @property
     def verified(self) -> str:
-        """ISO date the bundle's claims were last checked against the harness."""
         return self.metadata.get("verified", "")
 
 
 class Selection(BaseModel):
-    """One routed skill **with the reason it was routed**, so telemetry can say WHY.
-
-    astra3d had a human type ``skills: [...]``; we derive the set, which is only an
-    improvement if the derivation is auditable after the fact.
-    """
+    """One routed skill with the reason it was routed."""
 
     model_config = {"frozen": True}
 
@@ -84,12 +69,11 @@ class Selection(BaseModel):
 
     @property
     def gate_fired(self) -> bool:
-        """True when a previous-round gate finding routed this (design §5.2 law 2)."""
+        """True when a previous-round gate finding routed this."""
         return self.priority >= 90
 
 
 class SkillsMaterialized(BaseModel):
-    """What :func:`codeverse3d.skills.materialize.materialize_skills` wrote into a workspace."""
 
     listed: list[str] = Field(default_factory=list, description="skill names, in attach order")
     selections: list[Selection] = Field(default_factory=list, description="the routed rows, with the reason each fired")
@@ -112,11 +96,10 @@ NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 COMPATIBILITY_MAX = 500
-#: our body cap: half the spec's recommended 500 lines / 5,000 tokens, because
-#: docs/COST.md §4 shows we pay for every prompt byte on every turn, not once.
+#: body cap, kept small because every prompt byte is paid on every turn
 BODY_MAX_LINES = 350
 BODY_MAX_TOKENS = 2500
-#: the spec's top-level keys.  Anything else belongs in `metadata`.
+#: the spec's top-level keys; anything else belongs in `metadata`
 SPEC_KEYS = frozenset({"name", "description", "license", "compatibility", "metadata", "allowed-tools"})
 
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?", re.S)
@@ -148,12 +131,7 @@ def _as_str_map(value: object, where: str) -> dict[str, str]:
 
 
 def nonstring_metadata(fm: dict) -> list[str]:
-    """metadata values YAML did not hand back as strings.
-
-    An unquoted ``verified: 2026-08-25`` is a YAML *date*, not a string, and the spec says
-    metadata is string to string.  ``_as_str_map`` coerces so a run never dies of it; the
-    validator reports it so a bundle is not shipped depending on our leniency.
-    """
+    """metadata values YAML did not hand back as strings (an unquoted ``verified: 2020-01-01`` is a date)."""
     meta = fm.get("metadata")
     if not isinstance(meta, dict):
         return []
@@ -222,11 +200,7 @@ def _references(bundle: Path) -> tuple[str, ...]:
 
 
 def validate_bundle(bundle: Path) -> list[str]:
-    """Every problem with one bundle directory, as human lines (empty == clean).
-
-    Structural problems come back as one line; budget/evidence/layout problems are
-    listed together so `3dcode skills validate` fixes a bundle in one round trip.
-    """
+    """Every problem with one bundle directory, as human lines (empty == clean)."""
     bundle = Path(bundle)
     try:
         skill = parse_skill(bundle)

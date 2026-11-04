@@ -43,11 +43,7 @@ TRACK_LANGUAGES: dict[Track, tuple[Language, ...]] = {
 
 
 class TrackInfo(BaseModel):
-    """Per-track registry row: default judge rubric + human label.
-
-    THE single source for what used to be restated as ``TRACK_RUBRIC`` /
-    ``RUBRIC_BY_TRACK`` / ``TYPE_LABEL`` in judges, flywheel and cli.
-    """
+    """Per-track registry row: default judge rubric + human label."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -68,7 +64,6 @@ TRACK_INFO: dict[Track, TrackInfo] = {
 }
 
 #: entry file inside the workspace per language — the file a build starts from.
-#: THE single source for entry paths (runtimes' first entry_glob, flywheel export).
 ENTRY_FILE: dict[Language, str] = {
     Language.BLENDER: "src/model.py",
     Language.CADQUERY: "src/model.py",
@@ -80,17 +75,9 @@ ENTRY_FILE: dict[Language, str] = {
     Language.OPENGL_PYTHON: "src/program.py",
 }
 
-#: source files the HARNESS writes under ``src/`` and owns: the agent reads them and calls what
-#: they define, never writes them (``AgentJob.read_only`` — the agent's write scope excludes them).
-#: Measured 2026-08-26 (eval/bench/out/seed_v1, aurora brief): helpers seeded into the agent's own
-#: ``src/common.glsl`` were gone by the end of the run — it rewrote the file — so a seeded file has
-#: to be one the agent cannot rewrite.  (glsl_shader's seeded ``src/recipes.glsl`` went with the
-#: recipe seeding, D107.)  An entry ending in ``/`` is a DIRECTORY prefix: every file under it is
-#: owned — the effect library is named without listing every path; an entry without one is an
-#: exact file (no language ships one since D107; the rule stays for the next seeded file, and
-#: ``tests`` exercise it on a synthetic entry).
+#: source files the HARNESS writes under ``src/``: the agent reads and calls them, never writes them.
+#: An entry ending in ``/`` is a directory prefix; otherwise an exact file.
 HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
-    # the effect library (D51): the agent imports and calls it, never rewrites it.
     Language.SCENE_THREEJS: ("src/lib/",),
 }
 
@@ -116,8 +103,7 @@ LANGUAGE_LABEL: dict[Language, str] = {
 
 
 def code_file(language: Language) -> str:
-    """Top-level flywheel copy of the entry file: ``code`` + the entry suffix
-    (``code.py`` / ``code.js`` / ``code.frag``)."""
+    """Top-level flywheel copy of the entry file: ``code`` + the entry suffix."""
     entry = ENTRY_FILE[language]
     return "code" + entry[entry.rfind(".") :]
 
@@ -150,18 +136,10 @@ class Usage(BaseModel):
 
 
 class Budget(BaseModel):
-    """Hard ceilings for a run.  The orchestrator stops (cleanly) when any is hit.
+    """Hard ceilings for a run (rounds, minutes); the orchestrator stops cleanly when one is hit.
 
-    The ceilings are non-negative by construction.  A negative one is not a small
-    budget, it is an unrunnable one: ``BudgetGuard.ok()`` is False before a single
-    token is spent and ``grant_grace`` cannot lift a hard ceiling back above zero —
-    so the workspace and the git-committed spec are created for a run that can only die.
-
-    A run is bounded by ``max_rounds`` and ``max_minutes``.  Cost is accumulated per call
-    for the ledger and the run record, and never gates anything.
-
-    ``extra="forbid"``: a caller still passing a retired ceiling (``max_usd``) or a typo
-    must raise, not be silently swallowed, including when loading a stored spec.
+    Ceilings are non-negative by construction (a negative one is an unrunnable budget).
+    Cost is recorded but never gates anything.  ``extra="forbid"`` makes unknown keys raise.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -179,24 +157,18 @@ class Backends(BaseModel):
     * Coding agents:    ``agy:gemini-4-argon`` (``-low``/``-medium``/``-high``; Gemini models only) · ``claude-code:sonnet``
       · ``codex:gpt-6.1-sol``
 
-    The coding agent is always a VENDOR agent: the harness supplies the workspace, the
-    prompt and its 3D tools (over MCP) and reads the result.  The in-process
-    ``api-agent`` tool loop was deleted 2026-08-28 — reimplementing agent plumbing the
-    vendors already ship was never this project's job (owner's call).
+    The coding agent is always a vendor agent: the harness supplies the workspace, prompt
+    and 3D tools (over MCP) and reads the result.
     """
 
     planner: str = "gemini:gemini-4-argon"
     generator: str = "agy:gemini-4-argon"
-    # The judge drives the refine loop: the pro tier has ~3x lower sample noise than
-    # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"
     captioner: str = "gemini:gemini-4-argon"
 
 
 # ------------------------------------------------------------------ joint coupling
-#: |multiplier| below this is a coupling that transmits no motion.  ONE value: the plan
-#: validator used 1e-9 while the URDF loader and lint used 1e-12, so a coupling the
-#: planner was forbidden to write was one the loader accepted.
+#: |multiplier| below this is a coupling that transmits no motion (shared by plan, lint and loader).
 MIMIC_MIN_MULTIPLIER = 1e-9
 
 
@@ -235,13 +207,8 @@ class MimicIssue(BaseModel):
 def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
     """Every rule a ``<mimic>`` has to satisfy, checked once over the whole joint set.
 
-    Three layers reject the same bad couplings — ``ArticulatedPlan._check_mimics``,
-    ``languages/urdf.lint`` and ``spatial.joints_model.load_urdf`` — and they had three
-    copies of the walk that disagreed on the multiplier floor.  The rules live here; each
-    caller renders the issues in its own vocabulary (``ValueError`` / gate finding /
-    ``UrdfError``), picks the first one when it reports only one, and decides what is
-    fatal: ``out_of_range`` is a warning in the lint and ignored by the loader, because
-    the coupling still poses the mechanism — the follower's own limits are what disagree.
+    Callers render the issues in their own vocabulary and decide what is fatal
+    (``out_of_range`` is only a warning: the coupling still poses the mechanism).
     """
     order = list(specs)
     by_key = {s.key: s for s in order}
@@ -280,12 +247,9 @@ def mimic_issues(specs: Collection[MimicSpec]) -> list[MimicIssue]:
 
 
 def _driven_range(follower: MimicSpec, driver: MimicSpec) -> tuple[float, float] | None:
-    """Where the coupling actually takes ``follower`` when both declare limits, if that
-    is outside the follower's own — ``None`` when it fits or the limits are unknown.
+    """Where the coupling takes ``follower`` if outside its own limits, else ``None``.
 
-    Slack is 1 % of the follower's span: the one case in 94 recorded couplings
-    (wave2_lean, a folding brace) overshot 2.248 against 2.2, which is the multiplier and
-    the limit rounded from different numbers rather than a mechanism that jams.
+    Slack is 1 % of the follower's span, absorbing multiplier/limit rounding.
     """
     if None in (follower.lower, follower.upper, driver.lower, driver.upper):
         return None

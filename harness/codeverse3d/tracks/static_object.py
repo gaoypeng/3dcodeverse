@@ -1,13 +1,4 @@
-"""StaticObjectTrack: plan → skeleton → draft → refine rounds → finalise (D110, baseline-first).
-
-Languages: blender (bpy) · cadquery · threejs (articulated_object subclasses it for urdf_blender).
-Round 0 is ONE agent session that drafts the WHOLE object — every part file and the entry
-(``BaseTrack.baseline_tasks`` over ``generate_static.j2``); every refine round is ONE session that
-edits the whole object in place (``allow_refine_fanout = False``), driven by the gate ERRORs
-(placeholder parts first), the failed must-acceptance items and the judge's improvement plan.
-No per-part scoped baseline and no parallel part sessions: they ran serially behind the
-per-workspace session lock since 2026-08-28 and left 13-14 of 15 argon runs with placeholder parts.
-"""
+"""StaticObjectTrack."""
 
 from __future__ import annotations
 
@@ -52,8 +43,7 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-#: the 4 clay views judged for holes/intersections — their own measured cameras (D47),
-#: NOT a name-filter over OBJECT_VIEWS (which silently shrank under renamed rigs)
+#: the 4 clay views judged for holes/intersections; their own cameras, not a name filter over OBJECT_VIEWS
 GEOMETRY_VIEWS = OBJECT_CLAY_VIEWS
 
 
@@ -78,8 +68,7 @@ class ObjectPipeline:
             out.append(
                 ctx.services.contract(measurement, ctx.plan, BBOX_TOLERANCE_M, ctx.language.value)
             )
-            # is the object as dense as its own plan says?  Deterministic, so the judge is
-            # never asked "does it look detailed enough" (tracks/depth.py).
+            # deterministic density check against the plan; the judge is never asked about detail
             out.append(budget_gate(measurement, build, depth_budget(ctx.plan, ctx.settings.limits.build_timeout_s)))
         return out
 
@@ -105,10 +94,7 @@ class ObjectPipeline:
     def geometry_views(
         self, ctx: RunContext, round_index: int, build: BuildResult
     ) -> RenderSet | None:
-        """4 clay views for the judge's geometry montage (holes, intersections).
-
-        The plain-geometry render exposes defects that materials hide; cached, so
-        near-free.  Object tracks only — scenes/graphics have no single GLB."""
+        """4 clay views for the judge's geometry montage (holes, intersections)."""
         if not build.glb_path:
             return None
         out_dir = ctx.ws.renders_dir(round_index) / "clay"
@@ -129,12 +115,7 @@ class ObjectPipeline:
         build: BuildResult,
         gates: list[GateReport],
     ) -> str:
-        """Nothing beyond ``gates_section``.  The measured-structure block the judge reads
-        (contacts, planned joins, floor gaps, the weld line) is rendered by
-        ``judges.prompt_builder.gates_section`` from the connectivity report's contact
-        ledger — the report is stored in ``rounds/rNN.json``, so ``3dcode judge <slug>``,
-        calibration and every other reader of the round record get the same block as the
-        in-run judge without this method restating it (2026-08-30)."""
+        """Nothing beyond ``gates_section``."""
         return ""
 
 
@@ -144,8 +125,7 @@ class StaticObjectTrack(BaseTrack):
     plan_model = StaticPlan
     generate_template = "tracks/generate_static.j2"
     refine_template = "tracks/refine_object.j2"
-    #: ONE whole-object refine session per round (D110): the part files interlock, and a split
-    #: round ran its sessions one after another behind the workspace lock anyway
+    #: the part files interlock: one whole-object refine session per round
     allow_refine_fanout = False
 
     def make_pipeline(self) -> ObjectPipeline:
@@ -153,21 +133,13 @@ class StaticObjectTrack(BaseTrack):
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[RefineTask]:
-        # NB: the `detail_budget` WARN is deliberately NOT turned into a refine task.  Measured:
-        # refine rounds that added > 2000 triangles while assembly was still open lost 0.075 of
-        # assembly_fit and 0.025 of overall.
+        # the `detail_budget` WARN is deliberately NOT a refine task (adding triangles while assembly is open lowers the score)
         return reference_refine_tasks(ctx, last)
 
     def _refine_task(
         self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool
     ) -> GenerationTask:
-        """The round's ONE whole-object session: every file in scope, edited in place; each
-        instruction line names the files its target owns.  ``group`` is the round's single group
-        (no fan-out), its tasks already ordered gate ERRORs → acceptance → judge plan.
-
-        A single-shot call has no read tool: it sees only the files inlined for it, so when the
-        tasks name files it is fenced to them (``edit_only``, the entry still writable) — a model
-        told "the whole object" once could rewrite a part file it was never shown."""
+        """The round's ONE whole-object session."""
         fenced = ctx.single_shot and bool(group.files)
         files = list(group.files) if fenced else ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
@@ -202,22 +174,11 @@ class StaticObjectTrack(BaseTrack):
         )
 
 
-#: the shortest refine window opened: below it the hard run clock decides anyway
 REFINE_MIN_WINDOW_S = 120.0
 
 
 def object_session_window_s(ctx: RunContext) -> int:
-    """A refine session's window: the agent default, clipped so that the session — which the
-    watchdog lets run ``HARD_GRACE_S`` past its window while it is still working — ends
-    ``RoundPolicy.judge_reserve_s`` before the run's HARD ceiling (the round's build, gates, renders and
-    judge: 0.7 min measured for an object, 2026-10-15; one reserve for every track since D112 — it was
-    ``OBJECT_ROUND_RESERVE_S``, 180 s, beside the refine task's own ``GenerationTask.reserve_s``).
-
-    WHY.  With no window of its own the session ran to the run's deadline: the baseline-first
-    smoke's blender refine (started at 25.8 min, 36 min allowed) was killed by the run clock at
-    60.0 min after $4.63 of work, and the round was dropped unbuilt and unjudged — as were all
-    three refines of iteration 0's dining chair.  Ended earlier, its edits are built and judged
-    and the picker chooses between the rounds."""
+    """A refine session's window."""
     left = ctx.budget.left_s() - ctx.policy.judge_reserve_s - HARD_GRACE_S
     return int(max(REFINE_MIN_WINDOW_S, min(float(ctx.settings.limits.agent_timeout_s), left)))
 
@@ -228,10 +189,6 @@ IOU_REFINE_THRESHOLD = 0.6
 
 
 def silhouette_gate(ctx: RunContext, renders: RenderSet) -> GateReport | None:
-    """The round's :func:`~codeverse3d.spatial.silhouette.measure_reference` — the measurement the
-    reference judge scores — as a finding: WARN below the refine threshold when the IoU is a shape
-    verdict (reliable mask, reference agrees with the brief), else INFO.  ``None`` when the spec
-    has no reference or nothing could be compared."""
     try:
         m = measure_reference(renders.views, ctx.spec, compare=ctx.services.silhouette)
     except Exception as e:  # noqa: BLE001 — advisory measurement; never fails a round

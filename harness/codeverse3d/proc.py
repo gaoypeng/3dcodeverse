@@ -1,14 +1,8 @@
 """Process-level primitives shared across the harness.
 
-One home for the run-a-child-process pattern (own process group, wall-clock
-timeout, group kill, bounded captured output — :class:`ManagedProcess` and its
-thin wrapper :func:`run_subprocess`), the tmp+rename JSON write, the tolerant
-JSON / JSONL readers every "best effort" side-car consumer needs, the run's event
-stream (:class:`EventLog`, :data:`NULL_EVENTS`), the per-run mutex
-(:func:`exclusive`) and the context-carrying thread fan-out (:func:`fan_out`).  Peer
-of ``workspace.py``; stdlib-only — imports nothing from ``codeverse3d`` so wrappers,
-spatial helpers and agents can all use it without layering back-edges.
-
+Run-a-child-process (:class:`ManagedProcess`, :func:`run_subprocess`), atomic JSON writes, tolerant
+JSON / JSONL readers, the event stream (:class:`EventLog`), the per-run mutex (:func:`exclusive`)
+and the context-carrying :func:`fan_out`.  Stdlib-only: imports nothing from ``codeverse3d``.
 """
 
 from __future__ import annotations
@@ -35,8 +29,6 @@ from typing import IO, Any
 
 @dataclass(frozen=True)
 class ProcResult:
-    """Outcome of one subprocess run."""
-
     returncode: int
     stdout: str
     stderr: str
@@ -55,21 +47,9 @@ def run_subprocess(
 ) -> ProcResult:
     """Run ``cmd`` in its own process group; kill the whole group on timeout.
 
-    Never raises on non-zero exit — callers inspect :attr:`ProcResult.returncode`.
-    ``preexec_fn`` runs in the child before exec (e.g. rlimits); the child is
-    always started in a new session so the group kill reaps grandchildren.
-
-    Thin wrapper over :class:`ManagedProcess` since 2026-08-27, which changed three
-    behaviours on purpose:
-
-    * output decodes as utf-8 ``errors="replace"`` — one bad byte used to raise
-      UnicodeDecodeError out of ``communicate()`` and lose the whole result;
-    * each stream is capped at :data:`STREAM_BUDGET_BYTES` (head + tail kept, a
-      truncation marker in between) instead of growing unbounded in RAM;
-    * KeyboardInterrupt — or any exception — mid-run kills the process group before
-      propagating.  ``start_new_session`` children sit outside the terminal's
-      foreground group, so Ctrl-C's SIGINT never reaches them: without this, every
-      interrupt during a blender/node/render run orphaned the whole tree.
+    Never raises on non-zero exit.  Output decodes as utf-8 ``errors="replace"`` and each stream is
+    capped at :data:`STREAM_BUDGET_BYTES`; any exception mid-run (Ctrl-C included) kills the group.
+    ``preexec_fn`` runs in the child before exec (e.g. rlimits).
     """
     t0 = time.monotonic()
     timed_out = False
@@ -78,7 +58,7 @@ def run_subprocess(
             mp.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
-            mp.kill()  # straight SIGKILL on the group, as this path has always behaved
+            mp.kill()
     return ProcResult(
         returncode=mp.returncode if mp.returncode is not None else -1,
         stdout=mp.stdout_text,
@@ -88,18 +68,14 @@ def run_subprocess(
     )
 
 
-#: how long to keep draining the pipes after the child is dead.  Kept from the old
-#: ``_drain_after_kill`` (and ``agents/watchdog.py``'s ``thread.join(timeout=10)``);
-#: a descendant that setsid'd or daemonised while inheriting stdout/stderr keeps the
-#: pipes open with no upper bound, and waiting on it silently voided ``timeout_s``
-#: for every build/render path that funnels through here.
+#: how long to keep draining the pipes after the child is dead; a daemonised descendant holding
+#: the pipes open would otherwise void ``timeout_s``.
 DRAIN_TIMEOUT_S = 10.0
 _ABANDONED = "(output truncated: a detached descendant still held the pipe past the drain window)"
 _STILL_HELD = "(output truncated: a process in the group still held the pipe past the drain window)"
 
 
 def _group_alive(pgid: int) -> bool:
-    """True while ANY member of process group ``pgid`` exists (the leader may be gone)."""
     try:
         os.killpg(pgid, 0)
     except (ProcessLookupError, PermissionError):
@@ -107,29 +83,15 @@ def _group_alive(pgid: int) -> bool:
     return True
 
 
-#: per-stream cap on captured output: the first ``budget // 2`` bytes and the last
-#: ``budget - budget // 2`` bytes are kept, with a truncation marker in between.
-#: 8 MiB per stream — roomy for real build/render logs, while a runaway print loop
-#: can no longer grow the harness RSS (or the trajectory files, which record full
-#: stdout — only the model-facing SHELL_OUT_CAP existed before) without bound.
+#: per-stream cap on captured output: head and tail halves are kept with a marker between.
 STREAM_BUDGET_BYTES = 8 * 1024 * 1024
 TERMINATE_GRACE_S = 5.0
 
-#: longest chunk one pump read returns.  A child that emits gigabytes with no
-#: newline would otherwise accumulate the whole "line" in RAM before the stream
-#: budget could apply; a line longer than this reaches ``on_line`` as several
-#: chunk-sized calls.
+#: longest chunk one pump read returns (bounds RAM when a child prints no newline).
 _LINE_CAP_BYTES = 1024 * 1024
 
 
 class _BoundedSink:
-    """Head+tail byte buffer for ONE stream (first half of the budget from the head,
-    last half from the tail, everything between counted and replaced by a marker).
-
-    The lock only pairs one pump thread's ``feed`` with a late ``text`` read — it is
-    never contended in the normal path (``text`` runs after the pump is joined).
-    """
-
     def __init__(self, budget: int) -> None:
         self._lock = threading.Lock()
         self._head_max = budget // 2
@@ -155,7 +117,6 @@ class _BoundedSink:
                 self._dropped += len(gone)
 
     def text(self) -> str:
-        """Decoded output — ``errors="replace"``, so a bad byte costs one U+FFFD, not the run."""
         with self._lock:
             head = self._head.decode("utf-8", errors="replace")
             tail_part = b"".join(self._tail).decode("utf-8", errors="replace")
@@ -170,28 +131,11 @@ class _BoundedSink:
 class ManagedProcess:
     """A ``Popen`` in its own session whose process group cannot outlive the ``with`` block.
 
-    The shared lifecycle core under :func:`run_subprocess` and
-    ``agents/cli_common.run_with_watchdog`` (which keep their public signatures):
-
-    * binary pipes + two pump threads feeding a :class:`_BoundedSink` per stream
-      (:data:`STREAM_BUDGET_BYTES` each, decoded utf-8 ``errors="replace"``);
-    * an optional ``on_line(stream, line)`` observer called from the pump threads for
-      every line (``stream`` is ``"stdout"``/``"stderr"``, the line is decoded with
-      its trailing newline stripped; a line longer than :data:`_LINE_CAP_BYTES`
-      arrives as several chunk-sized calls; observer exceptions are suppressed);
-    * a stdin WRITER THREAD — a child that never reads a >64 KiB pipe-buffer of
-      stdin can no longer wedge the caller's main thread in ``stdin.write`` (every
-      agent CLI gets its prompt on stdin, up to hundreds of kB);
-    * ``__exit__``: on ANY exception — KeyboardInterrupt above all, because
-      ``start_new_session`` children never receive the terminal's Ctrl-C SIGINT —
-      or with the child still running at scope exit, the whole group gets
-      SIGTERM → :data:`TERMINATE_GRACE_S` → SIGKILL, the pumps are drained for at most
-      :data:`DRAIN_TIMEOUT_S`, and the child is reaped with ``wait()`` so no zombie
-      is left.  A descendant that setsid'd away and still holds a pipe cannot stall
-      the drain: closing the stream from this thread would block on the buffer lock
-      the parked reader holds (measured), so the stuck pump is flagged to stop, drops
-      its in-flight chunk, and self-cleans whenever its read finally returns —
-      ``stderr_text`` then carries a truncation note.
+    Shared core of :func:`run_subprocess` and ``agents/cli_common.run_with_watchdog``: two pump
+    threads feed a bounded sink per stream, an optional ``on_line(stream, line)`` observer sees
+    each line (exceptions suppressed), and stdin is written from its own thread.  ``__exit__``
+    on any exception, or with the child still running, SIGTERMs the group (SIGKILL after
+    :data:`TERMINATE_GRACE_S`), drains the pumps for at most :data:`DRAIN_TIMEOUT_S` and reaps.
     """
 
     def __init__(
@@ -208,8 +152,7 @@ class ManagedProcess:
         self._stop = threading.Event()  # tells an abandoned pump to quit feeding
         self._abandoned = ""  # the truncation note to append, once we know which one
         self._sinks = {"stdout": _BoundedSink(STREAM_BUDGET_BYTES), "stderr": _BoundedSink(STREAM_BUDGET_BYTES)}
-        # started and registered under the guard: a stop between the two can neither miss
-        # this group nor let a worker start a new one once the stop has begun
+        # started and registered under the guard so a stop can neither miss this group nor race a new one
         with _LIVE_GUARD:
             if _STOPPING.is_set():
                 raise ProcessStopping(f"not starting {cmd[0]!r}: this process is stopping")
@@ -271,17 +214,14 @@ class ManagedProcess:
         return self.proc.poll()
 
     def wait(self, timeout: float | None = None) -> int:
-        """``Popen.wait`` — raises ``subprocess.TimeoutExpired`` exactly like it."""
         return self.proc.wait(timeout=timeout)
 
     @property
     def stdout_text(self) -> str:
-        """Decoded, bounded stdout.  Complete only once the ``with`` block has exited."""
         return self._sinks["stdout"].text()
 
     @property
     def stderr_text(self) -> str:
-        """Decoded, bounded stderr (+ a note when an escaped descendant held the pipe)."""
         text = self._sinks["stderr"].text()
         if self._abandoned:
             return f"{text}\n{self._abandoned}" if text else self._abandoned
@@ -289,7 +229,6 @@ class ManagedProcess:
 
     # ------------------------------------------------------------- kills and teardown
     def kill(self) -> None:
-        """SIGKILL the whole group right now (fall back to just the child)."""
         try:
             os.killpg(self.proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
@@ -297,10 +236,7 @@ class ManagedProcess:
                 self.proc.kill()
 
     def terminate(self) -> None:
-        """SIGTERM the group, escalate to SIGKILL after :data:`TERMINATE_GRACE_S`."""
         try:
-            # killpg after the leader was reaped is a microsecond pid-reuse race the
-            # code has always taken; a live grandchild is the certain cost of not doing it
             os.killpg(self.proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
@@ -320,12 +256,9 @@ class ManagedProcess:
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> None:
-        # Any in-flight exception (KeyboardInterrupt included) or a group still alive at
-        # scope exit: the group dies HERE.  Ctrl-C's SIGINT never reaches a
-        # start_new_session child, so this is all that stands between an interrupt and an
-        # orphaned blender/node/chrome tree.  Never swallows exc.  LEADER liveness is the
-        # wrong question — one that exits 0 leaves its same-group grandchildren running;
-        # reap it (a zombie still counts as a member), then ask if the GROUP exists.
+        # start_new_session children never see Ctrl-C, so the group dies here on any exception or
+        # if still alive.  Ask whether the GROUP exists, not the leader (it may exit 0 with
+        # grandchildren running).
         try:
             self.proc.poll()
             if _group_alive(self.proc.pid):
@@ -348,27 +281,19 @@ class ManagedProcess:
             self._abandoned = _STILL_HELD if _group_alive(self.proc.pid) else _ABANDONED
 
 
-#: every :class:`ManagedProcess` whose group may still be alive, in THIS process — what a stop
-#: signal kills.  A run's agent sessions and builds run in worker threads, and a signal is
-#: delivered to the main thread only: ``__exit__`` never ran for them, so SIGTERM (and Ctrl-C,
-#: while the main thread waited on the pool) left agy / blender / chrome trees running and
-#: billing (live, 2026-10-13: a SIGTERM'd ``3dcode make`` orphaned its agy session).
+#: every :class:`ManagedProcess` whose group may still be alive; a stop signal kills these
+#: (signals reach only the main thread, so worker-thread ``__exit__`` never runs).
 _LIVE: set[ManagedProcess] = set()
 _LIVE_GUARD = threading.Lock()
-#: set once a stop began: no new child is started after it (a worker thread whose session was
-#: just killed would otherwise go on to its retry or its next build)
 _STOPPING = threading.Event()
-#: how long a stopping process may take to unwind before it is ended outright.  Exit joins the
-#: worker threads, and one inside a model call can hold it for that call's whole timeout (20 min)
 STOP_GRACE_S = 30.0
 
 
 class ProcessStopping(RuntimeError):
-    """A child was asked for after this process began to stop."""
+    """A child was requested after this process began to stop."""
 
 
 def kill_live_children() -> int:
-    """Refuse new children from now on and SIGKILL every live child group; how many there were."""
     with _LIVE_GUARD:
         _STOPPING.set()
         live = list(_LIVE)
@@ -378,10 +303,8 @@ def kill_live_children() -> int:
 
 
 def install_stop_handlers() -> None:
-    """SIGTERM and SIGINT kill every live child group and refuse new ones, then end the process
-    as they would (``KeyboardInterrupt`` / exit 143) so the run records its stop — and, should
-    the unwinding outlast :data:`STOP_GRACE_S` (exit waits on worker threads), end it outright
-    with the same status.  Main thread only — a no-op elsewhere."""
+    """SIGTERM / SIGINT kill every live child group, refuse new ones, then end the process
+    (``KeyboardInterrupt`` / exit 143), outright after :data:`STOP_GRACE_S`.  Main thread only."""
     if threading.current_thread() is not threading.main_thread():
         return
 
@@ -400,8 +323,7 @@ def install_stop_handlers() -> None:
 
 
 # ------------------------------------------------------------------ env scrubbing
-#: The ONE owner of the credential patterns: ``agents/cli_common.clean_env`` (the vendor CLIs'
-#: env) calls :func:`scrub_secrets` too.
+#: The one owner of the credential patterns (``agents/cli_common.clean_env`` uses :func:`scrub_secrets`).
 _SECRET_EXACT: frozenset[str] = frozenset({
     "GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
     "OPENAI_ORG_ID", "HF_TOKEN", "HUGGINGFACE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
@@ -413,14 +335,7 @@ _SECRET_SUFFIXES: tuple[str, ...] = (
 
 
 def scrub_secrets(env: dict[str, str]) -> dict[str, str]:
-    """``env`` minus credential-shaped variables (exact names + ``*_API_KEY``-style suffixes).
-
-    Model-generated code runs in subprocesses that inherit the harness environment
-    (blender, the cadquery python, node) and nothing generated ever legitimately needs
-    a credential — so the keys must not be there to leak into logs, artifacts or child
-    processes.  Everything else (PATH, HOME, DISPLAY, MESA_*/GALLIUM_* render config...)
-    passes through untouched.
-    """
+    """``env`` minus credential-shaped variables (exact names + ``*_API_KEY``-style suffixes)."""
     return {
         k: v for k, v in env.items()
         if k not in _SECRET_EXACT and not k.endswith(_SECRET_SUFFIXES)
@@ -428,14 +343,12 @@ def scrub_secrets(env: dict[str, str]) -> dict[str, str]:
 
 
 def tail(text: str, *, max_lines: int = 40, max_chars: int = 4000) -> str:
-    """Last ``max_lines`` lines of ``text``, capped at ``max_chars`` characters."""
     lines = text.splitlines()[-max_lines:]
     s = "\n".join(lines)
     return s[-max_chars:] if len(s) > max_chars else s
 
 
 def sha256_file(path: Path | str) -> str:
-    """Chunked sha256 of one file — for manifests / caches keyed on content."""
     h = hashlib.sha256()
     with Path(path).open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -459,19 +372,11 @@ def version_line(cmd: Sequence[str], *, timeout: float) -> tuple[int | None, str
 
 
 def unique_tmp(path: Path) -> Path:
-    """A temp sibling of ``path`` unique to this process AND thread.
-
-    A FIXED ``<name>.tmp`` is a race: two writers of the same destination both
-    create it and the second ``replace()`` finds its source already renamed away,
-    raising FileNotFoundError.  The harness fans work out over thread pools, so
-    "one writer per destination" does not hold — see ``tracks/scene_asset_gen``,
-    where the losing thread's asset gate was silently skipped.
-    """
+    """A temp sibling of ``path`` unique to this process and thread (a fixed ``.tmp`` races between writers)."""
     return path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
 
 
 def write_text_atomic(path: Path, text: str, *, encoding: str = "utf-8") -> Path:
-    """tmp + rename so readers never see a partial file, safe under concurrency."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = unique_tmp(path)
     try:
@@ -484,40 +389,14 @@ def write_text_atomic(path: Path, text: str, *, encoding: str = "utf-8") -> Path
 
 
 def write_json_atomic(path: Path, data: Any) -> None:
-    """tmp + rename so readers never see a partial file — including when several
-    writers race for the same path.
-
-    Delegates to :func:`write_text_atomic`, whose tmp name is private to this writer
-    (pid + thread id).  One shared ``<path>.tmp`` was NOT atomic across writers: A could
-    rename B's half-written tmp into place — readers then observed truncated or
-    zero-byte JSON at the published path — and B's own ``replace()`` died with
-    FileNotFoundError.  That is not hypothetical here: the scene track fans zone agents
-    out over ONE workspace root and every agent's MCP ``build`` tool writes
-    ``artifacts/build.json`` and ``artifacts/measurement.json`` through this
-    function, and a clobbered ``run_state.json`` is an unresumable run
-    (``RunState.load`` refuses to guess).  Last writer to rename still wins.
-    """
     write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
 
 # ------------------------------------------------------------------ tolerant reads
 def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[str, Any] | None:
-    """Parse ``path`` as a JSON object; ``None`` when absent, unreadable, malformed
-    or not a dict at the top level.
+    """Parse ``path`` as a JSON object; ``None`` when absent, unreadable, malformed or not a dict.
 
-    The one tolerant reader behind every "use it if it is there" side-car: it
-    replaced identical ``try: json.loads(read_text()) except (OSError, ValueError)``
-    copies in ``record/telemetry.read_json``, ``eval/bench/complexity_report._read_json``,
-    ``gallery/index._measurement_complexity`` / ``_spec_fields``, ``runlock._holder``,
-    ``languages/threejs/__init__.py``'s plan loader, ``cost/reconstruct._read_json``,
-    ``spatial/_render_common.read_json`` and ``cli/_judge.plan_summary_for`` — all
-    the same algorithm, differing only in whether they also checked ``isinstance(dict)``
-    (which every caller then relied on anyway).  A strict reader that must raise on
-    a corrupt input (``Workspace.read_json``) deliberately does NOT use this.
-
-    ``errors`` is ``read_text``'s decode policy (``"replace"`` for files another
-    process may still be writing).  Reads UTF-8, the encoding :func:`write_json_atomic`
-    writes.
+    ``errors`` is ``read_text``'s decode policy (``"replace"`` for files still being written).
     """
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8", errors=errors))
@@ -529,10 +408,7 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
 def iter_jsonl_lines(path: Path | str) -> Iterator[tuple[int, str]]:
     """``(line_no, line)`` for every non-blank line of a JSONL file, 1-based.
 
-    Missing file → nothing; decoded UTF-8 with ``errors="replace"`` so one bad byte
-    (or a SIGKILL mid-append) costs at most that line.  Shared by
-    :func:`read_jsonl_lenient` and by the model-validating readers that keep their own
-    per-line parse (``cost/ledger.load_ledger``, ``eval/bench/_jsonl.read_jsonl``).
+    Missing file → nothing; invalid bytes are replaced so one bad byte costs at most that line.
     """
     p = Path(path)
     if not p.is_file():
@@ -547,12 +423,6 @@ def read_jsonl_lenient(
 ) -> list[Any]:
     """Every parseable JSON line of ``path``; unparseable lines are skipped (debug-logged
     to ``log`` when given), ``dicts_only`` also drops non-object rows.
-
-    Replaced the same skip-bad-lines loop in ``events.EventLog.read``,
-    ``cost/reconstruct._read_jsonl``, ``flywheel/trajectories.read_events``,
-    ``cli/skills_cmd`` (skills report) and ``agents/transcript.read_transcript`` —
-    a truncated last line must never lose the rest of the file (the contract
-    ``cost.ledger.load_ledger`` has always had).
     """
     out: list[Any] = []
     for i, line in iter_jsonl_lines(path):
@@ -569,14 +439,6 @@ def read_jsonl_lenient(
 
 
 def append_jsonl_line(path: Path | str, rec: Any, lock: threading.Lock) -> None:
-    """Append ``rec`` as one JSON line under ``lock`` (``ensure_ascii=False``,
-    ``default=str`` so paths / enums / datetimes serialise).
-
-    Replaced the identical bodies of ``events.EventLog.emit`` and
-    ``agents/transcript.Trajectory.append``.  ``cost/ledger.CostLedger.append`` is NOT
-    a copy — it mkdirs, flushes and swallows OSError ("flushed on write") — and keeps
-    its own.
-    """
     line = json.dumps(rec, ensure_ascii=False, default=str)
     with lock, Path(path).open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")
@@ -593,39 +455,29 @@ class EventLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def emit(self, event: str, **data: Any) -> None:
-        """Append one event.  ``event`` is the event name (e.g. ``round.start``);
-        ``data`` may use any keys, including ``kind``."""
         append_jsonl_line(self.path, {"t": round(time.time(), 3), "event": event, **data}, self._lock)
 
     def read(self) -> list[dict[str, Any]]:
-        """Read the log, skipping unparseable lines with a debug log.
-
-        ``emit`` appends one buffered ``write``, so a SIGKILL / OOM kill / reboot
-        leaves a partial trailing line — and a killed run is exactly when someone
-        types ``3dcode status``.  A truncated last line must never lose the rest of
-        the file (same contract as ``cost.ledger.load_ledger``)."""
         return read_jsonl_lenient(self.path, log=log)
 
 
 class _NullEvents:
-    """An event sink that drops everything: what a function that takes ``events=None`` emits to."""
+    """An event sink that drops everything."""
 
     def emit(self, event: str, **data: Any) -> None:
         pass
 
 
-#: normalise optional telemetry once — ``events = NULL_EVENTS if events is None else events`` —
-#: never ``events or NULL_EVENTS``: an empty list-based fake log is falsy
+#: use ``NULL_EVENTS if events is None else events``, never ``events or NULL_EVENTS`` (an empty fake log is falsy)
 NULL_EVENTS = _NullEvents()
 
 
 # ===================================================================== runlock
-#: directory (beside the run dirs, never inside one) holding the flock files
 LOCKS_DIR = ".locks"
 
 
 class RunLocked(RuntimeError):
-    """Another live holder — process or thread — is already running this run."""
+    """Another process or thread is already running this run."""
 
 
 def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
@@ -641,7 +493,6 @@ def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
 
 
 def flock_path(run_root: Path | str) -> Path:
-    """The flock file for this run: ``<runs>/.locks/<slug>.lock``."""
     root = Path(run_root).resolve()
     return root.parent / LOCKS_DIR / f"{root.name}.lock"
 
@@ -668,11 +519,8 @@ def _write_record(fd: int, rec: dict) -> None:
 
 
 def holder_of(run_root: Path | str) -> dict | None:
-    """The ``{pid, started, what}`` of whoever holds this run — without taking it.
-
-    ``None`` when nobody does, including after a SIGKILL: the kernel dropped the flock but
-    the record is still in the file, so a probe (shared, non-blocking, released at once)
-    tells the difference and ``3dcode status`` never names a pid that is already gone."""
+    """The ``{pid, started, what}`` of whoever holds this run, without taking it; ``None`` if nobody
+    does (a stale record left by a SIGKILL is detected by probing the flock)."""
     try:
         fd = os.open(flock_path(run_root), os.O_RDONLY)
     except OSError:
@@ -692,17 +540,14 @@ def holder_of(run_root: Path | str) -> dict | None:
 def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") -> Iterator[None]:
     """THE mutex for one run: hold it around every mutation of the run directory.
 
-    Raises :class:`RunLocked`, naming the holder, when anyone else has it — another
-    process, or another THREAD of this one (the bench drivers run runs in a pool).  Only
-    the SAME thread re-enters, so the CLI can take it at the mutation boundary and the
-    code under it can take it again."""
+    Raises :class:`RunLocked` when another process or thread holds it; the same thread re-enters."""
     key, me = str(flock_path(run_root)), threading.get_ident()
     with _HELD_GUARD:
         entry = _HELD.get(key)
     if entry is not None:
         if entry[1] != me:
             raise RunLocked(_held_message(run_root, holder_of(run_root) or {}, action=action))
-        yield  # the SAME thread re-entering: the outermost `with` owns the release
+        yield  # re-entry: the outermost `with` owns the release
         return
     path = Path(key)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -716,7 +561,7 @@ def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") ->
     except BaseException:
         os.close(fd)
         raise
-    try:  # inside the try that owns the fd: a failed write must not leak an unreleasable lock
+    try:  # a failed write must not leak the lock
         _write_record(fd, {"pid": os.getpid(), "started": time.time(), "what": what})
         with _HELD_GUARD:
             _HELD[key] = [fd, me]
@@ -749,10 +594,6 @@ def fan_out[T, R](
     Each result is the return value or the raised ``Exception``.
     """
     items = list(items)
-    # Workers inherit the caller's context so ambient state set with contextvars
-    # (the cost ledger's run/stage/role attribution) follows a parallel judge
-    # sample, best-of-N candidate or bench cell instead of falling back to the
-    # process default.
     ctx_snapshot = contextvars.copy_context()
     results: list[R | Exception] = [None] * len(items)  # type: ignore[list-item]
     if not items:

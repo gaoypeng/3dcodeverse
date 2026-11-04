@@ -1,9 +1,6 @@
 """Headless renders of the canonical GLB (three.js in headless Chrome, GPU when available).
 
-``render_glb`` is the one entry point the tracks/judges/tools use.  Results are
-cached under ``<cache_dir>/renders/<sha256(glb)+params>/`` so repeated judge
-calls on the same artifact do not re-render; cached PNGs are copied into the
-requested ``out_dir`` so every call still yields a self-contained directory.
+``render_glb`` is the entry point; results are cached under ``<cache_dir>/renders/`` and copied into ``out_dir``.
 """
 
 from __future__ import annotations
@@ -33,7 +30,7 @@ from codeverse3d.spatial.node import (
 )
 
 BACKGROUNDS = ("studio", "white", "transparent")
-CACHE_VERSION = 4  # bump when the rig changes in a way that invalidates cached PNGs
+CACHE_VERSION = 4  # bump when the rig changes the pixels
 
 
 log = logging.getLogger(__name__)
@@ -48,12 +45,7 @@ def _cache_key(glb: Path, params: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
-#: Every file that can change what an object render LOOKS like: the driver, the
-#: page-side rig, the studio (environment/backdrop/lights) and the camera-fit math.
-#: Host plumbing (lib/cli.mjs, lib/host_env.mjs, lib/host_page.mjs) is deliberately
-#: NOT here — it cannot change a pixel, and hashing it would drop every cached PNG
-#: on an unrelated edit.  ``tests/threejs_render/test_studio_rig.py`` walks the real
-#: import graph and fails when a new page-side module is missing from this list.
+#: Every file that can change what an object render looks like (host plumbing excluded); a test checks the import graph.
 RIG_FILES = (
     "render_glb.mjs",
     "lib/browser/render_rig.js",
@@ -66,7 +58,7 @@ RIG_FILES = (
 
 
 def _rig_signature() -> str:
-    """Hash of the JS rig files so editing the rig invalidates the cache."""
+    """Hash of the JS rig files; editing the rig invalidates the cache."""
     rt = runtime_js_dir()
     h = hashlib.sha256()
     for rel in RIG_FILES:
@@ -94,11 +86,9 @@ def render_glb(
     timeout_s: float | None = None,
     use_cache: bool = True,
 ) -> RenderSet:
-    """Render ``glb`` from ``views`` (default :data:`OBJECT_VIEWS`) into ``out_dir``.
+    """Render ``glb`` from ``views`` (default :data:`OBJECT_VIEWS`): ``view_<name>.png``, ``views.json`` and ``sheet.png``.
 
-    Writes ``view_<name>.png`` per view, ``views.json`` (camera data) and, when
-    ``sheet`` is true, ``sheet.png`` (labelled contact sheet).  Raises
-    :class:`RenderError` on failure — never returns a partial RenderSet.
+    Raises :class:`RenderError` on failure; never returns a partial RenderSet.
     """
     glb = Path(glb).resolve()
     out_dir = Path(out_dir).resolve()
@@ -124,8 +114,7 @@ def render_glb(
         "background": background,
         "anim_time": anim_time,
         "shadow": bool(shadow),
-        # requested mode ('auto' fragments from 'on'/'off' — accepted over a hit
-        # serving the other backend's pixels and lying about RenderSet.renderer)
+        # the requested mode, so a cache hit never serves the other backend's pixels
         "gpu": gpu,
         "rig": _rig_signature(),
     }
@@ -141,11 +130,7 @@ def render_glb(
         except RenderError as e:
             if not transient_failure(e):
                 raise
-            # compare_art_v4 (2026-08-28): under 12 concurrent cells the browser took 7.5 s to
-            # open a page and the viewer's wait expired ("Waiting failed"); the cell lost its
-            # in-loop judge for the round.  One retry with twice the time is cheap next to that.
-            # A browser LOSS is retried on a browser of our own: the shared one
-            # advertised in the cache is the suspect, so re-using it repeats the failure.
+            # one retry with twice the time; a browser loss is retried on an owned browser
             own = browser_was_lost(e)
             log.warning(
                 "render_glb transient failure, retrying once with %.0f s%s: %s",
@@ -180,9 +165,6 @@ def render_glb(
     )
 
 
-#: render failures that are the box, not the model: a retry is worth one more timeout.
-#: The vocabulary lives in `spatial/node.py` next to the browser-loss half, shared with
-#: the scene drivers since 2026-09-07 (they used to retry only a browser loss).
 RETRY_PAUSE_S = 3.0
 
 
@@ -219,8 +201,7 @@ def _run_render(
 
 
 def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> None:
-    # per-writer tmp + tolerant rename (the vlm_judge._render_slices shape): a pid-only
-    # name let two judge threads share a tmp dir and delete each other's half-copied PNGs
+    # per-writer tmp + tolerant rename: concurrent judge threads must not share a tmp dir
     tmp = unique_tmp(cache_dir)
     shutil.rmtree(tmp, ignore_errors=True)
     try:
@@ -228,9 +209,9 @@ def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> N
         for v in record["views"]:
             shutil.copy2(out_dir / f"view_{v['name']}.png", tmp / f"view_{v['name']}.png")
         (tmp / "views.json").write_text(json.dumps(record, indent=1))
-        with contextlib.suppress(OSError):  # a concurrent identical writer won the race; keep theirs
+        with contextlib.suppress(OSError):  # a concurrent writer won; keep theirs
             tmp.replace(cache_dir)
-    finally:  # a mid-copy crash (or losing the race) must not leave the .tmp behind
+    finally:  # never leave the .tmp behind
         shutil.rmtree(tmp, ignore_errors=True)
 
 

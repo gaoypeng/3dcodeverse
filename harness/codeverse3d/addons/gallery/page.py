@@ -1,16 +1,4 @@
-"""The index page: status rail, filters, per-battery sections, cards + table.
-
-Rendered identically for the local server and the static build — the only
-difference is the :class:`~codeverse3d.addons.gallery.urls.UrlMaker` it is handed.  The
-initial filter is applied **server-side** (so ``curl '/?track=graphics'`` and a
-no-JS browser both see the right runs and the right summary) and then re-applied
-client-side on every keystroke without a reload.
-
-The summary is a *breakdown*, not a scoreboard: disjoint buckets that add up to the
-number of runs on screen (``89 shown = 80 judged + 4 unjudged + 5 error``), next to the
-mean / median picked-round score.  There is no pass rate: a run is not passed or failed
-(2026-09-22).
-"""
+"""The index page: status rail, filters, per-battery sections, cards + table."""
 
 from __future__ import annotations
 
@@ -45,10 +33,6 @@ def _verdict_chip(bucket: str, count: int, *, total: int) -> str:
 
 
 def _summary_strip(entries: list[RunEntry], total: int) -> str:
-    """One compact rail: how many runs, what happened to them, what they cost.
-
-    Deliberately ~1/3 the height of the old 7-tile grid — on a 900 px laptop the
-    first row of runs has to be visible without scrolling."""
     s = summarize(entries)
     segs = "".join(
         f"<span class='seg {VERDICT_META[b][1]}' id='vs-{b}' style='flex:{s.breakdown[b]}'"
@@ -105,11 +89,6 @@ def _controls(index: GalleryIndex, flt: dict[str, str], sort: str) -> str:
 
 # --------------------------------------------------------------------------- bulk bar
 def _bulk_bar() -> str:
-    """Multi-select actions.  It is on screen from the start (greyed out) because a
-    bulk action nobody can see is a bulk action nobody uses.
-
-    Compare / export / copy paths only: this server has no mutation route at all,
-    so a "re-run" button would be a lie."""
     return (
         "<div class='selbar empty' id='selbar' role='region' aria-label='bulk actions'>"
         "<span class='selcount'><b class='num' id='sel-n'>0</b> selected"
@@ -144,8 +123,6 @@ def _section(label: str, path: str, entries: list[RunEntry], hidden: set[str], u
 def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode gallery",
                  flt: dict[str, str] | None = None, sort: str = "score", view: str = "cards",
                  note: str = "", extra_html: str = "") -> str:
-    """The whole index page as one HTML document.  ``extra_html`` (already
-    escaped markup, e.g. eval/bench/report.py's stats tables) goes under the summary strip."""
     flt = {k: (flt or {}).get(k, "") for k in FILTER_KEYS}
     all_entries = index.entries()
     selected = [e for e in all_entries if match(e, flt)]
@@ -181,7 +158,6 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode ga
 def render_static(index: GalleryIndex, *, title: str = "3dcode gallery", embed: bool = False,
                   thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
                   extra_html: str = "") -> str:
-    """The complete HTML document for ``index`` (no server involved)."""
     note = ("images are inlined; the links open the original run directories on this machine"
             if embed else "images and links point at the run directories with file:// — "
                           "use `3dcode gallery serve` for a page that works anywhere")
@@ -191,7 +167,6 @@ def render_static(index: GalleryIndex, *, title: str = "3dcode gallery", embed: 
 
 def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: str | None = None,
                  embed: bool = False, thumb_px: int = THUMB_PX) -> tuple[Path, int, GalleryIndex]:
-    """Scan ``roots`` and write one self-contained page; ``(path, n_runs, index)``."""
     index = build_index(roots)
     label = title or ("3dcode gallery — " + ", ".join(s.label for s in index.sections[:4])
                       + ("…" if len(index.sections) > 4 else ""))

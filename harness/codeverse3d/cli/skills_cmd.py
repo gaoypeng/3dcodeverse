@@ -1,10 +1,4 @@
-"""``3dcode skills`` — look at the library, validate it, and read the read-rate.
-
-``report`` is the command that matters.  The whole system exists because a tool that
-exists is not a tool that gets used (the former ``read_cookbook`` tool: 0 of 16 zone sessions), so the
-first question about any battery is not "did the score move" but "did anyone open the
-file".  Everything else here is plumbing for that answer.
-"""
+"""``3dcode skills`` — list and validate the skill library, and report how often agents read it."""
 
 from __future__ import annotations
 
@@ -31,21 +25,14 @@ def _root(ctx: typer.Context) -> None:
 def list_skills(
     routes: Annotated[bool, typer.Option("--routes", help="show the rules that can attach each skill")] = False,
 ) -> None:
-    """Every bundle in the library, with its evidence label, body size and its ONE claim.
-
-    ``target`` is the deterministic quantity the bundle says it moves (docs/SKILLS_LEDGER.md);
-    ``dir`` is the direction that counts as an improvement, and a ``?`` marks a bundle whose
-    claim no deterministic instrument can see.  Read them out with
-    ``python eval/bench/skill_targets.py eval/bench/out``.
-    """
+    """Every bundle in the library, with its evidence label, body size and its one claim."""
     from rich.table import Table
 
     from codeverse3d.addons.skill_targets import target_for
     from codeverse3d.skills import iter_skills
     from codeverse3d.skills.registry import ROUTED_SKILLS, ROUTES
 
-    # the base library, then every shipped variant's overlay (D105): an overlay row is labelled with
-    # its variant, and under --routes it lists the overlay's own [[route]] rows beside the base table
+    # the base library, then every shipped variant's overlay (rows labelled by variant)
     roots = _roots()
     found = [(root, s) for root in roots for s in iter_skills(root.path)]
     overlay_rows = {root.variant: _overlay_routes(root.variant) for root in roots if root.variant}
@@ -95,19 +82,17 @@ def validate(
     from codeverse3d.skills.model import SkillError, parse_skill
     from codeverse3d.skills.registry import ROUTED_SKILLS
 
-    # every root a run can route from: the base library, then each shipped variant's overlay (D105) —
-    # an overlay bundle is routed the moment its variant is active, so a malformed one fails HERE,
-    # labelled `<variant>/<bundle>`, instead of being skipped from a session with a logged warning
+    # every root a run can route from, so a malformed overlay bundle fails here as `<variant>/<bundle>`
     roots = _roots()
     total = bad = tables_bad = 0
     base_names: set[str] = set()
-    unshipped: list[str] = []      # overlay rows that route a bundle no root ships
+    unshipped: list[str] = []
     for root in roots:
         dirs = bundle_dirs(root.path)
         total += len(dirs)
         for d in dirs:
             issues = validate_bundle(d)
-            with contextlib.suppress(SkillError):   # a parse failure is already reported above
+            with contextlib.suppress(SkillError):
                 issues += check_claims(parse_skill(d))
             if issues:
                 bad += 1
@@ -126,7 +111,7 @@ def validate(
             console.print(f"[{style}]{root.variant}/routes.toml: {len(orphans)} row(s) route a bundle "
                           f"nobody ships:[/] {', '.join(orphans)}")
             unshipped += orphans
-    prompt_issues = check_prompt_claims()   # the prompt corpus's pinned numbers, the same check
+    prompt_issues = check_prompt_claims()
     for i in prompt_issues:
         console.print(f"[red]FAIL[/] prompts/_claims.toml - {i}")
     missing = [n for n in ROUTED_SKILLS if n not in base_names]
@@ -140,8 +125,7 @@ def validate(
 
 
 def _roots() -> list:
-    """Every root the library ships (``skills.shipped_roots``); a shipped ``variant.toml`` that does not
-    parse is reported and exits 1 rather than tracing back."""
+    """Every root the library ships; a ``variant.toml`` that does not parse is reported and exits 1."""
     from codeverse3d.skills import shipped_roots
 
     try:
@@ -152,8 +136,7 @@ def _roots() -> list:
 
 
 def _overlay_routes(variant: str) -> tuple:
-    """A variant's own ``[[route]]`` rows for the ``--routes`` column; a table that does not type-check
-    is said once here and listed as empty (``skills validate`` is where it fails)."""
+    """A variant's ``[[route]]`` rows for the ``--routes`` column; an invalid table lists as empty."""
     from codeverse3d.skills import variants_table
 
     try:
@@ -164,8 +147,7 @@ def _overlay_routes(variant: str) -> tuple:
 
 
 def _check_table(root, available: set[str]) -> tuple[int, list[str]]:
-    """One overlay's ``routes.toml``: ``(1 if it does not type-check else 0, the rows whose skill no root
-    ships as ``RULE -> skill``)``.  The failure is printed here, FAIL-labelled by the variant."""
+    """One overlay's ``routes.toml``: ``(1 if invalid else 0, rows routing a skill no root ships)``."""
     from codeverse3d.skills import variants_table
 
     try:
@@ -181,18 +163,7 @@ def report(
     runs_dir: Annotated[Path, typer.Argument(help="a runs root, a bench out dir, or one workspace")],
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Deep-read rate per skill and per backend — the number that replaces "0 of 16".
-
-    Target from the design: >= 60% deep-read rate for a CLI backend.  A skill
-    under 20% over 20 sessions is merged or deleted.
-
-    Sessions measured by atime whose CONTROL bundle was also "read" are counted separately
-    and excluded from the rate: git's own diff and every CLI's skill activation both bump
-    atime, so in those sessions the probe saw nothing it can attribute to the agent
-    (docs/SKILLS.md section 4).  Sessions measured from the CLI's own tool calls
-    (``evidence: transcript``, 2026-09-22) are exact and always counted; one whose agent
-    opened the control is reported, not dropped.
-    """
+    """Deep-read rate per skill and per backend; atime sessions that also "read" the control are excluded."""
     from rich.table import Table
 
     from codeverse3d.contracts.run import SkillsUsage
@@ -200,7 +171,7 @@ def report(
     from codeverse3d.skills.telemetry import SKILLS_FILE, TELEMETRY_DIR
 
     rows: list[dict] = []
-    for p in unique_files(runs_dir, SKILLS_FILE, subruns=True):  # a symlinked cell once; candidates' sessions too
+    for p in unique_files(runs_dir, SKILLS_FILE, subruns=True):
         if p.parent.name == TELEMETRY_DIR:
             rows.extend(read_jsonl_lenient(p))
     if not rows:
@@ -209,7 +180,7 @@ def report(
 
     per: dict[tuple[str, str], list[int]] = {}
 
-    def _blind(r: dict) -> bool:          # the probe saw nothing: SkillsUsage.deep_read_rate says None
+    def _blind(r: dict) -> bool:
         u = SkillsUsage.model_validate(r)
         return bool(u.listed) and u.deep_read_rate is None
 
@@ -219,7 +190,7 @@ def report(
     no_control = sum(1 for r in rows if not r.get("control_present"))
     for r in rows:
         if _blind(r):
-            continue                      # the probe was blind here; counting it would lie
+            continue
         backend = str(r.get("agent", "?")).split(":", 1)[0]
         reads = {x["name"]: x for x in r.get("reads", [])}
         for name in r.get("listed", []):

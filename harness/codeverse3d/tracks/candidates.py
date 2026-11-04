@@ -1,17 +1,4 @@
-"""Best-of-N baseline (track side).
-
-``run_best_of_n`` — N baseline candidates are generated IN PARALLEL, each in its own
-throw-away sub-workspace (``<ws>/_cand/c<k>``: own git repo, copy of the skeleton + spec +
-plan, own AGENTS.md/MCP config), built (+repair), gated, quick-rendered (4 views) and
-judged (n_samples=1) — the ordinary round (``steps._run_round``, kind ``candidate``) with
-two knobs turned: ``quick_render`` in place of ``pipeline.render`` and no clay views.  Each
-candidate's round trace goes to its own ``events.jsonl``; the run log carries
-``candidate.*``.  The winner — built, then the highest quick score, then fewer gate errors,
-then the earlier candidate — is copied back into the run workspace and the ordinary
-round-0 pipeline (build → gates → 14-view render → full judge) runs on it.  That is the
-ONE choice the loop still makes (2026-09-22: no pairwise tie-break, no best round).
-Every candidate is charged to the run budget and persisted in ``rounds/candidates.json``.
-"""
+"""Best-of-N baseline (track side)."""
 
 from __future__ import annotations
 
@@ -59,9 +46,8 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     def _one(k: int) -> CandidateRecord:
         sub, label = subs[k], f"c{k}"
         ctx.events.emit("candidate.start", candidate=k, workspace=str(sub.ws.root))
-        # kind="candidate" is what the cost ledger files the sessions under (Stage.CANDIDATE)
         tasks_k = [t.model_copy(update={"label": f"{t.label}_{label}", "kind": "candidate"}) for t in tasks]
-        with tally() as spent:  # the candidate's cost: the ledger rows it books
+        with tally() as spent:
             rec = _run_round(sub, index=0, kind="candidate", tasks=tasks_k, pipeline=pipeline,
                              files_hint=list(files_hint), render=partial(quick_render, pipeline=pipeline),
                              geometry_views=False, spent=spent)
@@ -74,8 +60,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
                         duration_s=cand.duration_s, cost_usd=round(rec.usage.cost_usd, 4), commit=rec.commit[:10])
         return cand
 
-    # the candidates run side by side: one step of the run's minutes (each candidate round
-    # keeps its own steps in its sub-workspace)
     with timed("candidates", ctx.state.steps, round_index=0):
         results = fan_out(list(range(n)), _one, max_workers=ctx.settings.limits.max_parallel_agents,
                           label="candidates", item_name=lambda k: f"c{k}")
@@ -94,9 +78,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     budget_stop: BudgetExceeded | None = None
     for k, r in enumerate(results):
         if isinstance(r, Exception):
-            # a candidate that tripped the ceiling is a failed candidate, not the
-            # round's verdict: the sibling's finished work is still selected, adopted
-            # and persisted below; the guard's boundary check stops the run afterwards.
             if isinstance(r, BudgetExceeded) and budget_stop is None:
                 budget_stop = r
             records.append(CandidateRecord(index=k, label=f"c{k}", workspace=str(subs[k].ws.root),
@@ -106,12 +87,11 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
         records.append(r)
     if not any(r.commit for r in records):
         if budget_stop is not None:
-            raise budget_stop  # nothing usable survived: the budget stop stands
+            raise budget_stop
         died = [r for r in results if isinstance(r, Exception)]
         raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed",
                           transient=any(e.transient if isinstance(e, RoundFailed) else is_model_outage(e) for e in died),
                           quota=any(isinstance(e, RoundFailed) and e.quota for e in died),
-                          # D112: a hung candidate is retried by the round loop like a hung single session
                           stalled=any(isinstance(e, RoundFailed) and e.stalled for e in died))
     best = rank_candidates(records)[0]
     records[best].selected = True
@@ -127,7 +107,7 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
                        for r in records if r.index != best)
     notes = [f"best-of-{n}: selected {records[best].label} "
              f"(quick score {records[best].score if records[best].score is None else round(records[best].score, 3)}; others: {others or '-'})"]
-    ctx.budget.check()  # boundary: the winner is adopted + persisted; a real ceiling stop lands here
+    ctx.budget.check()
     return run_round(ctx, index=0, kind="baseline", tasks=[], pipeline=pipeline, files_hint=list(files_hint),
                      extra_usage=usage, extra_notes=notes)
 
@@ -152,30 +132,12 @@ def make_candidate_context(track: Any, ctx: RunContext, k: int) -> RunContext:
 
 def quick_render(ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None, *,
                  pipeline: RoundPipeline) -> RenderSet | None:
-    """Cheap renders for ranking a candidate — by the route THIS track actually has.
-
-    An object has a GLB and gets the reduced-view, reduced-resolution rig, which is the
-    whole point of a "quick" render.  A shader has no GLB at all, and returning None there
-    meant the candidate was never judged, scored None, and best-of-N fell through to index
-    0 — so every extra candidate was generated, paid for and discarded unlooked-at.
-
-    Measured 2026-08-25 across the teaser battery: static_object and articulated_object
-    candidates all carried real scores, and all SIX graphics runs recorded
-    ``scores: {c0: null, c1: null}`` with ``selected: 0``, two of them at n=3.  No
-    ``candidate.judge_failed`` event fired anywhere — nothing errored, the judge was simply
-    never reached.
-
-    So when there is no GLB, fall back to ``pipeline.render``, which is the renderer the
-    track uses for its real rounds (frames for graphics, authored cameras for a scene).
-    That costs more than the quick rig; it costs less than paying for N generations and
-    keeping the first one blind.
-    """
+    """Cheap renders for ranking a candidate — by the route THIS track actually has."""
     out_dir = ctx.ws.renders_dir(round_index) / "quick"
     try:
         if build.glb_path:
             rs = ctx.services.render_object(Path(build.glb_path), out_dir, views=OBJECT_VIEWS_QUICK,
                                             width=QUICK_PX, height=QUICK_PX)
-            # ArticulatedPipeline.gates() parks its sweep views here for render() to pick up
             pose = ctx.extra.pop("pose_views", None)
             if pose:
                 rs.views = list(rs.views) + list(pose)

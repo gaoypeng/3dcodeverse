@@ -11,18 +11,8 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult
 class CodingAgent(Protocol):
     """Runs ONE headless agent session in ``job.workspace``.
 
-    Contract for implementations:
-    * the agent may only write under ``job.write_roots`` (harness materialises
-      AGENTS.md/CLAUDE.md + MCP config before the call; see
-      ``agents/materialize.py``),
-    * never raise for agent failures — return ``AgentResult(ok=False, exit_reason=...)``,
-    * fill ``usage`` (tokens + cost) as precisely as the CLI allows,
-    * write the full transcript to ``job.workspace/trajectories/...`` and set
-      ``transcript_path``,
-    * compute ``files_changed`` via ``Workspace.changed_files`` (git), not by
-      trusting the agent's claims,
-    * respect ``job.timeout_s`` with an activity-aware watchdog (kill the whole
-      process group on timeout).
+    Implementations never raise for agent failures (return ``AgentResult(ok=False, ...)``),
+    write only under ``job.write_roots``, and compute ``files_changed`` from git.
     """
 
     kind: str  # claude-code | codex | agy
@@ -50,8 +40,7 @@ def parse_agent_id(agent_id: str) -> tuple[str, str]:
 
 
 def get_coding_agent(agent_id: str) -> CodingAgent:
-    """The (metered) CodingAgent for ``<kind>:<model>`` — the same wrap
-    ``models.registry.get_chat_model`` gives a chat model."""
+    """The (metered) CodingAgent for ``<kind>:<model>``."""
     from codeverse3d.cost.instrument import metered_agent
 
     return metered_agent(_build_agent(agent_id))

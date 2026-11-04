@@ -1,14 +1,4 @@
-"""Estimate what a call will cost **before** sending it, and pick a tier.
-
-The ledger (``telemetry/cost.jsonl``) records money *after* it is spent, and
-``orchestrator.BudgetGuard`` is only the wall clock.  This is the cheap estimate that belongs in front of a
-call: how many tokens am I about to send, and what will they cost on this model?
-
-Token counts are estimates (≈4 characters per token for prose/code, a flat
-per-image count for vision parts) — good to ±15% for prompt sizing, which is all
-a routing decision needs.  When the exact number matters, price the ``Usage``
-the provider returns (``codeverse3d.cost.record_call``).
-"""
+"""Estimate what a call will cost before sending it (token counts are ~4 chars/token, +-15%)."""
 
 from __future__ import annotations
 
@@ -19,11 +9,9 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.types import normalise_ids
 from codeverse3d.models.pricing import estimate_cost, price_provenance
 
-#: characters per token — Gemini/OpenAI English prose and code both sit near 4
 CHARS_PER_TOKEN = 4.0
 
-#: tokens billed for one image part, by longest edge (Gemini bills 1290 for a
-#: 1024² tile; smaller images are cheaper, larger ones are tiled)
+#: tokens billed for one image part, by longest edge
 IMAGE_TOKENS: dict[int, int] = {256: 258, 512: 258, 768: 1032, 1024: 1290, 2048: 5160}
 
 
@@ -42,7 +30,6 @@ def image_tokens(n: int = 1, *, px: int = 1024) -> int:
 
 @dataclass(frozen=True)
 class CostEstimate:
-    """What one call is expected to cost, and how much to trust the number."""
 
     model_id: str
     provider: str
@@ -69,11 +56,7 @@ def estimate_call(
     prompt: str | Sequence[str] = "",
     n_images: int = 0,
 ) -> CostEstimate:
-    """Price a call that has not happened yet.
-
-    ``model_id`` is any harness id (``gemini:gemini-3.8-flash``,
-    ``api-agent:gemini:gemini-3.8-flash``).  Give either token counts or the
-    ``prompt`` text, plus ``n_images`` vision parts (1024 px) either way."""
+    """Price a call that has not happened yet, from token counts or ``prompt`` text plus ``n_images``."""
     kind, provider, model = normalise_ids("", model_id)
     if not provider:
         kind, provider, model = normalise_ids(model_id, model_id)

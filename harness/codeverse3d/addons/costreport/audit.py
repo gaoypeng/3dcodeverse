@@ -1,21 +1,4 @@
-"""Cost audit over a directory of runs: where the money and the minutes go.
-
-``audit_runs(paths)`` reads every run's own ledger (``telemetry/cost.jsonl``, the one record
-of money — docs/COST.md §12) and its record, stamps every row with the run's track /
-language / status, and aggregates:
-
-* $ per run, per track, per stage, per role, per backend, per model;
-* token composition (input / cached / output / thoughts) and the effective
-  $/1k-token rate each bucket actually paid;
-* time next to the money — the run's minutes (``RunRecord.minutes``) and its model time;
-* **waste**: repair loops that never got their round to build, best-of-N candidates that
-  lost, and spend in a round the clock cut.  Nothing is waste for scoring below another
-  round: since 2026-09-22 every round is kept and any of them can be the one handed over.
-
-A directory with no ledger has no rows and is left out: the reconstruction of pre-ledger
-runs from their trajectories, verdicts and events went on 2026-09-22 (434 of 467 archived
-runs carry a ledger; the 33 without are five v1 batteries outside the repo).
-"""
+"""Cost audit over a directory of runs: where the money and the minutes go."""
 
 from __future__ import annotations
 
@@ -39,7 +22,6 @@ from codeverse3d.record.record import (
 
 @dataclass
 class RunLedger:
-    """One run's (or compare cell's) ledger rows plus what a cost report says about it."""
 
     run: str = ""
     path: Path = Path()
@@ -48,11 +30,11 @@ class RunLedger:
     status: str = ""
     stop_reason: str = ""
     n_rounds: int = 0
-    round_built: list[bool | None] = field(default_factory=list)  # per round: did its build (+repair) succeed
-    selected_candidate: str = ""  # "c1" when the run ran best-of-N and c1 won
-    minutes: float | None = None  # RunRecord.minutes (a one-shot cell: its cell.json minutes)
-    cell_score: float | None = None  # a one-shot compare cell's one score (it has no record)
-    written_usd: float = 0.0  # the rows as written, before a --recheck re-priced them
+    round_built: list[bool | None] = field(default_factory=list)
+    selected_candidate: str = ""
+    minutes: float | None = None
+    cell_score: float | None = None
+    written_usd: float = 0.0
     rows: list[CallCost] = field(default_factory=list)
 
     @property
@@ -65,8 +47,6 @@ class RunLedger:
 
 
 def _rows(root: Path, led: RunLedger, *, recheck: bool) -> None:
-    """Add ``root``'s own ledger rows to ``led`` — stamped with its run name where a battery
-    copied them without one, and re-priced from today's table when ``recheck``."""
     for row in load_ledger(root):
         led.written_usd += row.cost_usd
         row.run = row.run or led.run
@@ -81,7 +61,6 @@ def _rows(root: Path, led: RunLedger, *, recheck: bool) -> None:
 
 
 def read_run(run_dir: Path, *, name: str = "", recheck: bool = False) -> RunLedger:
-    """A run directory: its ledger rows and its record's facts (an unreadable record keeps the rows)."""
     led = RunLedger(run=name or run_dir.name, path=run_dir)
     try:
         rec = load_record(run_dir)
@@ -100,9 +79,6 @@ def read_run(run_dir: Path, *, name: str = "", recheck: bool = False) -> RunLedg
 
 
 def read_cell(cell_dir: Path, *, name: str, recheck: bool = False) -> RunLedger:
-    """A ``compare_backends`` / ``ab_plan`` cell.  A harness arm is its run plus the cell's own
-    ledger (the fixed evaluator's judge, a repair arm's extra generations); a one-shot or
-    bare-agent arm is the cell ledger alone, described by ``cell.json`` and ``eval/spec.json``."""
     if (cell_dir / "run" / "record.json").is_file():
         led = read_run(cell_dir / "run", name=name, recheck=recheck)
     else:
@@ -118,10 +94,6 @@ def read_cell(cell_dir: Path, *, name: str, recheck: bool = False) -> RunLedger:
 
 
 def find_runs(root: str | Path) -> list[Path]:
-    """Every run directory under ``root`` (a dir with ``record.json``) and every compare cell
-    (a dir with ``cell.json``; one that wraps a harness run is named by the cell, not its
-    ``run/``), found by ``record.find_run_dirs``: once each — a cell another battery symlinks in
-    included — and never inside a run (its ``_assets/``, ``_cand/`` sub-workspaces are part of it)."""
     base = Path(root)
     if _is_run_or_cell(base):
         return [base]
@@ -132,16 +104,14 @@ def _is_run_or_cell(d: Path) -> bool:
     return is_run_dir(d) or (d / "cell.json").is_file()
 
 
-#: dimensions the audit always aggregates on
 AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "model", "provider",
                     "status", "outcome", "source", "key")
 
 
 @dataclass
 class WasteItem:
-    """One dollar that bought nothing (or bought a worse artifact)."""
 
-    kind: str  # repair_no_converge | lost_candidate | post_budget
+    kind: str
     run: str
     usd: float
     detail: str = ""
@@ -150,7 +120,6 @@ class WasteItem:
 
 @dataclass
 class Audit:
-    """Everything the report needs; ``summary`` holds the bucket maps."""
 
     runs: list[RunLedger] = field(default_factory=list)
     rows: list[CallCost] = field(default_factory=list)
@@ -200,7 +169,6 @@ class Audit:
 
 def _waste(led: RunLedger) -> list[WasteItem]:
     items: list[WasteItem] = []
-    # repair loops that never got their round to build
     unbuilt = {i for i, ok in enumerate(led.round_built) if ok is False}
     repair = [r for r in led.rows if r.stage is Stage.REPAIR and r.round in unbuilt]
     if repair:
@@ -208,16 +176,12 @@ def _waste(led: RunLedger) -> list[WasteItem]:
                                detail=f"{len(repair)} repair call(s) in round(s) "
                                       f"{', '.join(f'r{i:02d}' for i in sorted({r.round for r in repair}))} "
                                       f"that still did not build"))
-    # best-of-N candidates that lost (their whole sub-workspace is thrown away): the candidate
-    # clone's sessions are labelled ``baseline_c<k>``.  Generator sessions only — the
-    # quick-judge rows inside a candidate carry no candidate marker.
     won = led.selected_candidate
     losers = [r for r in led.rows if r.stage is Stage.CANDIDATE and not (won and r.label.endswith(f"_{won}"))]
     if losers:
         names = sorted({r.label.rsplit("_", 1)[-1] for r in losers})
         items.append(WasteItem("lost_candidate", led.run, sum(r.cost_usd for r in losers),
                                detail=f"best-of-N: {', '.join(names)} lost to {won or '(unknown)'}"))
-    # anything spent on a round that finished after the budget was blown
     if led.stop_reason in ("budget",) or led.status == "budget":
         extra = [r for r in led.rows if r.round is not None and led.n_rounds and r.round > led.n_rounds - 1]
         if extra:
@@ -227,9 +191,6 @@ def _waste(led: RunLedger) -> list[WasteItem]:
 
 
 def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
-    """Read + aggregate every run and cell under ``paths`` (run dirs or trees).  A run is named
-    by its place under the path it was found from (``RunId``), so an A/B battery's control and
-    variant cells of one prompt stay two runs."""
     audit = Audit()
     for root in map(Path, paths):
         for d in find_runs(root):
@@ -257,8 +218,6 @@ def _add(audit: Audit, led: RunLedger) -> None:
 
 # --------------------------------------------------------------------------- derived views
 def cached_input_share(audit: Audit) -> tuple[int, int, float]:
-    """``(cached, total input, $ paid for cache reads)`` — how much of every prompt
-    is context we have already sent before."""
     cached = audit.summary.total.cached_tokens
     total = audit.summary.total.input_tokens
     usd = sum(min(r.cached_tokens, r.input_tokens) * r.price_cached / 1e6 for r in audit.rows)
@@ -266,8 +225,6 @@ def cached_input_share(audit: Audit) -> tuple[int, int, float]:
 
 
 def uncached_if_no_cache(audit: Audit) -> float:
-    """What the same traffic would have cost with a 0% cache-hit rate — the
-    measured value of prompt caching as it stands today."""
     extra = 0.0
     for r in audit.rows:
         cached = min(r.cached_tokens, r.input_tokens)
@@ -276,7 +233,6 @@ def uncached_if_no_cache(audit: Audit) -> float:
 
 
 def stage_latency(audit: Audit) -> dict[str, tuple[float, float]]:
-    """stage → (model seconds, share of all model seconds)."""
     per: dict[str, float] = {}
     for r in audit.rows:
         per[str(r.stage)] = per.get(str(r.stage), 0.0) + r.latency_ms / 1000.0
@@ -285,7 +241,6 @@ def stage_latency(audit: Audit) -> dict[str, tuple[float, float]]:
 
 
 def price_confidence(audit: Audit) -> dict[str, float]:
-    """$ by how trustworthy the price row behind it is."""
     out: dict[str, float] = {}
     for r in audit.rows:
         key = r.price_source if r.price_source in ("unknown", "provider-reported") \

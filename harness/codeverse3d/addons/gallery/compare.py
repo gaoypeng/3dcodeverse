@@ -1,13 +1,4 @@
-"""Bulk triage: the side-by-side compare page and the CSV export.
-
-Both are **read-only projections of the index** — ``/compare?runs=a/b,c/d`` and
-``/export.csv?runs=…`` (or any index filter).  Nothing here writes, queues or
-re-runs anything: the gallery deliberately exposes no mutation endpoint, so the
-bulk bar offers *compare*, *export* and *copy paths* and stops there.
-
-The compare page is a metric-per-row table so the eye travels along one row and
-compares like with like; a per-run column of stacked cards does not do that.
-"""
+"""Bulk triage: the side-by-side compare page and the CSV export."""
 
 from __future__ import annotations
 
@@ -20,7 +11,6 @@ from codeverse3d.addons.gallery.model import VERDICT_META, RunEntry
 from codeverse3d.addons.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse3d.addons.gallery.urls import UrlMaker
 
-#: how many runs a compare page will lay out before it says "too many"
 MAX_COMPARE = 8
 
 COMPARE_CSS = """
@@ -87,7 +77,6 @@ def _delta(entry: RunEntry) -> str:
 
 
 def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -> str:
-    """``n`` runs as columns, one metric per row."""
     if not entries:
         inner = ("<div class='panel'><h2>nothing to compare</h2><p class='muted'>Tick two or more "
                  "runs on the index and press <b>compare</b>.</p></div>")
@@ -156,8 +145,6 @@ _FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
 def csv_safe(value: object) -> object:
-    """Neutralise spreadsheet formula injection: a string cell starting with
-    ``= + - @`` (an LLM-written prompt or title can) is prefixed with ``'``."""
     if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
         return "'" + value
     return value
@@ -169,7 +156,6 @@ CSV_COLUMNS = ("battery", "slug", "title", "verdict", "tier", "track", "language
 
 
 def export_csv(entries: list[RunEntry]) -> str:
-    """The selected runs as CSV — the one export a read-only tool owes a spreadsheet."""
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)

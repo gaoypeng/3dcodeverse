@@ -1,10 +1,4 @@
-"""Orchestration: the stage runner with resume, run state, the round policy
-(RoundPolicy), refine-task compilation and the budget clock.
-
-One module since 2026-08-28: the seven-file package predates the 1,500-line cap,
-nobody ever imported the package itself, and refine_tasks existed only to be
-re-exported by rounds.  candidates.py moved into tracks/candidates.py earlier.
-"""
+"""Orchestration."""
 
 from __future__ import annotations
 
@@ -36,15 +30,11 @@ log = logging.getLogger(__name__)
 
 # ===================================================================== state
 class StageState(BaseModel):
-    """One completed stage: its inputs hash (the result JSON is at ``stages/<name>.json``)."""
 
     inputs_hash: str
 
 
 class RunState(BaseModel):
-    """Everything the orchestrator needs to resume a run — except the round history, which is
-    the round journal's alone (``rounds/rNN.json`` + each round's commit; ``lifecycle.reconcile_resume``
-    reads it)."""
 
     status: RunStatus = RunStatus.PLANNING
     stages: dict[str, StageState] = Field(default_factory=dict)
@@ -112,21 +102,14 @@ def _jsonable(obj: Any) -> Any:
 
 
 class StageRunner:
-    """Runs stages with resume semantics on top of ``RunState`` + ``EventLog``.
-
-    ``frozen`` (the run already has rounds): a stage with a recorded result serves it even when
-    its key drifted (``stage.frozen``) — the rounds refined what it wrote, and re-running it would
-    re-pay its session and overwrite that work.  ``resume --force`` archives the rounds to
-    ``rounds/pre_force/`` whether or not the spec changed (``reconcile_resume``), so the run starts
-    again at round 0 unfrozen — the one way to regenerate a stage under existing rounds."""
+    """Runs stages with resume semantics on top of ``RunState`` + ``EventLog``."""
 
     def __init__(self, ws: Workspace, events: EventLog, state: RunState | None = None, *, frozen: bool = False):
         self.ws = ws
         self.events = events
         self.state = state if state is not None else RunState()
         self.frozen = frozen
-        #: the scene baseline fans sibling stages out in parallel; the bookkeeping
-        #: (``state.stages`` + the ``run_state.json`` save) must not interleave
+        #: stage bookkeeping + ``run_state.json`` save must not interleave across parallel stages
         self._lock = threading.Lock()
 
     # ----------------------------------------------------------------- paths
@@ -143,21 +126,13 @@ class StageRunner:
         model: type[BaseModel] | None = None,
         timed_step: bool = True,
     ) -> T:
-        """Run ``fn`` unless a cached result for the same ``inputs`` exists.  A stage that runs
-        is a timed step of the run (``RunState.steps``) — unless ``timed_step=False``: a stage
-        that runs beside its siblings is timed once, as their group, by its caller."""
+        """Run ``fn`` unless a cached result for the same ``inputs`` exists."""
         h = hash_inputs(inputs)
         path = self.result_path(name)
         prior = self.state.stages.get(name)
         if prior is not None and (prior.inputs_hash == h or self.frozen) and path.is_file():
-            # A cached result that cannot be read back is a cache MISS, not a dead run.
-            # ``inputs_hash`` covers the INPUTS only, never the result model's schema, so a
-            # contract that gained a field invalidates nothing — and a clobbered file
-            # invalidates nothing either.  Both used to escape as ValidationError /
-            # JSONDecodeError through BaseTrack.run, which marks the run FAILED and
-            # re-raises, so every later `3dcode resume <slug>` died the same way with no way
-            # out (there is no flag to drop a cached stage).  Re-run instead and
-            # overwrite the file — the same tolerance load_ledger and _read_jsonl apply.
+            # A cached result that cannot be read back (schema drift, clobbered file) is a
+            # cache MISS: re-run and overwrite instead of dying on every resume.
             try:
                 result = _revive(json.loads(path.read_text()), model)
             except (OSError, ValueError) as e:  # ValidationError is a ValueError
@@ -252,16 +227,6 @@ def build_refine_instructions(
     max_tasks: int = 6,
     extra: Sequence[RefineTask] = (),
 ) -> list[RefineTask]:
-    """Gate ERRORS first (with fix hints) — a part still the skeleton's placeholder
-    (``PLACEHOLDER_PART``) ahead of every other gate ERROR —, then ``extra`` harness-derived tasks
-    (e.g. reference-silhouette mismatch), then failed *must* acceptance items,
-    then the judge's improvement plan; de-duplicated by (target, kind, finding kind), capped.
-    Gate/acceptance/extra tasks are never dropped by the cap unless they alone exceed it.
-
-    The finding kind (``GateFinding.data["kind"]``) is part of a gate task's key (D111): with
-    (target, ``gate:<gate>``) alone every env ERROR of ``scene_placement`` collapsed into the
-    first, so ``no_fog`` hid ``no_background`` from the refine prompt (argon loop iteration 4,
-    r1_08 / r1_10).  Two findings of one kind on one target are still one task."""
     known = _known_targets(plan)
     tasks: list[RefineTask] = []
     seen: set[tuple[str, str, str]] = set()
@@ -302,10 +267,7 @@ def build_refine_instructions(
 
 
 def plan_parallel_groups(tasks: Sequence[RefineTask]) -> list[TaskGroup]:
-    """Group tasks by file ownership.  Tasks with unknown files (``[]``) cannot
-    be isolated, so if any exists everything collapses into ONE group (a single
-    whole-object task).  Otherwise groups are the connected components of the
-    "shares a file" relation — each group may run concurrently with the others."""
+    """Group tasks by file ownership."""
     if not tasks:
         return []
     if any(not t.files for t in tasks):
@@ -343,12 +305,7 @@ def plan_refine_groups(
     allow_fanout: bool = True,
     parallel_min_tasks: int = 2,
 ) -> tuple[list[TaskGroup], bool]:
-    """The ONE grouping rule of the refine scaffold (``BaseTrack.refine_tasks``).
-
-    Groups by file ownership via :func:`plan_parallel_groups`; the groups run in
-    parallel only when fan-out is allowed for the track, at least
-    ``parallel_min_tasks`` file-disjoint groups exist and every group owns
-    files.  Otherwise everything collapses into ONE whole-artifact group."""
+    """The ONE grouping rule of the refine scaffold (``BaseTrack.refine_tasks``)."""
     groups = plan_parallel_groups(tasks)
     parallel = allow_fanout and len(groups) >= parallel_min_tasks and all(g.files for g in groups)
     if not parallel:
@@ -357,10 +314,7 @@ def plan_refine_groups(
 
 
 def compact_instructions(tasks: Sequence[RefineTask], max_lines: int = 6) -> list[str]:
-    """The instruction lines handed to ONE generation task: grouped by target
-    (instances ``Leg_0``/``Leg_1`` fold into ``Leg``), ordered by priority, capped
-    at ``max_lines``.  A flash-class agent given 12 near-identical connectivity
-    errors fixes none; given "FrontLeg: (a) … (b) …" it fixes the part."""
+    """The instruction lines handed to ONE generation task."""
     if not tasks:
         return []
     groups: dict[str, list[RefineTask]] = {}
@@ -407,8 +361,7 @@ def _known_targets(plan: Plan | None) -> dict[str, str]:
 
 
 def _canon_target(target: str, known: dict[str, str]) -> str:
-    """Plan name for ``target``; instance suffixes (``Leg_1``, ``leg.2``) keep the
-    suffix but take the plan's spelling of the base name."""
+    """Plan name for ``target``."""
     hit = known.get(to_snake(target))
     if hit is not None:
         return hit
@@ -433,33 +386,24 @@ def _acceptance_target(item: AcceptanceItem, known: dict[str, str]) -> str:
 # ===================================================================== rounds
 @dataclass(frozen=True)
 class RoundPolicy:
-    """The refine loop's knobs.  There is no stop knob besides ``max_rounds``: a run is the
-    baseline plus ``max_rounds`` refine rounds, cut short only by the clock or a hard
-    failure (owner, 2026-09-22 — the pass / plateau / regression / diminishing-returns
-    stops, the rewrite and the surface-detail rounds they drove are gone)."""
+    """The refine loop's knobs."""
 
     max_rounds: int = 4  # refine rounds AFTER the baseline
     max_refine_tasks: int = 6
     max_instructions_per_task: int = 6  # lines handed to ONE generation task (grouped by target)
     parallel_min_tasks: int = 2  # fan out only when >= this many file-disjoint groups
     n_candidates: int = 1  # best-of-N baseline (candidates generated in parallel, best kept)
-    judge_samples: int = 1  # VLM judge samples per round (flash: std ≈ 0.001 between samples → 1 is enough)
-    #: seconds of the hard clock a refine / rebuild session leaves for its round's build, gates, render
-    #: and judge (D112: 201 s measured for iteration 5 r1_09 — build 11 s, render 24 s, judge 166 s)
+    judge_samples: int = 1
+    #: seconds of the hard clock a refine session leaves for build, gates, render and judge
     judge_reserve_s: float = 240.0
-    #: the shortest AGENT session window worth opening; with ``judge_reserve_s`` it is what a refine
-    #: round, a transport / stall retry or a stage retry needs left on the clock before it is launched
-    #: (D112).  A single-shot call has no session window: it needs the judge reserve only.
+    #: shortest agent session window worth opening; a single-shot call needs only the judge reserve
     min_session_s: float = 180.0
 
     def need_s(self, *, single_shot: bool = False) -> float:
-        """What :meth:`can_open` asks of the clock: the judge reserve, plus the minimum session window
-        when the generation is an agent session."""
+        """What :meth:`can_open` asks of the clock."""
         return self.judge_reserve_s + (0.0 if single_shot else self.min_session_s)
 
     def can_open(self, budget: BudgetGuard, *, single_shot: bool = False) -> bool:
-        """Does the hard clock still hold :meth:`need_s` — a minimum session window (agent sessions
-        only) plus the judge reserve?"""
         return budget.left_s() >= self.need_s(single_shot=single_shot)
 
 
@@ -477,14 +421,7 @@ class BudgetExceeded(RuntimeError):
 
 
 class BudgetGuard:
-    """The run's clock against ``Budget.max_minutes`` — a LIMIT, not a statistic.
-
-    It counts every active second, provider errors included, because it has to stop a run
-    even in a 503 storm; the run's minutes (``RunRecord.minutes``, docs/COST.md §31) leave
-    those errors out and never stop anything.  ``check`` raises ``BudgetExceeded`` past the
-    ceiling; ``ok`` is its non-raising twin.  Money is not the guard's (2026-09-22): the
-    ledger, ``telemetry/cost.jsonl``, is the one record of it.
-    """
+    """The run's clock against ``Budget.max_minutes`` — a LIMIT, not a statistic."""
 
     def __init__(
         self,
@@ -495,8 +432,7 @@ class BudgetGuard:
     ):
         self.budget = budget
         self.start_time = time.time() if start_time is None else start_time
-        #: ACTIVE seconds carried over from previous sessions of this run (``restore``
-        #: sets it from the snapshot); downtime between sessions never counts.
+    #: ACTIVE seconds carried over from previous sessions of this run.
         self._active_s: float = 0.0
         self._lock = threading.Lock()
         #: fraction of the hard ceiling the *baseline* may use (1.0 = no soft cap)
@@ -506,25 +442,18 @@ class BudgetGuard:
 
     # ----------------------------------------------------------------- resume snapshot
     def snapshot(self) -> BudgetSnapshot:
-        """The clock for ``run_state.json``, so a resume continues the SAME budget instead of
-        a fresh one.  Grace and config are deliberately absent: grace is one attempt's salvage
-        headroom — persisting it would ratchet the hard ceiling run over run, and the ceiling
-        always comes from the current spec."""
+        """The clock for ``run_state.json``, so a resume continues the SAME budget instead of a fresh one."""
         with self._lock:
             return BudgetSnapshot(active_s=self._active_s + (time.time() - self.start_time))
 
     def restore(self, snap: BudgetSnapshot) -> None:
-        """Adopt a snapshot: ``start_time`` stays *now*, so ``elapsed_minutes`` is prior ACTIVE
-        seconds plus this session — never the downtime in between.  The ceiling comes from
-        the (possibly raised) spec budget, so a raised cap (``--max-minutes``) grants exactly
-        the difference, never a fresh full cap."""
+        """Adopt a snapshot."""
         with self._lock:
             self._active_s = float(snap.active_s)
             self.start_time = time.time()
 
     def elapsed_minutes(self) -> float:
-        """Cumulative ACTIVE minutes: prior sessions' seconds (restored from the
-        snapshot) plus this session's wall clock.  Downtime costs nothing."""
+        """Cumulative ACTIVE minutes."""
         return (self._active_s + (time.time() - self.start_time)) / 60.0
 
     # ----------------------------------------------------------------- ceilings
@@ -533,9 +462,7 @@ class BudgetGuard:
         return self.budget.max_minutes + self.grace_minutes
 
     def grant_grace(self, *, minutes: float = 0.0) -> None:
-        """Extend the HARD wall-clock ceiling (never shrink it).  Used once by finalise /
-        salvage so a run that tripped the clock mid-stage can still deliver a judged
-        round instead of no score at all."""
+        """Extend the HARD wall-clock ceiling (never shrink it)."""
         with self._lock:
             self.grace_minutes = max(self.grace_minutes, max(0.0, float(minutes)))
 
@@ -571,11 +498,7 @@ class BudgetGuard:
         return True
 
     def timeout_s(self, want_s: float, *, floor_s: float = 60.0, soft: bool = True) -> int:
-        """``want_s`` clipped to the wall-clock actually left (soft cap when ``soft``).
-
-        A generation session must never be allowed to outlive the run's budget:
-        the greenhouse scene lost 54 minutes to zone agents that kept working
-        after the ceiling had already been crossed."""
+        """``want_s`` clipped to the wall-clock actually left (soft cap when ``soft``)."""
         left = max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
         return int(max(floor_s, min(float(want_s), left) if left > 0 else floor_s))
 
@@ -589,7 +512,6 @@ class BudgetGuard:
 
 
 class BudgetSnapshot(BaseModel):
-    """What survives a resume (``run_state.extra["budget_snapshot"]``): cumulative ACTIVE
-    seconds."""
+    """What survives a resume (``run_state.extra["budget_snapshot"]``)."""
 
     active_s: float = 0.0

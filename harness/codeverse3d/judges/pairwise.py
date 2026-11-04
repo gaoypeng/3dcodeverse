@@ -1,11 +1,7 @@
 """``PairwiseJudge``: which of two candidates better satisfies the spec?
 
-Position bias is real, so the comparison runs TWICE with A/B swapped (the two
-orderings run in parallel via ``codeverse3d.proc``); the winner is declared
-only when both orderings agree, otherwise ``tie``.  Each call sees the brief,
-the rubric's criteria (titles + descriptions) and ONE 2×2 montage per candidate
-(the 4 most informative views — never a big sheet: VLM judges flip with many
-tiles).
+The comparison runs twice with A/B swapped; a winner needs both orderings to agree, else ``tie``.
+Each call sees one 2×2 montage per candidate.
 """
 
 from __future__ import annotations
@@ -52,7 +48,7 @@ class CriterionWinner(BaseModel):
 
 
 class PairwiseReply(BaseModel):
-    """Wire schema for one ordering (lists, not dicts: provider schemas dislike free-form keys)."""
+    """Wire schema for one ordering."""
 
     winner: Literal["A", "B", "tie"] = Field(description="which candidate better satisfies the brief overall")
     confidence: float = Field(ge=0.0, le=1.0, description="0.5 = coin flip, 1.0 = certain")
@@ -93,21 +89,19 @@ class PairwiseJudge:
         self, spec: Spec, renders_a: RenderSet, renders_b: RenderSet, *,
         rubric: str | Rubric = "static_object"
     ) -> PairwiseResult:
-        """The two orderings' requests are tagged ``pairwise:fwd`` / ``pairwise:swap``
-        so logs — and deterministic fakes — can tell concurrent orderings apart."""
         rub = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
         usage = Usage()
         verdicts: list[tuple[Winner, float, list[str]]] = []
         orderings: list[dict] = []
         errors: list[str] = []
-        self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
+        self.model  # noqa: B018
         results = fan_out(
             (False, True), lambda swapped: self._ordering(spec, rub, renders_a, renders_b, swapped),
             max_workers=2, label="pairwise:orderings", item_name=lambda s: f"swapped={s}",
         )
-        for res in results:  # ordered accumulation: (fwd, swap)
+        for res in results:
             if isinstance(res, Exception):
-                raise res  # ModelError / parse failures are captured; anything else is a bug
+                raise res
             u, verdict, ordering, error = res
             usage = usage + u
             if error:
@@ -123,8 +117,6 @@ class PairwiseJudge:
     def _ordering(
         self, spec: Spec, rub: Rubric, renders_a: RenderSet, renders_b: RenderSet, swapped: bool
     ) -> tuple[Usage, tuple[Winner, float, list[str]] | None, dict | None, str]:
-        """One A/B ordering → ``(usage, verdict, ordering, error)`` (never raises for
-        model/parse failures — the caller aggregates them as errors)."""
         first, second = (renders_b, renders_a) if swapped else (renders_a, renders_b)
         req = self._request(spec, rub, first, second, label="pairwise:swap" if swapped else "pairwise:fwd")
         try:
@@ -136,7 +128,7 @@ class PairwiseJudge:
             reply = PairwiseReply.model_validate(payload)
         except JsonParseError as e:
             return resp.usage, None, None, f"parse: no JSON object in reply: {e}"
-        except ValueError as e:  # pydantic's ValidationError
+        except ValueError as e:
             return resp.usage, None, None, f"parse: {e}"
         winner = _map_winner(reply.winner, swapped)
         reasons = [_unswap_text(r, swapped) for r in reply.reasons]
@@ -145,7 +137,6 @@ class PairwiseJudge:
                     "criteria_won": {c.criterion: _map_winner(c.winner, swapped) for c in reply.criteria_won}}
         return resp.usage, (winner, reply.confidence, reasons), ordering, ""
 
-    # ------------------------------------------------------------------ prompt
     def _request(
         self, spec: Spec, rub: Rubric, first: RenderSet, second: RenderSet, *, label: str = "pairwise"
     ) -> ChatRequest:
@@ -168,12 +159,10 @@ class PairwiseJudge:
         )
 
     def _side_images(self, tag: str, rs: RenderSet, *, scene: bool) -> list[tuple[str, ImagePart]]:
-        """One 2×2 montage of the candidate's most informative views (plus its pose sheet / geometry
-        montage if any), from the views the verdict judge saw, ranked for the track: a scene's
-        own cameras first, as the verdict judge ranks them."""
+        """One 2×2 montage of the candidate's most informative views, ranked for the track."""
         montages = plan_montages(judged_subset(rs), scene=scene, max_montages=2, detail_crops=0)
         out: list[tuple[str, ImagePart]] = []
-        for i, m in enumerate(montages, 1):  # plan_montages already caps a grid at MAX_TILES=4
+        for i, m in enumerate(montages, 1):
             lbl = f"CANDIDATE {tag} — " + montage_label(m, i, len(montages))
             strip = f"CANDIDATE {tag} — {m.title.split(' (')[0]}"
             png = render_montage(m, cache_dir=self.cache_dir, tile_px=MONTAGE_TILE_PX)
@@ -205,11 +194,10 @@ def _combine(
     winners = {v[0] for v in verdicts}
     reasons = [r for v in verdicts for r in v[2]][:8]
     conf = statistics.fmean(v[1] for v in verdicts)
-    if len(verdicts) == 1:  # only one ordering succeeded → downgrade confidence, keep winner
+    if len(verdicts) == 1:
         return PairwiseResult(winner=verdicts[0][0], confidence=round(conf * 0.5, 3), reasons=reasons,
                               orderings=orderings, usage=usage, error=" || ".join(errors))
     if len(winners) == 1:
         return PairwiseResult(winner=verdicts[0][0], confidence=round(conf, 3), reasons=reasons, orderings=orderings, usage=usage)
-    # disagreement (position bias or genuine ambiguity) → tie, low confidence
     return PairwiseResult(winner="tie", confidence=round(min(0.4, 1.0 - conf), 3), reasons=reasons, orderings=orderings,
                           usage=usage, error="orderings disagree")

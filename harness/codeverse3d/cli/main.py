@@ -1,14 +1,5 @@
-"""``3dcode`` — the 3dcodeverse command line.
-
-Thin by design: every command builds typed inputs and calls into the harness
-packages through function-local imports, so ``3dcode --help`` loads none of them.
-
-Owns the typer app and every registration, the run-starting commands ``make`` /
-``resume`` (spec building, track dispatch, budget raising, and the
-hand-over after the run), ``pick`` and ``mcp``.  ``render`` / ``judge`` live in the sibling
-``cli/inspect_cmd.py``, the single-run view ``show`` (and its ``status`` alias) in
-``cli/layout_cmd.py``; all are registered here.
-"""
+"""``3dcode`` — the command line: the typer app, every registration, and ``make`` /
+``resume`` / ``pick`` / ``mcp``.  Commands import the harness lazily so ``--help`` stays fast."""
 
 from __future__ import annotations
 
@@ -121,7 +112,7 @@ def resolve_roots(roots: list[Path] | None) -> list[Path]:
             raise C.CliError("not a directory: " + ", ".join(str(m) for m in missing))
         return [Path(r) for r in roots]
     found = default_roots(Path.cwd())
-    seen = {p.resolve() for p in found}  # D77: the batteries live in <repo>/eval/bench/out/<b>/runs
+    seen = {p.resolve() for p in found}
     found += [p for p in sorted((C.EVAL_ROOT / "bench" / "out").glob("*/runs")) if p.is_dir() and p.resolve() not in seen]
     if not found:
         fallback = Path(get_settings().runs_dir)
@@ -213,9 +204,7 @@ app.command(
 def _root(
     ctx: typer.Context, version: Annotated[bool, typer.Option("--version", is_eager=True)] = False
 ) -> None:
-    # `kill -USR1 <pid>` dumps every thread's stack to stderr (the run log): the
-    # 2026-08-28 scope_tj_r3 hang (futex wait, every socket CLOSE-WAIT, 41 min past
-    # its window) was undiagnosable without it — py-spy needs ptrace rights WSL denies.
+    # `kill -USR1 <pid>` dumps every thread's stack to stderr (py-spy needs ptrace, which WSL denies)
     if hasattr(signal, "SIGUSR1") and sys.__stderr__ is not None:
         # best-effort: a captured stderr (CliRunner's StringIO) has no fileno
         with contextlib.suppress(Exception):
@@ -226,11 +215,7 @@ def _root(
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
         raise typer.Exit()
-    # Build the settings HERE so a bad configuration value is one typed error instead of a
-    # raw traceback out of whichever command happened to touch get_settings() first: the app
-    # runs with pretty_exceptions_enable=False, and `C3D_PROFILE=bogus` used to dump a
-    # Python stack from every command — including `3dcode doctor`, the one you would run to
-    # find out what is wrong with your configuration.
+    # build the settings here so a bad value is one typed error, not a traceback from any command
     try:
         get_settings()
     except ValueError as e:
@@ -321,7 +306,7 @@ def make(
 ) -> None:
     """Create a run (workspace + spec.json) and execute the track pipeline."""
     image, dim, must, must_not, tag = image or [], dim or [], must or [], must_not or [], tag or []
-    if not prompt.strip():  # a blank prompt was planned, generated and judged as is
+    if not prompt.strip():
         raise C.CliError("the prompt is empty: say what to build", code=2)
     C.check_minutes(max_minutes)
     for p in image:
@@ -329,7 +314,7 @@ def make(
             raise C.CliError(f"reference image not found: {p}")
         from PIL import Image, UnidentifiedImageError
 
-        try:  # a file that is no image reached the planner and the provider, and failed there
+        try:
             with Image.open(p) as im:
                 im.verify()
         except (UnidentifiedImageError, OSError, SyntaxError) as e:
@@ -340,15 +325,13 @@ def make(
     settings = get_settings()
     if candidates is None:
         candidates = settings.default_candidates
-    if candidates > 1 and not TRACK_INFO[track].best_of_n:  # the same rule for best-of-N
+    if candidates > 1 and not TRACK_INFO[track].best_of_n:
         raise _no_best_of_n(track)
     backends = settings.backends(generator=generator, planner=planner, judge=judge)
     C.check_backends(backends)
-    # the prompt/skill variant, resolved ONCE here (flag > C3D_VARIANT > C3D_VARIANTS by the generator
-    # id) and frozen on the spec: the track activates what the spec says, on `resume` too
+    # resolved once here and frozen on the spec
     chosen = C.resolve_variant(settings, backends.generator, variant)
-    # validate the whole Spec BEFORE touching the filesystem: an invalid
-    # track/language combination must not leave an orphan run directory behind.
+    # validate the whole Spec before touching the filesystem (no orphan run directory)
     try:
         spec = Spec(
             id=run_slug,
@@ -371,9 +354,7 @@ def make(
         )
     except ValueError as e:
         raise C.CliError(f"invalid run spec: {e}") from e
-    # THE run mutex, taken BEFORE the workspace is created (or --force wipes one) and
-    # held through the run itself: everything below mutates
-    # this run directory, and two 3dcode on one slug corrupt each other (runlock.py).
+    # the run mutex: taken before the workspace is created (or --force wipes one), held through the run
     with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcode make {run_slug}", action="create"):
         ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
         ws.write_json(ws.spec_path, spec)
@@ -412,11 +393,9 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
     from codeverse3d.proc import install_stop_handlers
     from codeverse3d.tracks import get_track
 
-    install_stop_handlers()   # a stop signal kills the run's agent / build trees too
+    install_stop_handlers()
     options: dict = {"n_candidates": candidates} if candidates else {}
     try:
-        # already inside the run mutex (make / resume take it); every model call and
-        # agent session of this run lands in telemetry/cost.jsonl
         with run_ledger(ws.root, run=ws.root.name):
             record = get_track(spec.track, **options).run(spec, ws, resume=resume, force=force)
     except KeyboardInterrupt:
@@ -428,17 +407,15 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
         from codeverse3d.tracks.lifecycle import SpecChanged
 
         if isinstance(e, SpecChanged):
-            # a refusal with instructions, not a crash: no traceback, and the run
-            # itself was never entered (reconcile_resume raises before any stage)
             raise C.CliError(str(e), code=2) from None
-        if isinstance(e, StateCorrupt):  # raised before any stage, like SpecChanged
+        if isinstance(e, StateCorrupt):
             raise C.CliError(f"{e} — unreadable run state; move run_state.json aside and resume from the "
                              f"round journal (rounds/)", code=2) from None
         err_console.print_exception(max_frames=8)
         raise C.CliError(
             f"run failed: {type(e).__name__}: {e} (workspace {ws.root}; see events.jsonl)"
         ) from e
-    if pick:  # the hand-over: the best-scored round → deliverable/
+    if pick:
         with run_ledger(ws.root, run=ws.root.name):
             _pick_and_package(ws, by="score")
     print_record_summary(record, ws.root)
@@ -448,7 +425,7 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
 
 def _pick_and_package(ws, *, by: str, round_index: int | None = None,
                       judge_model: str | None = None) -> int | None:
-    """``codeverse3d.addons.select``: choose the round (or take ``round_index``) and package it."""
+    """Choose the round (or take ``round_index``) and package it."""
     from codeverse3d.addons import select
 
     idx = round_index if round_index is not None else select.pick(ws.root, by=by, pairwise_model=judge_model)
@@ -466,15 +443,8 @@ def _pick_and_package(ws, *, by: str, round_index: int | None = None,
 def _finished_reason(ws, raised: dict) -> str:
     """Why this run must not be re-entered, or "" when resuming it is meaningful.
 
-    A run that reached a terminal state has nothing to resume, and re-entering it is
-    destructive, not idempotent: `3dcode resume` on a finished run re-ran the plan stage
-    as a real billed model call and rewrote run_state.status back to 'planning', leaving
-    a finished run stuck mid-pipeline.  Two stops are the documented exceptions — raising
-    the cap a run stopped on is how you continue it: BUDGET (any raised cap) and
-    MAX_ROUNDS (a raised ``--rounds``; the run goes on from its last round).  The stops
-    that name something outside the run — AGENT_QUOTA (the vendor's limit) and
-    JUDGE_UNAVAILABLE (the judge's provider) — resume as they are: the loop re-judges the
-    unjudged last round and goes on, where ``--force`` would have thrown every paid round away.
+    A finished run is refused (re-entering re-runs the paid plan stage), except BUDGET and
+    MAX_ROUNDS stops whose cap was raised, and AGENT_QUOTA / JUDGE_UNAVAILABLE stops.
     """
     from codeverse3d.contracts.run import RunStatus
     from codeverse3d.orchestrator import RunState, StateCorrupt
@@ -482,7 +452,7 @@ def _finished_reason(ws, raised: dict) -> str:
     try:
         state = RunState.load(ws)
     except StateCorrupt:
-        return ""  # let the track report it the way it always has
+        return ""
     if state is None:
         return ""
     status = state.status
@@ -498,10 +468,7 @@ def _finished_reason(ws, raised: dict) -> str:
 
 
 def _clock_spent(ws, max_minutes: float) -> str:
-    """Why a resume would stop before doing anything, or "": the run's clock (the budget snapshot's
-    ACTIVE minutes, which a resume — ``--force`` included — keeps counting) is already at the cap.
-    Resumed anyway, a plain resume stopped at `budget` at once, and ``--force`` first archived every
-    paid round and then did so (live, 2026-09-23)."""
+    """Why a resume would stop at once, or "": the active minutes (kept across ``--force``) are at the cap."""
     from codeverse3d.orchestrator import BudgetSnapshot, RunState, StateCorrupt
 
     try:
@@ -542,15 +509,10 @@ def resume(
     ] = False,
     no_pick: Annotated[bool, typer.Option("--no-pick", help="do not pick + package a round afterwards")] = False,
 ) -> None:
-    """Resume an interrupted / partial run (or start a `--no-run` one).
-
-    ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
-    first — the only way to continue a BUDGET-stopped run.  A run that already
-    reached a terminal state is refused unless ``--force``, which archives its rounds
-    (``rounds/pre_force/``) and starts it again at round 0 — paid, and a new final state."""
+    """Resume an interrupted / partial run (or start a `--no-run` one); a finished run needs --force."""
     C.check_minutes(max_minutes)
     ws = C.open_workspace(slug, runs_dir)
-    # the run mutex, before the spec is rewritten (a budget raise is a mutation)
+    # the run mutex, before the spec is rewritten
     with C.mutating(ws, what=f"3dcode resume {ws.root.name}"):
         spec = C.load_spec(ws)
         if candidates and candidates > 1 and not TRACK_INFO[spec.track].best_of_n:
@@ -594,11 +556,10 @@ def pick(
 
     if by not in ("score", "pairwise"):
         raise C.CliError(f"--by must be score or pairwise, not {by!r}", code=2)
-    if judge and (by != "pairwise" or round_index is not None):  # no pairwise verdict is bought: it was dropped
+    if judge and (by != "pairwise" or round_index is not None):
         raise C.CliError("--judge is the pairwise judge: it goes with --by pairwise (and no --round)", code=2)
     ws = C.open_workspace(slug, runs_dir)
-    # writes deliverable/ + selection.json (a pairwise verdict is paid):
-    # one writer per run dir, and the money joins the run's ledger
+    # writes deliverable/ + selection.json: one writer per run dir
     with (C.mutating(ws, what=f"3dcode pick {ws.root.name}", action="pick"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         try:
@@ -621,7 +582,7 @@ app.command()(judge)
 # --------------------------------------------------------------------------- mcp
 @app.command()
 def mcp(workspace: Annotated[Path, typer.Option("--workspace")]) -> None:
-    """Serve the spatial tools over stdio MCP (exec `python -m codeverse3d.spatial.mcp_server`)."""
+    """Serve the spatial tools over stdio MCP."""
     if not workspace.is_dir():
         raise C.CliError(f"workspace not found: {workspace}")
     os.execvp(

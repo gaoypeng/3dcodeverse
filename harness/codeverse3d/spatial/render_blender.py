@@ -1,37 +1,12 @@
 """Render a built ``scene_blender`` workspace: Blender makes the pictures, the JS host measures.
 
-``render_blender_scene(ws, out_dir, ...)`` is what ``SceneBlenderRuntime.render_scene`` calls
-(DESIGN §2 "render", owner D1/D3/D8 2026-09-24).  Four steps, one output format:
-
-1. **orbit fit** — ``runtime_js/fit_orbit.mjs`` fits ``conventions.SCENE_VIEWS`` to the census
-   the build's probe wrote (``artifacts/census.json``): the same ``orbit.mjs`` the three.js
-   driver runs in-page, so there is one implementation of the fitting;
-2. **pixels** — ``languages/wrappers/render_bpy_scene.py`` inside Blender on the built
-   ``artifacts/scene.blend``: the authored cameras × every time + the first
-   ``MAX_JUDGE_OVERVIEWS`` overview views at the first time (what someone reads — the judge and
-   the motion metric; the eye-level rig views get geometry checks but no pixels).  The high
-   overviews (``noFog``) render without the world volume and with a room shell's lid lifted —
-   the three.js host's ``skyLayersBelow`` rule, so both languages are judged on the same
-   interior (the driver names what it hid in each frame's ``hidden``).  Engine /
-   samples / device / per-frame time cap come from ``Settings.render.blender_*`` (Cycles CUDA
-   32 spp + GPU OIDN + persistent data by default — the fast path measured on Blender 5.2.2 LTS,
-   see ``render_bpy_scene.setup_render``); a GPU render holds one of ``blender_gpu_slots``
-   machine-wide flock'd slots and falls back to the CPU when none frees within
-   ``blender_gpu_wait_s`` or the GPU run dies;
-3. **geometry** — ``runtime_js/render_scene.mjs --external-frames`` on the census GLB the build
-   wrote (``--glb``: booted through ``runtime_js/lib/glb_scene.mjs``): camera checks (near
-   geometry, inside a mesh, ground below/above, line of sight, coverage masks) from the scene,
-   luminance statistics from the Blender PNG (``host_metrics.imageFrameStats`` — the one
-   ``frameStats``), ``views.json`` / ``metrics.json`` in the three.js driver's schema, with no
-   settle, no camera repair, no post chain (D3: the picture is Blender's);
-4. **the RenderSet** — ``render_scene.render_set_from_metrics``, exactly as for three.js:
-   motion, errors, the judge subset, the contact sheet.
-
-``metrics.json`` gains two keys the three.js payload does not carry: ``language``
-(``"scene_blender"``: the frame gate's fix hints are per language) and ``blender`` (engine,
-device, samples, the fallback reason, the per-step wall times).
+``render_blender_scene`` runs four steps with one output format: (1) ``fit_orbit.mjs`` fits the orbit
+rig to the build's census; (2) ``render_bpy_scene.py`` renders the authored cameras x times plus the
+first ``MAX_JUDGE_OVERVIEWS`` overviews in Blender (GPU runs hold a machine-wide flock slot, CPU
+fallback); (3) ``render_scene.mjs --external-frames`` does the geometry checks and frame stats on the
+census GLB; (4) ``render_scene.render_set_from_metrics`` builds the RenderSet.  ``metrics.json`` adds
+``language`` and ``blender`` keys.
 """
-
 from __future__ import annotations
 
 import json
@@ -65,15 +40,14 @@ from codeverse3d.workspace import Workspace
 log = logging.getLogger(__name__)
 
 DRIVER = Path(__file__).resolve().parent.parent / "languages" / "wrappers" / "render_bpy_scene.py"
-#: the language whose authoring frame the .blend is in.  scene_blender's LANGUAGE_FRAME row
-#: (lane A) is Z-up / -Y front, the same frame as blender's; switch to it once that row lands.
+#: the language whose authoring frame the .blend is in
 FRAME_LANGUAGE = "scene_blender"
 LANGUAGE = "scene_blender"
 JOB_NAME = "blender_job.json"
 RESULT_NAME = "blender_frames.json"
 EXTERNAL_NAME = "blender_views.json"
 SLOT_DIR = "blender_gpu"
-#: the keys of a view entry — render_scene.mjs's own view schema
+#: keys of a view entry (render_scene.mjs's view schema)
 _VIEW_KEYS = ("name", "kind", "path", "time_s", "position", "lookAt", "fov", "render_ms")
 
 
@@ -92,8 +66,7 @@ def _to_glb(v: Sequence[float]) -> list[float]:
 
 
 def _blender_env(engine: str, device: str) -> dict[str, str]:
-    """A headless Blender child's env; EEVEE / Workbench on the GPU need the Mesa d3d12 env
-    (without it they silently land on llvmpipe — measured 10x slower, no error)."""
+    """A headless Blender child's env; EEVEE / Workbench on the GPU need the Mesa d3d12 env or they silently use llvmpipe."""
     from codeverse3d.languages.blender import blender_env
     from codeverse3d.spatial.gl_render import GPU_ENV
 
@@ -129,11 +102,9 @@ def _failure(proc: ProcResult) -> str:
 
 def render_frames(blend: Path, out_dir: Path, job: dict[str, Any], *, timeout_s: float,
                   settings: Settings | None = None) -> dict[str, Any]:
-    """Run the Blender driver under the GPU-slot policy; its result json + ``fallback`` / ``slot_wait_ms``.
+    """Run the Blender driver under the GPU-slot policy; result json + ``fallback`` / ``slot_wait_ms``.
 
-    ``blender_device == "gpu"``: take a slot (wait ≤ ``blender_gpu_wait_s``) and render on the
-    GPU; all slots busy → CPU; a GPU run that dies without a result → one CPU run.  A timeout
-    is the scene's weight, not the device's: it raises ``SceneRenderError`` with no retry."""
+    GPU: take a slot (wait ≤ ``blender_gpu_wait_s``); all busy, or a GPU run that dies → CPU.  A timeout raises without retry."""
     s = settings or get_settings()
     fallback = ""
     wait_ms = 0
@@ -186,10 +157,7 @@ def fit_orbit(census_path: Path, views: Sequence[ViewPreset], *, width: int, hei
 
 
 def _pixel_orbit(specs: list[dict[str, Any]]) -> set[str]:
-    """The rig views that get Blender pixels: the first ``MAX_JUDGE_OVERVIEWS`` overviews — the
-    same four tiles ``render_scene.select_judge_views`` hands the judge (the three high views
-    and the ground-level ``overview_low_front`` since scene); the eye-level rig is measured
-    by the geometry pass and never rendered."""
+    """The rig views that get Blender pixels: the first ``MAX_JUDGE_OVERVIEWS`` overviews (the judge's tiles)."""
     return set([str(o["name"]) for o in specs if str(o["name"]).startswith("overview")][:MAX_JUDGE_OVERVIEWS])
 
 
@@ -213,16 +181,10 @@ def render_blender_scene(
     engine: str | None = None,
     samples: int | None = None,
 ) -> RenderSet:
-    """Authored cameras (+ the orbit rig) × ``times`` rendered by Blender → a RenderSet whose
-    ``metrics.json`` has the three.js driver's schema.
+    """Authored cameras (+ the orbit rig) × ``times`` rendered by Blender → a RenderSet (three.js-schema ``metrics.json``).
 
-    ``cameras=None`` renders the cameras the .blend carries (the build made them from the
-    plan); explicit ``cameras`` (GLB frame, like every plan camera) replace them.  ``blend``
-    defaults to ``artifacts/scene.blend``, ``census`` (the orbit fit) to ``artifacts/census.json``;
-    ``glb`` (default ``artifacts/census.glb``) is what the geometry pass boots through the host.  ``engine``
-    / ``samples`` override Settings (a tool's preview tier: ``engine="workbench"``).  A missing
-    .blend yields an empty RenderSet whose ``console_errors`` say why; a driver that cannot run
-    raises ``SceneRenderError``."""
+    ``cameras=None`` uses the cameras the .blend carries; explicit ones (GLB frame) replace them.  A missing .blend gives
+    an empty RenderSet with ``console_errors``; a driver that cannot run raises ``SceneRenderError``."""
     s = get_settings()
     out_dir = out_directory(out_dir, clean=("metrics.json", "views.json", RESULT_NAME, EXTERNAL_NAME))
     blend = blend or ws.artifacts / "scene.blend"
@@ -259,7 +221,7 @@ def render_blender_scene(
     blender_ms = int((time.monotonic() - t0) * 1000)
     views = [_glb_view(f) for f in frames.get("frames") or []]
     write_json_atomic(out_dir / EXTERNAL_NAME, views)
-    # 3. geometry: every camera the scene has (authored as Blender saw them) + the whole rig
+    # 3. geometry: authored cameras as Blender saw them + the whole rig
     specs = [{"name": c["name"], "kind": c.get("kind") or "authored", "position": _to_glb(c["position"]),
               "lookAt": _to_glb(c["look_at"]), "fov": c.get("fov")}
              for c in frames.get("cameras") or [] if c.get("kind") == "authored"]
@@ -269,7 +231,7 @@ def render_blender_scene(
                                              timeout_s=tmo, glb=glb)
     geometry_ms = int((time.monotonic() - t0) * 1000)
     if not metrics.get("views"):
-        metrics["views"] = views   # the pictures exist even when the geometry pass could not run
+        metrics["views"] = views
     # 4. merge the Blender facts; one schema downstream
     errors = [f"blender: {e}" for e in frames.get("errors") or []]
     if geometry_error:

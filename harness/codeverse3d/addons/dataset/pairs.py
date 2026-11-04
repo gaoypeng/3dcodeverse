@@ -1,27 +1,4 @@
-"""Preference / repair / cross-backend pairs from run records (no model calls).
-
-Output is JSONL, one object per pair.  All kinds share::
-
-    {kind, run, prompt, prompt_hash, track, language, generator,
-     chosen: {round, commit, files: {path: code}, score, truncated_files: [...]},
-     rejected: {...}, delta, reason}
-
-* ``preference``   rounds i < j of one run with judge Δ ≥ ``min_delta``; reason =
-  the judge's improvement plan of round i (what the builder was told to fix).
-  Degraded (judge-outage) verdicts are treated as *no score*, never as a 0.0.
-* ``repair``       a failed build (round k) → the next round that builds, matched
-  structurally (no track ever emits a ``kind='repair'`` round — lifecycle labels
-  the fixing round ``refine``); ``error`` carries the structured build failure.
-  ``source: "round"``.
-* ``repair`` (``source: "in_round"``) — a round whose build failed right after
-  generation and was fixed by ``build_with_repair`` inside the same round
-  (``notes`` say "repair attempts: N (fixed)"): the ``rNN <kind>: generated``
-  commit is the rejected state, the round's final commit the chosen one; the
-  error message comes from the round's failing ``build.done`` events.
-* ``cross_backend`` the same (prompt, track, language) run under ≥ 2 generators; each
-  run is its picked round (``addons/select``), the top one against each other candidate
-  with Δ ≥ ``min_delta``.
-"""
+"""Preference / repair / cross-backend pairs from run records (no model calls)."""
 
 from __future__ import annotations
 
@@ -45,7 +22,6 @@ MAX_INLINE_CODE = 200_000
 
 
 def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Inline code (≤ 200 KB) for a round; cached per commit."""
     key = rnd.commit or f"wt:{rnd.index}"
     if key not in cache:
         try:
@@ -81,16 +57,13 @@ def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) 
     }
 
 
-#: the judge Δ at which two rounds are a preference pair — and, in
-#: :mod:`codeverse3d.addons.dataset.refine`, the Δ at which a transition counts as improved.  One
-#: constant, so a Δ that is a preference pair here is never "unchanged" there.
+#: judge delta at which two rounds are a preference pair (and a refine transition counts as improved).
 MIN_PREFERENCE_DELTA = 0.05
 
 
 def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float,
                      slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
-    # degraded (judge-outage) verdicts are glitches, not 0.0 scores — leave those rounds out
     judged = [r for r in rec.rounds if effective_judgment(r) is not None and r.commit]
     out = []
     for a_i, lo in enumerate(judged):
@@ -127,11 +100,6 @@ def _error_of(rnd: RoundRecord) -> dict[str, Any]:
 
 
 def repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
-    """(broken round, error) → (the next round that builds).
-
-    Matched structurally: the tracks never emit a ``kind='repair'`` round
-    (lifecycle labels every post-baseline round ``refine``), so any round whose
-    build succeeds directly repairs the nearest earlier failed build."""
     cache: dict[str, dict[str, Any]] = {}
     out = []
     rounds = rec.rounds
@@ -155,7 +123,6 @@ def repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> l
 
 
 def _round_build_errors(ws: Workspace, index: int) -> list[str]:
-    """Failing ``build.done`` error messages of one round, from events.jsonl."""
     out: list[str] = []
     for ev in read_jsonl_lenient(ws.events_path, dicts_only=True):
         if ev.get("event") == "build.done" and ev.get("round") == index and ev.get("ok") is False:
@@ -166,11 +133,6 @@ def _round_build_errors(ws: Workspace, index: int) -> list[str]:
 
 
 def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
-    """Builds fixed by ``build_with_repair`` *inside* a round.
-
-    ``tracks/steps.py`` commits ``rNN <kind>: generated`` right before the
-    build+repair loop and notes "repair attempts: N (fixed)" when the loop
-    repaired a failing build; the generated tree is the rejected state."""
     cache: dict[str, dict[str, Any]] = {}
     out = []
     for rnd in rec.rounds:
@@ -188,7 +150,7 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = N
         rej_files, rej_skipped = git_history.decode_text_files(raw, max_total=MAX_INLINE_CODE)
         chosen = _side(ws, rnd, cache=cache)
         if rej_files == chosen["files"]:
-            continue  # the repair changed nothing under the code roots
+            continue
         errors = _round_build_errors(ws, rnd.index)
         pair = _base(ws, rec, "repair", slug=slug)
         pair.update(
@@ -208,8 +170,6 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = N
 def cross_backend_pairs(
     groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]], *, min_delta: float
 ) -> list[dict[str, Any]]:
-    """``groups`` values are ``(ws, record, slug)`` — the slug is the RunId slug the
-    scan minted (``ws.root.name`` collides across nested battery layouts)."""
     out = []
     for (_h, _t, _l), runs in groups.items():
         gens = {r.spec.backends.generator for _, r, _s in runs}
@@ -217,7 +177,7 @@ def cross_backend_pairs(
             continue
         cands = []
         for ws, rec, slug in runs:
-            picked = select.summarise(ws.root, record=rec).picked_round  # None = no judged round
+            picked = select.summarise(ws.root, record=rec).picked_round
             rnd = next((r for r in rec.rounds if r.index == picked), None)
             if rnd is not None:
                 cands.append((ws, rec, slug, rnd))
@@ -246,7 +206,6 @@ def cross_backend_pairs(
 
 
 def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = MIN_PREFERENCE_DELTA) -> int:
-    """Write all pair kinds for the runs under ``runs_dir``; returns the number written."""
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)
     groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]] = defaultdict(list)

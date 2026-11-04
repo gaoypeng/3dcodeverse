@@ -1,16 +1,4 @@
-"""Cross-sections of the canonical GLB, drawn ONE way.
-
-Every part is sectioned with an axis-aligned plane, its loops combined with the
-even-odd rule (shapely, so a hollow tube keeps its hole) and drawn with matplotlib:
-one colour per instance group, a legend, a scale bar, and the pairwise in-plane
-overlaps as darkened blends.  Two callers:
-
-* ``judge_slices`` (D48) — the judge's conditional interior evidence: two vertical
-  centre slices where ONLY connectivity-gate-ERROR part pairs get a red hatch,
-  written with a typed :class:`SliceManifest`;
-* ``cross_section`` — the agent tool: any axis, any position, plus loop / area /
-  hollow-ratio numbers.  It drew its own PIL picture until 2026-09-22.
-"""
+"""Cross-sections of the canonical GLB, drawn ONE way."""
 
 from __future__ import annotations
 
@@ -26,7 +14,6 @@ from codeverse3d.spatial.measure import GlbLoadError, instance_groups, solid_par
 from codeverse3d.spatial.registry import Observation
 
 _AXES = "xyz"
-#: the (horizontal, vertical) axes drawn for each slicing axis
 _PLANE_AXES = {0: (2, 1), 1: (0, 2), 2: (0, 1)}
 
 
@@ -49,9 +36,8 @@ def cross_section(
     *,
     parts: Sequence[str] | None = None,
 ) -> Observation:
-    """Slice the GLB at ``axis = at`` (a fraction of the selected parts' bbox) → the
-    judge-style section image + loop / filled-area / hollow-ratio numbers.  A plane that
-    cuts nothing answers in text, with no image."""
+    """Slice the GLB at ``axis = at`` (a fraction of the selected parts' bbox) → the judge-style
+    section image + loop / filled-area / hollow-ratio numbers."""
     axis = axis.lower()
     if axis not in _AXES:
         return Observation.error(f"axis must be one of x|y|z, got {axis!r}")
@@ -89,23 +75,17 @@ def cross_section(
     return Observation(ok=True, text=text, numbers=numbers, images=images)
 
 
-# ===================================================================== judge slices (D48)
-#: the two centre planes the judge slice channel cuts (name → plane-normal axis index,
-#: horizontal axis index, human title, axes note).  Vertical is Y (up) on both.
+# ===================================================================== judge slices
 JUDGE_SLICE_PLANES: dict[str, tuple[int, int, str, str]] = {
     "front_back": (0, 2, "front-back",
                    "horizontal = front-back (Z, front right), vertical = up (Y); cut at centre x"),
     "left_right": (2, 0, "left-right",
                    "horizontal = left-right (X), vertical = up (Y); cut at centre z"),
 }
-#: F1: only part pairs the connectivity gate measured as ERROR get this fill + hatch
 _OVERLAP_FACE = "#ff1a1a"
-#: legend rows (instance groups) drawn before the "… +n more parts" row
 JUDGE_SLICE_LEGEND_MAX = 16
-#: F4: a slice whose effective section area is under this fraction of the cut parts'
-#: projected-silhouette area is dropped (the plane mostly misses the object)
 DEGENERATE_SLICE_FRAC = 0.05
-_HULL_SAMPLE = 4000  # vertex subsample for projected-silhouette convex hulls (seeded rng)
+_HULL_SAMPLE = 4000
 
 
 class SliceOverlapPair(BaseModel):
@@ -117,7 +97,7 @@ class SliceOverlapPair(BaseModel):
 
 
 class JudgeSlice(BaseModel):
-    """One rendered (or dropped) judge slice; ``png`` is a file name beside the manifest."""
+    """One rendered (or dropped) judge slice."""
 
     name: str
     rendered: bool
@@ -131,12 +111,7 @@ class JudgeSlice(BaseModel):
 
 
 class SliceManifest(BaseModel):
-    """What ``judge_slices`` rendered and why — the provenance record beside the PNGs.
-
-    ``hatched_pairs`` (F1: gate-ERROR only) vs ``plain_pairs`` (every other in-plane
-    overlap, drawn as a darkened blend with no callout) is what makes a judge's
-    "visible in slice n" citation auditable after the fact.
-    """
+    """What ``judge_slices`` rendered and why — the provenance record beside the PNGs."""
 
     glb: str
     slices: list[JudgeSlice] = Field(default_factory=list)
@@ -149,8 +124,7 @@ class SliceManifest(BaseModel):
 
 def _loops_2d(mesh: trimesh.Trimesh, origin: np.ndarray, axis: int, horiz: int, vert: int,
               tol: float) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """Section ``mesh`` with the axis-aligned plane through ``origin``; return (closed,
-    open) 2D polylines in (``horiz``, ``vert``) (closed = endpoints within ``tol``)."""
+    """Section ``mesh`` with the axis-aligned plane through ``origin``."""
     normal = np.zeros(3)
     normal[axis] = 1.0
     try:
@@ -175,9 +149,8 @@ def _loops_2d(mesh: trimesh.Trimesh, origin: np.ndarray, axis: int, horiz: int, 
 
 def _cut(parts: dict[str, trimesh.Trimesh], origin: np.ndarray, axis: int, horiz: int, vert: int,
          tol: float) -> tuple[dict[str, Any], dict[str, list[np.ndarray]], dict[str, int]]:
-    """Every part on one plane → (part → even-odd shapely polygon, part → outline-only
-    polylines, part → number of section loops).  A non-watertight / non-loop section
-    falls back to raw outline strokes for that part (no fill, no overlap test)."""
+    """Every part on one plane → (part → even-odd shapely polygon, part → outline-only polylines,
+    part → number of section loops)."""
     sections: dict[str, Any] = {}
     strokes: dict[str, list[np.ndarray]] = {}
     loops: dict[str, int] = {}
@@ -200,15 +173,12 @@ def _frame(parts: dict[str, trimesh.Trimesh]) -> tuple[np.ndarray, float, float,
     bounds = np.array([[min(p.bounds[0][i] for p in parts.values()) for i in range(3)],
                        [max(p.bounds[1][i] for p in parts.values()) for i in range(3)]])
     scale = float((bounds[1] - bounds[0]).max())
-    # ignore hairline contact slivers (planned joins touch or overlap by design): keep only
-    # overlap regions at least ~2·erode thick somewhere — tuned near the connectivity
-    # gate's ~10 mm interpenetration ERROR threshold (PENETRATION_ERROR_M)
     return bounds, max(scale * 1e-5, 1e-9), (1e-3 * scale) ** 2, max(0.002, 5e-4 * scale)
 
 
 def _filled_area(sections: dict[str, Any]) -> tuple[float, float]:
-    """(material area on the plane, hollow ratio = the share of the outlines' area that
-    is a hole)."""
+    """(material area on the plane, hollow ratio = the share of the outlines' area that is a
+    hole)."""
     if not sections:
         return 0.0, 0.0
     from shapely.geometry import Polygon
@@ -222,8 +192,8 @@ def _filled_area(sections: dict[str, Any]) -> tuple[float, float]:
 
 def _overlaps(sections: dict[str, Any], errset: set[frozenset[str]], area_eps: float,
               erode: float) -> tuple[list[tuple[str, str, Any]], list[tuple[str, str, Any]]]:
-    """Pairwise intersections of the filled section polygons → (gate-ERROR pairs, every
-    other pair).  F1: only the first get the red hatch."""
+    """Pairwise intersections of the filled section polygons → (gate-ERROR pairs, every other
+    pair)."""
     pnames = list(sections)
     overlaps: list[tuple[str, str, Any]] = []
     plain_overlaps: list[tuple[str, str, Any]] = []
@@ -238,7 +208,7 @@ def _overlaps(sections: dict[str, Any], errset: set[frozenset[str]], area_eps: f
                 continue
             try:
                 if inter.buffer(-erode).is_empty:
-                    continue  # thinner than ~2·erode everywhere: contact sliver
+                    continue
             except Exception:  # noqa: BLE001
                 pass
             (overlaps if frozenset((a, b)) in errset else plain_overlaps).append((a, b, inter))
@@ -301,7 +271,7 @@ def _slice_patch(geom: Any, **kw: Any) -> Any:
 
 
 def _hull_area(pts2: np.ndarray) -> float:
-    """Convex-hull area of a 2D point set (0.0 for degenerate sets; seeded subsample)."""
+    """Convex-hull area of a 2D point set, 0.0 for degenerate sets."""
     pts2 = np.asarray(pts2, dtype=float)
     if len(pts2) < 3:
         return 0.0
@@ -342,8 +312,7 @@ def _fmt_len(m: float) -> str:
 
 
 def _colours(names: list[str]) -> tuple[Any, dict[str, str], dict[str, Any]]:
-    """(instance groups, part → group, group → tab20 colour): one colour per instance
-    group so 40-part objects stay legible, stable across the planes of one object."""
+    """(instance groups, part → group, group → tab20 colour)."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -359,9 +328,7 @@ def _draw(png: Path, sections: dict[str, Any], strokes: dict[str, list[np.ndarra
           overlaps: list[tuple[str, str, Any]], plain_overlaps: list[tuple[str, str, Any]],
           bounds: np.ndarray, horiz: int, vert: int, colours: tuple[Any, dict[str, str], dict[str, Any]],
           *, legend_title: str, title: str) -> None:
-    """One section image (~1000 px, white): per-part fills, outline-only strokes, plain
-    darkened overlaps, hatched gate-ERROR overlaps, a scale bar and a capped legend,
-    framed on the object's full extent in (``horiz``, ``vert``)."""
+    """One section image (~1000 px, white)."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -386,7 +353,7 @@ def _draw(png: Path, sections: dict[str, Any], strokes: dict[str, list[np.ndarra
         for lp in lines:
             ax.plot(lp[:, 0], lp[:, 1], color=color_of_group[g], linewidth=1.4, zorder=3)
         drawn_groups[g] = True  # True = outline-only somewhere
-    for a, b, inter in plain_overlaps:  # F1: not gate-ERROR — darkened blend, no callout
+    for a, b, inter in plain_overlaps:
         fill = _slice_patch(inter, facecolor=_mix_dark(color_of_group[group_of[a]],
                                                        color_of_group[group_of[b]]),
                             edgecolor="none", linewidth=0.0, zorder=4)
@@ -402,7 +369,6 @@ def _draw(png: Path, sections: dict[str, Any], strokes: dict[str, list[np.ndarra
         if hatch is not None:
             ax.add_patch(hatch)
 
-    # frame the drawing on the slice plane's full object extent
     h_lo, h_hi = bounds[0][horiz], bounds[1][horiz]
     v_lo, v_hi = bounds[0][vert], bounds[1][vert]
     pad = 0.06 * max(h_hi - h_lo, v_hi - v_lo, 1e-6)
@@ -411,7 +377,6 @@ def _draw(png: Path, sections: dict[str, Any], strokes: dict[str, list[np.ndarra
     ax.set_aspect("equal")
     ax.axis("off")
 
-    # scale bar, bottom-left
     bar = _nice_scale(h_hi - h_lo + 2 * pad)
     y0 = v_lo - pad - 0.03 * (v_hi - v_lo + 2 * pad)
     ax.plot([h_lo, h_lo + bar], [y0, y0], color="black", linewidth=3, zorder=6)
@@ -429,7 +394,7 @@ def _draw(png: Path, sections: dict[str, Any], strokes: dict[str, list[np.ndarra
     if len(drawn_groups) > JUDGE_SLICE_LEGEND_MAX:
         handles.append(Patch(facecolor="white", edgecolor="white",
                              label=f"… +{len(drawn_groups) - JUDGE_SLICE_LEGEND_MAX} more parts"))
-    if overlaps:  # F2: factual wording, only ever true for gate-ERROR pairs
+    if overlaps:
         handles.append(Patch(facecolor=_OVERLAP_FACE, edgecolor="white",
                              hatch="////", label="measured overlap (gate ERROR)"))
     ax.legend(handles=handles, loc="upper right", fontsize=7, framealpha=0.9,
@@ -445,29 +410,7 @@ def judge_slices(
     out_dir: Path | str,
     planes: tuple[str, ...] = ("front_back", "left_right"),
 ) -> SliceManifest:
-    """Render the judge's interior cross-section slices (D48) → :class:`SliceManifest`.
-
-    Two vertical centre slices of the canonical GLB (Y-up, meters), one PNG each
-    (``slice_<name>.png``, ~768 px, white background): per-part fills with a legend
-    (instance groups share a row, capped at :data:`JUDGE_SLICE_LEGEND_MAX`), a scale
-    bar, and a neutral title.  ``error_pairs`` are the connectivity gate's ERROR-level
-    penetration part pairs (order inside a pair does not matter):
-
-    * F1 — ONLY those pairs get the red fill + white hatch; every other section
-      intersection (planned joins, sub-threshold welds) is a plain darkened blend of
-      the two part colors, no callout.  A hairline contact sliver (thinner than
-      ~2×erosion everywhere, tuned near the gate's 10 mm ERROR line) is not drawn.
-    * F2 — the legend names the hatch factually: "measured overlap (gate ERROR)".
-    * F4 — a degenerate slice (effective section area under
-      :data:`DEGENERATE_SLICE_FRAC` of the cut parts' projected silhouette — the plane
-      mostly misses the object) is dropped, not rendered, so a case carries 0–2 slices.
-
-    A non-watertight / non-loop section falls back to raw outline strokes for that
-    part (no fill, no overlap test).  Deterministic (seeded subsampling, Agg backend);
-    the manifest is written beside the PNGs as ``manifest.json`` with ``png`` fields
-    holding bare file names.  Needs matplotlib + shapely (the ``mesh`` extra): an
-    ImportError propagates to the caller.
-    """
+    """Render the judge's interior cross-section slices → :class:`SliceManifest`."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     errset = {frozenset(p) for p in (error_pairs or ()) if len(set(p)) == 2}
@@ -498,9 +441,6 @@ def judge_slices(
             manifest.slices.append(JudgeSlice(name=name, rendered=False, reason="plane cuts nothing"))
             continue
 
-        # F4: degenerate-slice check — effective section area (filled polygons + convex
-        # hulls of outline-only stroke sets, so full-size open sections still count) vs
-        # the cut parts' projected-silhouette area on the slice plane.
         filled_area = sum(g.area for g in sections.values())
         stroke_hull_area = sum(
             _hull_area(np.vstack(lines)) for p, lines in strokes.items() if p not in sections)

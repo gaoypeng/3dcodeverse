@@ -1,33 +1,14 @@
-"""Blender SCENE build wrapper (scene_blender) — executed BY Blender, never imported by the harness.
+"""Blender SCENE build wrapper (scene_blender); runs inside Blender, never imported by the harness.
 
     blender -b --factory-startup --python run_bpy_scene.py -- \
         --scene /abs/src/scene.py --out /abs/artifacts --basis 1,0,0,0,0,1,0,-1,0 --zone-key c3d_zone \
         [--fps 30] [--frames 1,46] [--rlimit-gb 12] [--seed 0] [--zones '{"a": "A"}'] [--no-blend]
 
-What it does (in order), DESIGN §3.3:
-  1. caps the address space, empties the factory scene (and its world), metric units, ``fps`` and
-     the frame range (harness-owned), seeds ``random`` / numpy / mathutils.noise;
-  2. runs ``src/scene.py`` (assembled by the harness: ``ZONES`` / ``ASSETS`` / ``HEROES`` /
-     ``CAMERAS`` data; a single-file scene defines ``create_scene(ctx)`` instead) — a failure here
-     is the build's error, mapped to ``src/<file>:<line>``;
-  3. builds the ctx (``SceneContext``) and runs, EACH IN ITS OWN try/except, ``env.build_env``,
-     every hero import (``public/assets/<snake>.glb``), every ``assets.<snake>.build_<snake>`` and
-     every ``zones.<snake>.build``: a stage that raises is reported with its ``file:line`` and
-     whatever it created is removed — the zone is DROPPED, the rest of the scene still builds and
-     is measured (the assembler's probe semantics);
-  4. hides the asset sources (they render through their collection instances), creates the
-     harness cameras (plan fov is VERTICAL, as in three.js), sets frame 1 (t = 0);
-  5. writes the bpy facts the GLB cannot carry (``bpy_census.json``: lights, fog, background,
-     drivers that will not run, unique vs instanced triangles), the census GLB (``_census_glb``;
-     a NaN / inf matrix or vertex fails the build as ``NonFiniteTransform`` / ``NonFiniteGeometry``
-     naming the object and the file that built it — the model's error, D114) and the compressed
-     ``scene.blend`` the render driver opens (in-memory images packed: ``run_bpy.save_blend``);
-  6. writes ``bpy_build.json`` and exits 0.
-
-``--zones`` overrides ``ZONES`` (the assembler's probe: every zone module on disk).  Exit codes: 0 =
-reported (even if the script failed); 2 = wrapper bug (no report).  Standalone: the sibling modules
-are imported from this file's own directory.
-"""
+Clears the factory scene, runs ``src/scene.py``, then builds env, heroes, assets and zones, each
+in its own try/except (a failing zone is reported with ``file:line`` and dropped; the rest still
+builds).  Hides asset sources, creates the harness cameras, writes the bpy facts, the census GLB,
+the compressed ``scene.blend`` and ``bpy_build.json``.  ``--zones`` overrides ``ZONES``.
+Exit 0 = reported (even if the script failed); 2 = wrapper bug."""
 
 from __future__ import annotations
 
@@ -43,7 +24,7 @@ import time
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _census_glb import (  # noqa: E402  (siblings)
+from _census_glb import (  # noqa: E402
     is_volume_material,
     is_volume_only,
     write_census_glb,
@@ -84,13 +65,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 class SceneContext:
-    """What ``build_env`` / ``build_<asset>`` / zone ``build`` receive (DESIGN §3.2): data, never verbs.
+    """What ``build_env`` / ``build_<asset>`` / zone ``build`` receive: data, never verbs.
 
-    ``scene`` the bpy Scene (render settings are harness-owned) · ``collection`` the Collection this
-    builder links into (the zone's own, pre-created and active) · ``height_at(x, y) -> z`` the
-    env's ground · ``env`` what ``build_env`` returned · ``assets`` ``{snake: Collection}`` (procedural
-    assets and imported heroes) · ``rng(seed)`` the only randomness · ``fps`` / ``times`` the
-    harness's frame clock: ``frame(t) = 1 + round(t * fps)``."""
+    ``scene``, ``collection`` (the builder's own, active), ``height_at(x, y)``, ``env``, ``assets``,
+    ``rng(seed)``, ``fps`` / ``times`` (``frame(t) = 1 + round(t * fps)``)."""
 
     def __init__(self, scene: Any, fps: int, times: tuple[float, ...]) -> None:
         self.scene = scene
@@ -116,7 +94,7 @@ def _flat(x: float, y: float) -> float:
 # ----------------------------------------------------------------------------- scene prep
 def prepare_scene(bpy: Any, fps: int, frames: tuple[int, int]) -> None:
     clear_scene(bpy)
-    for world in list(bpy.data.worlds):   # a scene's world is the env's to build (no factory grey)
+    for world in list(bpy.data.worlds):
         bpy.data.worlds.remove(world)
     scene = bpy.context.scene
     scene.render.fps = fps
@@ -148,23 +126,20 @@ def new_collection(bpy: Any, name: str, parent: Any) -> Any:
 
 
 def activate(bpy: Any, coll: Any) -> None:
-    """Make ``coll`` the active collection, so ``bpy.ops`` primitives land in it."""
     lc = layer_collection(bpy.context.view_layer, coll)
     if lc is not None:
         bpy.context.view_layer.active_layer_collection = lc
 
 
 class Stages:
-    """Runs one builder at a time; a raise is recorded with its ``src/`` file:line and everything
-    the builder created is removed again (objects and collections).  ``origin`` maps every object a
-    builder that returned created (``as_pointer()``) to its file — a census report names it (D114)."""
+    """Runs one builder at a time; a raise is recorded with its ``src/`` file:line and what the
+    builder created is removed.  ``origin`` maps created objects (``as_pointer()``) to their file."""
 
     def __init__(self, bpy: Any, script: str, report: dict[str, Any]) -> None:
         self.bpy, self.script, self.report = bpy, script, report
         self.origin: dict[int, str] = {}
 
     def claim(self, file: str, before: set[int]) -> None:
-        """Every object not in ``before`` (pointers) was made by ``file``."""
         for o in self.bpy.data.objects:
             if (p := o.as_pointer()) not in before:
                 self.origin.setdefault(p, file)
@@ -180,7 +155,7 @@ class Stages:
             out = fn()
             self.claim(default_file, objs)
             return out, True
-        except BaseException as e:  # noqa: BLE001 — a builder's failure is a finding, never the wrapper's
+        except BaseException as e:  # noqa: BLE001
             if isinstance(e, KeyboardInterrupt):
                 raise
             info = map_exception(e, self.script, memory=MEMORY_HINT)
@@ -262,7 +237,6 @@ def build_assets(bpy: Any, ctx: SceneContext, stages: Stages, ws: str, heroes: d
 
 
 def build_zones(bpy: Any, ctx: SceneContext, stages: Stages, zones: dict[str, str], report: dict[str, Any]) -> dict[str, str]:
-    """Build every zone; returns ``{snake: collection name}`` of the zones that built."""
     scene_coll = bpy.context.scene.collection
     built: dict[str, str] = {}
     for snake, pascal in zones.items():
@@ -293,23 +267,22 @@ def build_zones(bpy: Any, ctx: SceneContext, stages: Stages, zones: dict[str, st
 
 
 def add_cameras(bpy: Any, cams: list[dict[str, Any]], report: dict[str, Any]) -> None:
-    from mathutils import Vector  # noqa: PLC0415 — Blender-only
+    from mathutils import Vector  # noqa: PLC0415
 
     coll = new_collection(bpy, CAMERAS_COLLECTION, bpy.context.scene.collection)
     first = None
     for c in cams:
         data = bpy.data.cameras.new(str(c["name"]))
-        data.sensor_fit = "VERTICAL"   # the plan's fov is vertical, as three.js's PerspectiveCamera.fov
+        data.sensor_fit = "VERTICAL"
         data.angle_y = math.radians(float(c.get("fov", 50.0)))
         data.clip_start, data.clip_end = 0.05, 20000.0
         ob = bpy.data.objects.new(str(c["name"]), data)
         coll.objects.link(ob)
         ob.location = Vector(c["location"])
         ob.rotation_euler = (Vector(c["look_at"]) - ob.location).to_track_quat("-Z", "Y").to_euler()
-        ob["c3d_look_at"] = [float(v) for v in c["look_at"]]   # the render driver's aim (Blender frame)
+        ob["c3d_look_at"] = [float(v) for v in c["look_at"]]
         report["cameras"].append({"name": str(c["name"]), "object": ob.name})
         first = first or ob
-    # the plan's camera order, by object name (the render driver reads it from the .blend)
     bpy.context.scene["c3d_cameras"] = [c["object"] for c in report["cameras"]]
     if first is not None:
         bpy.context.scene.camera = first
@@ -342,7 +315,6 @@ def _volume_density(node: Any) -> float | None:
 
 
 def _material_density(mat: Any) -> float | None:
-    """The density of the volume shader a volume material outputs (``None`` when unreadable)."""
     tree = getattr(mat, "node_tree", None) if mat is not None else None
     out = next((n for n in tree.nodes if n.bl_idname == "ShaderNodeOutputMaterial"), None) if tree is not None else None
     if out is None or not out.inputs["Volume"].is_linked:
@@ -351,7 +323,6 @@ def _material_density(mat: Any) -> float | None:
 
 
 def _world_facts(world: Any) -> tuple[dict[str, Any] | None, str | None]:
-    """(world-volume fog | None, background kind | None) of the scene's world."""
     tree = getattr(world, "node_tree", None) if world is not None else None
     if tree is None:
         return None, None
@@ -380,8 +351,7 @@ def _world_facts(world: Any) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def _drivers(bpy: Any) -> list[dict[str, Any]]:
-    """Drivers that will not evaluate here: a Python (non-simple) expression — silently 0 under
-    ``--factory-startup`` (DESIGN §1.1) — or one Blender reports invalid (D10)."""
+    """Drivers that will not evaluate here: Python expressions (silently 0 under ``--factory-startup``) or invalid ones."""
     out: list[dict[str, Any]] = []
     blocks = [("object", bpy.data.objects), ("material", bpy.data.materials), ("node_group", bpy.data.node_groups),
               ("world", bpy.data.worlds), ("shape_key", bpy.data.shape_keys), ("mesh", bpy.data.meshes),
@@ -402,15 +372,12 @@ def _drivers(bpy: Any) -> list[dict[str, Any]]:
 
 
 def handler_counts(bpy: Any) -> dict[str, int]:
-    """``{handler list: length}`` — Blender's own add-ons register some at startup, so what the
-    scene added is what grew."""
+    """``{handler list: length}``; add-ons register some at startup, so only growth counts."""
     return {name: len(getattr(bpy.app.handlers, name)) for name in dir(bpy.app.handlers)
             if not name.startswith("_") and isinstance(getattr(bpy.app.handlers, name), list)}
 
 
 def scene_facts(bpy: Any, handlers_before: dict[str, int]) -> dict[str, Any]:
-    """What only Blender knows (DESIGN §4.2): the keys the JS census fills for three.js
-    (``fog`` / ``background`` / ``environment`` / lights) plus drivers, handlers and triangles."""
     dg = bpy.context.evaluated_depsgraph_get()
     light_types: dict[str, int] = {}
     unique: dict[Any, int] = {}
@@ -426,7 +393,7 @@ def scene_facts(bpy: Any, handlers_before: dict[str, int]) -> dict[str, Any]:
         if ob.type not in ("MESH", "CURVE", "SURFACE", "FONT", "META") or (inst.is_instance and ob.type != "MESH"):
             continue
         if inst.is_instance and inst.parent is not None and inst.parent.original.type in ("CURVE", "SURFACE", "FONT", "META"):
-            continue   # a curve / text's own evaluated mesh component (counted from the owner; _census_glb skips it too)
+            continue
         src = ob if inst.is_instance else ob.original
         if is_volume_only(src):
             if not inst.is_instance:
@@ -461,7 +428,7 @@ def scene_facts(bpy: Any, handlers_before: dict[str, int]) -> dict[str, Any]:
 # ----------------------------------------------------------------------------- main
 def main() -> int:
     args = parse_args(wrapper_argv())
-    import bpy  # noqa: PLC0415 — only available inside Blender
+    import bpy  # noqa: PLC0415
 
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, exist_ok=True)
@@ -483,7 +450,7 @@ def main() -> int:
     purge_workspace_modules()
 
     t_exec = time.monotonic()
-    exc, g = run_script(script)   # src/ goes first on sys.path: `import env`, `zones.<snake>` resolve there
+    exc, g = run_script(script)
     if exc is not None:
         report.update(map_exception(exc, script, memory=MEMORY_HINT))
         report["exec_ms"] = int((time.monotonic() - t_exec) * 1000)
@@ -495,10 +462,10 @@ def main() -> int:
         zones = {str(k): str(v) for k, v in json.loads(args.zones).items()}
     ctx = SceneContext(bpy.context.scene, args.fps, tuple(float(t) for t in g.get("TIMES", (0.0, 1.5))))
     stages = Stages(bpy, script, report)
-    stages.claim("src/scene.py", set())   # what the entry's own top-level code made
+    stages.claim("src/scene.py", set())
     build_env(bpy, ctx, stages, src)
     assets_root = build_assets(bpy, ctx, stages, ws, dict(g.get("HEROES") or {}), dict(g.get("ASSETS") or {}), report)
-    if callable(g.get("create_scene")):   # single-file mode: one scene.py builds everything
+    if callable(g.get("create_scene")):
         activate(bpy, bpy.context.scene.collection)
         ctx.collection = bpy.context.scene.collection
         stages.run("scene", "create_scene", "src/scene.py", lambda: g["create_scene"](ctx))
@@ -510,12 +477,12 @@ def main() -> int:
             bpy.ops.object.mode_set(mode="OBJECT")
     lc = layer_collection(bpy.context.view_layer, assets_root)
     if lc is not None:
-        lc.exclude = True   # sources at the origin render only through their instances
+        lc.exclude = True
     add_cameras(bpy, list(g.get("CAMERAS") or []), report)
     if render_fingerprint(bpy) != render_before:
         report["warnings"].append("the scene changed render settings (engine/resolution/filepath/frames): "
                                   "the harness owns them; delete that code")
-    bpy.context.scene.frame_set(first)   # the census is the t = 0 pose
+    bpy.context.scene.frame_set(first)
 
     facts = scene_facts(bpy, handlers_before)
     basis = [[float(v) for v in args.basis.split(",")[i * 3:i * 3 + 3]] for i in range(3)]
@@ -524,9 +491,9 @@ def main() -> int:
                                         zones={name: name for name in built.values()}, cameras=list(g.get("CAMERAS") or []),
                                         zone_key=args.zone_key, origin=stages.origin_of)
         report["exported"]["glb"] = os.path.join(out_dir, GLB_NAME)
-    except NonFiniteError as e:   # the scene's NaN / inf, not the writer's: the model's build error (D114)
+    except NonFiniteError as e:
         report.update(e.offenders.report())
-    except Exception as e:  # noqa: BLE001 — a writer failure is the harness's, reported as such
+    except Exception as e:  # noqa: BLE001
         import traceback  # noqa: PLC0415
 
         report.update(error_type="CensusGlbError", error_message=f"census GLB writer failed: {e}",
@@ -534,7 +501,7 @@ def main() -> int:
     if not args.no_blend:
         blend = os.path.join(out_dir, BLEND_NAME)
         try:
-            report["warnings"].extend(save_blend(bpy, blend, compress=True))   # the judged frames render it
+            report["warnings"].extend(save_blend(bpy, blend, compress=True))
             report["exported"]["blend"] = blend
         except Exception as e:  # noqa: BLE001
             report["warnings"].append(f".blend save failed: {e}")

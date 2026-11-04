@@ -1,18 +1,9 @@
 """``VlmJudge``: rubric YAML + labelled renders + measurements → ``Judgment``.
 
-Per sample: one ``ChatRequest`` with a per-rubric JSON schema (criteria scored
-0..1 with evidence, the rubric's binary defect checklist, issues, improvement
-plan, acceptance verdicts); samples differ by montage/tile order (shuffle seed)
-so n-sample mean/std measures judge noise.  With ``n_samples > 1`` the model
-calls run in parallel (``codeverse3d.proc``); results accumulate in sample order.  Score/defect penalties/floors/caps
-/pass are computed in code (``rubrics.aggregate_samples``).  Images are ≤2×2 montages
-(``prompt_builder``); tracks may pass a clay/normals ``JudgeInput.geometry_views`` RenderSet.  Retries: up to
-``max_attempts`` per sample on ``ModelError`` / parse failure, all of them inside one
-``sample_budget_s`` (:data:`SAMPLE_BUDGET_S`) that also clips the model's own retry
-deadline (``ChatRequest.max_wait_s``); if no sample
-succeeds, a *degraded* Judgment (``passed=False, overall=0, summary
-'judge_error: …'``, ``raw.status='degraded'``) is returned for the orchestrator
-to treat as a glitch, never as a score.
+Per sample, one ``ChatRequest`` with a per-rubric JSON schema; samples differ by montage order so the
+n-sample std measures judge noise.  Score, penalties, floors, caps and pass are computed in code
+(``rubrics.aggregate_samples``).  Retries stay inside one ``sample_budget_s``; if no sample succeeds a
+*degraded* Judgment (``raw.status='degraded'``) is returned, which the orchestrator treats as a glitch.
 """
 
 from __future__ import annotations
@@ -62,47 +53,32 @@ from codeverse3d.spatial.silhouette import (
 
 log = logging.getLogger(__name__)
 
-#: retry budget for ONE judge sample, every attempt included — the owner's rule
-#: (2026-08-27): generous time, zero timeouts.  For scale, the verdict call is 42 s p50 /
-#: 73 s p90 on a normal day and 50 / 103 s under a storm (audit 2026-08-26 §2); the old
-#: 240 s cap, and before it 3 x (a 300 s read timeout + the model's 900 s retry deadline),
-#: lost two storm-day rounds 1 162 s and 927 s before a second sample answered in 128 s.
+#: retry budget for ONE judge sample, every attempt included
 SAMPLE_BUDGET_S = 900.0
-#: the floor of one attempt's ``max_wait_s``: a last attempt still gets a real try
 SAMPLE_MIN_WAIT_S = 20.0
 
-#: D48 slice-image labels, keyed by ``sections.JUDGE_SLICE_PLANES`` name (the tested wording)
 SLICE_LABELS = {
     "front_back": "cross-section front-back · interior view",
     "left_right": "cross-section left-right · interior view",
 }
 
-#: the judge's thinking levels (``ChatRequest.thinking``); the run default is ``Settings.judge.thinking``
 THINKING_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
 
-#: Per-track montage ceilings under the ``Settings.judge.montages`` dial.  D47's 3 → 5 was
-#: measured on the OBJECT rig only (docs/DECISIONS.md D47); graphics keeps the pre-D47 3 until a
-#: battery measures it.  The scene rig moved 3 → 4 with scene (2026-10-14): the fourth
-#: overview (``overview_low_front``, the contact camera) plus the t=1.5 tiles need a third
-#: grid on a three-camera plan and a fourth on a four-camera one — a cap of 3 silently
-#: dropped the low tile the contact crops are cut from.
+#: per-track montage ceilings under the ``Settings.judge.montages`` dial
 TRACK_MONTAGE_CAP: dict[str, int] = {"scene": 4, "graphics": 3}
 
 
 @dataclass
 class JudgeContext:
-    """Per-call extras a subclass may supply (see ``VlmJudge.context``)."""
 
     measured_scores: dict[str, float] = field(default_factory=dict)
     extra_text: str = ""
     extra_images: list[tuple[str, str]] = field(default_factory=list)
-    #: what building the context cost (ReferenceJudge's mismatch pass is a real model
-    #: call); folded into the verdict so BudgetGuard and record.total_usage see it
+    #: what building the context cost; folded into the verdict so budgets see it
     usage: Usage = field(default_factory=Usage)
 
 
 class VlmJudge:
-    """Rubric judge over a ``ChatModel``.  Thread-safe (stateless between calls)."""
 
     name = "vlm"
 
@@ -122,12 +98,7 @@ class VlmJudge:
         fixed_order: bool = False,
     ):
         self.rubric: Rubric = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
-        # Every sample of one call normally sees the montages and tiles in a different order
-        # (shuffle_seed below), so score_std is a view-ORDER robustness figure — the number
-        # docs/COST.md §8's judge noise was tabulated from.  fixed_order sends the identical
-        # prompt n times: the re-judge σ of the model itself, which is what the loop's
-        # stop thresholds and the pairwise margin are actually keyed to (audit 2026-08-30;
-        # brilliana measured 0.013 vs 0.035 between the two on 512 calls).
+        # fixed_order sends the identical prompt n times (re-judge sigma) instead of shuffling view order
         self.fixed_order = bool(fixed_order)
         self.model_id = model_id or get_settings().default_judge
         self.n_samples = max(1, int(n_samples))
@@ -136,11 +107,8 @@ class VlmJudge:
                         "acceptance item follows the representative sample (rubrics.aggregate_samples); an odd n "
                         "gives a true majority", self.n_samples)
         self.temperature = temperature
-        # payload size and thinking: Settings.judge
         jd = get_settings().judge
-        # ``thinking=None`` reads ``Settings.judge.thinking`` (C3D_JUDGE__THINKING) — the one place a run,
-        # a replay (`3dcode judge --thinking`) and the calibration tool take the level from (D105:
-        # gemini-4-argon thinks only from 'medium')
+        # ``thinking=None`` reads ``Settings.judge.thinking``
         level = str(jd.thinking if thinking is None else thinking)
         if level not in THINKING_LEVELS:
             raise ValueError(f"judge thinking must be one of {' | '.join(THINKING_LEVELS)}, not {level!r}")
@@ -155,43 +123,36 @@ class VlmJudge:
         self.label = label
 
     def _montages_for(self, inp: JudgeInput) -> int:
-        """Per-track montage cap (``TRACK_MONTAGE_CAP``: scene 4, graphics 3; the object rig takes
-        the dial, D47)."""
+        """Per-track montage cap (``TRACK_MONTAGE_CAP``); the object rig takes the dial."""
         cap = TRACK_MONTAGE_CAP.get(inp.spec.track.value)
         if cap is None:
             return self.max_montages
         return min(self.max_montages, cap)
 
-    # ------------------------------------------------------------------ provenance
     @property
     def prompt_hash(self) -> str:
-        """``prompt_builder.judge_prompt_hash`` for this judge's rubric (recorded per verdict)."""
         return judge_prompt_hash(self.rubric)
 
-    # ------------------------------------------------------------------ model
     @property
     def model(self) -> ChatModel:
         if self._model is None:
             self._model = get_chat_model(self.model_id)
         return self._model
 
-    # ------------------------------------------------------------------ API
     def judge(self, inp: JudgeInput) -> Judgment:
-        """Judge one round.  ``inp.geometry_views`` feeds the geometry montage (clay/normals
-        views embedded in ``inp.renders`` by ``RenderView.mode`` are always routed there too)."""
+        """Judge one round; clay/normals views in ``inp.renders`` are routed to the geometry montage."""
         geometry_views = inp.geometry_views
         acceptance_ids = [a.id for a in inp.acceptance]
         schema = wire_schema(self.rubric, acceptance_ids)
         ctx = self.context(inp)
         measured, extra_text, extra_images = ctx.measured_scores, ctx.extra_text, ctx.extra_images
         usage = ctx.usage
-        slice_images, elicit = self.slice_payload(inp)  # D48: [] / False on a clean round
+        slice_images, elicit = self.slice_payload(inp)
         samples: list[JudgeOutput] = []
         errors: list[str] = []
         reqs: list[ChatRequest] = []
         for k in range(self.n_samples):
             seed = None if (self.fixed_order or (self.n_samples == 1 and k == 0)) else (inp.round_index * 1000 + k)
-            # a missing render is a pipeline bug, not a judge glitch → JudgeImageError propagates
             system, messages = build_judge_messages(
                 inp, self.rubric, shuffle_seed=seed, geometry_views=geometry_views, max_montages=self._montages_for(inp),
                 detail_crops=self.detail_crops, max_px=self.max_px, cache_dir=self.cache_dir,
@@ -200,22 +161,18 @@ class VlmJudge:
             )
             reqs.append(ChatRequest(
                 messages=messages, system=system, response_schema=schema, temperature=self.temperature,
-                thinking=self.thinking,  # type: ignore[arg-type]  # validated against THINKING_LEVELS in __init__
-                # proc.fan_out copies the caller's contextvars into every sample thread, so the ledger's
-                # ambient attribution reaches a worker; it is bound per STAGE (the track's call_context
-                # around a round), so the label stays explicit with what only this call knows — the judge
-                # job (self-describing: cost/context.SELF_DESCRIBING), its rubric, round and sample
+                thinking=self.thinking,  # type: ignore[arg-type]
+                # fan_out copies contextvars into every sample thread; the label adds what only this call knows
                 label=f"{self.label}:{self.rubric.name}:r{inp.round_index:02d}:s{k}",
             ))
-        if len(reqs) == 1:  # serial path: no pool, no thread hop
+        if len(reqs) == 1:
             outcomes = [self._sample(reqs[0], acceptance_ids, measured)]
         else:
-            self.model  # noqa: B018 — materialise the lazy chat model once, before the threads race
+            self.model  # noqa: B018
             results = fan_out(
                 reqs, lambda r: self._sample(r, acceptance_ids, measured),
                 max_workers=len(reqs), label=f"{self.label}:samples", item_name=lambda r: r.label,
             )
-            # ordered accumulation; _sample never raises, but a crashed worker still counts as an error
             outcomes = [
                 r if not isinstance(r, Exception) else (None, Usage(), f"{type(r).__name__}: {r}")
                 for r in results
@@ -238,13 +195,8 @@ class VlmJudge:
             judge_prompt_hash=self.prompt_hash,
         )
 
-    # ------------------------------------------------------------------ hook (ReferenceJudge overrides)
     def context(self, inp: JudgeInput) -> JudgeContext:
-        """Per-call extras: measured-criterion scores (code), extra text and extra images.
-
-        The base judge computes no measured criteria, so a rubric that declares
-        some cannot be used with it (use ``ReferenceJudge`` or a subclass).
-        """
+        """Per-call extras: measured-criterion scores, extra text and extra images (none in the base judge)."""
         if self.rubric.measured_criteria():
             raise ValueError(
                 f"rubric {self.rubric.name} has measured criteria "
@@ -252,18 +204,11 @@ class VlmJudge:
             )
         return JudgeContext()
 
-    # ------------------------------------------------------------------ D48 conditional slices
     def slice_payload(self, inp: JudgeInput) -> tuple[list[tuple[str, str]], bool]:
-        """``([(label, png_path)…], provenance_elicitation)`` for the D48 slice channel.
+        """``([(label, png_path)…], provenance_elicitation)`` for the slice channel.
 
-        The channel fires ONLY when ``Settings.judge.slices == "on-error"``, the track is
-        an object track, ``inp.glb_path`` exists, AND the connectivity gate carries ≥ 1
-        ERROR finding; otherwise ``([], False)`` and the payload is byte-identical to the
-        pre-D48 one.  On a firing round the slices are rendered (cached by GLB identity +
-        error pairs) into the judge cache dir; F4 may drop them all, in which case the
-        elicitation sentence still applies (the tested v3 semantics: elicitation follows
-        dirtiness, not slice count).  A missing mesh extra disables the channel; a render
-        crash degrades to text-only elicitation — a verdict never dies on a drawing.
+        Fires only when ``Settings.judge.slices == "on-error"``, the track is an object track, ``inp.glb_path``
+        exists and the connectivity gate has an ERROR; otherwise ``([], False)``.  Never raises.
         """
         if get_settings().judge.slices != "on-error":
             return [], False
@@ -280,18 +225,13 @@ class VlmJudge:
         except ImportError as e:
             log.warning("judge slices disabled: %s (install the 'mesh' extra)", e)
             return [], False
-        except Exception as e:  # noqa: BLE001 — the drawing must never sink the verdict
+        except Exception as e:  # noqa: BLE001
             log.warning("judge slice render failed for %s: %s", glb, e)
             return [], True
         return [(SLICE_LABELS[s.name], str(out_dir / s.png)) for s in manifest.rendered()], True
 
     def _render_slices(self, glb: Path, pairs: list[tuple[str, str]]):
-        """Render (or reuse) the slice set for ``glb`` under the judge cache dir.
-
-        Keyed like ``prepare_image``: path + mtime + size + the error pairs, so a
-        rebuilt GLB re-renders and concurrent judges of the same round share one set.
-        Writes go to a per-writer temp dir renamed into place (a concurrent identical
-        writer simply wins first)."""
+        """Render (or reuse) the slice set for ``glb``, cached by path + mtime + size + error pairs."""
         from codeverse3d.spatial.sections import SliceManifest, judge_slices
 
         cache = Path(self.cache_dir) if self.cache_dir else default_cache_dir()
@@ -302,14 +242,12 @@ class VlmJudge:
             shutil.rmtree(tmp, ignore_errors=True)
             try:
                 judge_slices(glb, pairs, tmp)
-                # a concurrent identical writer may have renamed first — then use theirs
                 with contextlib.suppress(OSError):
                     tmp.rename(out_dir)
-            finally:  # a mid-render crash (or losing the race) must not leave the .tmp behind
+            finally:
                 shutil.rmtree(tmp, ignore_errors=True)
         return out_dir, SliceManifest.model_validate_json(mpath.read_text())
 
-    # ------------------------------------------------------------------ one sample with retries
     def _sample(
         self, req: ChatRequest, acceptance_ids: list[str], measured: dict[str, float]
     ) -> tuple[JudgeOutput | None, Usage, str]:
@@ -323,16 +261,15 @@ class VlmJudge:
                         + (f"; last: {last}" if last else ""))
                 log.warning("judge %s: %s", req.label, last[:300])
                 break
-            # the model may retry inside this call, never past what the sample can still afford
             req = req.model_copy(update={"max_wait_s": max(SAMPLE_MIN_WAIT_S, remaining)})
             t0 = time.monotonic()
             try:
                 resp: ChatResponse = self.model.generate(req)
             except ModelError as e:
-                usage = usage + (getattr(e, "usage", None) or Usage())  # the provider billed it
+                usage = usage + (getattr(e, "usage", None) or Usage())
                 last = f"ModelError(attempt {attempt}): {e}"
                 log.warning("judge %s: %s", req.label, last)
-                if not e.retryable:  # same request again cannot fix a 400 / a blocked prompt
+                if not e.retryable:
                     break
                 continue
             usage = usage + resp.usage
@@ -348,17 +285,14 @@ class VlmJudge:
         return None, usage, last or "unknown judge failure"
 
 
-# ===================================================================== reference
 
-#: IoU → score mapping: ≤ 0.25 → 0, ≥ 0.85 → 1, linear in between (matches the rubric anchors).
+#: IoU → score: ≤ 0.25 → 0, ≥ 0.85 → 1, linear between
 IOU_LOW, IOU_HIGH = 0.25, 0.85
 
 #: score the measured criterion gets when the measurement cannot be trusted
-#: (unreliable mask, or a reference whose proportions contradict the brief)
 NEUTRAL_SCORE = 0.5
 
-#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side); a stored
-#: pre-D47 run matches through ``conventions.view_key``.
+#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side)
 DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high", "right", "left")
 
 
@@ -367,12 +301,10 @@ def iou_to_score(iou: float) -> float:
 
 
 def _diff_enabled(flag: bool) -> bool:
-    """``flag`` unless ``C3D_REFERENCE_DIFF`` switched the pass off (``Settings.reference_diff``)."""
     return flag and get_settings().reference_diff
 
 
 class ReferenceJudge(VlmJudge):
-    """VlmJudge + reference images + measured silhouette + named mismatches."""
 
     name = "reference"
 
@@ -391,7 +323,6 @@ class ReferenceJudge(VlmJudge):
         self.silhouette_fn = silhouette_fn or compare_silhouette
         self.diff = diff
 
-    # ------------------------------------------------------------------ hook
     def context(self, inp: JudgeInput) -> JudgeContext:
         refs = [r for r in inp.spec.references if Path(r.path).is_file()]
         images: list[tuple[str, str]] = []
@@ -422,35 +353,27 @@ class ReferenceJudge(VlmJudge):
         return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images,
                             usage=diff.usage if diff is not None else Usage())
 
-    # ------------------------------------------------------------------ proportion guard
     def dimension_conflict(self, inp: JudgeInput, refs: list[Any]) -> dict[str, Any]:
-        """Does the target reference's own outline contradict the brief's dimensions?
-
-        When it does, no numeric proportion signal derived from that picture may be
-        used against the object — the brief wins (``reference.dimension_conflict``).
-        """
+        """Does the target reference's own outline contradict the brief's dimensions?  If so the brief wins."""
         targets = [r for r in refs if r.role == "target"] or refs
         if not targets:
             return {"conflict": False}
         try:
             return dimension_conflict(inp.spec, targets[0].path)
-        except Exception as e:  # noqa: BLE001 — advisory
+        except Exception as e:  # noqa: BLE001
             log.warning("dimension-conflict check failed: %s", e)
             return {"conflict": False, "error": str(e)}
 
     def silhouette_score(self, match: ReferenceMatch) -> tuple[float, str]:
-        """IoU → measured score, NEUTRAL when the reference contradicts the brief or the
-        mask is unreliable.  Returns ``(score, ' (why)')``."""
+        """IoU → measured score, neutral when the reference contradicts the brief or the mask is unreliable."""
         if match.conflict:
             return NEUTRAL_SCORE, " (NEUTRAL: the reference's proportions contradict the brief's dimensions)"
         if not match.reliable:
             return NEUTRAL_SCORE, " (NEUTRAL: the background mask was unreliable)"
         return iou_to_score(match.iou), ""
 
-    # ------------------------------------------------------------------ mismatch pass
     def reference_diff(self, inp: JudgeInput, refs: list[Any], match: ReferenceMatch | None) -> Any | None:
-        """One extra vision call naming concrete mismatches.  ``None`` when disabled;
-        never raises (a failed diff simply contributes no text)."""
+        """One extra vision call naming concrete mismatches; ``None`` when disabled; never raises."""
         if not _diff_enabled(self.diff):
             return None
         targets = [r.path for r in refs if r.role == "target"] or [r.path for r in refs]
@@ -460,12 +383,11 @@ class ReferenceJudge(VlmJudge):
         try:
             return compare(inp.spec, targets, renders, model=self.model,
                            part_names=inp.part_names, measured=measured)
-        except Exception as e:  # noqa: BLE001 — an advisory pass must never fail a verdict
+        except Exception as e:  # noqa: BLE001
             log.warning("reference diff pass failed: %s", e)
             return None
 
     def diff_views(self, views: list[RenderView]) -> list[str]:
-        """Up to 3 shaded views for the diff, front-ish first."""
         picked = [v.path for v in views_by_preference(views, DIFF_VIEW_NAMES)]
         for v in views:
             if len(picked) >= 3:
@@ -490,17 +412,8 @@ LIKENESS_NOTE = (
 
 
 class LikenessJudge(VlmJudge):
-    """``VlmJudge`` + the reference photos of the REAL thing — for tracks with no silhouette.
-
-    ``ReferenceJudge`` is built for objects: it measures a best-view silhouette IoU against
-    the target photo and runs a part-inventory mismatch pass.  Neither means anything for a
-    fragment shader or a scene, where a reference photo answers a different question — does
-    this LOOK like the thing?  Measured 2026-08-26 (teaser aurora, three versions, flash and
-    codex): every version scored 0.78-0.94 with an empty issues list while none resembled an
-    aurora (a comb of straight teal bars; pink cotton-wool lobes), because the brief is a
-    checklist of nouns and the rubric had nothing to say about likeness.  This judge attaches
-    up to three photos beside the frames with :data:`LIKENESS_NOTE` and leaves the rubric alone.
-    """
+    """``VlmJudge`` + reference photos, for tracks with no silhouette: the photos are attached beside the
+    frames with :data:`LIKENESS_NOTE` and the rubric is unchanged."""
 
     name = "likeness"
 
@@ -522,12 +435,9 @@ class ReferenceJudgeError(RuntimeError):
 
 
 def judge_for(track: Track, rubric: str | Rubric, *, references: bool) -> type[VlmJudge]:
-    """The judge class that scores a round: ONE rule for the live run (``BaseTrack.make_judge``)
-    and every replay (``3dcode judge``, calibration), so a replay is judged as the run was.
-
-    A rubric with measured criteria needs :class:`ReferenceJudge`, the judge that computes
-    them; reference photos get :class:`LikenessJudge` on graphics and scene (nothing there to
-    silhouette-match) and :class:`ReferenceJudge` on the object tracks; else :class:`VlmJudge`."""
+    """The judge class that scores a round, shared by the live run and every replay: :class:`ReferenceJudge`
+    for measured criteria or object-track references, :class:`LikenessJudge` for graphics/scene references,
+    else :class:`VlmJudge`."""
     rub = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
     if rub.measured_criteria() or (references and not TRACK_INFO[track].likeness_refs):
         return ReferenceJudge

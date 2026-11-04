@@ -1,5 +1,4 @@
-"""``JudgeInput``, the ONE way a round becomes one (``round_input`` + ``plan_summary``: the in-run
-judge and every replay of a stored round build it here) and the pure replay helpers."""
+"""``JudgeInput`` and the one place a round becomes one (``round_input``), plus the pure replay helpers."""
 
 from __future__ import annotations
 
@@ -22,18 +21,15 @@ from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import to_authoring_frame
 from codeverse3d.workspace import Workspace
 
-#: tracks whose rounds have one canonical GLB the judge slice channel (D48) may cut;
-#: scene and graphics have none and are unaffected.
+#: tracks whose rounds have one canonical GLB the judge slice channel may cut
 SLICE_TRACKS = ("static_object", "articulated_object")
-#: the rubric of a static object judged against reference images: it adds the measured silhouette criterion
+#: rubric for a static object judged against reference images (adds the silhouette criterion)
 REFERENCE_RUBRIC = "reference"
 
 
 def run_rubric(spec: Spec, default: str = "") -> str:
-    """The rubric a run of ``spec`` is judged on — the ONE rule, for the run loop and every replay.
-    A static object with reference images is scored on :data:`REFERENCE_RUBRIC`; any other run on
-    ``default`` (a track's own) or its track's.  Other tracks keep their rubric with references:
-    their judge still sees the images."""
+    """The rubric a run of ``spec`` is judged on: :data:`REFERENCE_RUBRIC` for a static object with
+    references, else ``default`` or the track's own."""
     if spec.references and spec.track is Track.STATIC_OBJECT:
         return REFERENCE_RUBRIC
     return default or TRACK_INFO[spec.track].rubric
@@ -60,13 +56,9 @@ class JudgeInput(BaseModel):
     )
 
 
-# ===================================================================== one round → one JudgeInput
 def plan_summary(plan: Plan | None, language: str) -> str:
-    """The plan digest the judge reads, for every track.  An object's overall size is written
-    W×H×D in the GLB frame (Y-up) — the frame of the measurement table beside it — so a Z-up
-    plan's (W, D, H) is permuted first.  Four track methods and a fifth dict digest for the
-    replays used to write this: a replayed Z-up object read W×D×H, and a replayed shader lost
-    its style, passes, key visuals and motion."""
+    """The plan digest the judge reads.  An object's size is written W×H×D in the GLB frame (Y-up),
+    so a Z-up plan's (W, D, H) is permuted first."""
     if isinstance(plan, GraphicsPlan):
         passes = ", ".join(f"{p.name} ({p.kind})" for p in plan.passes)
         return (f"{plan.title}: {plan.summary} Style: {plan.style}. Passes: {passes}. Key visuals: {'; '.join(plan.key_visuals)}. "
@@ -88,28 +80,18 @@ def plan_summary(plan: Plan | None, language: str) -> str:
 def round_input(spec: Spec, plan: Plan | None, rnd: RoundRecord, *, renders: RenderSet, gates: Sequence[GateReport],
                 previous: Judgment | None, extra_context: str, geometry_views: RenderSet | None,
                 glb_path: str | None) -> JudgeInput:
-    """The judge payload of one round.  The in-run judge (``tracks/steps._judge``) builds it from the
-    round in hand, every replay of a stored round (``3dcode judge``, calibration:
-    ``cli/_judge.build_judge_input``) from disk — so a replay reads what the in-run judge read."""
+    """The judge payload of one round, built from the round in hand or replayed from disk."""
     return JudgeInput(
         spec=spec, renders=renders, measurement=rnd.measurement, gates=list(gates),
         acceptance=list(getattr(plan, "acceptance", None) or []), plan_summary=plan_summary(plan, spec.language),
         part_names=[p.name for p in plan.parts] if isinstance(plan, StaticPlan) else [],
         round_index=rnd.index, previous=previous, extra_context=extra_context, geometry_views=geometry_views,
-        # D48: the round's canonical GLB feeds the conditional slice channel (object tracks only)
         glb_path=glb_path if spec.track.value in SLICE_TRACKS else None,
     )
 
 
-# ===================================================================== round replay
 def resolve_paths(ws: Workspace, rs: RenderSet | None) -> RenderSet | None:
-    """Render paths out of a round record, resolved against THIS workspace.
-
-    Delegates to ``Workspace.rebase``: this used to rebase only paths for which
-    ``is_absolute()`` was False, which made it a no-op against every record the harness
-    itself writes (they are all absolute) — so a moved or archived run kept pointing at
-    the host it was produced on.
-    """
+    """Render paths out of a round record, resolved against THIS workspace."""
     if rs is None:
         return None
     fixed = [v.model_copy(update={"path": str(ws.rebase(v.path))}) for v in rs.views]
@@ -119,8 +101,7 @@ def resolve_paths(ws: Workspace, rs: RenderSet | None) -> RenderSet | None:
 
 
 def judged_subset(rs: RenderSet | None) -> RenderSet | None:
-    """The views the in-run judge actually saw: the per-view ``judge`` flags
-    stamped at render time; legacy rounds (no flags) keep every stored view."""
+    """The views the in-run judge saw (per-view ``judge`` flags); rounds without flags keep every view."""
     if rs is None or not any(v.judge is not None for v in rs.views):
         return rs
     return rs.model_copy(update={"views": [v for v in rs.views if v.judge]})

@@ -1,18 +1,4 @@
-"""Scene probes: the import/census gate and the shader-preflight report reader.
-
-* ``run_probe(ws, compile=)`` → (scene_probe, shader_preflight, census) — THE
-  ``probe_scene.mjs`` driver call; ``compile=True`` (the scene build and the
-  ``shader_probe`` tool) adds the shader preflight to the same boot
-* ``probe_scene(ws)``  → (GateReport 'scene_probe', census) — the standalone probe
-  (the ``scene_probe`` tool, ``check_placement(rebuild=true)``)
-* ``probe_report`` / ``shader_report`` — the two gates, pure over the driver JSON.
-
-An OFFLINE scene (scene_blender, D2/D3) is probed on its census GLB (``glb=``): the same driver,
-census and placement code through the harness adapter ``runtime_js/lib/glb_scene.mjs``, with no
-settle and no camera repair (the picture is Blender's, so the JS copy is never mutated), the bpy
-facts the GLB cannot carry merged into the census before any finding is drawn (``facts=``), and
-the triangle gate on UNIQUE triangles instead of the draw budget (D99 has no meaning offline).
-"""
+"""Scene probes: the import/census gate and the shader-preflight report reader."""
 
 from __future__ import annotations
 
@@ -42,13 +28,7 @@ _BOOT_HINTS = {
 
 
 class SceneProbeResult(BaseModel):
-    """``probe_scene`` result: unpacks as ``gate, census = probe_scene(ws)`` and also
-    dumps to a dict generic tool adapters can read.  Tool semantics: ``ok`` /
-    ``errors`` describe whether the PROBE TOOL ran — a gate that fails on
-    agent-fixable findings keeps ``ok=True`` with the finding lines under
-    ``findings``; ``errors`` holds only harness/driver failures and is what the
-    tool maps to ``Observation.failed`` (MCP ``is_error``).  Gate truth stays on
-    ``gate.passed``, which is the observation's verdict."""
+    """``probe_scene`` result."""
 
     gate: GateReport
     census: dict[str, Any] = Field(default_factory=dict)
@@ -62,12 +42,7 @@ class SceneProbeResult(BaseModel):
 
 
 def probe_result(gate: GateReport, census: dict[str, Any]) -> SceneProbeResult:
-    """A ``harness_failure`` finding IS a driver failure, wherever it was raised.
-
-    ``ok`` is "the tool could run" (``registry.Observation.failed = not ok``) and the
-    agent-facing ``findings`` deliberately exclude harness failures — so a report that
-    carries one and nothing else used to come back ok, with no errors and no findings: a
-    probe that reads healthy and measured nothing."""
+    """A ``harness_failure`` finding IS a driver failure, wherever it was raised."""
     errors = [f.message[:800] for f in gate.findings if f.data.get("harness_failure")]
     lines = [f"[{f.severity.value}] {f.target or ''}: {f.message}" for f in gate.findings
              if f.severity != Severity.INFO and not f.data.get("harness_failure")]
@@ -81,29 +56,15 @@ def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: s
 def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None = None,
               glb: Path | None = None, facts: Mapping[str, Any] | None = None,
               ) -> tuple[GateReport, GateReport, dict[str, Any]]:
-    """One ``probe_scene.mjs`` boot → (scene_probe, shader_preflight, census).
-
-    ``compile`` also runs the shader preflight on the same page; without it — or when the
-    scene never boots — the preflight is a failed-empty gate.  ``timeout_s`` defaults to
-    the build timeout, capped at 120 s.  A driver that cannot run is a ``harness_failure``
-    finding, never a raise — except a driver whose own watchdog fired twice inside the scene's
-    own code (``SceneRenderError.scene_timed_out``): that is the scene's construction cost and an
-    ERROR against the code (:func:`timeout_finding`, D111).  ``glb`` probes an offline scene's
-    census GLB instead of ``src/scene.js`` (module docstring), ``facts`` its bpy census; the GLB
-    is the harness's own export of a scene Blender already built, so a boot of it that never
-    finishes stays the harness's, like every other failure to boot it (:func:`offline_report`)."""
+    """One ``probe_scene.mjs`` boot → (scene_probe, shader_preflight, census)."""
     t0 = time.time()
     timeout_s = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
     args = ["--ws", str(ws.root), "--out", str(ws.artifacts / "scene_probe.json"), "--timeout-ms", str(int(timeout_s * 1000))]
     if compile:
         args += ["--compile", "--shaders-out", str(ws.artifacts / "shader_preflight.json")]
     if glb is not None:
-        # D3: nothing moves the JS copy of a scene Blender renders — no settle, no camera repair
-        args += ["--glb", str(Path(glb).resolve()), "--no-settle"]   # node runs in runtime_js/: a relative path would miss
+        args += ["--glb", str(Path(glb).resolve()), "--no-settle"]
     else:
-        # every probe runs under the SAME settle / camera-repair policy every
-        # render uses — ONE parser, render_scene (review-3 S4: the build used to carry none of
-        # the flags, so its gate measured a census the renders then contradicted)
         args += probe_env_args()
     no_preflight = GateReport(gate=SHADER_GATE, passed=False, findings=[])
     try:
@@ -127,16 +88,7 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
 
 def timeout_finding(timeout_s: float, *, phase: str) -> GateFinding:
     """A probe whose watchdog fired inside the scene's own code (``render_scene.SCENE_PHASES``) —
-    after the driver's one retry, on a browser of its own — is an ERROR against the CODE.
-
-    WHY (D111).  Argon loop iteration 4, r1_08 (2026-10-15): the refine's new 37 k-vertex terrain met
-    the zones' per-vertex raycast seating and the scene no longer booted inside 120 s.  The probe filed
-    it as a harness failure with "not your code; retry or report": the agent, told so by its own build
-    tool, went quiet until the watchdog killed it, and the round then spent 3 x 240 s rebuilding the
-    same code (``repair.MAX_HARNESS_REBUILDS``) and was never scored.  The previous round of the same
-    workspace booted in 8 s: what changed is the code.  Not ``harness_failure``, so the round's repair
-    session receives it (``tracks/repair.build_with_repair``) and the build tool reports it as a finding.
-    scene_threejs only: an offline scene's census GLB is the harness's export (:func:`run_probe`)."""
+    after the driver's one retry, on a browser of its own — is an ERROR against the CODE."""
     entry = ENTRY_FILE[Language.SCENE_THREEJS]
     what = {"scene": f"importing {entry} and createScene()", "census": "the census of what createScene() built",
             "update": "update(t, dt)"}.get(phase, "the scene's boot")
@@ -148,10 +100,7 @@ def timeout_finding(timeout_s: float, *, phase: str) -> GateFinding:
 
 
 def probe_scene(ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
-    """Import-only probe: module loads, shape valid, cameras valid, update runs, census.  The
-    budget defaults to the BUILD's (:func:`run_probe`): the ``scene_probe`` tool used to probe at
-    60 s while the build allowed 120 s, so since D111 made a timeout the code's, the agent's own
-    tool would have condemned a scene the build accepts."""
+    """Import-only probe."""
     report, _, census = run_probe(ws, timeout_s=timeout_s)
     if census:
         ws.write_json(ws.artifacts / "census.json", census)
@@ -159,23 +108,12 @@ def probe_scene(ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeR
 
 
 def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[GateReport, dict[str, Any]]:
-    """Interpret a ``probe_scene.mjs`` summary into the ``scene_probe`` GateReport
-    (+ census).  Pure over the driver JSON, so the combined single-boot build
-    (``probe_scene.mjs --compile``, scene_threejs runtime) reuses it."""
+    """Interpret a ``probe_scene.mjs`` summary into the ``scene_probe`` GateReport (+ census)."""
     gate = PROBE_GATE
     findings: list[GateFinding] = []
     s = summary
     boot = s.get("boot") or {}
     if "boot" not in s:
-        # NO boot record at all is not a verdict about the scene: `probe_scene.mjs` always
-        # carries `boot` in its summary, so an absent one means the driver produced no
-        # parsable summary line — its stdout tail was dropped (`proc._ABANDONED`), or it
-        # died in a way `run_scene_script` let through with exit 0.  Saying "scene did not
-        # boot" here hands the agent a defect that does not exist and names nothing it can
-        # fix: on desert_canyon (bench/out/scene_baseline, 2026-09-05) the run spent three
-        # repair attempts on `[?] scene did not boot` with an identical signature, while the
-        # driver's own artifacts/scene_probe.json recorded `ok: true, boot.ok: true,
-        # stage: ready` — and the workspace boots in 600 ms today, unchanged.
         findings.append(_f(gate, Severity.ERROR, "scene probe produced no result (driver output lost)",
                            target="src/scene.js",
                            hint="this is a harness/driver failure, not your code; retry or report",
@@ -190,7 +128,7 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
                 msg += " — " + "; ".join(missing[:4])
         findings.append(_f(gate, Severity.ERROR, f"[{stage}] {msg}"[:1500], target="src/scene.js",
                            hint=_BOOT_HINTS.get(stage, "fix the quoted error"), stage=stage))
-    for p in boot.get("camera_problems", []):   # {severity, text}: the host grades each problem
+    for p in boot.get("camera_problems", []):
         findings.append(_f(gate, Severity(p["severity"]), f"cameras: {p['text']}", target="src/scene.js",
                            hint="cameras: [{name:'overview', position:[x,y,z], lookAt:[x,y,z], fov:50}, ...] (1-6 entries)"))
     if boot.get("ok") and s.get("update_ok") is False:
@@ -200,7 +138,7 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
         if e.startswith("boot["):
             continue
         if e.startswith("update(t=") and s.get("update_ok") is False:
-            continue   # already reported as the update(t, dt) finding above
+            continue
         findings.append(_f(gate, Severity.ERROR, f"console: {e}"[:1000], target="src/scene.js",
                            hint="the browser console must stay clean: fix the quoted error"))
     for w in s.get("console_warnings", []):
@@ -215,13 +153,9 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
                            target="src/scene.js", hint="delete your own render loop; the host drives update()"))
     census = s.get("census") or {}
     findings.extend(_census_findings(census))
-    # the first camera's lens and exposure are scene_frames' (frame_metrics) — one camera, one
-    # gate; `first_camera` stays in the probe summary (scene_probe.json)
     return GateReport.of(gate, findings, duration_ms=duration_ms), census
 
 
-#: census keys an offline scene's bpy facts own: the JS census of a GLB cannot see a world, a
-#: volume or a lamp, so its own values for these are replaced, never mixed
 FACT_KEYS = ("fog", "background", "environment", "light_types")
 
 
@@ -237,9 +171,7 @@ def merge_facts(census: dict[str, Any], facts: Mapping[str, Any]) -> dict[str, A
 
 
 def offline_report(summary: dict[str, Any], facts: Mapping[str, Any], *, duration_ms: int = 0) -> tuple[GateReport, dict[str, Any]]:
-    """The ``scene_probe`` gate of an offline scene over its census-GLB probe.  The host loaded a
-    file the HARNESS wrote, so a boot or console failure is the harness's (``harness_failure``),
-    never the agent's; the verdict is the census's."""
+    """The ``scene_probe`` gate of an offline scene over its census-GLB probe."""
     boot = summary.get("boot") or {}
     fail = [e for e in summary.get("console_errors", []) if not e.startswith("boot[")]
     if not boot.get("ok"):
@@ -258,9 +190,7 @@ def offline_report(summary: dict[str, Any], facts: Mapping[str, Any], *, duratio
 
 
 def _offline_findings(c: dict[str, Any]) -> list[GateFinding]:
-    """What only an offline scene can get wrong: a triangle count the renderer must hold in
-    memory (UNIQUE triangles — an instance costs a matrix, not a mesh; D2), drivers the build
-    will never evaluate (D10) and frame handlers the deliverable would depend on."""
+    """What only an offline scene can get wrong."""
     bpy = c.get("bpy") or {}
     out: list[GateFinding] = []
     unique = int(bpy.get("unique_tris") or 0)
@@ -330,15 +260,7 @@ def _census_findings(c: dict[str, Any], *, offline: bool = False) -> list[GateFi
 
 
 def unlit(census: Mapping[str, Any], *, offline: bool) -> GateFinding | None:
-    """The ERROR for a scene that nothing lights: no lamp and no world (bpy), or no light, no
-    background and no environment map (three.js) — every frame renders black.
-
-    An ERROR since D112 (was a WARN): argon loop iteration 5, scene_blender r1_10 built round 0 on
-    the skeleton's placeholder env (lights 0, background null); the build passed with
-    "0 errors", the round-0 repair fixed an asset and left the env, and every frame was 96-99 %
-    black — judged 0.109 after the full render and judge spend.  An ERROR fails the build, so the
-    repair session is handed the env module before anything is rendered.  The same rule checks
-    an env module alone (``SceneRuntime.check_env``)."""
+    """The ERROR for a scene that nothing lights."""
     lights = int((census.get("totals") or {}).get("lights", 0) or 0)
     if lights or census.get("background"):
         return None
@@ -353,10 +275,7 @@ def unlit(census: Mapping[str, Any], *, offline: bool) -> GateFinding | None:
 
 
 def _draw_findings(c: dict[str, Any]) -> list[GateFinding]:
-    """The scene draw budget (D99): ``totals.draws`` against ``DRAWS_WARN_SCENE`` /
-    ``MAX_DRAWS_SCENE``.  The count is the census's, so it is the number ``scene_probe`` shows
-    and the same on every machine, camera and load — fps is not (2 961 draws measured 10.4,
-    9.6 and 1.6 fps in three rounds of one run).  An ERROR fails the build, which puts it in the repair loop."""
+    """The scene draw budget."""
     draws = int(c.get("totals", {}).get("draws", 0))
     if draws <= DRAWS_WARN_SCENE:
         return []
@@ -372,9 +291,8 @@ def _draw_findings(c: dict[str, Any]) -> list[GateFinding]:
 
 
 def shader_report(report: dict[str, Any], *, duration_ms: int = 0) -> GateReport:
-    """Interpret a shader-preflight report (the ``shader_report`` block of
-    ``probe_scene.mjs --compile``) into the ``shader_preflight`` GateReport.  Pure over
-    the driver JSON."""
+    """Interpret a shader-preflight report (the ``shader_report`` block of ``probe_scene.mjs
+    --compile``) into the ``shader_preflight`` GateReport."""
     gate = SHADER_GATE
     findings: list[GateFinding] = []
     rep = report

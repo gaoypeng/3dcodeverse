@@ -51,7 +51,7 @@ def message_blocks(msg: ChatMessage, *, text: Callable[[str], Any], image: Calla
 
 
 def default_timeout_s() -> float:
-    """``Settings.model_timeout_s`` — the per-attempt HTTP ceiling every API adapter uses."""
+    """``Settings.model_timeout_s``."""
     return float(get_settings().model_timeout_s)
 
 
@@ -92,7 +92,7 @@ class SdkModel:
 
 
 class Stopwatch:
-    """``with Stopwatch() as sw: ...; sw.ms``"""
+    """Context-manager timer: ``with Stopwatch() as sw: ...`` leaves the elapsed milliseconds in ``sw.ms``."""
 
     def __enter__(self) -> Stopwatch:
         self._t0 = time.perf_counter()
@@ -104,23 +104,15 @@ class Stopwatch:
 
 
 def retryable_status(status: int | None) -> bool:
-    """THE HTTP statuses a retry may get through, for every provider (N76): request timeout
-    408, conflict 409, rate limit 429 and every 5xx (anthropic's 529 overloaded among them) —
-    the list the openai and anthropic SDKs retry themselves."""
+    """HTTP statuses worth retrying: 408, 409, 429 and every 5xx."""
     return status is not None and (status in (408, 409, 429) or status >= 500)
 
 
 def classify_sdk_exception(exc: BaseException, sdk: Any, label: str) -> Any:
     """The openai/anthropic SDK exception ladder → ``ModelError``.
 
-    anthropic-sdk-python is a fork of openai-python, so ``APIStatusError`` /
-    ``APITimeoutError`` / ``APIConnectionError`` / ``APIError`` and ``.status_code`` /
-    ``.message`` are the same names on both — this ladder was written out twice,
-    differing only in the module and the label.
-
-    The MESSAGE WORDING IS LOAD-BEARING: eval/bench/_infra.py string-matches "request timed
-    out" and "connection error" to tell a provider outage from a model failure, so the
-    f"{label} …" forms below must stay byte-identical to what each adapter emitted.
+    The message wording is load-bearing: eval/bench/_infra.py string-matches "request timed
+    out" and "connection error" to tell a provider outage from a model failure.
     """
     if isinstance(exc, ModelError):
         return exc
@@ -136,11 +128,7 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str) -> Any:
     return ModelError(f"{label} unexpected error: {type(exc).__name__}: {exc}", retryable=False)
 
 
-#: floor of the per-attempt SDK / HTTP read timeout (gemini's too) derived from what is
-#: left of the call's ``max_wait_s`` budget: a call that starts near its deadline still gets
-#: ONE real attempt instead of an instant timeout.  Same 20 s as the judge's own
-#: ``SAMPLE_MIN_WAIT_S``, so an attempt in flight overshoots the deadline by at most this
-#: floor — never by the full read timeout (audit 2026-08-27, when that ceiling was 300 s).
+#: floor of the per-attempt timeout, so a call near its deadline still gets one real attempt
 SDK_TIMEOUT_FLOOR_S = 20.0
 
 
@@ -152,25 +140,15 @@ def retry_budget_s(max_wait_s: float | None) -> float:
 
 
 def attempt_timeout_s(deadline: float, ceiling: float) -> float:
-    """The SDK timeout for ONE attempt: what is left of ``deadline``, capped at the
-    client's ``timeout_s`` and floored at :data:`SDK_TIMEOUT_FLOOR_S`.
-
-    The retry loop checks the deadline only BETWEEN attempts and both SDK clients are
-    built once with a fixed ``timeout`` (600 s), so a judge told it had 20 s of budget
-    left held a socket for 600 s (audit 2026-08-29).  The floor is what keeps a legitimate
-    long completion (the 930 s plan budget) on its full ``timeout_s`` — this shortens an
-    attempt, it never lengthens one.  Gemini's ``_attempt_config`` clips through it too.
-    """
+    """Per-attempt SDK timeout: time left to ``deadline``, capped at ``ceiling``, floored at
+    :data:`SDK_TIMEOUT_FLOOR_S`.  The retry loop checks the deadline only between attempts."""
     return min(ceiling, max(SDK_TIMEOUT_FLOOR_S, deadline - time.monotonic()))
 
 
 def retry_one_key(attempt: Any, *, label: str, classify: Any, attempts: int, sleep: Any,
                   max_wait_s: float | None = None) -> Any:
-    """The SDK adapters' retry loop: ``rotate_with_retries`` over a fresh one-key pool with no
-    cooldown, no storm patience and no hedge — so a 429 / 5xx / 529 / timeout is retried
-    ``attempts`` times with the ≤ ``MAX_WAIT_S`` backoff, inside the request's ``max_wait_s``
-    deadline (``None`` = ``RETRY_DEADLINE_S``), and a raised ``ModelError`` says how many
-    round-trips it took.  ``label`` names the call in the log ("anthropic <model>")."""
+    """The SDK adapters' retry loop: ``rotate_with_retries`` over a one-key pool, no cooldown,
+    storm patience or hedge, inside the request's ``max_wait_s`` deadline."""
     from codeverse3d.models.retry import KeyPool, rotate_with_retries
 
     return rotate_with_retries(KeyPool([label], cooldown_s=0.0), lambda _key: attempt(), classify=classify,

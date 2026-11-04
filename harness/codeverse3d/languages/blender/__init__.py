@@ -32,13 +32,10 @@ GATE = "lint:blender"
 ALLOWED_IMPORTS = {
     "bpy", "bmesh", "mathutils", "math", "random", "numpy", "np", "itertools", "functools",
     "collections", "typing", "dataclasses", "colorsys", "statistics", "operator", "enum", "copy",
-    # os/sys are deliberately ALLOWED here (unlike cadquery/opengl): headless bpy scripts
-    # touch them legitimately and the forbidden-call rules below catch the harmful uses.
     "sys", "os", "__future__", "bpy_extras",
     "parts",  # the workspace's own src/parts/<snake>.py modules (multi-file layout)
 }
 FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {"pathlib"})
-# dotted-name prefixes of calls that violate the contract (harness owns them)
 FORBIDDEN_CALL_PREFIXES: tuple[tuple[str, str], ...] = (
     ("bpy.ops.render.", "rendering is done by the harness; delete all bpy.ops.render.* calls"),
     ("bpy.ops.export_", "export is done by the harness; delete all bpy.ops.export_* calls"),
@@ -64,8 +61,7 @@ WARN_CALL_PREFIXES: tuple[tuple[str, str, LintKind], ...] = (
     ("sys.exit", "do not exit; let the script fall off the end", LintKind.SANDBOX),
 )
 # Principled BSDF inputs that raise KeyError in Blender 4.x/5.x → their replacement.
-# Verified against Blender 5.2.2 LTS (2026-10-14): 'Anisotropic' and 'Specular Tint' STILL EXIST (do not
-# list them); 5.2.2 also has 'Thin Wall', 'Thin Film Thickness' and 'Thin Film IOR'.
+# Verified on Blender 5.2.2: 'Anisotropic' and 'Specular Tint' still exist (do not list them).
 REMOVED_BSDF_INPUTS = {
     "Specular": "Specular IOR Level", "Subsurface": "Subsurface Weight", "Transmission": "Transmission Weight",
     "Emission": "Emission Color (+ 'Emission Strength')", "Subsurface Color": "Base Color (subsurface tint removed)",
@@ -76,19 +72,18 @@ KNOWN_BINDINGS = ("Vector", "Matrix", "Euler", "Quaternion", "bmesh", "math", "r
 
 
 class BpyCollector(ast.NodeVisitor):
-    """One pass over the tree; rules read the collected facts."""
 
     def __init__(self) -> None:
-        self.imports: dict[str, int] = {}  # top-level module → line
+        self.imports: dict[str, int] = {}
         self.bound: set[str] = set()
         self.calls: list[tuple[str, ast.Call]] = []
-        self.attr_stores: list[tuple[str, int]] = []  # dotted target of assignments
+        self.attr_stores: list[tuple[str, int]] = []
         self.name_loads: list[tuple[str, int]] = []
-        self.bm_names: set[str] = set()  # names bound from bmesh.new() / bmesh.from_edit_mesh()
-        self.bm_subscripts: list[tuple[str, int]] = []  # (base name, line) of <name>.verts/edges/faces[i]
+        self.bm_names: set[str] = set()
+        self.bm_subscripts: list[tuple[str, int]] = []
         self.bsdf_inputs: list[tuple[str, int, bool]] = []  # (key, line, inside `if '<key>' in x.inputs:`)
-        self._guarded: list[frozenset[str]] = []  # keys the enclosing if/elif tests are membership checks of
-        self.names_assigned: list[str] = []  # string constants assigned to .name / name=
+        self._guarded: list[frozenset[str]] = []
+        self.names_assigned: list[str] = []
         self.constants: list[tuple[str, int]] = []
         self.gn_item_stores: list[tuple[str, int]] = []  # (key, line) of <x>["Socket_N"] = … (pre-5.2 GN inputs)
         self.has_temp_override = False
@@ -186,8 +181,6 @@ class BpyCollector(ast.NodeVisitor):
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if isinstance(node.value, ast.Attribute):
-            # only <Name>.verts/edges/faces[i] — e.verts[0] (BMEdge) / me.edges[i] (Mesh) are
-            # filtered later against the names actually bound to a bmesh (BMElemSeq).
             if (node.value.attr in ("verts", "edges", "faces") and not isinstance(node.slice, ast.Slice)
                     and isinstance(node.value.value, ast.Name)):
                 self.bm_subscripts.append((node.value.value.id, node.lineno))
@@ -213,10 +206,8 @@ def _f(kind: LintKind, sev: Severity, msg: str, line: int | None = None, hint: s
 
 
 
-# The API traps of bpy itself, whatever the file builds: the object lint (``_rules``) and the scene
-# lint (``languages/scene_blender``) both call these, so a Blender rename is learned once.
+# API traps of bpy itself, shared by the object lint and the scene lint.
 def call_traps(c: BpyCollector, name: str, call: ast.Call) -> list[GateFinding]:
-    """Removed / context-dependent operator and method calls (one call)."""
     out: list[GateFinding] = []
     E, W = Severity.ERROR, Severity.WARN
     if name.startswith("bpy.ops.") and call.args and isinstance(call.args[0], ast.Dict):
@@ -235,8 +226,6 @@ def call_traps(c: BpyCollector, name: str, call: ast.Call) -> list[GateFinding]:
     if name.endswith("modifier_apply") and not c.has_temp_override:
         out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.modifier_apply needs the object active+selected in OBJECT mode", call.lineno,
                       "either leave modifiers unapplied (the exporter applies them) or wrap: `with bpy.context.temp_override(object=obj): bpy.ops.object.modifier_apply(modifier=mod.name)`"))
-    # the rule's own precondition: a script that sets the active object before joining (as a
-    # urdf_blender model does to get one joined object per link) has done what the warning asks
     if (name.endswith("bpy.ops.object.join") or name == "bpy.ops.object.join") and not any(
             t.endswith("view_layer.objects.active") for t, _ in c.attr_stores):
         out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.join needs all parts selected + an active object; the result inherits the ACTIVE object's transform", call.lineno,
@@ -249,7 +238,6 @@ def call_traps(c: BpyCollector, name: str, call: ast.Call) -> list[GateFinding]:
 
 
 def store_traps(target: str, line: int) -> list[GateFinding]:
-    """Assignments to properties Blender 4.1 removed."""
     if target.endswith(".use_auto_smooth") or target.endswith(".auto_smooth_angle"):
         return [_f(LintKind.API_TRAP, Severity.ERROR, f"`{target}` was removed in Blender 4.1", line, "use bpy.ops.object.shade_smooth_by_angle(angle=...) or mark sharp edges; or just shade_smooth()")]
     return []
@@ -263,8 +251,7 @@ def use_nodes_trap(target: str, line: int) -> list[GateFinding]:
 
 
 def gn_input_traps(c: BpyCollector) -> list[GateFinding]:
-    """Geometry-nodes modifier inputs set the pre-5.2 way: ``mod["Socket_2"] = v`` raises TypeError
-    ("id properties not supported for this type") since Blender 5.2 (verified on 5.2.2)."""
+    """Geometry-nodes modifier inputs set the pre-5.2 way (``mod["Socket_2"] = v``) raise TypeError on 5.2."""
     return [_f(LintKind.API_TRAP, Severity.ERROR, f"`[...][{key!r}] = ...`: geometry-nodes modifier inputs are RNA properties in Blender 5.2 "
                "(TypeError at runtime)", line,
                f"getattr(mod.properties.inputs, {key!r}).value = <value>  (identifiers: mod.properties.inputs.keys(); "
@@ -273,7 +260,7 @@ def gn_input_traps(c: BpyCollector) -> list[GateFinding]:
 
 
 def solver_traps(c: BpyCollector, source: str) -> list[GateFinding]:
-    """``solver = 'FAST'``: the boolean solver was renamed — Blender 5.2.2 has FLOAT / EXACT / MANIFOLD."""
+    """``solver = 'FAST'``: renamed; 5.2 has FLOAT / EXACT / MANIFOLD."""
     lines = source.splitlines()
     return [_f(LintKind.API_TRAP, Severity.ERROR, "boolean solver 'FAST' does not exist in Blender 5.x (TypeError at runtime)", line,
                "solver = 'MANIFOLD' (closed meshes) or 'EXACT'; 'FLOAT' is the old FAST")
@@ -293,8 +280,6 @@ def source_traps(c: BpyCollector, source: str) -> list[GateFinding]:
             out.append(_f(LintKind.API_TRAP, I, "'Specular Tint' is an RGBA colour in Blender 4.x/5.x (a float raises TypeError)", line,
                           'assign a 4-tuple: inputs["Specular Tint"].default_value = (r, g, b, 1.0)'))
     has_lookup = any(n.endswith("ensure_lookup_table") for n, _ in c.calls)
-    # only subscripts on a BMESH object need ensure_lookup_table (BMElemSeq); e.verts[0]
-    # (BMEdge/BMFace tuples) and me.edges[i] (Mesh collections) are always fine.
     bm_subs = [line for base, line in c.bm_subscripts if base in c.bm_names or base == "bm"]
     if "bmesh" in c.imports and bm_subs and not has_lookup:
         out.append(_f(LintKind.API_TRAP, E, "bmesh verts/edges/faces indexed with [] but ensure_lookup_table() is never called → IndexError", bm_subs[0],
@@ -360,11 +345,7 @@ def lint_blender_source(
 ) -> GateReport:
     """Lint one bpy script; returns ``GateReport(gate='lint:blender')``.
 
-    ``expect_names=False`` silences the PascalCase-name warning (multi-file entry files
-    only import and call builders); ``expect_bpy=False`` allows helper modules that do
-    not touch bpy.  :func:`codeverse3d.languages.blender.lint_workspace` lints a
-    whole ``src/`` tree with these set per file.
-    """
+    ``expect_names=False`` / ``expect_bpy=False`` relax the PascalCase-name and bpy-use checks for entry and helper files."""
     t0 = time.monotonic()
     findings: list[GateFinding] = []
     tree, exc = safe_parse(source, target)
@@ -386,17 +367,14 @@ PARTS_DIR = "parts"
 
 
 def part_file_rel(part_name: str) -> str:
-    """``'Seat Cushion'`` → ``'src/parts/seat_cushion.py'`` (workspace-relative)."""
     return f"src/{PARTS_DIR}/{to_snake(part_name)}.py"
 
 
 def build_fn_name(part_name: str) -> str:
-    """``'SeatCushion'`` → ``'build_seat_cushion'`` (the function a part file must export)."""
     return f"build_{to_snake(part_name)}"
 
 
 def part_files(ws: Workspace) -> list[Path]:
-    """Part modules present in the workspace (sorted; underscore helper modules excluded)."""
     d = ws.src / PARTS_DIR
     if not d.is_dir():
         return []
@@ -404,7 +382,6 @@ def part_files(ws: Workspace) -> list[Path]:
 
 
 def source_files(ws: Workspace) -> list[Path]:
-    """Every agent-authored python file under ``src/`` (entry first), including nested dirs."""
     entry = ws.src / "model.py"
     rest = sorted(p for p in ws.src.rglob("*.py") if p != entry)
     return ([entry] if entry.is_file() else []) + rest
@@ -415,7 +392,6 @@ def _exported_functions(tree: ast.Module) -> set[str]:
 
 
 def _imported_part_modules(tree: ast.Module) -> set[str]:
-    """snake names of ``parts.<snake>`` modules the entry references via import statements."""
     out: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
@@ -434,7 +410,6 @@ def _imported_part_modules(tree: ast.Module) -> set[str]:
 
 
 def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | None) -> list[GateFinding]:
-    """Cross-file rules: naming, exported builders, import-time side effects, unused part files."""
     out: list[GateFinding] = []
     E, W = Severity.ERROR, Severity.WARN
     imported = _imported_part_modules(entry_tree) if entry_tree is not None else set()
@@ -468,7 +443,6 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
 
 
 def lint_workspace(ws: Workspace) -> GateReport:
-    """Lint every python file under ``src/`` + the multi-file layout rules (one merged report)."""
     t0 = time.monotonic()
     entry = ws.root / ENTRY_REL
     if not entry.is_file():
@@ -491,7 +465,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-#: base colour for a part whose material names no family: a bare colour word
 _COLOUR_WORDS: tuple[tuple[str, tuple[float, float, float]], ...] = (
     ("black", (0.05, 0.05, 0.05)), ("white", (0.9, 0.9, 0.9)), ("red", (0.7, 0.1, 0.1)),
     ("blue", (0.1, 0.2, 0.7)), ("green", (0.1, 0.5, 0.2)),
@@ -499,9 +472,7 @@ _COLOUR_WORDS: tuple[tuple[str, tuple[float, float, float]], ...] = (
 
 
 def finish_for(text: str) -> tuple[tuple[float, float, float], float, float]:
-    """Placeholder (rgb, roughness, metallic) so the first render is not all-grey: the material
-    family's base hint and factors from ``_pbr`` (THE PBR table), else a bare
-    colour word at the Principled defaults, else neutral grey."""
+    """Placeholder (rgb, roughness, metallic) from the material family, else a bare colour word, else grey."""
     hit = family_for(text)
     pbr = pbr_for(hit.family) if hit else None
     if pbr is not None:
@@ -511,7 +482,6 @@ def finish_for(text: str) -> tuple[tuple[float, float, float], float, float]:
 
 
 def instance_centers(bbox: BBox, n: int, symmetry: str) -> list[tuple[float, float, float]]:
-    """Placeholder centres for ``n`` instances of a part using the plan's symmetry hint."""
     cx, cy, cz = bbox.center
     if n <= 1:
         return [(cx, cy, cz)]
@@ -597,7 +567,6 @@ def _constants(p: PartPlan) -> str:
 
 
 def _part_function(p: PartPlan) -> str:
-    """``def build_<snake>() -> bpy.types.Object`` (placeholder box; instances looped inside)."""
     pascal, snake, fn = to_pascal(p.name), to_snake(p.name), build_fn_name(p.name)
     pre = snake.upper()
     rgb, rough, metal = finish_for(f"{p.material} {p.description}")
@@ -678,7 +647,6 @@ ACCEPTANCE:
 
 # ----------------------------------------------------------------------------- public renderers
 def part_file_source(p: PartPlan) -> str:
-    """Complete ``src/parts/<snake>.py`` text for one plan part (self-contained, runnable)."""
     pascal, fn = to_pascal(p.name), build_fn_name(p.name)
     doc = (
         f'"""{pascal} — {p.role} (part module; imported by src/model.py).\n\n'
@@ -696,12 +664,10 @@ def part_file_source(p: PartPlan) -> str:
 
 
 def selfcheck_source(ground_tol_m: float = GROUND_TOL_M) -> str:
-    """The entry's self-check with its "stands on z=0" tolerance filled in."""
     return SELFCHECK.replace("__GROUND_TOL__", f"{ground_tol_m:g}")
 
 
 def model_file_source(plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -> str:
-    """Complete multi-file entry ``src/model.py``: imports, ordered calls, self-check."""
     imports = "\n".join(f"from {PARTS_DIR}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
     calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
     return (
@@ -717,9 +683,7 @@ def model_file_source(plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -
 def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -> list[Path]:
     """Write the starter files (overwrites) and return the written paths (entry first).
 
-    ``ground_tol_m`` is the self-check's "stands on z=0" tolerance: ``conventions.GROUND_TOL_M``
-    for an object (the contract gate's own line), looser for a scene hero, which
-    the scene seats anyway and whose module twin is allowed 20 mm."""
+    ``ground_tol_m`` is the self-check's "stands on z=0" tolerance."""
     ws.src.mkdir(parents=True, exist_ok=True)
     entry = ws.src / "model.py"
     entry.write_text(model_file_source(plan, ground_tol_m=ground_tol_m))
@@ -741,10 +705,7 @@ class BlenderNotFoundError(RuntimeError):
 
 
 def blender_env() -> dict[str, str]:
-    """Environment for a headless Blender child: keep the user's env but make sure the
-    host python (conda) cannot leak into Blender's bundled interpreter, and strip
-    credential-shaped vars (:func:`codeverse3d.proc.scrub_secrets`) — the model-authored
-    ``model.py`` executes inside this process and must never see API keys."""
+    """Environment for a headless Blender child: host python cannot leak in, credential-shaped vars are stripped."""
     env = scrub_secrets(dict(os.environ))
     for k in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"):
         env.pop(k, None)
@@ -795,14 +756,12 @@ class BlenderRuntime(RuntimeLayout):
         return write_blender_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
-        """Lint every python file under ``src/`` + the multi-file layout rules."""
         return lint_workspace(ws)
 
     def build(
         self, ws: Workspace, *, timeout_s: int | None = None, stl: bool = True, blend: bool = False,
         seed: int = 0,
     ) -> BuildResult:
-        """Run the wrapper; never raises for agent-code failures (typed BuildResult instead)."""
         return run_wrapper_build(
             ws, language=self.language, extras={"stl": "object.stl", "blend": "object.blend"},
             argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed),

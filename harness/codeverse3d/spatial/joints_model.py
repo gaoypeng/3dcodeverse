@@ -1,18 +1,4 @@
-"""URDF data model + loader + forward kinematics (numpy, trimesh).
-
-Conventions (see ``codeverse3d/languages/urdf/CONTRACT.md``):
-
-* URDF frames are Z-up, -Y front, meters.  ``<origin xyz rpy>`` uses the URDF
-  rotation order ``R = Rz(yaw) · Ry(pitch) · Rx(roll)``.
-* A joint's ``<origin>`` places the joint frame in the PARENT link frame; the
-  child link frame coincides with the joint frame at ``q = 0``; ``<axis>`` is
-  expressed in the joint frame.  ``T_child = T_parent · T_origin · Motion(q)``.
-* Mesh files referenced by ``<mesh filename>`` are taken in RAW coordinates
-  (standard URDF semantics).  Our wrapper writes ``meshes/<link>.glb`` with
-  vertices in URDF (Z-up) coordinates (``export_yup=False``), so no axis
-  conversion happens on load.  ``Link.mesh`` is stored in the LINK frame (the
-  visual origin is already applied).
-"""
+"""URDF data model + loader + forward kinematics (numpy, trimesh)."""
 
 from __future__ import annotations
 
@@ -28,9 +14,6 @@ from codeverse3d.contracts.common import MimicIssue, MimicSpec, mimic_issues
 
 MOVABLE_TYPES = ("revolute", "prismatic", "continuous")
 JOINT_TYPES = MOVABLE_TYPES + ("fixed",)
-#: link names that cannot become GLB nodes: glTF readers (trimesh) use ``world`` as the
-#: scene-graph base frame and stomp on a node of that name (the export then loses its
-#: frame / cycles).  ``load_urdf`` rejects them; ``lint`` reports them first.
 RESERVED_LINK_NAMES = frozenset({"world"})
 
 
@@ -40,9 +23,7 @@ class UrdfError(ValueError):
 
 # ------------------------------------------------------------------ small math
 def parse_floats(text: str | None, n: int, what: str) -> tuple[float, ...]:
-    """Parse ``"a b c"`` → ``n`` finite floats; raises ``UrdfError`` with ``what`` on bad input.
-    The ONE number reader of a URDF: the loader and the lint both parse through it, so
-    lint-clean text cannot raise here at build time (``lower="0 1"`` did, 2026-09-24)."""
+    """Parse ``"a b c"`` → ``n`` finite floats."""
     parts = (text or "").split()
     if len(parts) != n:
         raise UrdfError(f"{what}: expected {n} number{'s' if n > 1 else ''}, got {text!r}")
@@ -76,7 +57,7 @@ def matrix_to_rpy(R: np.ndarray) -> tuple[float, float, float]:
     sy = -R[2, 0]
     sy = max(-1.0, min(1.0, float(sy)))
     pitch = math.asin(sy)
-    if abs(math.cos(pitch)) < 1e-9:  # gimbal lock: fold yaw into roll
+    if abs(math.cos(pitch)) < 1e-9:
         roll = math.atan2(-R[1, 2], R[1, 1])
         yaw = 0.0
     else:
@@ -128,13 +109,7 @@ def parse_origin(elem: ET.Element | None, what: str) -> np.ndarray:
 # ------------------------------------------------------------------ model
 @dataclass(frozen=True)
 class Mimic:
-    """A joint driven by another: ``q = multiplier * q[joint] + offset`` (URDF <mimic>).
-
-    Coupled mechanisms (umbrella ribs on one runner, a pantograph's crossing arms, a
-    tambour's slats) have one degree of freedom and many moving links; without this the
-    sweep drives every link independently and poses the mechanism in states it cannot
-    reach (compare_art_v3/v4: umbrella, scissor_mirror and folding_workbench are the
-    lowest-scoring prompts on the battery)."""
+    """A joint driven by another."""
 
     joint: str
     multiplier: float = 1.0
@@ -172,8 +147,8 @@ class Joint:
 @dataclass
 class Link:
     name: str
-    mesh: trimesh.Trimesh | None = None  # merged, in LINK frame (visual origin applied) — used for QC
-    submeshes: list[trimesh.Trimesh] = field(default_factory=list)  # per-material pieces, LINK frame — used for export
+    mesh: trimesh.Trimesh | None = None
+    submeshes: list[trimesh.Trimesh] = field(default_factory=list)
     visual_origin: np.ndarray = field(default_factory=lambda: np.eye(4))
     mesh_file: str | None = None
 
@@ -199,7 +174,7 @@ class Robot:
         return [j for j in self.joints.values() if j.movable]
 
     def independent_joints(self) -> list[Joint]:
-        """The degrees of freedom: movable joints that do not follow another one."""
+        """The degrees of freedom."""
         return [j for j in self.joints.values() if j.movable and j.mimic is None]
 
     def link_order(self) -> list[str]:
@@ -280,15 +255,13 @@ def _link_from_xml(el: ET.Element, urdf_dir: Path, meshes_dir: Path | None, *, l
     if parts:
         link.submeshes = parts
         merged = parts[0].copy() if len(parts) == 1 else trimesh.util.concatenate(parts)
-        # exporters split vertices per normal/uv; merge them back so topology (watertight, islands) is real
         merged.merge_vertices(merge_tex=True, merge_norm=True)
         link.mesh = merged
     return link
 
 
 def parse_joint(el: ET.Element) -> Joint:
-    """One ``<joint>`` element → :class:`Joint` (strict: raises ``UrdfError``).  The URDF
-    lint calls it too, so every rule it enforces is a lint ERROR before any Blender run."""
+    """Parse one ``<joint>`` element into a :class:`Joint`, raising :class:`UrdfError` on anything unsupported."""
     name = el.get("name", "")
     jtype = el.get("type", "")
     if jtype not in JOINT_TYPES:
@@ -328,14 +301,12 @@ def parse_joint(el: ET.Element) -> Joint:
             raise UrdfError(f"joint {name}: <mimic> needs joint=\"<other joint>\"")
         mult = _scalar(mim, "multiplier", f"joint {name} <mimic>", 1.0)
         off = _scalar(mim, "offset", f"joint {name} <mimic>", 0.0)
-        # the multiplier floor is NOT checked here: mimic_issues owns every coupling rule,
-        # and a copy at parse time makes the shared one unreachable (review, 2026-09-03)
         j.mimic = Mimic(joint=src, multiplier=mult, offset=off)
     return j
 
 
 def _mimic_message(issue: MimicIssue, joints: dict[str, Joint]) -> str:
-    """A coupling rule broken by this URDF, in URDF words (rules: contracts.common)."""
+    """Describe a broken ``<mimic>`` coupling rule in URDF words."""
     j, t, kind = issue.joint, issue.target, issue.kind
     if kind == "immobile":
         return f"joint {j}: <mimic> on a {joints[j].type} joint has nothing to follow"
@@ -351,11 +322,7 @@ def _mimic_message(issue: MimicIssue, joints: dict[str, Joint]) -> str:
 
 
 def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, load_meshes: bool = True) -> Robot:
-    """Parse a URDF file into a :class:`Robot` (strict: raises ``UrdfError``).
-
-    ``meshes_dir`` overrides where ``<mesh filename>`` basenames are looked up
-    (default: relative to the URDF file).  Mesh coordinates are taken raw.
-    """
+    """Parse a URDF file into a :class:`Robot`, raising :class:`UrdfError` on malformed input."""
     urdf_path = Path(urdf_path)
     try:
         root_el = ET.parse(urdf_path).getroot()
@@ -403,10 +370,7 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
 
 # ------------------------------------------------------------------ FK
 def resolve_q(robot: Robot, q: dict[str, float] | None = None) -> dict[str, float]:
-    """``q`` with every mimicking joint's value computed from the joint it follows.
-
-    A value given for a driven joint is ignored: the mechanism has one input, and the
-    sweep must not be able to pose it out of its own coupling."""
+    """``q`` with every mimicking joint's value computed from the joint it follows."""
     out = {k: float(v) for k, v in (q or {}).items()}
     for j in robot.joints.values():
         if j.mimic is None:
@@ -424,8 +388,7 @@ def resolve_q(robot: Robot, q: dict[str, float] | None = None) -> dict[str, floa
 
 
 def fk(robot: Robot, q: dict[str, float] | None = None) -> dict[str, np.ndarray]:
-    """World transform of every link frame for joint values ``q`` (missing → 0).
-    Mimicking joints follow the joint they name, whatever ``q`` says about them."""
+    """World transform of every link frame for joint values ``q`` (missing → 0)."""
     q = q or {}
     unknown = set(q) - set(robot.joints)
     if unknown:

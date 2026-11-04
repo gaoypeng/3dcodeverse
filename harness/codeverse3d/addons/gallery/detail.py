@@ -1,11 +1,4 @@
-"""The per-run detail page (``/run/<battery>/<slug>``).
-
-Everything the harness recorded about one run, in the order you actually ask
-for it: what it produced, how each round went, what the judge said about the
-picked round (``addons/select``), what the deterministic measurement says, every
-render, where the money went, and the code itself.  The record is re-read per request, so a run a
-bench is still writing shows its latest rounds without a restart.
-"""
+"""The per-run detail page (``/run/<battery>/<slug>``)."""
 
 from __future__ import annotations
 
@@ -57,7 +50,6 @@ ul.plain li{display:list-item}
 """
 
 
-#: judge severities, worst first — a triage reader must see "critical" before "minor"
 SEVERITY_ORDER = {"critical": 0, "blocker": 0, "major": 1, "moderate": 2, "minor": 3, "nit": 4}
 SEVERITY_CLASS = {"critical": "pill-fail", "blocker": "pill-fail", "major": "pill-fail",
                   "moderate": "pill-warn", "minor": "pill-warn"}
@@ -78,8 +70,6 @@ def _picked(entry: RunEntry, rec: RunRecord) -> RoundRecord | None:
 
 
 def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
-    """One big legible view + the facts.  Every other angle is in ``renders`` below,
-    which is where a grid belongs — the top of the page answers "what is this?"."""
     image = entry.hero or entry.sheet
     label = entry.hero_label or ("Contact sheet" if entry.sheet else "")
     shot = (f"<a href='{esc(urls.file(entry, image))}' title='open full size'>"
@@ -193,7 +183,6 @@ def _measurement_panel(entry: RunEntry, rec: RunRecord) -> str:
     return _panel("measurement", f"<div class='kvs'>{rows}</div>{parts}", anchor="measurement")
 
 
-#: axis -> (label, format) for the complexity panel, in reading order
 _CX_ROWS = (
     ("part_count", "parts", "{:.0f}"),
     ("assembly_depth", "sub-assembly depth", "{:.0f}"),
@@ -207,10 +196,6 @@ _CX_ROWS = (
 
 
 def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
-    """What was BUILT, measured without a VLM — the difficulty half of the verdict.
-
-    Read it next to the judge panel: a high score on a low index is an easy win,
-    a low score on a high index is the framework hitting its ceiling."""
     block = rec.extra.get("complexity")
     if entry.complexity is None and not isinstance(block, dict):
         return ""
@@ -224,7 +209,7 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
     plan_parts = block.get("plan_parts")
     if isinstance(plan_parts, int) and plan_parts:
         rows.append(_kv("plan parts", str(plan_parts)))
-        built = entry.complexity_axes.get("part_count", block.get("part_count"))  # the picked round's
+        built = entry.complexity_axes.get("part_count", block.get("part_count"))
         if isinstance(built, (int, float)):
             rows.append(_kv("built / planned parts", f"{float(built) / plan_parts:.2f}"))
     trail = block.get("by_round")
@@ -262,7 +247,6 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
     tele = load_telemetry(ws, rec)
     cost = tele.cost if tele is not None else None
     if cost is None:
-        # old runs have no telemetry/: fall back to the record's own totals + per-round usage
         rows = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(entry.cost_by_stage.items(), key=lambda kv: -kv[1]))
         u = rec.total_usage
         rows += "".join([_kv("total", f"${u.cost_usd:.4f}"),
@@ -316,7 +300,6 @@ def _code_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
 
 # --------------------------------------------------------------------------- page
 def _neighbours(urls: UrlMaker, prev: RunEntry | None, nxt: RunEntry | None) -> str:
-    """Triage is sequential: the next bad run is one click away, not a trip home."""
     def one(target: RunEntry | None, glyph: str, side: str, ident: str) -> str:
         if target is None:
             return f"<span class='btn dead' aria-hidden='true'>{glyph}</span>"
@@ -328,7 +311,6 @@ def _neighbours(urls: UrlMaker, prev: RunEntry | None, nxt: RunEntry | None) -> 
 
 
 def _foot_nav(urls: UrlMaker, prev: RunEntry | None, nxt: RunEntry | None) -> str:
-    """The same walk, repeated where the reader actually finishes reading."""
     def one(target: RunEntry | None, glyph: str) -> str:
         if target is None:
             return "<span></span>"
@@ -353,7 +335,6 @@ document.addEventListener('keydown',function(e){
 
 def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord, *,
                   prev: RunEntry | None = None, nxt: RunEntry | None = None) -> str:
-    """Full detail page for a run whose record parsed."""
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
                   ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))
     body = (
@@ -381,7 +362,6 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
 
 
 def render_broken_detail(entry: RunEntry, urls: UrlMaker) -> str:
-    """Detail page for a run with no usable record — still links every file."""
     links = " · ".join(f"<a href='{esc(urls.link(entry, link))}'>{esc(link.label)}</a>" for link in entry.links)
     body = (top_bar("3dcode gallery", entry.battery,
                     crumbs=f"<a href='/'>gallery</a> <span class='faint'>/</span> <b>{esc(entry.slug)}</b>")

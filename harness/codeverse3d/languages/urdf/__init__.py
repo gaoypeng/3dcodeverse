@@ -45,17 +45,12 @@ from codeverse3d.spatial.joints_sweep import sweep_collisions, sweep_findings
 from codeverse3d.workspace import ArtifactStage, Workspace
 
 # ===================================================================== consistency
-#: this gate's own name — a bare ``GATE`` here was shadowed by the lint section's
-#: ``GATE = "lint:urdf"`` 59 lines below when the package became one module (2026-08-28),
-#: so every FK finding went out mislabelled until 2026-08-28.
+#: this gate's own name
 FK_GATE = "fk_consistency"
 
 
 def check_fk_consistency(robot: Robot, census_links: dict[str, dict[str, Any]], *, tol_m: float = 0.001) -> list[GateFinding]:
-    """Compare every link's FK-posed mesh bbox at rest with the authored census bbox.
-
-    Returns one ERROR finding per inconsistent link carrying the corrected visual
-    origin (``fix_hint`` is copy-pasteable XML) and an INFO summary otherwise."""
+    """Compare every link's FK-posed mesh bbox at rest with the authored census bbox; ERROR per inconsistent link with a corrected origin."""
     T = fk(robot, {})
     out: list[GateFinding] = []
     for name, link in robot.links.items():
@@ -102,10 +97,7 @@ URDF_REL = "src/robot.urdf"
 MODEL_REL = ENTRY_FILE[Language.URDF_BLENDER]
 _STATE_WORDS = ("open", "closed", "opened", "extended", "retracted", "raised", "lowered", "folded", "unfolded")
 
-#: model.py runs in the SAME Blender python as the blender language's model.py, so it is linted
-#: by that language's rules (``lint_blender_source``: imports, harness-owned and removed bpy APIs,
-#: file IO); these are the few a link script adds on top.  Until 2026-09-24 this module kept its
-#: own looser lists: one source gave 7 ERRORs as blender and 2 WARNs as urdf.
+#: model.py runs in Blender's python, so it is linted by the blender language's rules; these are the extras a link script adds.
 LINK_SCRIPT_CALLS: dict[str, tuple[Severity, str, LintKind]] = {
     "exit": (Severity.ERROR, "exits Blender before the links are exported", LintKind.SANDBOX),
     "quit": (Severity.ERROR, "exits Blender before the links are exported", LintKind.SANDBOX),
@@ -127,7 +119,6 @@ def _floats(text: str | None) -> list[float] | None:
 
 # ------------------------------------------------------------------ URDF
 def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFinding], list[str]]:
-    """Lint URDF source.  Returns (findings, link_names)."""
     out: list[GateFinding] = []
     try:
         root = ET.fromstring(text)
@@ -173,7 +164,6 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
 
     _lint_mimics(joints, out)
 
-    # tree structure
     children = set(parent_of)
     roots = [n for n in link_names if n not in children]
     if len(roots) != 1:
@@ -192,13 +182,8 @@ def lint_urdf_text(text: str, *, label: str = URDF_REL) -> tuple[list[GateFindin
 
 
 def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
-    """``<mimic>`` couplings, over the whole file: a declaration may name a joint that is
-    written later, and a cycle is only visible on the graph.  The RULES are
-    ``contracts.common.mimic_issues`` — shared with the plan validator and the URDF
-    loader, which rejected different multipliers from this lint until 2026-09-03."""
-    # EVERY named joint becomes a spec, coupled or not: an uncoupled joint is what the
-    # coupled ones are allowed to name, and mimic_issues resolves targets against the set
-    # it is given.
+    """``<mimic>`` couplings over the whole file; the rules are ``contracts.common.mimic_issues``."""
+    # every named joint becomes a spec; mimic_issues resolves targets against that set
     specs: list[MimicSpec] = []
     for el in joints:
         jname = el.get("name", "")
@@ -222,10 +207,7 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         specs.append(MimicSpec(key=jname, name=jname, movable=movable, target=src or None,
                                multiplier=mult, offset=off, lower=lo, upper=hi))
     known = sorted({el.get("name", "") for el in joints if el.get("name")})
-    # NOT checked here: whether a follower of `<driver>_1` should also follow `_2..n`.
-    # Only the skeleton knows which `_N` names are instances of one plan joint (an agent
-    # names joints `hinge_1` / `hinge_2` by hand all the time), so that note is written
-    # where the instancing happens — compute_urdf_frames — as a comment in the file.
+    # not checked here: whether a follower of `<driver>_1` also follows `_2..n` (only the skeleton knows the instances)
     for i in mimic_issues(specs):
         j, t = i.joint, i.target
         if i.kind == "immobile":
@@ -374,8 +356,7 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
 
 # ------------------------------------------------------------------ model.py
 def lint_model_text(text: str, link_names: list[str], *, label: str = MODEL_REL) -> list[GateFinding]:
-    """model.py: the blender language's lint + LINK_SCRIPT_CALLS, ``while True`` and every URDF
-    link name appearing as a string literal (the wrapper looks objects up by exact name)."""
+    """model.py: the blender language's lint + LINK_SCRIPT_CALLS, ``while True`` and URDF link names as string literals."""
     out = [f.model_copy(update={"gate": GATE})
            for f in lint_blender_source(text, target=label, expect_names=False).findings]
     tree, _ = safe_parse(text, label)
@@ -425,7 +406,6 @@ DEFAULT_VELOCITY = 1.0
 
 @dataclass(frozen=True)
 class LinkFrame:
-    """World placement of one link frame at rest + its plan bbox."""
 
     name: str
     frame_xyz: tuple[float, float, float]
@@ -483,7 +463,6 @@ def _expand_parts(plan: ArticulatedPlan) -> list[tuple[str, PartPlan, tuple[floa
 
 
 def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
-    """Pure function: plan → link frames + joint rows in the enforced convention."""
     parts = _expand_parts(plan)
     base_names = {to_snake(p.name) for p in plan.parts}
     root = to_snake(plan.root_link)
@@ -502,8 +481,7 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
             lower, upper = j.lower - j.rest, j.upper - j.rest
         mim = None
         if j.mimic is not None:
-            # every copy of an instanced follower follows the SAME driver; the driver's own
-            # name is resolved after emission, when the instance suffixes are known
+            # every copy of an instanced follower follows the same driver; resolved after emission
             mim = (to_snake(j.mimic.joint), float(j.mimic.multiplier), float(j.mimic.offset))
         joints.append(JointRow(name=to_snake(j.name) + suffix, type=j.type, parent=parent, child=child,
                                origin_xyz=(0.0, 0.0, 0.0), axis=tuple(float(v) for v in j.axis), lower=lower, upper=upper,
@@ -518,10 +496,7 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         for k, c in enumerate(children):
             add_joint(j, c, parent, "" if len(children) == 1 else f"_{k + 1}")
 
-    # A driver whose child is instanced exists only as <name>_1..._n, so the plan's name
-    # names no joint in the file: follow the first instance, the rule an instanced PARENT
-    # link already uses above.  The plan validator guarantees the target is a plan joint,
-    # so anything unresolved here is a bug in this function, not in the plan.
+    # A driver whose child is instanced exists only as <name>_1..._n: follow the first instance.
     emitted = {jr.name for jr in joints}
     for i, jr in enumerate(joints):
         if jr.mimic is None or jr.mimic[0] in emitted:
@@ -529,20 +504,17 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         target, mult, off = jr.mimic
         if f"{target}_1" not in emitted:
             raise ValueError(f"joint {jr.name}: mimic target {target!r} was not emitted; joints are {sorted(emitted)}")
-        # the other instances stay independent inputs the sweep drives on their own; say so
-        # in the file, here where the instancing is known, rather than guessing from names
+        # the other instances stay independent inputs; say so in the file
         others = sorted(n for n in emitted if n.startswith(f"{target}_") and n != f"{target}_1")
         joints[i] = replace(jr, mimic=(f"{target}_1", mult, off),
                             mimic_note=f"follows {target}_1 only; {', '.join(others)} stay independent inputs "
                                        "(add a <mimic> per instance if they move together)")
 
-    # link frames: root at origin, others at their pivot
     for name, p, center in parts:
         frame = (0.0, 0.0, 0.0) if name == root else pivot_of.get(name, (0.0, 0.0, 0.0))
         pj = next((jr.name for jr in joints if jr.child == name), None)
         links[name] = LinkFrame(name=name, frame_xyz=frame, bbox_center=center,
                                 bbox_extents=tuple(float(v) for v in p.bbox.extents), parent_joint=pj)
-    # joint origins relative to the parent link frame
     fixed: list[JointRow] = []
     for jr in joints:
         pf = links[jr.parent].frame_xyz
@@ -556,7 +528,6 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
 
 # ------------------------------------------------------------------ text renderers
 def _limit_note(jr: JointRow) -> str:
-    """Comment explaining a rest-shifted limit (empty when the plan's rest is 0)."""
     if jr.lower is None or jr.upper is None or abs(jr.rest) < 1e-12:
         return ""
     return (f"  <!-- plan lower={_fmt(jr.lower + jr.rest)} upper={_fmt(jr.upper + jr.rest)} rest={_fmt(jr.rest)}: "
@@ -639,7 +610,6 @@ def box(name, center, size):
 
 
 def write_skeleton(ws: Workspace, plan: ArticulatedPlan) -> list[Path]:
-    """Write src/model.py + src/robot.urdf; returns the written paths."""
     frames = compute_urdf_frames(plan)
     ws.src.mkdir(parents=True, exist_ok=True)
     model = ws.src / "model.py"
@@ -654,8 +624,7 @@ WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_bpy_links.p
 REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001
 
-#: every canonical artifact this build owns — staged together so a failed build
-#: can never leave a previous round's output looking current
+#: every canonical artifact this build owns, staged together
 STAGED_OUTPUTS = ("build.json", "census.json", "meshes", "robot.urdf", "object.glb")
 
 
@@ -676,13 +645,8 @@ class UrdfBlenderRuntime(RuntimeLayout):
 
     # ------------------------------------------------------------ build
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
-        """All five canonical outputs go through one :class:`ArtifactStage`: entering
-        it invalidates them BEFORE any early return can leak a previous round's
-        files, everything is written to staging, and only an ``ok=True`` build
-        promotes the full set.  Every exit path publishes the FINAL BuildResult as
-        ``artifacts/build.json`` — the wrapper's own build.json used to stay on disk
-        saying ``ok: true`` while a post-wrapper check (UrdfError / FkInconsistent /
-        RestPenetration) failed the build."""
+        """All canonical outputs go through one :class:`ArtifactStage`: invalidated on entry, promoted only on ``ok=True``;
+        ``artifacts/build.json`` is always the final BuildResult."""
         t0 = time.time()
         settings = get_settings()
         timeout_s = timeout_s or settings.limits.build_timeout_s
@@ -695,8 +659,6 @@ class UrdfBlenderRuntime(RuntimeLayout):
         art = ws.artifacts
 
         def finish(res: BuildResult) -> BuildResult:
-            # disk never contradicts the returned result: build.json is ALWAYS the
-            # final BuildResult; the rest of the set is published only on ok
             ws.write_json(stage.path("build.json"), res)
             if res.ok:
                 stage.promote()
@@ -714,7 +676,6 @@ class UrdfBlenderRuntime(RuntimeLayout):
 
         if (missing := missing_entry(ws, self.language, write=False)) is not None:
             return finish(missing)
-        # 1. lint (cheap, no Blender)
         lint = self.lint(ws)
         census: dict[str, Any] = {"lint": [f.model_dump(mode="json") for f in lint.findings]}
         if not lint.passed:
@@ -739,7 +700,6 @@ class UrdfBlenderRuntime(RuntimeLayout):
                         file=wrapped.error_file or "src/model.py", line=wrapped.error_line, census=census,
                         stdout_tail=wrapped.stdout_tail, stderr_tail=wrapped.stderr_tail)
 
-        # 3. URDF copy + load (staged files; extra_paths name the canonical homes)
         urdf_staged = stage.path("robot.urdf")
         shutil.copyfile(ws.root / "src" / "robot.urdf", urdf_staged)
         extra = {"urdf": str(art / "robot.urdf"), "meshes_dir": str(art / "meshes")}
@@ -748,19 +708,16 @@ class UrdfBlenderRuntime(RuntimeLayout):
         except UrdfError as e:
             return fail("UrdfError", str(e), census=census)
 
-        # 4. FK consistency
         fk_findings = check_fk_consistency(robot, census.get("links") or {}, tol_m=FK_TOL_M)
         census["fk_check"] = [f.model_dump(mode="json") for f in fk_findings]
         if fk_findings:
             msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)
 
-        # 5. the rest pose — the only pose that decides the build (D17); every other pose is
-        #    the round's joint_sweep gate (spatial.joints_sweep.sweep_gate), which the tool reports too
+        # 5. the rest pose decides the build; other poses are the joint_sweep gate
         report = sweep_collisions(robot, [{}])
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
 
-        # 6. canonical GLB at rest
         urdf_to_glb(robot, stage.path("object.glb"), None)
         extra["object_glb"] = str(art / "object.glb")
         res = BuildResult(ok=True, language=self.language.value, glb_path=str(art / "object.glb"), extra_paths=extra,

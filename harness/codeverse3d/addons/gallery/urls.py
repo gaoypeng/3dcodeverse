@@ -1,10 +1,4 @@
-"""How a run-relative path becomes an href.
-
-The page renderers never build URLs themselves — they ask a :class:`UrlMaker`.
-That is the whole difference between the served gallery (real routes, images
-fetched lazily over HTTP) and the static single-file build (``file://`` links,
-images optionally inlined as ``data:`` URIs), so the HTML is written once.
-"""
+"""How a run-relative path becomes an href."""
 
 from __future__ import annotations
 
@@ -21,9 +15,7 @@ JPEG_QUALITY = 78
 
 
 class UrlMaker:
-    """Server-side URLs (the default): every route is handled by ``gallery.server``."""
 
-    #: does this target have per-run detail pages?
     has_detail = True
 
     def detail(self, entry: RunEntry) -> str:
@@ -42,7 +34,6 @@ class UrlMaker:
         return f"/viewer/{quote(entry.battery)}/{quote(entry.slug)}/{quote(rel)}"
 
     def img(self, entry: RunEntry, rel: str) -> str:
-        """``src`` for an ``<img>``: a URL here, a ``data:`` URI in embed mode."""
         return self.file(entry, rel)
 
     def link(self, entry: RunEntry, link: RunLink) -> str:
@@ -50,11 +41,6 @@ class UrlMaker:
 
 
 class StaticUrls(UrlMaker):
-    """``file://`` targets for the shareable single-file build.
-
-    ``embed=True`` inlines every contact sheet as a downscaled JPEG ``data:`` URI
-    so the page survives being copied off this machine; the links still point at
-    the original run directories (they work on the box that produced them)."""
 
     has_detail = False
 
@@ -97,12 +83,11 @@ def thumbnail_data_uri(path: Path | str, *, max_px: int = THUMB_PX) -> str:
             im.thumbnail((max_px, max_px))
             buf = io.BytesIO()
             im.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-    except Exception:  # noqa: BLE001 - missing PIL, unreadable/half-written file
+    except Exception:  # noqa: BLE001
         return ""
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-#: extensions the harness writes that the stdlib does not type correctly (or at all)
 CONTENT_TYPES: dict[str, str] = {
     ".glb": "model/gltf-binary",
     ".gltf": "model/gltf+json",
@@ -141,9 +126,6 @@ CONTENT_TYPES: dict[str, str] = {
 
 
 def content_type(path: Path | str) -> str:
-    """Content type for a run artifact.  Unknown text-ish files fall back to
-    ``text/plain`` (a browser must never be asked to *download* source code),
-    everything else to ``application/octet-stream``."""
     suffix = Path(path).suffix.lower()
     if suffix in CONTENT_TYPES:
         return CONTENT_TYPES[suffix]
@@ -161,9 +143,6 @@ class PathError(ValueError):
 
 
 def safe_join(root: Path | str, rel: str) -> Path:
-    """``root / rel`` when ``rel`` stays inside ``root``; :class:`PathError` otherwise.
-
-    ``rel`` is a URL path fragment that has already been percent-decoded."""
     base = Path(root).resolve()
     rel = (rel or "").strip()
     if "\x00" in rel:
@@ -176,7 +155,7 @@ def safe_join(root: Path | str, rel: str) -> Path:
     target = base.joinpath(*parts)
     try:
         resolved = target.resolve()
-    except OSError as e:  # broken symlink loop, too many levels, …
+    except OSError as e:
         raise PathError(f"unresolvable path: {rel!r} ({e})") from e
     if resolved != base and base not in resolved.parents:
         raise PathError(f"path escapes the run directory: {rel!r}")
