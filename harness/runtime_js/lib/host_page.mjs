@@ -53,7 +53,7 @@ export function requestFailureLine(url, base, hasResponse, errorText) {
  * the scene module is imported and createScene() runs (probe_scene.mjs: the watchdog's phase, D111).
  * @returns {Promise<{page, browser, base, gpu, renderer, errors, boot, close}>}
  */
-export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, post = true, postOptions = null, glb = null, onBoot = null } = {}) {
+export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, post = true, postOptions = null, glb = null, onBoot = null } = {}) {
   wsRoot = path.resolve(wsRoot);
   // an offline scene (`glb`: its census GLB) boots the harness adapter, never a workspace module
   const sceneFile = glb || path.join(wsRoot, sceneRel);
@@ -103,20 +103,20 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     if (onBoot) onBoot();
     const boot = await page.evaluate(
       (o) => window.__c3v.boot(o),
-      { sceneUrl, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, post, postOptions },
+      { sceneUrl, width, height, createSceneTimeoutMs, settle, cameraRepair, post, postOptions },
     );
     const close = async () => {
       // page first, then release: a SHARED browser (connect-first reuse) must get
       // its pages closed by us and be disconnected, never closed.  Each step is
       // time-bounded: the result is already in hand when close() runs.
       await bounded(page.close(), 3000);
-      await bounded(releaseBrowser(launched), 3000);
+      await bounded(launched.release(), 3000);
       await bounded(srv.close(), 2000);
     };
     return { page, browser: launched.browser, base: srv.base, gpu: launched.gpu, renderer: launched.renderer, errors, boot, close };
   } catch (e) {
     if (page) await page.close().catch(() => {});
-    if (launched && launched.browser) await releaseBrowser(launched).catch(() => {});
+    if (launched?.browser) await launched.release().catch(() => {});
     await srv.close();
     throw e;
   }
@@ -131,13 +131,6 @@ export function bounded(work, ms) {
     Promise.resolve(work).catch(() => {}),
     new Promise((res) => { timer = setTimeout(res, ms); if (timer.unref) timer.unref(); }),
   ]).finally(() => { if (timer) clearTimeout(timer); });
-}
-
-/** Release a launchBrowser handle: release() when present (shared-aware), else close(). */
-export async function releaseBrowser(launched) {
-  if (!launched || !launched.browser) return;
-  if (typeof launched.release === 'function') await launched.release();
-  else await launched.browser.close().catch(() => {});
 }
 
 /** Flatten the collected errors into the summary shape used by all drivers. */

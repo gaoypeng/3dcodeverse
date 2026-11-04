@@ -17,6 +17,7 @@
  */
 
 const DEG = Math.PI / 180;
+const FIT_MARGIN = 1.05;     // overview fit: the bbox corners stay 5 % inside the frame
 const BOUNDS_SPRAWL = 1.1;   // a content group wider than 110 % of the plan bounds is scatter, not a zone
 const BOUNDS_CLAMP = 1.1;    // framing box is clamped to the plan bounds grown by 10 %
 
@@ -167,14 +168,14 @@ export function fitContactCamera(bbox, { azimuth = 20, floor = null, fov = 50 } 
  * a bounding-sphere fit).  THE owner of the overview fit.
  * @returns {{position:number[], lookAt:number[], fov:number}}
  */
-export function fitOverviewCamera(bbox, { azimuth = 45, elevation = 30, fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05 } = {}) {
+export function fitOverviewCamera(bbox, { azimuth = 45, elevation = 30, fov = 50, aspect = 16 / 9, groundY = null } = {}) {
   const g = boxGeom(bbox, groundY);
   const el = Math.max(3, Math.min(89, elevation));
   const d = orbitDirection(azimuth, el);
   const tanV = Math.tan((fov * DEG) / 2);
   const tanH = tanV * aspect;
   const minDist = Math.max(1.5, 0.35 * Math.hypot(g.size[0], g.size[1], g.size[2]));
-  const dist = Math.max(minDist, fitDistance(bbox, g.center, d, tanH, tanV, margin));
+  const dist = Math.max(minDist, fitDistance(bbox, g.center, d, tanH, tanV, FIT_MARGIN));
   const eye = g.center.map((c, i) => c + d[i] * dist);
   if (eye[1] < g.floor + 0.5) eye[1] = g.floor + 0.5;
   return round3({ position: eye, lookAt: g.center.slice(), fov });
@@ -187,7 +188,7 @@ export function fitOverviewCamera(bbox, { azimuth = 45, elevation = 30, fov = 50
  * contact views are pictures of the place as lit.
  * @returns {Array<{name, position, lookAt, fov, kind:'orbit'}>}
  */
-export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05 } = {}) {
+export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, groundY = null } = {}) {
   if (!bbox || !bbox.min || !bbox.max) return [];
   const out = [];
   for (const v of views) {
@@ -196,7 +197,7 @@ export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, ground
       ? fitContactCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
       : el <= 20
         ? fitZoneCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
-        : fitOverviewCamera(bbox, { azimuth: v.azimuth, elevation: el, fov, aspect, groundY, margin });
+        : fitOverviewCamera(bbox, { azimuth: v.azimuth, elevation: el, fov, aspect, groundY });
     out.push({ name: v.name, ...fit, kind: 'orbit', noFog: el > 20 });
   }
   return out;

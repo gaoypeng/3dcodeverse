@@ -199,7 +199,7 @@ class ColumnIndex {
   }
 }
 
-function boxJson(min, max) {
+export function boxJson(min, max) {
   return { min: min.map(r3), max: max.map(r3), size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]].map(r3) };
 }
 
@@ -568,8 +568,8 @@ export function placementTable(scene, THREE, opts = {}) {
   const exempt = {};
   for (const r of rows) if (r.exempt) exempt[r.exempt] = (exempt[r.exempt] || 0) + 1;
   return {
-    version: 1, assets: rows, interpenetrations: inter, total, checked: checked.length,
-    truncated: total > assets.length || timeCut, truncated_by_time: timeCut, exempt,
+    assets: rows, interpenetrations: inter, total, checked: checked.length,
+    truncated: total > assets.length || timeCut, exempt,
     // the roots outside every marked zone (D111): measured as nothing, listed so nothing is silent
     scenery: { n: scenery.length, names: scenery.slice(0, MAX_SCENERY_NAMES).map((o) => o.name || o.type) },
     thresholds: { contact_m: CONTACT_TOL_M, floating_m: FLOATING_M, sunk_m: SUNK_M, overlap_min: OVERLAP_MIN_FRAC },

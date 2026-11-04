@@ -494,25 +494,20 @@ export function makePostChain(renderer, scene, { width, height, options = {} } =
 
   let gtao = null;
   if (opt.ao > 0) {
-    try {
-      // GTAOPass reads projection flags at construction; the real camera is
-      // swapped in before every render (its uniforms refresh per frame).
-      const aoCam = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
-      gtao = new GTAOPass(scene, aoCam, width, height);
-      gtao.updateGtaoMaterial({
-        radius: opt.aoRadius,
-        distanceExponent: opt.aoDistanceExponent,
-        thickness: opt.aoThickness,
-        scale: 1.0,
-        samples: opt.aoSamples,
-      });
-      gtao.updatePdMaterial({ rings: opt.aoDenoiseRings, samples: opt.aoDenoiseSamples });
-      gtao.blendIntensity = opt.ao;
-      composer.addPass(gtao);
-    } catch (e) {
-      gtao = null;
-      warnings.push(`GTAO unavailable: ${String((e && e.message) || e).slice(0, 200)}`);
-    }
+    // GTAOPass reads projection flags at construction; the real camera is
+    // swapped in before every render (its uniforms refresh per frame).
+    const aoCam = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+    gtao = new GTAOPass(scene, aoCam, width, height);
+    gtao.updateGtaoMaterial({
+      radius: opt.aoRadius,
+      distanceExponent: opt.aoDistanceExponent,
+      thickness: opt.aoThickness,
+      scale: 1.0,
+      samples: opt.aoSamples,
+    });
+    gtao.updatePdMaterial({ rings: opt.aoDenoiseRings, samples: opt.aoDenoiseSamples });
+    gtao.blendIntensity = opt.ao;
+    composer.addPass(gtao);
   }
 
   let glow = null;

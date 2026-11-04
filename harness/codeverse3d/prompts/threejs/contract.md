@@ -60,7 +60,7 @@ on that `null` fails the build.
   `WebSocket`, `require()`, `process.`, `eval`, `TextureLoader` / `ImageLoader` / `FileLoader`,
   `WebGLRenderer`, `requestAnimationFrame`.  Lint WARNs, ignored at export: a camera, a light
   (exported as extras, not used by the harness lighting), a `Scene` in place of a Group.
-* Not linted: the exporter replaces `Math.random` with a seeded generator (`--seed`), so its
+* Not linted: the exporter replaces `Math.random` with a seeded generator, so its
   draws repeat from build to build; the clock (`Date.now()`, `performance.now()`) does not, and
   geometry that depends on it changes between the builds the harness measures and renders.
 

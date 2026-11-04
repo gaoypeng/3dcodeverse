@@ -29,13 +29,13 @@ function screenUp(elevationDeg) {
 
 /**
  * Place `camera` along (azimuth, elevation) from the box centre so that the
- * projected bbox corners fill `fill` of the half-frame (both axes) — or at an explicit
+ * projected bbox corners fill `fill` (0.90) of the half-frame (both axes) — or at an explicit
  * `distance` instead of the fitted one.  Returns {position, lookAt, distance}.
  */
-export function fitCameraToBox(camera, box, azimuthDeg, elevationDeg, { fill = 0.85, margin = 1.0, distance = null } = {}) {
+export function fitCameraToBox(camera, box, azimuthDeg, elevationDeg, { fill = 0.90, distance = null } = {}) {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
-  const radius = Math.max(size.length() / 2, 1e-3) * margin;   // near/far scale only
+  const radius = Math.max(size.length() / 2, 1e-3);   // near/far scale only
   const dir = viewDirection(azimuthDeg, elevationDeg);
   const up = screenUp(elevationDeg);
   camera.up.set(up[0], up[1], up[2]);

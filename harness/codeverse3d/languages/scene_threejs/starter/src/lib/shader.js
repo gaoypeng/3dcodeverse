@@ -9,9 +9,8 @@
  *   1. a renderer with `logarithmicDepthBuffer: true` DISCARDS a custom
  *      shader without the four depth chunks behind opaque geometry
  *      (`depthWrite: false` does not save it).  THIS harness's renderer
- *      (runtime_js/lib/browser/renderer.js) leaves log depth OFF by
- *      default — the chunks then compile to nothing — but `--log-depth`
- *      is a host option for km-scale scenes, so they are always injected;
+ *      (runtime_js/lib/browser/renderer.js) leaves log depth OFF, so the
+ *      chunks compile to nothing here; they are injected anyway, at no cost;
  *   1b. every scene here sets `scene.fog`, and fog reaches a shader ONLY
  *      through its chunks — without them the effect keeps full contrast
  *      while the world around it recedes, which is the sticker look;

@@ -24,13 +24,8 @@ const POLL_MS = 15 * 1000;
 // a value that is not a positive number keeps the default (NaN would never reap a page)
 const PAGE_TTL_MS = Number(process.env.C3D_PAGE_TTL_MS) > 0 ? Number(process.env.C3D_PAGE_TTL_MS) : 8 * 60 * 1000;
 
-function arg(name, dflt) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
-}
-
 async function main() {
-  const backend = arg('backend', 'cpu');
+  const { values: { backend = 'cpu' } } = require('node:util').parseArgs({ options: { backend: { type: 'string' } } });
   if (!['gpu', 'cpu'].includes(backend)) throw new Error(`--backend must be gpu|cpu, got ${backend}`);
   const puppeteer = _internal.loadPuppeteer();
   const epPath = _internal.endpointPath(backend);

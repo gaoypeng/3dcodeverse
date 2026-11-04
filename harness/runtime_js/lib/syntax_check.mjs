@@ -2,7 +2,7 @@
 // (vm.SourceTextModule: compiled, never linked or run).  That parse error has no line, so
 // only a file that fails pays a second process, `node --input-type=module --check`.
 //   node --experimental-vm-modules lib/syntax_check.mjs FILE...  → {"bad": [{file, line, message, stderr}]}
-//   import { findSyntaxError, listJsFiles } from './syntax_check.mjs';
+//   import { findSyntaxError, listSourceFiles } from './syntax_check.mjs';
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,15 +54,10 @@ export function listSourceFiles(dir, suffixes = new Set(['.js', '.mjs'])) {
   return out.sort();
 }
 
-/** Only JavaScript is passed to the ES module syntax parser. */
-export function listJsFiles(dir) {
-  return listSourceFiles(dir);
-}
-
 /** First file under srcDir that fails to parse, or null (one child process for all of them:
  *  vm modules need the flag this process was not started with). */
 export function findSyntaxError(srcDir) {
-  const r = spawnSync(process.execPath, ['--experimental-vm-modules', SELF, ...listJsFiles(srcDir)], { encoding: 'utf8', timeout: 60000 });
+  const r = spawnSync(process.execPath, ['--experimental-vm-modules', SELF, ...listSourceFiles(srcDir)], { encoding: 'utf8', timeout: 60000 });
   try {
     return JSON.parse((r.stdout || '').trim().split('\n').pop()).bad[0] || null;
   } catch (_e) {

@@ -35,7 +35,7 @@ const NEGATIVE_TTL_MS = 20 * 60 * 1000; // how long a "no GPU" verdict is truste
 const PROTOCOL_TIMEOUT_MS = 15 * 60 * 1000; // big frame batches exceed puppeteer's 180 s default
 const DAEMON_WAIT_MS = 25000;   // max wait for a spawned daemon to advertise its endpoint
 const CANARY_TIMEOUT_MS = 6000; // a healthy browser answers pages() in ~5 ms
-const MAX_SHARED_PAGES = 12;    // more open pages than any sane moment = leaked pages piling up   // max wait for a spawned daemon to advertise its endpoint
+const MAX_SHARED_PAGES = 12;    // more open pages than any sane moment = leaked pages piling up
 const SPAWN_LOCK_STALE_MS = 30000;
 
 const BASE_ARGS = ['--no-sandbox', '--disable-setuid-sandbox', '--enable-webgl', '--ignore-gpu-blocklist'];
@@ -342,10 +342,7 @@ async function launchBrowser(opts = {}) {
 }
 
 module.exports = {
-  launchBrowser, rendererInfo, GPU_ARGS, CPU_ARGS, GPU_ENV, CACHE_PATH,
+  launchBrowser, rendererInfo,
   // internals shared with browser_daemon.cjs (not a public surface)
-  _internal: {
-    launchCpu, tryGpu, loadPuppeteer, readJson, endpointPath, daemonFailPath, spawnLockPath,
-    CACHE_DIR, RUNTIME_KEY, SOFTWARE_RE,
-  },
+  _internal: { launchCpu, tryGpu, loadPuppeteer, readJson, endpointPath, daemonFailPath, spawnLockPath, CACHE_DIR },
 };

@@ -138,9 +138,8 @@ round has to read.
 * Tone mapping is ACES at exposure **1.0** and output is sRGB.  Non-emissive
   albedos belong in **0.02–0.8** linear: a pure black albedo renders as void and a
   pure white one blows out (the `dark_frame` / `blown` gates read both).
-* `logarithmicDepthBuffer` is OFF by default, so the library's log-depth chunks
-  compile to nothing here.  They cost nothing and `--log-depth` is a host
-  option, so leave them alone.
+* `logarithmicDepthBuffer` is OFF in this harness, so the library's log-depth chunks
+  compile to nothing here.  They cost nothing; leave them alone.
 * Everything reads `scene.environment` and the sun direction.  Do not hardcode a
   light colour inside an effect; pass `sunDir` / the rig.
 

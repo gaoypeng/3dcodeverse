@@ -98,11 +98,9 @@ Use the marker, do not fight the warning.
 Verified against this runtime on 2026-08-25 — believing them costs a repair round:
 
 1. **"Always add the `logdepthbuf_*` chunks or your effect vanishes behind geometry."**
-   `runtime_js/lib/browser/renderer.js` takes `logDepth` and it **defaults to false**; the only
-   switch is `render_scene.mjs --log-depth`, and nothing in `codeverse3d/` ever passes it. So the
-   logarithmic depth buffer is **off in every harness render**. Keep the chunks
-   `makeShaderMaterial` injects — they compile to nothing without `USE_LOGDEPTHBUF` and would be
-   needed if it were ever turned on — but they can never be the cause of what you are looking at.
+   The logarithmic depth buffer is **off in every harness render** (`runtime_js/lib/browser/renderer.js`
+   never enables it). Keep the chunks `makeShaderMaterial` injects — they compile to nothing
+   without `USE_LOGDEPTHBUF` — but they can never be the cause of what you are looking at.
    Do not spend a round there.
 2. **"Guard against the GTAO / post-processing pass overriding your material."**
    Object renders go straight to the canvas, but scene renders go through a post chain

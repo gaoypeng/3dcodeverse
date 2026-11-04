@@ -8,7 +8,7 @@
 
 import { classifyBackdrop, drawableBox, splitInstance } from './backdrop.mjs';
 import { geometryTriangles as triCount, geometryInstances } from './census.mjs';
-import { placementTable } from './host_placement.mjs';
+import { boxJson, placementTable } from './host_placement.mjs';
 
 export function isCustomShader(mat, THREE) {
   if (!mat) return false;
@@ -17,14 +17,7 @@ export function isCustomShader(mat, THREE) {
   return mat.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile;
 }
 
-function boxToJson(box) {
-  if (!box || box.isEmpty()) return null;
-  return {
-    min: [box.min.x, box.min.y, box.min.z].map((v) => +v.toFixed(3)),
-    max: [box.max.x, box.max.y, box.max.z].map((v) => +v.toFixed(3)),
-    size: [box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z].map((v) => +v.toFixed(3)),
-  };
-}
+const boxToJson = (box) => (!box || box.isEmpty() ? null : boxJson(box.min.toArray(), box.max.toArray()));
 
 const STAMP_MIN = 8;          // copies before a family's ring / size statistics are worth reporting
 const STAMPS_PER_GROUP = 6;

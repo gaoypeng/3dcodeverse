@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { ensureDir, finish, parseCli, writeJson } from './lib/cli.mjs';
 import { launchBrowser, importMapHtml, RUNTIME_MOUNT, serveDirs } from './lib/host_env.mjs';
-import { bounded, releaseBrowser } from './lib/host_page.mjs';
+import { bounded } from './lib/host_page.mjs';
 
 const MODES = ['shaded', 'wire', 'normals', 'silhouette', 'clay'];
 
@@ -132,7 +132,7 @@ async function main() {
     step('cleanup');
     if (page) await bounded(page.close(), 3000);
     step('page.closed');
-    await bounded(releaseBrowser(launched), 3000);
+    if (launched?.browser) await bounded(launched.release(), 3000);
     step('released');
     await bounded(srv.close(), 2000);
     step('srv.closed');

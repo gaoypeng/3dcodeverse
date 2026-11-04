@@ -41,10 +41,6 @@ export function geometryInstances(object) {
   return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
 }
 
-function isMeshLike(obj) {
-  return !!(obj.isMesh || obj.isSkinnedMesh || obj.isInstancedMesh);
-}
-
 /** World-space AABB of a subtree as [[minx,miny,minz],[maxx,maxy,maxz]] or null if empty. */
 export function worldBox(THREE, root) {
   root.updateWorldMatrix(true, true);
@@ -72,7 +68,7 @@ function geometryHasNonFinite(geometry) {
  */
 export function findNonFinitePositions(root) {
   const visit = (o, path) => {
-    if (isMeshLike(o) && geometryHasNonFinite(o.geometry)) {
+    if (o.isMesh && geometryHasNonFinite(o.geometry)) {
       const below = path.slice(1); // ancestors strictly below root, nearest last
       const named = below.filter((a) => a.name);
       return {

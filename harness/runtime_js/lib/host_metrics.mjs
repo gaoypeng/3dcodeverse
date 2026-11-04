@@ -103,11 +103,6 @@ export const BLOCKED_M = 1.5;
 /** A ground-classified mesh at least this wide is terrain, not a floor a shot may sit under. */
 export const TERRAIN_SPAN_M = 40;
 
-/** Does the name carry a ground word?  CamelCase split first: `HeadlandTerrain` is a terrain. */
-export function groundNamed(name) {
-  return GROUND_NAME_RE.test(nameText(name));
-}
-
 /**
  * The lowest terrain-scale ground surface straight above `eye`, or null.  Cast DOWN from
  * 500 m up and take the last hit above the eye: a FrontSide terrain is back faces to a ray
@@ -163,9 +158,10 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
     const s = box.getSize(new THREE.Vector3());
     // terrain overhead must also be NAMED as ground: a 40 m 'Ceiling' is ground-shaped to the
     // classifier, and loop 25's cathedral read "camera 17.8 m under Ceiling" on every interior
-    // camera (2026-09-09) — a lens under a roof is a shot, a lens under a terrain is a bug
+    // camera (2026-09-09) — a lens under a roof is a shot, a lens under a terrain is a bug.
+    // nameText splits CamelCase first: `HeadlandTerrain` is a terrain
     if (Math.max(s.x, s.z) >= TERRAIN_SPAN_M && classifyBackdrop(o, box) === 'ground'
-        && groundNamed(o.name || o.parent?.name || '')) groundMeshes.push(o);
+        && GROUND_NAME_RE.test(nameText(o.name || o.parent?.name || ''))) groundMeshes.push(o);
     if (Math.max(s.x, s.y, s.z) > 60 || Math.min(s.x, s.y, s.z) < 0.05) continue; // ground/sky/flat decals
     // The bbox is the cheap pre-filter; the verdict is the mesh's own volume.  A windmill's
     // 22 m lattice sails own a 22 x 22 m bbox that is nearly all air: measured 2026-09-07

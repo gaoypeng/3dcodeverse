@@ -28,10 +28,6 @@ if (typeof module.registerHooks === 'function') {
       return nextResolve(specifier, context);
     },
   });
-} else if (typeof module.register === 'function') {
-  module.register('./resolve_three_async.mjs', import.meta.url);
 } else {
-  throw new Error(
-    `3dcodeverse needs node >= 20.6.0 for module loader hooks; this is ${process.version}`,
-  );
+  module.register('./resolve_three_async.mjs', import.meta.url);
 }

@@ -38,7 +38,7 @@ const args = parseCli({
   ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
-  'timeout-ms': { default: '240000' }, 'log-depth': { type: 'boolean', default: false },
+  'timeout-ms': { default: '240000' },
   scene: { default: 'src/scene.js' }, 'external-frames': { default: '' },
   glb: { default: '' },   // scene_blender: the census GLB, booted through lib/glb_scene.mjs (D102)
 });
@@ -84,7 +84,7 @@ async function main() {
   let host;
   try {
     host = await openHost(args.ws, {
-      width, height, gpu: args.gpu, logDepth: args['log-depth'], sceneRel: args.scene.replace(/^\.?\//, ''),
+      width, height, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, ''),
       glb: args.glb ? path.resolve(args.glb) : null,
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
@@ -169,7 +169,7 @@ async function main() {
       const post = await page.evaluate(() => window.__c3v.post());
       if (post && metrics.census) metrics.census.post = post;
     } catch (e) { sceneErr('post readback failed', e); }
-    metrics.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
+    metrics.shader_errors = await page.evaluate(() => window.__c3v.shaderErrors());
     metrics.update_errors = await page.evaluate(() => window.__c3v.updateErrors());
     // the whole run's, not boot's: coverage failures are pushed while camera checks run
     metrics.host_warnings = await page.evaluate(() => window.__c3v.hostWarnings());

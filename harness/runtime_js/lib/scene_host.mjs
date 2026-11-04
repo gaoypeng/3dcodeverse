@@ -77,13 +77,13 @@ function runUpdate(t, dt) {
 }
 
 /** Host canvas + the shared harness renderer (lib/browser/renderer.js). */
-function makeHostRenderer(width, height, opts) {
+function makeHostRenderer(width, height) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   canvas.id = '3dcode-canvas';
   document.body.appendChild(canvas);
-  return { renderer: makeRenderer(canvas, width, height, { logDepth: !!opts.logDepth }), canvas };
+  return { renderer: makeRenderer(canvas, width, height), canvas };
 }
 
 /** The authored cameras, and each problem as {severity, text}: the severity is decided HERE,
@@ -140,14 +140,6 @@ function makeLoaders(manager) {
   return { gltf, texture, cube, manager };
 }
 
-/** Per loaded GLB: did any of its geometry reach the rendered scene?
- *
- * `Object3D.clone()` SHARES BufferGeometry (Mesh.copy assigns the same reference), so an
- * asset used via clone still matches — which is how the scene track normally places a
- * hero.  A procedural rebuild allocates its own geometry and matches nothing, which is
- * exactly the case this exists to catch.  A deep `geometry.clone()` would read as unused;
- * that is why the finding is a WARN and says "no geometry from it", not "not used".
- */
 /** geometry uuid -> world box of every mesh drawing it (the GLB bookkeeping's one traversal). */
 function geometryBoxes(scene) {
   const used = new Map();
@@ -224,6 +216,9 @@ function glbInstanceBoxes(scene, g) {
   return [...boxes.values()].filter((b) => !b.isEmpty());
 }
 
+/** Per loaded GLB: did any of its geometry reach the rendered scene?  `Object3D.clone()` SHARES
+ *  BufferGeometry, so a cloned asset still matches; a deep `geometry.clone()` reads as unused —
+ *  hence a WARN that says "no geometry from it", not "not used". */
 function glbUsage(scene) {
   let used;
   try { used = geometryBoxes(scene); } catch { return []; }
@@ -265,11 +260,10 @@ function waitForLoads(manager, timeoutMs) {
 
 /**
  * Boot the host: renderer → import module → createScene → wait loads.
- * @param {{sceneUrl:string,width?:number,height?:number,logDepth?:boolean}} opts
+ * @param {{sceneUrl:string,width?:number,height?:number}} opts
  */
 async function boot(opts) {
-  const t0 = performance.now();
-  const info = { ok: false, stage: 'init', error: '', cameras: [], camera_problems: [], shape: {}, timings_ms: {}, renderer: '' };
+  const info = { ok: false, stage: 'init', error: '', cameras: [], camera_problems: [], renderer: '' };
   state.bootInfo = info;
   try {
     loadedGlbs = [];
@@ -280,18 +274,14 @@ async function boot(opts) {
     state.height = opts.height || 576;
     window.requestAnimationFrame = () => { state.rafCalls += 1; return 0; };
     window.cancelAnimationFrame = () => {};
-    const { renderer, canvas } = makeHostRenderer(state.width, state.height, opts);
+    const { renderer, canvas } = makeHostRenderer(state.width, state.height);
     state.renderer = renderer;
     state.canvas = canvas;
     installShaderErrorHook(renderer, state.shaderErrors);
-    try {
-      info.renderer = rendererString(renderer);
-    } catch (e) { info.renderer = 'unknown'; }
+    info.renderer = rendererString(renderer);
 
     info.stage = 'import';
-    const tImp = performance.now();
     const mod = await import(opts.sceneUrl);
-    info.timings_ms.import = Math.round(performance.now() - tImp);
     if (typeof mod.createScene !== 'function') {
       throw new Error(`src/scene.js must export function createScene({THREE, renderer, loaders}); exports found: [${Object.keys(mod).join(', ')}]`);
     }
@@ -304,16 +294,9 @@ async function boot(opts) {
     manager.onError = (url) => { const m = `failed to load ${url}`; if (!state.loadErrors.includes(m)) state.loadErrors.push(m); };
     trackPendingLoads(manager);
     const loaders = makeLoaders(manager);
-    const tCs = performance.now();
     const result = await raceCreateScene(mod, { THREE, renderer, loaders }, opts.createSceneTimeoutMs || CREATE_SCENE_TIMEOUT_MS);
-    info.timings_ms.create_scene = Math.round(performance.now() - tCs);
     if (!result || typeof result !== 'object') throw new Error('createScene() must return {scene, cameras, update}');
-    info.shape = {
-      has_scene: !!(result.scene && result.scene.isScene),
-      has_cameras: Array.isArray(result.cameras),
-      has_update: typeof result.update === 'function',
-    };
-    if (!info.shape.has_scene) throw new Error('createScene().scene is not a THREE.Scene');
+    if (!(result.scene && result.scene.isScene)) throw new Error('createScene().scene is not a THREE.Scene');
     const { cameras, problems } = validateCameras(result.cameras);
     info.cameras = cameras;
     info.camera_problems = problems;
@@ -323,10 +306,8 @@ async function boot(opts) {
     if (!state.update) info.camera_problems.push({ severity: 'warn', text: 'createScene().update(t, dt) is not a function (scene will be static)' });
 
     info.stage = 'loads';
-    const tLd = performance.now();
-    info.load_wait = await waitForLoads(manager, LOAD_IDLE_TIMEOUT_MS);
-    info.timings_ms.loads = Math.round(performance.now() - tLd);
-    if (info.load_wait === 'timeout') state.hostWarnings.push('asset loads still pending after timeout');
+    const loadWait = await waitForLoads(manager, LOAD_IDLE_TIMEOUT_MS);
+    if (loadWait === 'timeout') state.hostWarnings.push('asset loads still pending after timeout');
 
     info.stage = 'first_update';
     runUpdate(0, 0);
@@ -385,7 +366,6 @@ async function boot(opts) {
   } catch (e) {
     info.error = formatError(e);
   }
-  info.timings_ms.total = Math.round(performance.now() - t0);
   info.raf_calls = state.rafCalls;
   info.load_errors = state.loadErrors.slice();
   info.host_warnings = state.hostWarnings.slice();
@@ -576,7 +556,7 @@ function renderAt(spec, t) {
   }
   const ms = Math.round(performance.now() - t0);
   // the camera actually used: differs from spec.position when camera repair fired
-  return { dataUrl: state.canvas.toDataURL('image/png'), ms, sim_time: state.simTime,
+  return { dataUrl: state.canvas.toDataURL('image/png'), ms,
            position: [cam.position.x, cam.position.y, cam.position.z] };
 }
 

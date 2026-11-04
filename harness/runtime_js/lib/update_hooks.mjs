@@ -44,8 +44,7 @@ export function observeUpdateHooks(scene, exercise) {
       for (let current = object; current && current !== scene; current = current.parent) {
         path.unshift(current.name || current.type || 'Object3D');
       }
-      const row = { path: path.join('/') || scene.name || 'Scene', zone: path[0] || '', calls: 0,
-        instrumented: !!(descriptor && descriptor.writable && descriptor.value === original) };
+      const row = { path: path.join('/') || scene.name || 'Scene', zone: path[0] || '', calls: 0, instrumented: !!descriptor.writable };
       row.empty = EMPTY_FN_RE.test(String(original).trim());
       rows.push(row);
       if (!row.instrumented) return;
@@ -68,6 +67,5 @@ export function observeUpdateHooks(scene, exercise) {
     for (const undo of restore.reverse()) undo();
   }
   for (const [row, [object, state]] of before) row.moved = stateOf(object) !== state;
-  return { hooks: rows, unobserved: rows.filter(row => row.instrumented && row.calls === 0 && !row.moved && !row.empty),
-    limitation: 'Only property-dispatched hooks during the sampled update interval are observed. Captured callback references and delayed animations can be unobserved; inspect the parent forwarding before changing code.' };
+  return { hooks: rows, unobserved: rows.filter(row => row.instrumented && row.calls === 0 && !row.moved && !row.empty) };
 }

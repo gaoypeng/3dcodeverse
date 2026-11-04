@@ -37,10 +37,6 @@ import { compileIntoReport, staticShaderReport } from './lib/shader_report.mjs';
 const args = parseCli({
   'no-settle': { type: 'boolean', default: false },
   'camera-repair': { type: 'boolean', default: false },
-  // The probe is a 320x180 GEOMETRY instrument, never a judged picture: it runs raw
-  // so its shader report names the scene's own programs and nothing of ours.  The
-  // flag parses (drivers share a switch list) and changes nothing.
-  'no-post': { type: 'boolean', default: false },
   ws: {}, out: {}, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
   scene: { default: 'src/scene.js' }, glb: { default: '' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
@@ -134,7 +130,7 @@ async function main() {
     phase = 'report';
     // Probe truth is snapshotted BEFORE any forced compile: the probe gate sees
     // exactly what a standalone probe would; the preflight below sees everything.
-    result.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
+    result.shader_errors = await page.evaluate(() => window.__c3v.shaderErrors());
     Object.assign(result, errorSummary(host.errors, boot));
     result.ok = boot.ok && result.update_ok === true && result.console_errors.length === 0 && result.shader_errors.length === 0;
 

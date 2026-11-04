@@ -23,7 +23,7 @@ thread) instead of the in-thread `module.registerHooks`; the resolutions are
 identical.  The python side refuses to spawn an older node with an actionable
 message (`codeverse3d.spatial.node.NODE_MIN`, mirrored by `3dcode doctor`'s `node`
 row), and `tests/core/test_portability.py` pins the two declarations together.
-The floor is exercised, not assumed: the 93 `node`-marked tests all pass on node
+The floor is exercised, not assumed: the 139 `node`-marked tests all pass on node
 20.19.5 (`C3D_BINARIES__NODE=/path/to/node20 pytest tests -m "node and not live and not blender"`).
 
 ```bash
@@ -74,7 +74,7 @@ lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' resolv
                       from runtime_js/node_modules for modules anywhere on disk (NODE_PATH is CJS-only);
                       module.registerHooks on node >= 22.15, module.register + lib/resolve_three_async.mjs
                       on the 20.6 floor.  Redirect rule stated once in lib/three_redirect.mjs
-lib/node_polyfills.mjs FileReader/self shims so GLTFExporter writes binary GLB without a DOM
+lib/node_polyfills.mjs FileReader shim so GLTFExporter writes binary GLB without a DOM
 lib/census.mjs        NaN/Infinity check naming mesh + part, world boxes, geometry triangles (node + browser)
 lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → sibling plain meshes Name_0.. in its place
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths
@@ -88,8 +88,12 @@ lib/browser/*.js      page-side ESM (served through /__runtime/): renderer.js (T
                       sRGB + ACES + PCF shadows + pixel ratio 1, used by the object rig AND the scene host),
                       camera_fit.js (azimuth/elevation → tight bbox fit; the distance math itself is
                       lib/orbit.mjs::fitDistance, shared with the scene orbit rig), studio.js
-                      (RoomEnvironment PMREM + key/fill/rim, shadow catcher, render modes; re-exports
-                      renderer.js), render_rig.js (load GLB, isolate/explode/anim, views)
+                      (softbox PMREM + key/fill/rim, shadow catcher, render modes), render_rig.js
+                      (load GLB, isolate/explode/anim, views)
+lib/browser/studio_env.js procedural softbox environment, backdrop and contact-shadow textures of the
+                      object rig (v2): generated from constants, so a render is byte-reproducible
+lib/browser/post.js   THE scene post chain (object renders stay raw): RenderPass → finite clamp → GTAO →
+                      glow bloom → grade (scene.userData.grade) → OutputPass; `--no-post` / C3D_POST=0 skips it
 
 probe_scene.mjs       scene build gate: boot src/scene.js, census, update(t,dt), first-camera checks;
                       --compile folds the full shader preflight into the SAME boot (shader_report);
@@ -97,9 +101,19 @@ probe_scene.mjs       scene build gate: boot src/scene.js, census, update(t,dt),
 check_shaders.mjs     the effect-library tests' compile driver: the same preflight as probe_scene --compile,
                       plus --module to scope the static audit to one fixture file
 render_scene.mjs      authored cameras + orbit rig renders at times, metrics.json/views.json
+fit_orbit.mjs         the same framingBox + fitOrbitCameras on a census.json WITHOUT a browser (scene_blender)
 lib/host_env.mjs      ESM adapters over gpu_launch.cjs + serve.cjs (launchBrowser, serveWorkspace)
-lib/host_page.mjs     node-side page driver: serve ws, launch, boot scene, collect errors, releaseBrowser
+lib/host_page.mjs     node-side page driver: serve ws, launch, boot scene, collect errors, release the browser
 lib/scene_host.mjs    page-side host (window.__c3v): boot/renderAt/census/compileAll/fps/cameraChecks
+lib/glb_scene.mjs     the createScene the host boots for an OFFLINE scene (`--glb`, scene_blender): hoists the
+                      census GLB's root nodes + extras.c3d_cameras — the same census and placement code
+lib/host_compile.mjs  page-side compile machinery: capture every custom material's final GLSL, attribute
+                      compiler errors to materials by source line, audit runtime materials (fog/uTime)
+lib/host_shader_errors.mjs renderer.debug.onShaderError hook: every `ERROR: n:m` with its assembled source line
+lib/host_placement.mjs placementTable(scene): does every placed asset sit on something (feet columns, gaps,
+                      sunk, water, interpenetration; time-budgeted) + the boot-time settle
+lib/placement_words.json the seated-vocabulary both the settle and spatial/scene_placement.py read
+lib/update_hooks.mjs  observeUpdateHooks: which userData.update hooks the sampled update interval never called
 lib/orbit.mjs         THE camera-fit owner: fitDistance (exact per-corner frustum fit — also used by the
                       object rig through lib/browser/camera_fit.js), fitOverviewCamera, fitZoneCamera
                       (eye level), fitOrbitCameras, framingBox

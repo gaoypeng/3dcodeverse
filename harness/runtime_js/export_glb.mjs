@@ -7,7 +7,7 @@
 // Runs in plain node (no browser).  The agent module must `export function build(THREE)`
 // returning a THREE.Group (or a Promise of one); an optional `export function
 // selfcheck(THREE, root)` is called on the built group and fails the build when it
-// throws.  `Math.random` is seeded (--seed, default 0), like `random` in the Blender and CadQuery
+// throws.  `Math.random` is seeded, like `random` in the Blender and CadQuery
 // wrappers, so a rebuild of the same source measures the same object.  InstancedMesh objects are baked into sibling plain meshes `Name_0..`
 // (lib/instances.mjs) so trimesh-based gates see every copy as an instance.  The object is exported exactly where the
 // source put it: an off-ground / off-centre build only WARNS (census.placement_offset),
@@ -38,7 +38,7 @@ const PLACEMENT_THRESHOLD_M = 0.01;
 function cli() {
   const values = parseCli({
     ws: {}, entry: { default: 'src/object.js' }, out: { default: 'artifacts/object.glb' },
-    census: { default: 'artifacts/census.json' }, seed: { default: '0' },
+    census: { default: 'artifacts/census.json' },
   });
   if (!values.ws) throw new Error('--ws <workspace dir> is required');
   const ws = path.resolve(values.ws);
@@ -48,7 +48,6 @@ function cli() {
     entry: abs(values.entry),
     out: abs(values.out),
     census: abs(values.census),
-    seed: Number(values.seed) >>> 0,
   };
 }
 
@@ -85,11 +84,7 @@ async function loadBuild(entry) {
     throw e;
   }
   const mod = await import(pathToFileURL(entry).href);
-  if (typeof mod.build !== 'function') {
-    const e = new Error(`${path.basename(entry)} must 'export function build(THREE)' (got ${typeof mod.build})`);
-    e.name = 'ContractError';
-    throw e;
-  }
+  if (typeof mod.build !== 'function') fail(`${path.basename(entry)} must 'export function build(THREE)' (got ${typeof mod.build})`);
   return mod;
 }
 
@@ -185,7 +180,7 @@ async function main() {
   const warnings = [];
   captureWarnings(warnings);
   installExporterPolyfills();
-  seedMathRandom(args.seed);
+  seedMathRandom(0);
 
   const THREE = await import('three');
   const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');

@@ -42,8 +42,7 @@ export function readJsonArg(value, label) {
   try {
     return JSON.parse(value);
   } catch (e) {
-    if (fs.existsSync(value)) return JSON.parse(fs.readFileSync(value, 'utf8'));
-    throw new Error(`--${label} is neither JSON nor a file: ${String(e.message)}`);
+    throw new Error(`--${label} is not JSON: ${String(e.message)}`);
   }
 }
 

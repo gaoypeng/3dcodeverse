@@ -10,18 +10,16 @@ import * as THREE from 'three';
 
 /**
  * WebGLRenderer on `canvas` sized width x height (device pixel ratio 1).
- * @param {{transparent?: boolean, logDepth?: boolean}} opts
+ * @param {{transparent?: boolean}} opts
  *   transparent - alpha buffer (transparent background renders)
- *   logDepth    - logarithmic depth buffer (huge scenes)
  */
-export function makeRenderer(canvas, width, height, { transparent = false, logDepth = false } = {}) {
+export function makeRenderer(canvas, width, height, { transparent = false } = {}) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
     alpha: transparent,
     preserveDrawingBuffer: true,
     powerPreference: 'high-performance',
-    logarithmicDepthBuffer: !!logDepth,
   });
   renderer.setPixelRatio(1);
   renderer.setSize(width, height, false);

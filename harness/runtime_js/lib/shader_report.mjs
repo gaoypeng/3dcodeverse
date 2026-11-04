@@ -120,8 +120,7 @@ export async function compileIntoReport(report, files, host) {
       }
       return result;
     }, errors.some((e) => e.kind === 'undeclared_uniform'));
-    const shaderErrors = comp.shader_errors.map(({ _key, ...e }) => e);
-    for (const e of shaderErrors) {
+    for (const e of comp.shader_errors) {
       const loc = locateSourceLine(files, e.source_line);
       errors.push({
         file: loc.file || (e.material ? `(material ${e.material})` : '(assembled shader)'),
@@ -134,7 +133,7 @@ export async function compileIntoReport(report, files, host) {
       (a.severity === 'error' ? errors : warnings).push({ file: '(runtime material)', line: null, kind: a.kind, material: a.material, message: a.message, fix_hint: a.severity === 'error' ? a.message : '' });
     }
     report.compile = { ms: comp.compile_ms, programs: comp.programs, custom_materials: comp.custom_materials, renderer: boot.renderer, gpu: host.gpu };
-    if (comp.programs > 0 && shaderErrors.length === 0) {
+    if (comp.programs > 0 && comp.shader_errors.length === 0) {
       const declarationFiles = verifiedDeclarations(files, comp.evaluated_sources || []);
       for (let i = errors.length - 1; i >= 0; i--) {
         const e = errors[i];

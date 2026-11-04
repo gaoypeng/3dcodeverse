@@ -2,12 +2,13 @@
 // camera per view, return PNGs as base64.  Driven by render_glb.mjs via puppeteer.
 //
 //   import { renderGlbViews } from '/__runtime/lib/browser/render_rig.js';
-//   const result = await renderGlbViews({ glbUrl, views, mode, width, height, isolate, explode, background, animTime, shadow, fill });
+//   const result = await renderGlbViews({ glbUrl, views, mode, width, height, isolate, explode, background, animTime, shadow });
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { fitCameraToBox } from './camera_fit.js';
-import { makeRenderer, buildStudio, applyMode, aimStudio, rendererString, RIG_VERSION } from './studio.js';
+import { makeRenderer, rendererString } from './renderer.js';
+import { buildStudio, applyMode, aimStudio, RIG_VERSION } from './studio.js';
 
 const FOV_DEG = 35;
 /** Views steeper than this fit themselves (a plan view of a tall object needs a very
@@ -79,11 +80,11 @@ function visibleBox(root) {
 }
 
 /** The largest self-fit distance over the orbit-band views (null when there are none). */
-function uniformDistance(camera, box, views, fill) {
+function uniformDistance(camera, box, views) {
   let best = null;
   for (const v of views) {
     if (Math.abs(v.elevation) > UNIFORM_FRAMING_MAX_ELEVATION) continue;
-    const d = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill }).distance;
+    const d = fitCameraToBox(camera, box, v.azimuth, v.elevation).distance;
     best = best == null ? d : Math.max(best, d);
   }
   return best;
@@ -96,12 +97,10 @@ function uniformDistance(camera, box, views, fill) {
 export async function renderGlbViews(cfg) {
   const t0 = performance.now();
   const warnings = [];
-  const width = cfg.width || 768;
-  const height = cfg.height || 768;
-  const mode = cfg.mode || 'shaded';
-  const background = mode === 'silhouette' ? 'white' : cfg.background || 'studio';
+  const { width, height, mode } = cfg;
+  const background = mode === 'silhouette' ? 'white' : cfg.background;
 
-  const canvas = document.getElementById('c') || document.createElement('canvas');
+  const canvas = document.getElementById('c');
   canvas.width = width;
   canvas.height = height;
   const renderer = makeRenderer(canvas, width, height, { transparent: background === 'transparent' });
@@ -116,13 +115,13 @@ export async function renderGlbViews(cfg) {
   if (cfg.animTime != null && gltf.animations && gltf.animations.length) {
     const mixer = new THREE.AnimationMixer(gltf.scene);
     for (const clip of gltf.animations) mixer.clipAction(clip).play();
-    mixer.update(Number(cfg.animTime));
+    mixer.update(cfg.animTime);
   }
   if (cfg.isolate && cfg.isolate.length) {
     const missing = isolate(root, cfg.isolate);
     if (missing.length) warnings.push(`isolate: no node named ${missing.join(', ')}`);
   }
-  if (cfg.explode) explode(root, Number(cfg.explode));
+  if (cfg.explode) explode(root, cfg.explode);
 
   const look = applyMode(root, mode);
   const box = visibleBox(root);
@@ -130,14 +129,13 @@ export async function renderGlbViews(cfg) {
   const rig = buildStudio(renderer, scene, box, { background, shadow: look.shadow && cfg.shadow !== false, lights: look.lights });
 
   const camera = new THREE.PerspectiveCamera(FOV_DEG, width / height, 0.01, 100);
-  const fill = cfg.fill || 0.90;
-  const uniform = uniformDistance(camera, box, cfg.views, fill);
+  const uniform = uniformDistance(camera, box, cfg.views);
   const views = [];
   for (const v of cfg.views) {
-    let fit = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill });
+    let fit = fitCameraToBox(camera, box, v.azimuth, v.elevation);
     if (uniform != null && Math.abs(v.elevation) <= UNIFORM_FRAMING_MAX_ELEVATION && uniform > fit.distance) {
       fit = fitCameraToBox(camera, box, v.azimuth, v.elevation,
-                           { fill, distance: Math.min(uniform, fit.distance * UNIFORM_FRAMING_MAX_PULLBACK) });
+                           { distance: Math.min(uniform, fit.distance * UNIFORM_FRAMING_MAX_PULLBACK) });
     }
     aimStudio(rig, v.azimuth, v.elevation);
     renderer.render(scene, camera);

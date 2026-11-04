@@ -3,7 +3,7 @@
 // shadow-casting key + a soft ambient contact shadow, and the shared renderer
 // factory (renderer.js: ACES tone mapping, sRGB output, PCF shadows).
 //
-//   import { makeRenderer, buildStudio, applyMode, RIG_VERSION } from '/__runtime/lib/browser/studio.js';
+//   import { buildStudio, applyMode, RIG_VERSION } from '/__runtime/lib/browser/studio.js';
 //
 // RIG v1 (up to 2026-08-23) was `RoomEnvironment` + three white directionals on a
 // flat #e9e9ec clear colour.  It lit geometry fine but told the judge nothing
@@ -15,12 +15,7 @@
 
 import * as THREE from 'three';
 import { viewDirection } from './camera_fit.js';
-import { makeRenderer, rendererString } from './renderer.js';
 import { backdropTexture, contactShadowTexture, softboxEnvironment } from './studio_env.js';
-
-// the renderer factory lives in renderer.js (shared with the scene host); it is
-// re-exported here because studio.js is the object rig's one-stop import
-export { makeRenderer, rendererString };
 
 /** Bumped whenever the look changes.  Recorded in views.json so a sheet can be dated. */
 export const RIG_VERSION = 2;
@@ -138,7 +133,7 @@ export function aimStudio(rig, azimuthDeg, elevationDeg = 0) {
 export function buildStudio(renderer, scene, box, { background = 'studio', shadow = true, lights = true } = {}) {
   const bg = BACKGROUNDS[background];
   if (bg === undefined) throw new Error(`unknown background '${background}' (studio|white|transparent)`);
-  renderer.toneMappingExposure = EXPOSURE[background] ?? 1.0;
+  renderer.toneMappingExposure = EXPOSURE[background];
   if (bg === null) {
     renderer.setClearColor(0x000000, 0);
   } else if (background === 'studio' && lights) {
@@ -228,7 +223,6 @@ export function applyMode(root, mode) {
     if (mode === 'clay' || mode === 'wire') m.material = CLAY;
     else if (mode === 'normals') m.material = NORMALS;
     else if (mode === 'silhouette') m.material = SILHOUETTE;
-    else throw new Error(`unknown mode '${mode}' (shaded|clay|wire|normals|silhouette)`);
   }
   if (mode === 'wire') {
     for (const m of meshes) {
