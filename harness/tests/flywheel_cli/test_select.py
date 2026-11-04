@@ -233,3 +233,22 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     assert select.round_file(ws, rec.rounds[0]) is None
     assert select.round_file(ws, rec.rounds[1]) is None
     assert select.round_complexity_block(ws, rec.rounds[1]) is None
+
+
+@pytest.mark.parametrize("gate,rounds,want", [
+    ("project:survey", [(0.60, 1), (0.557, 0)], 1),      # the round the refine task fixed wins over the higher score
+    ("contract_fixed", [(0.80, 1), (0.70, 0), (0.75, 0)], 2),  # a moved fixed part loses; the rest by score
+    ("project:survey", [(0.60, 1), (0.70, 2)], 1),       # every round fails: back to the score
+    ("contract", [(0.70, 1), (0.60, 0)], 0),             # any other gate's errors still only break score ties
+], ids=["project-check", "fixed-part", "all-fail", "other-gate"])
+def test_a_round_failing_the_projects_own_checks_loses_to_one_that_passes(tmp_path, gate, rounds, want):
+    """The project's own checks outrank the judge score when picking; other gates still only break ties."""
+    ws = _run(tmp_path / "r", [(score, 0) for score, _ in rounds])
+    rec = json.loads(ws.record_path.read_text())
+    for r, (_, errors) in zip(rec["rounds"], rounds, strict=True):
+        r["gates"].append({"gate": gate, "passed": not errors, "findings": [
+            {"gate": gate, "severity": "error", "message": "footprint overlap 0.79"}] * errors})
+    ws.record_path.write_text(json.dumps(rec))
+    assert select.pick(ws.root) == want
+    rows = select.round_rows(ws.root)
+    assert [r.project_errors for r in rows] == ([e for _, e in rounds] if gate != "contract" else [0] * len(rounds))
