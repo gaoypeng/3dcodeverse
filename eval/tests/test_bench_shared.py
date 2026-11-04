@@ -69,3 +69,24 @@ def test_a_run_that_scored_nothing_says_so_in_its_row(tmp_path: Path) -> None:
     rec.rounds = [judged, rounds[1]]
     row = result_from_record(item, rec, ws)
     assert row.errors == "" and (row.score_picked, row.picked_round) == (0.6, 0)   # one verdict is enough
+
+
+def test_a_battery_prompt_carries_checks_into_the_spec(tmp_path):
+    """A project registers checks per prompt: build_spec must hand them to the run (it builds the Spec from the
+    battery even when the workspace already holds a spec.json), and a prompt without them must serialise exactly
+    as before."""
+    import yaml
+
+    from bench.run_bench import Battery, build_spec
+    from codeverse3d.contracts.common import Backends
+
+    path = tmp_path / "b.yaml"
+    path.write_text(yaml.safe_dump({"name": "b", "track": "static_object", "language": "threejs", "prompts": [
+        {"id": "house", "prompt": "a house", "tier": "hard",
+         "checks": [{"name": "survey", "entry": "pkg.mod:check", "args": {"id": "house"}}]},
+        {"id": "plain", "prompt": "a chair", "tier": "easy"}]}))
+    b = Battery.load(path)
+    spec = build_spec(b, b.prompts[0], backends=Backends(), rounds=1, max_minutes=1, tag0="t")
+    assert spec.checks[0].args == {"id": "house"}
+    plain = build_spec(b, b.prompts[1], backends=Backends(), rounds=1, max_minutes=1, tag0="t").model_dump(mode="json")
+    assert "checks" not in plain

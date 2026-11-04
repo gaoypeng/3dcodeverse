@@ -157,7 +157,8 @@ codeverse3d/
                       single-shot asset generation), zone_layout.py (per-zone structured layout calls +
                       deterministic validator), graphics.py (the whole graphics track), plan_features.py
                       (eval-only: which C3D_* names are live, and pin_plan_blockers() deciding when two arms may
-                      share one plan), depth.py, skills_hook.py (the round's view of codeverse3d/skills: attach
+                      share one plan), depth.py, project_checks.py (Spec.checks: the project's deterministic checks, run on
+                      every built round and joined to its gates as project:<name>), skills_hook.py (the round's view of codeverse3d/skills: attach
                       before generating, probe reads after — a no-op under C3D_SKILLS=0)
   record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
                       effective_judgment), deliverable.py (every round's kept build under artifacts/rNN/, and
