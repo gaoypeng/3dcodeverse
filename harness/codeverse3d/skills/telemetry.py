@@ -17,7 +17,7 @@ deep is still deep when a file under its ``references/`` was opened and the cont
 2.1.317 read them with ``cd …/<name> && … cat "$f"`` (live, 2026-11-03), a call that names
 no path to match.  Only when a session after the attach left
 no trace does the probe fall back to the atime signals below, which the control proved
-blind in 27 of 33 sessions (docs/SKILLS.md §9):
+blind in 27 of 33 sessions (docs/SKILLS.md §4):
 
 1. **atime probe** — the root filesystem is ext4 with ``relatime``, where the first read
    after a write bumps ``atime``.  ``materialize_skills`` stamps ``atime == mtime`` on

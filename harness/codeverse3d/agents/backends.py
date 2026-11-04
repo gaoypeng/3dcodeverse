@@ -118,7 +118,7 @@ class ClaudeStream:
 
     Since 2026-09-22 the backend streams instead of printing one envelope: the envelope
     (the last, ``type == "result"`` line) is unchanged, and the lines before it are the
-    only record of which skills the session activated (docs/SKILLS.md §9 — "the logs
+    only record of which skills the session activated (docs/SKILLS.md §4 — "the logs
     contain zero occurrences of any c3d- name" under ``--output-format json``)."""
 
     def __init__(self) -> None:

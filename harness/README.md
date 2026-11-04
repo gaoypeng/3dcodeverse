@@ -89,6 +89,5 @@ Expected cost and time per track: `docs/RUNBOOK.md` §2. Inspect actual run cost
 `3dcode cost <slug>` and a call's expected price with `3dcode cost estimate`.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
-`docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
-(signatures) · `docs/RUNBOOK.md` (operate / extend) ·
+`docs/ARCHITECTURE.md` (design + what a run does) · `docs/RUNBOOK.md` (operate / extend) ·
 `eval/docs/EVAL.md` (evaluation protocol + judge calibration) · `CLAUDE.md` (working rules).

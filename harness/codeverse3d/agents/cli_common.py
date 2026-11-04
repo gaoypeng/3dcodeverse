@@ -680,7 +680,7 @@ def watchdog_error(proc: CompletedProc) -> str:
 #: :data:`TOOL_TRACE_ROW` saying "this session's calls are all here" — a session without
 #: it left no trace, and its silence must not read as "called nothing".  The skill read
 #: probe (``skills/telemetry.py``) reads these rows instead of file atimes, which its own
-#: control bundle caught "reading" in 27 of 33 sessions (docs/SKILLS.md §9).  Arguments are
+#: control bundle caught "reading" in 27 of 33 sessions (docs/SKILLS.md §4).  Arguments are
 #: compacted to :data:`TRACE_ARG_CHARS` per value: a path survives, a file body does not.
 TOOL_CALL_ROW = "tool_call"
 TOOL_TRACE_ROW = "tool_trace"

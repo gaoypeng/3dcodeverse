@@ -45,7 +45,7 @@ from codeverse3d.models.pricing import estimate_cost
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
 
-#: INTERFACES.md mapping; ``off`` → 0 where the model allows it
+#: thinking level → token budget; ``off`` → 0 where the model allows it
 THINKING_BUDGET: dict[str, int] = {"off": 0, "low": 1024, "medium": 4096, "high": 16384}
 
 #: finish reasons that are worth one more attempt (transient model glitches)

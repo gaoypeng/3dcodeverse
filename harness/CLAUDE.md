@@ -14,13 +14,14 @@ It does not implement an agent loop: the in-process `api-agent` was deleted
 this project's job).  Plus a data-flywheel record per run.
 
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
-really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
-built), `docs/RUNBOOK.md` (how to run / resume / extend), `eval/docs/EVAL.md` (evaluation protocol + judge
-calibration) and `eval/docs/COMPLEXITY.md` (the objective complexity vector + the
-score-vs-complexity corpus study) before changing anything.
+really does, known limits), `docs/RUNBOOK.md` (how to run / resume / extend), `eval/docs/EVAL.md`
+(evaluation protocol + judge calibration) and `eval/docs/COMPLEXITY.md` (the objective
+complexity vector + the score-vs-complexity corpus study) before changing anything.
 
-Historical cost experiments, decision logs and skill measurements are local-only notes
-(COST.md, DECISIONS.md and SKILLS_LEDGER.md under harness/docs, ignored by Git).
+Historical cost experiments, decision logs, skill measurements, the cross-package signature
+notes and the pre-trim docs are local-only notes (COST.md, DECISIONS.md, SKILLS_LEDGER.md,
+INTERFACES.md and HISTORY.md under harness/docs, ignored by Git; the tracked docs carry only
+what running the harness needs).
 Historical citations in comments refer to these optional notes; they are not required
 to install, run or test the harness. Current rules and interfaces live in the tracked docs.
 

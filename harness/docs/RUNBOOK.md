@@ -1,29 +1,23 @@
 # Runbook — operating the harness
 
-Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.2.2 LTS (since 2026-10-14; was 5.0.1),
-node 24, gemini-cli 0.53 (removed in D103), claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23;
-the agy rows re-checked on agy 1.3.4, 2026-10-13, and the three CLI backends re-run live on
-agy 1.4.12 / claude 2.1.317 / codex 0.166.0 on 2026-11-03 (D115).  Paths
-are relative to the harness root (`harness/` in the checkout) unless absolute.  The CLI is
-`3dcodeverse` with short alias `3dcode` (used below).
+Paths are relative to the harness root (`harness/` in the checkout) unless absolute.  The CLI is
+`3dcodeverse` with short alias `3dcode` (used below).  Installing: `docs/INSTALL.md`.
 
 ## 1. Install and check
 
 ```bash
 pip install -e harness      # once, from the checkout root; entry points 3dcodeverse and 3dcode
 cd harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
-3dcode doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
+3dcode doctor            # python deps, blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
 3dcode doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
 python -m pytest tests -q -m live                      # OPT-IN: real API calls
 ```
 
-### Keys and settings
-Gemini keys, the other providers' keys, the settings files, every `C3D_*` override, how
-Blender is found and how the GPU path is chosen are `docs/INSTALL.md` §8, §6 and §7 (their
-one home); each setting's default and description is its `Settings` field in
-`codeverse3d/config.py`.
+Gemini keys, the other providers' keys, the settings files, every `C3D_*` override, how Blender
+is found and how the GPU path is chosen: `docs/INSTALL.md` §8, §6 and §7; each setting's default
+and description is its `Settings` field in `codeverse3d/config.py`.
 
 ## 2. Running each track
 
@@ -34,98 +28,84 @@ one home); each setting's default and description is its `Settings` field in
 3dcode make "a classic park bench" --track static_object --language threejs --generator agy:gemini-4-argon
 # articulated object — bpy links + URDF
 3dcode make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
-# scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
+# scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner), or bpy on Blender
 3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
+3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_blender --rounds 2 --max-minutes 90
 # graphics — animated shader / raw OpenGL program
 3dcode make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
 3dcode make "instanced pastel cubes with bloom" --track graphics --language opengl_python
 ```
-Useful flags (`3dcode make --help`): `--generator`, `--planner`, `--judge`
-(backend ids, §3), `--image <png>` (repeatable; reference images → `ReferenceJudge` +
-silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the baseline — a
-run does exactly N, each built on the one before it, unless the clock or a hard failure
-stops it; there is no pass / plateau / regression stop since 2026-09-22),
-`--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
-quick-judged, the highest quick score kept (fewer gate errors on a tie); multiplies baseline
-cost ≈ N; default from `settings.default_candidates`; object and graphics tracks only —
-a scene writes its baseline in its stages, so `--candidates N>1` is refused there), `--no-pick` (package nothing: no `deliverable/`, no `selection.json` —
-`3dcode pick` later), `--max-minutes`, `--dim height=0.45`, `--must`,
-`--must-not`, `--style`, `--tag`, `--seed` (a label: it re-keys the plan,
-nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
-`--no-run` (workspace + spec.json only),
-`--variant NAME` (a per-model prompt/skill overlay — `codeverse3d/prompts/variants/<name>/` +
-`codeverse3d/skills/variants/<name>/`, D105 — frozen on `spec.options.variant` so `resume` and
-`judge` read the same files; default: `C3D_VARIANT`, else `C3D_VARIANTS` keyed by the exact
-generator id — as typed, then by its served model — else the base prompts; an unknown name is
-refused before the run directory exists; the run table prints `variant: argon v1 (<hash>)`).
-`--variant argon_raw` on `--language scene_blender` is RAW mode (D113): no harness bpy library
-ships into the workspace and the model writes every mesh, material, light, world and motion.
 
-Expected cost/time with gemini-3.8-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
-baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot
-≈ $0.05 / 2 min per judged round; scenes ≈ $2.3 and 30 min before the first judged
-round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
+Useful flags (`3dcode make --help`):
+
+* `--generator`, `--planner`, `--judge` — backend ids (§3).
+* `--image <png>` (repeatable) — reference images → `ReferenceJudge` + silhouette gate + IoU
+  refine tasks.
+* `--rounds N` — refine rounds after the baseline.  A run does exactly N, each built on the one
+  before it, unless the clock or a hard failure stops it; there is no pass / plateau stop.
+* `--candidates N` — best-of-N baseline: N parallel candidates in `<ws>/_cand/`, quick-judged,
+  the highest quick score kept (fewer gate errors on a tie); multiplies baseline cost ≈ N;
+  object and graphics tracks only (a scene writes its baseline in its stages).
+* `--no-pick` — package nothing (no `deliverable/`, no `selection.json`; `3dcode pick` later).
+* `--max-minutes`, `--dim height=0.45`, `--must`, `--must-not`, `--style`, `--tag`, `--seed` (a
+  label: it re-keys the plan, nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
+  `--no-run` (workspace + spec.json only).
+* `--variant NAME` — a per-model prompt/skill overlay (`codeverse3d/prompts/variants/<name>/` +
+  `codeverse3d/skills/variants/<name>/`), frozen on `spec.options.variant` so `resume` and
+  `judge` read the same files; default `C3D_VARIANT`, else `C3D_VARIANTS` keyed by the exact
+  generator id, else the base prompts.  `--variant argon_raw` on `--language scene_blender` is
+  RAW mode: no harness bpy library ships and the model writes every line of bpy.
+
+Expected cost/time with gemini-3.8-flash: object tracks ≈ $0.7–0.9 and 12–36 min for baseline +
+1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot ≈ $0.05 / 2 min per judged
+round; scenes ≈ $2.3 and 30 min before the first judged round, then ≈ $0.36 / ~7 min per refine
+(give scenes `--max-minutes 60`).  Actual spend: `3dcode cost <slug>`.
 
 ## 3. Backends
 
 | id | what runs | notes |
 |---|---|---|
-| `agy:gemini-4-argon` (default) | `agy --dangerously-skip-permissions --print-timeout … --output-format json --add-dir ws --log-file trajectories/<label>_rNN/agy.log --model gemini-api://gemini-4-argon --effort high`, prompt on stdin (no `--print`: `--print -` sends "-") | Gemini-API mode only (Gemini keys required, Gemini models only): pool key, every spatial tool over MCP, priced; see gotchas below.  Truncates a prompt past ~175 kB itself |
+| `agy:gemini-4-argon` (default) | `agy --dangerously-skip-permissions --print-timeout … --output-format json --add-dir ws --log-file trajectories/<label>_rNN/agy.log --model gemini-api://gemini-4-argon --effort high`, prompt on stdin | Gemini-API mode only (Gemini keys required, Gemini models only): one pool key per session, every spatial tool over MCP, priced at Gemini list price.  Truncates a prompt past ~175 kB itself |
 | `single-shot:gemini:gemini-3.8-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
-| `claude-code:<model>` | `claude -p --dangerously-skip-permissions --setting-sources project --settings '{"skillOverrides":…}' --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …`, prompt on stdin, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` | local subscription — test lightly; no user setting source, so `~/.claude/settings.json` (effortLevel, hooks, env) does not reach a session |
-| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high -c skills.bundled.enabled=false -c mcp_servers.3dcode.… -`, prompt on stdin | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
-| `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
+| `claude-code:<model>` | `claude -p --dangerously-skip-permissions --setting-sources project --settings '{"skillOverrides":…}' --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …`, prompt on stdin, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` | local subscription; no user setting source, so `~/.claude/settings.json` does not reach a session |
+| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high -c skills.bundled.enabled=false -c mcp_servers.3dcode.… -`, prompt on stdin | local subscription; MCP tools need `default_tools_approval_mode="approve"` (the harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id) |
+| `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI are mock-tested only |
 
-### agy gotchas (handled by `agents/backends.py`; do not undo — D103)
-* API mode only (owner, 2026-10-13: no subscription sign-in, no Claude models; no keys →
-  `available()` is false and the session fails at once).  `agy` with no model = `gemini-4-argon`
-  (`DEFAULT_AGY_MODEL`).  One key
-  per session from THE shared pool (`KeyPool.lease_session_key`: no in-flight slot, but a machine-wide
-  flock lease under `<cache_dir>/slots/agy_keys/`, so parallel runs put one session per key until every
-  key is in one; the shared pool also starts each process's rotation at a random key) as `GEMINI_API_KEY`,
-  its outcome reported back (429 → cooldown, 401/403/`API_KEY_INVALID` → dead, 5xx, ok, skip);
-  other credential env stripped; KeyPoolExhausted → `exit_reason=budget`, never raised.
+How `agents/backends.py` runs agy (do not undo):
+
+* API mode only: no subscription sign-in, no non-Gemini model; without keys `available()` is
+  false and the session fails at once.  `agy` with no model = `gemini-4-argon`.  One key per
+  session from the shared pool (`KeyPool.lease_session_key`: a machine-wide flock lease, so
+  parallel runs put one session per key until every key is in one) as `GEMINI_API_KEY`, its
+  outcome reported back (429 → cooldown, 401/403 → dead); other credential env stripped.
 * Each session gets a fresh HOME under `<cache_dir>/agy_homes/…` holding
-  `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy ignores
-  the key and asks for a login) and `.gemini/config/mcp_config.json` with the `3dcode` server
-  (agy has no per-workspace MCP; the server's `env.HOME` is the real home).  The HOME is deleted
-  after the session; the tool trace is read from its conversation db first.  `PUPPETEER_CACHE_DIR`
-  points the agent's shell at the real Chrome cache.
-* argv `--model gemini-api://<bare id> --effort <low|medium|high>`: the id goes to the API
-  verbatim (any model the key serves); effort from an agy-style `-low/-medium/-high` suffix, else
-  `AgentJob.effort` (a task that explicitly asks — none does today), else `high` (the Gemini API's own
-  default; owner, 2026-10-15: argon runs at high on every track, D110).  The effort used is on the
-  transcript's `invoke` line, in `result.json` and on the session's `cost.jsonl` row.  An effort A/B is
-  the id suffix: `--generator agy:gemini-4-argon-medium`.
-* Cost: priced at Gemini list price; agy's `output_tokens` already include `thinking_tokens`, so
-  output = output − thinking, thoughts = thinking (billed once).
-* `--print-timeout` = `timeout_s` + the watchdog's `HARD_GRACE_S` (5 min) + 1 min, so the watchdog
-  decides; agy's own clock stopping a turn (envelope `finished_reason: print_timeout` since 1.4.11 —
-  the typed verdict, read first — plus the stderr line `[agy] print timeout after …`, the envelope
-  still `SUCCESS` with an empty response) is booked `exit_reason=timeout`; a turn whose verdict is
-  `error` (the clock fired while agy was retrying a 503, live 2026-11-03) is booked an error.  The
-  verdict is on `result.json` as `finished_reason`.  At `timeout_s + 1 min` it cut off
-  every argon scene asset/env session still working at 8 min (2026-10-13).
-* No retry loop in the backend: agy retries its own model calls (≤ 30 s waits since 1.3.4, stops
-  at once on a spent daily quota); a transient death goes to the round loop's ONE transport retry,
-  which takes a fresh key.  There is no single-shot storm fallback (deleted in D103).
-* Workspace files: `AGENTS.md` + `CLAUDE.md` (no `GEMINI.md`: agy reads both it and AGENTS.md)
-  and `.antigravityignore`, which hides only noise (renders/judge output, the whole
-  `trajectories/`); build/census/measurement JSON stay readable.
-* No cookbook: no language ships one (D106 scene, D107 the rest), so no workspace gets a
-  `.3dcode/cookbook.md` or a "## Cookbook" section — the body is the hard rules, the tool cards
-  and the language contract; the craft reaches the session as routed skills.
+  `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy asks
+  for a login) and `.gemini/config/mcp_config.json` with the `3dcode` server (agy has no
+  per-workspace MCP).  The HOME is deleted after the session; the tool trace is read from its
+  conversation db first.
+* `--model gemini-api://<bare id> --effort <low|medium|high>`: the id goes to the API verbatim;
+  effort from an agy-style `-low/-medium/-high` suffix on the generator id, else `high`.  An
+  effort A/B is the id suffix: `--generator agy:gemini-4-argon-medium`.
+* Cost: agy's `output_tokens` already include `thinking_tokens`, so output = output − thinking,
+  thoughts = thinking (billed once).
+* `--print-timeout` = `timeout_s` + the watchdog's grace + 1 min, so the watchdog decides; agy's
+  own clock stopping a turn (`finished_reason: print_timeout`) is booked `exit_reason=timeout`.
+* No retry loop in the backend: agy retries its own model calls; a transient death goes to the
+  round loop's ONE transport retry, which takes a fresh key.
+* Workspace files: `AGENTS.md` + `CLAUDE.md` (agy reads both) and `.antigravityignore`, which
+  hides only noise (renders/judge output, `trajectories/`); build/census/measurement JSON stay
+  readable.
 * MCP server argv is `[sys.executable, -m, codeverse3d.spatial.mcp_server, --workspace, ws]`;
-  server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
-  `python -m codeverse3d.spatial.mcp_server --workspace ws --list` prints the tools.
+  server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcode mcp
+  --workspace runs/<slug>` execs the same server; `python -m codeverse3d.spatial.mcp_server
+  --workspace ws --list` prints the tools.
 
 ## 4. Where outputs land
 
 Everything lands in `runs/<slug>/` — code in `src/` (git, one commit per round), each round's
 build in `artifacts/rNN/`, and after a pick `deliverable/` + `selection.json`; the full tree is
-`docs/RUN_LAYOUT.md`.  `3dcode status <slug>` prints the stop reason, baseline → picked
-score, the rounds table (the picked round starred, each round's own judge verdict), cost and
-the last events.
+`docs/RUN_LAYOUT.md`.  `3dcode status <slug>` prints the stop reason, baseline → picked score,
+the rounds table, cost and the last events.
 
 ### Looking at results locally
 
@@ -134,168 +114,73 @@ the last events.
 3dcode gallery serve ../eval/bench/out/static_v2_flash/runs --port 9000 --reload --no-open
 3dcode gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
 ```
-`serve` indexes the run roots (records only — ~85 runs in ~0.15 s) and serves the run
-**directories** too, so every link works: contact sheet, full-size renders, `record.json`,
-`plan.json`/`spec.json`, the `src/` tree (browsable, line-numbered, `raw` = text/plain),
-`object.glb` (orbit viewer on the vendored three.js — no network), articulation sheets,
-`preview.gif`, frames.  The page has a live summary strip (n = judged · unjudged ·
-error, mean/median score, total $, wall clock — **recomputed per filter**; no pass rate: a run
-is not passed or failed),
-filters (track / language / tier / backend / verdict / battery + text search over
-prompt+slug) and sort (score / cost / time / name) that never reload, a card ⇄ table
-toggle, light/dark, and a detail page per run (`/run/<battery>/<slug>`) with every round,
-the picked round's judge verdict + issues + improvement plan, the measurement table, the
-full render set, the cost breakdown and the code.
 
-Filters live in the query string, so a view can be curled or bookmarked:
-`curl -s 'http://127.0.0.1:8765/?track=graphics&tier=A&sort=cost'`.
-`--reload` re-scans on every page load, which is what you want while a bench is writing:
-a run with no `record.json` yet shows as a *pending* card and a half-written one as
-*broken*, never as a crash.  The server binds `127.0.0.1` and refuses any other address
-unless you type `--host` yourself; it never serves a path outside the declared roots.
+`serve` indexes the run roots and serves the run **directories** too, so every link works:
+contact sheet, full-size renders, `record.json`, `plan.json`/`spec.json`, the `src/` tree,
+`object.glb` (orbit viewer on the vendored three.js — no network), articulation sheets,
+`preview.gif`, frames.  The page has a live summary strip (recomputed per filter), filters
+(track / language / tier / backend / verdict / battery + text search) and sort that never
+reload, a card ⇄ table toggle, light/dark, and a detail page per run (`/run/<battery>/<slug>`)
+with every round, the picked round's verdict, the measurement table, the full render set, the
+cost breakdown and the code.  Filters live in the query string, so a view can be curled or
+bookmarked.  `--reload` re-scans on every page load (a run with no `record.json` yet shows as
+*pending*, a half-written one as *broken*).  The server binds `127.0.0.1` unless you pass
+`--host` and never serves a path outside the declared roots.
 
 ## 5. Resume, re-render, re-judge, export
 
 ```bash
 3dcode resume <slug> [--candidates N] [--no-pick]
-                                        # continues from run_state + stages/*.json (input-hash cached) and from the
-                                        # LAST round (a run recorded before 2026-09-22 that restored its best round
-                                        # is put back on its last).  A max_rounds run resumes only with a raised
-                                        # --rounds, a budget run with any raised cap; an agent_quota, judge_unavailable
-                                        # (its last round is re-judged) or failed run resumes as is; the other stops
-                                        # are finished.  The budget
-                                        # SNAPSHOT is restored: the active minutes already spent still count, so a
-                                        # raised --max-minutes grants only the difference (downtime never counts), and
-                                        # a run whose clock is already spent is refused until one is (--force too: it
-                                        # keeps the clock);
-                                        # the money is the ledger's, and the step log (the run's minutes) carries on.
-                                        # Once rounds exist a recorded stage never runs again: one whose key drifted (a
-                                        # code change to what it hashes) serves its recorded result (`stage.frozen`); only
-                                        # `resume --force` regenerates a stage under them: it ALWAYS archives the round
-                                        # journal + record.json to rounds/pre_force/ (spec changed or not) and the run
-                                        # starts again at round 0, no stage frozen
+                                        # continues from run_state + stages/*.json and from the LAST round.  A
+                                        # max_rounds run resumes only with a raised --rounds, a budget run with any
+                                        # raised cap; an agent_quota, judge_unavailable or failed run resumes as is.
+                                        # The budget SNAPSHOT is restored: active minutes already spent still count,
+                                        # so a raised --max-minutes grants only the difference.  Once rounds exist a
+                                        # recorded stage never runs again; `resume --force` regenerates the stages:
+                                        # it archives the round journal + record.json to rounds/pre_force/ and the
+                                        # run starts again at round 0
 3dcode pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]
-                                        # hand over a round: deliverable/ + selection.json (addons/select).  score =
-                                        # highest effective score, ties → fewer gate errors → the earlier round;
-                                        # pairwise = the pairwise judge between the top two when within 0.03 (one
-                                        # paid verdict per pair, cached); --round N = that round.
-                                        # `make`/`resume` run `pick --by score` for you
+                                        # hand over a round: deliverable/ + selection.json.  score = highest
+                                        # effective score, ties → fewer gate errors → the earlier round; pairwise =
+                                        # the pairwise judge between the top two when within 0.03; --round N = that
+                                        # round.  `make`/`resume` run `pick --by score` for you
 3dcode render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcode judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
 3dcode tools list [--cards] · 3dcode tools measure --workspace runs/<slug> · 3dcode tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
-                                        # panel says ok | FAIL (the verdict) | error (the tool could not run);
-                                        # exit 1 on either non-ok state — `scene_probe` included since 2026-09-02
-                                        # (COST.md §30), where a failing scene gate used to exit 0
+                                        # panel says ok | FAIL (the verdict) | error (the tool could not run); exit 1 on either
 3dcode flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
                                      [--captions-dir caps/] [--drop-duplicates]
 3dcode flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
 3dcode flywheel refine runs/ refine.jsonl [--with-code]
-                                     # one row per round the harness asked to change; the row
-                                     # schema is codeverse3d/addons/dataset/refine.RefineTransition and
-                                     # INTERFACES has the call signatures.  Training formats live
-                                     # in finetune/llamafactory/, not here.
+                                     # one row per round the harness asked to change (addons/dataset/refine.RefineTransition);
+                                     # training formats live in finetune/llamafactory/, not here
 3dcode flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
 python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
-**Do not run the offline suite while a battery is running.**  The suite runs thousands of tests
-on 24 cores under xdist; a battery holds Blender, a browser pool and several agent sessions.
-Twice on 2026-09-04/05 that produced 11 and 21 spurious failures that vanished on a clean
-re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest).  A red
-suite during a battery is **not evidence until it reproduces on a quiet machine** — re-run
-it there before pushing, and if the same tests are red again, it is real.  The mechanism is
-the one the next paragraph describes: `tests/scene_runtime/lib/*` reach the battery's
-browser daemon through a shared `C3D_CACHE_DIR`, so giving the suite its own cache dir may
-let the two coexist.
 
-The same holds for a box loaded by OTHER work.  On 2026-09-05, with 12 `proseg` processes
-holding 528 GB, swap full and all eight GPUs at ~100 %, the offline suite failed 12, then
-44, then 17 tests in three runs at `-n 12 / 6 / 4`, every one of them a browser test
-reporting `Session closed` or `Target closed`; `tests/scene_runtime` alone at `-n 4` with
-its own cache dir passed 787/787.  Check `uptime` and `free -g` before believing a red
-browser test.  One test is flaky by construction under CPU contention and is NOT to be
-"fixed" by weakening it: `test_studio_render_is_reproducible_and_stamps_the_rig_version`
-compares two renders byte for byte, and SwiftShader is not bit-reproducible when the box
-is busy — it failed 2 runs in 3 on an unmodified tree at load 129.  A second one behaves
-the same way: `test_example_scene_passes_frame_gate_and_judge_subset` asserts that a
-frame's content / ground / sky coverage fractions sum to 1 +- 0.02, and at `-n 4` under
-load ~100 it fails on `content 0.644 + ground 0.000 + sky 0.549 = 1.193`.  An interleaved
-A/B — six runs each, alternating so both arms see the same load — gave **5/6 failures on
-the unmodified tree and 4/6 with the branch's changes**, i.e. the box, not the code.  What
-produces a ground fraction of exactly zero on a scene that has a ground is an open
-question; it needs an idle machine to look at, not a guess.  A third is a plain wall-clock
-assertion: `test_cabinet_door_end_to_end_then_broken` requires the URDF build to finish in under 30 s
-and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the box was
-busy.  All three are the same story, and none of them is to be "fixed" by loosening what
-it asserts.
+A run that crashed outside its own handling leaves `record.json` with `status=failed`; `3dcode
+resume` retries from the last completed stage/round (cached plan/skeleton/scene stages are
+reused — this also recovers from a provider outage).  A refine session that dies on the
+VENDOR's usage limit stops the run at `agent_quota`: every round so far is kept and picked from,
+and `3dcode resume` continues it once the limit resets.  Ctrl-C and `kill <pid>` (SIGTERM) are
+safe: `make` / `resume` kill every agent / build process group the run has open, record the
+stop, and end within `proc.STOP_GRACE_S` (30 s).  Kill by PID, never by pattern: a
+`pkill -f "3dcode make"` takes every other run on the box with it.
 
-**Two arms at once still want separate `C3D_CACHE_DIR`, though the browser no longer
-depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
-`CACHE_DIR/browser_<backend>.json`, a newer daemon superseded an older one, and two
-worktrees sharing a cache ended up on ONE browser: the arm that did not launch it
-rendered through a server rooted in the other tree, its GLB was outside that root, and
-`render_glb` returned "produced no result" — on one side only, looking like random
-flakiness (2026-09-04).  The endpoint, its lock and its failure file now carry a digest of
-the `runtime_js` that spawned the daemon, so two trees keep separate browsers inside one
-cache dir and neither can retire the other's.  Give each arm its own cache dir anyway: the
-render cache separates with it, which an A/B wants.
-
-Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
-round with no renders skips the judge, so the loop stops at `judge_unavailable` and the
-cell is finished with no score (`run_bench` will not re-run it: the row exists).  Redo the
-scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
-then `python -m bench.run_bench <battery> --id <prompt>`.
-
-A refine session that dies on the VENDOR's usage limit ("You've hit your usage limit … try again at
-Sep 14th", `RESOURCE_EXHAUSTED`, `insufficient_quota`) stops the run at `agent_quota`: every round
-so far is kept and picked from as usual, the record says the agent's budget ended, not the code's
-improvement (cmp8, 2026-09-09, filed three such runs as `plateau` before this), and `3dcode resume`
-continues it once the limit resets.
-
-**A cell can also lose its renders to the box rather than to itself.**  When the machine
-runs out of memory Chrome reaps the render tab and the driver reports
-`Attempted to use detached Frame '<id>'`: the scene built, every gate ran, and the judge
-was skipped for want of pixels — three of six cells of `scenes_v1` on 2026-09-05, $6.75 of
-generation already paid for.  The scene drivers now retry once on a browser of their own
-(`spatial/render_scene.run_scene_script`), and `eval/bench/scene_stats.py` reports such rounds
-in a `lost to the box` column instead of counting them as gate failures.  A battery whose
-report shows that column non-zero has to be re-run for those cells before it is read as a
-statement about the generator.
-
-**Anything launched with `3dcode` from a worktree runs the MAIN checkout's code.**  `3dcode`
-is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
-codeverse3d` finds the editable install.  `--out` IS relative to the cwd, so the OUTPUT lands
-in the worktree while the CODE that produced it is the main tree's — an arm that looks like it
-is testing your branch and is testing `main` (measured 2026-09-05: the first `scenes_v1`
-battery, launched with `3dcode bench run` from `local/worktrees/integrate`, ran entirely on the
-main checkout).  Batteries no longer have this problem: `python -m bench.run_bench` (the
-launcher since 2026-09-22) bootstraps `sys.path` to its own tree's `harness/` like every bench
-script (`eval/tests/test_worktree_import.py`).  For `3dcode make` from a worktree, export
-`PYTHONPATH=<worktree>/harness` before the command, and have an arm script REFUSE TO RUN when
-`codeverse3d.__file__` and `runtime_js_dir()` are not the tree you meant —
-`local/scripts/run_scene_fixed.sh` is the pattern, and it also asserts that the specific fixes
-the arm exists to measure are present.
-
-**A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
-`render_glb` dies on every round, the judge is skipped for want of renders, and the cells
-came back `status=plateau` (today: `judge_unavailable`) with `score=None` — an arm that reads as healthy and measures
-nothing (2026-09-04, the mimic-off arm).  `npm ci` in `runtime_js/`, or COPY the
-directory from a worktree that has it (the `package.json` is the same file).  The row now (a symlink gave two 404s on every render of one worktree on 2026-09-07 — `serve.cjs` refuses a real path outside its root — while another probe served through one; copy and be sure)
-says `no verdict in any of N round(s)` when this happens.
-
-A run that crashed outside its own handling leaves `record.json` with `status=failed`;
-`3dcode resume` retries from the last completed stage/round (cached plan/skeleton/scene
-stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C and `kill <pid>` (SIGTERM)
-are safe: `make` / `resume` kill every agent / build process group the run has open — worker
-threads' included — refuse new ones, record the stop, and end within `proc.STOP_GRACE_S` (30 s) even
-if a worker is inside a long model call.  Before 2026-10-13 a SIGTERM left the agy session running
-and billing.
+Two things to keep apart on one machine: run the offline test suite and a battery at different
+times (both hold Blender, a browser pool and most cores; a red browser test under load is not
+evidence until it reproduces on a quiet box), and give two concurrent batteries separate
+`C3D_CACHE_DIR`s and half the `--parallel` each.  A worktree needs its own
+`runtime_js/node_modules` (copy, do not symlink: `serve.cjs` refuses a real path outside its
+root) and `PYTHONPATH=<worktree>/harness` before `3dcode make`, because the console script
+imports the editable install, not the cwd.
 
 ## 6. Benchmarks
 
 ```bash
-cd ../eval   # the battery launcher is the evaluation's (`3dcode bench` until 2026-09-22)
+cd ../eval   # the battery launcher is the evaluation's
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.8-flash \
     --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
 python -m bench.report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
@@ -303,153 +188,70 @@ cd ../harness
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
     --arms harness:agy:gemini-4-argon,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 ```
+
 Results stream to `results.jsonl` (resumable).  The batteries, the protocol and judge
-calibration: `eval/docs/EVAL.md` (§2 lists the batteries).
-
-`compare_backends` **preflights every model it needs** (one ~20 s probe each) and
-refuses to start when one is not serving — a dead provider does not fail fast on its
-own, it lets each cell burn its full retry budget first.  `--wait-for-provider 60`
-parks until it recovers instead; `--no-preflight` skips the check.  Cells that a
-provider outage kills anyway are recorded `infra_failed`, excluded from every rate,
-and re-run with `--redo-status infra_failed` (see `eval/docs/EVAL.md` §7).
-
-### 6.v Templates are read at render time — a new required variable breaks live workers like a moved name
-
-Measured 2026-08-26 13:45: the fewer-turns landing added `{{ turn_discipline }}` to four static
-templates; the four h2h drivers started 50 minutes earlier still ran the old python (no such
-context key) but rendered the NEW template from disk → `UndefinedError: 'turn_discipline' is
-undefined`, four prompts recorded `error` at 0 min.  Rule: every new template variable is
-guarded `{% if name is defined and name %}` for at least one wave, and the "Landing source
-changes while a wave is running" rule covers `codeverse3d/prompts/**` as well as moved names.
-
-### 6.u `run_bench --redo-status` starts the redo fresh (since c828637)
-
-Before it, a redo resumed the old workspace — old `spec.json` (the old `max_minutes`) and the
-old clock — so a `budget` row redone with `--max-minutes 120` was over budget before its first
-round (clock_q4, lighthouse_1: `budget`, 0 rounds, "60.3 / 76.7 min elapsed").  Now the old
-tree is archived as `runs/<id>.attempt<N>` and the prompt runs from scratch with the new
-options, the way `ab_plan` has done since the skills wave.
-
-It is also the ONLY way: `run_bench --no-resume` was deleted 2026-08-30.  It dropped the
-recorded rows and then resumed the workspace anyway — `resume = ws.exists()` never read the
-flag — so a "fresh" rerun carried the old spec, rounds, spend and clock and appended a second
-results row for the same tree.  `compare_backends --no-resume` kept its flag (it is documented
-and has three readers) and now archives the harness cell's `run/` before re-running it.
-
-### 6.w One driver per out dir — a second `run_bench` re-runs what the first is still running
-
-Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
-original driver was still working the same battery resumed a prompt the first driver had in
-flight, re-ran its last round in the same workspace and rewrote `rounds/r02.json` (0.600 →
-0.944 for the same sheet: judge/acceptance variance, not a new picture) and appended a second
-`results.jsonl` row.  `run_battery` decides what to run from `results.jsonl`, and a prompt with no
-row yet is fair game to both.  Rule: never start a second `python -m bench.run_bench` on an out dir
-with a live driver; wait for the driver to exit (exact pid, `kill -0`), then redo once with
-`--redo-status infra_failed,error,budget --max-minutes 120`.  `run_bench` grew `--max-minutes`
-the same day so the storm budget no longer needs `ab_plan`.
-
-### 6.x Size `--max-minutes` to the weather
-
-`--max-minutes 60` is the right ceiling on a healthy provider.  Under a 503 storm every model
-call waits through the retry budget first, an agent session spends its wall clock on 15–23
-turns, and a hard prompt burns the whole hour without one judged round — measured 2026-08-26 on
-`fancy_v1`: the first six pairs ended `budget` with `judge.done = 0`.  When
-`codeverse3d.models.health.probe()` shows the generator below the 0.75 bar, launch (or redo) with
-`--max-minutes 120 --wait-for-provider 60`, and redo the storm's rows rather than reading them:
-`--redo-status error,infra_failed,budget` (add `build_failed` only when a harness defect, not the
-model, produced the zero — check `cell.json`'s `error`).  The rows' `minutes` stay comparable across
-weather: they leave the provider's errors out (docs/COST.md §31); the ceiling does not.
+calibration: `eval/docs/EVAL.md`.  `compare_backends` preflights every model it needs and
+refuses to start when one is not serving (`--wait-for-provider 60` parks until it recovers,
+`--no-preflight` skips the check); cells a provider outage kills are recorded `infra_failed`,
+excluded from every rate, and re-run with `--redo-status infra_failed`.  `run_bench
+--redo-status` starts the redo fresh (the old tree is archived as `runs/<id>.attempt<N>`).  Never
+start a second `run_bench` on an out dir with a live driver: both would run the same prompt.
+Under a provider storm, launch with `--max-minutes 120 --wait-for-provider 60` and redo the
+storm's rows (`--redo-status error,infra_failed,budget`) rather than reading them.
 
 ## 7. Extending (plugin paths)
 
-* **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
-  `ENTRY_FILE`, `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`;
-  `languages/<lang>/__init__.py` (one merged module per language) implementing
-  `LanguageRuntime` — its file layout included: subclass `languages/base.RuntimeLayout`
-  (entry + `extra_files`, and `part_file` for a one-file-per-part language) or answer
-  `expected_files(plan)` / `files_for(plan, target)` yourself, as the scene runtime does; the
-  tracks never restate it.  A python-executed build wrapper goes beside the others in
+* **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`, `ENTRY_FILE`,
+  `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`; `languages/<lang>/__init__.py`
+  implementing `LanguageRuntime` — its file layout included: subclass
+  `languages/base.RuntimeLayout` (entry + `extra_files`, and `part_file` for a one-file-per-part
+  language) or answer `expected_files(plan)` / `files_for(plan, target)` yourself; the tracks
+  never restate it.  A python-executed build wrapper goes beside the others in
   `languages/wrappers/` (import `_wrapper_common`; run it with `_common.run_wrapper_build`, or
-  read its report with `_common.compose_build_result`, which publishes the final `build.json`); branch in
-  `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract}.md` (found by
-  `prompts/catalog.language_prompt`; no cookbook — the prompts state requirements, never
-  templates (D106 / D107): no code block over ~12 lines, numbers only where a gate or the judge
-  measures them, and contract.md carries ONE executable interface example that
-  `tests/prompts/test_snippets_run.py` runs through the real runtime).
-* **Changing what a model is shown** (a prompt file or template variable, a contract, a skill,
-  a rubric's text, a tool description, anything a session or a judge reads):
-  `tests/prompts/test_manifest.py` pins every payload of offline scenarios across the four tracks
-  and seven languages — agent sessions, chat calls (planner, single-shot), each judge's input and
-  the request the real `VlmJudge` builds from it, the materialised workspace files, the routed
-  skills, the MCP tool lists — and every stage's cache key.  A refactor leaves it byte-identical;
-  a change a model is meant to see re-blesses it in the same commit, saying why:
-  `python -m tests.prompts.manifest --bless` (`--dump DIR` writes every payload, to `diff -r` two
-  trees).  What it cannot drive is listed in `tests/prompts/manifest.py`.  A new prompt file must
-  render through the loader (`tests/prompts/test_files.py`); a new language or track adds its
-  scenario to `SCENARIOS`.
-* **A per-model variant** (D105): `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]`
-  name = the directory name, version, generators, description; optional `[knobs]` — `skills_max`,
-  `skills_only`, `scene_lib` (D113) — applied as defaults, a user-stated field wins) beside the prompt files that
-  shadow the base ones by relative path (a template there may `include` a base file), and
-  `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name, their
-  `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]` extra
-  typed rows with fresh ids; parsed with `tomllib`, a typing error is logged and the base table
-  routes).  Nothing else changes: `prompts.load_text` / `render` / `catalog.language_text` and
-  `skills.all_skills` resolve through the active variant, `BaseTrack.run` activates the spec's
-  frozen name (else the process switch), the record carries `extra.variant` {name, version, hash}
-  + `prompt_hashes.variant`, and `plan_stage_key` names the variant only when one is set.  An
-  overlay starts EMPTY (the shipped `argon` is) so its first iteration measures the base; the
-  manifest gets one scenario per variant (`scene.scene_threejs.agent.variant_argon`).  Selection is
-  explicit — `--variant`, `C3D_VARIANT`, `C3D_VARIANTS` — never a pattern over the model id.
-* **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
-  languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
-  Update `tests/spatial_tools` EXPECTED_TOOLS.
-* **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`,
-  `criteria[{id, weight, floor, title, description, anchors, kind}]`,
-  `caps[{id, cap, when: gate|acceptance|console|missing_views, gate, severity, kinds}]`,
-  `defects[{id, text, penalty, cap}]`.  Tracks pick rubrics in `tracks/*.py`;
-  `3dcode judge` maps track → rubric in `cli/_judge.py::rubric_for`.
-* **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
-  CodingAgent → `agents/backends.py` using `cli_common` + registry + `materialize.py`.
-* **New track**: subclass `tracks/lifecycle.py::BaseTrack` (its pre-round graph `stages`, a tuple of
-  `StageNode`s — the default is skeleton → materialize, and a new track adds its line to
-  `docs/ARCHITECTURE.md` §7.1; hooks: `make_pipeline`, `baseline_tasks`, `refine_tasks`; `system_prompt`
-  defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)` and
-  `refine_file_for_target` to the runtime's `files_for` — override only for
-  role-specific prompts), a `RoundPipeline`,
-  plan model in `contracts/plan.py`, `.j2` prompts, the planner's per-track rows in
-  `tracks/planner.py` (template, example, temperature, acceptance), branch in
-  `tracks/__init__.py` (`get_track` forwards `**options` to constructors).
-  `tracks/graphics.py` is the template for a track with no GLB.
+  read its report with `_common.compose_build_result`); branch in `languages/base.py::get_runtime`;
+  `prompts/<lang>/{system,contract}.md` (found by `prompts/catalog.language_prompt`; no cookbook
+  — the prompts state requirements, never templates: no code block over ~12 lines, numbers only
+  where a gate or the judge measures them, and contract.md carries ONE executable interface
+  example that `tests/prompts/test_snippets_run.py` runs through the real runtime).
+* **Changing what a model is shown** (a prompt file or template variable, a contract, a skill, a
+  rubric's text, a tool description, anything a session or a judge reads):
+  `tests/prompts/test_manifest.py` pins every payload of offline scenarios across the four
+  tracks and every language — agent sessions, chat calls, each judge's input, the materialised
+  workspace files, the routed skills, the MCP tool lists — and every stage's cache key.  A
+  refactor leaves it byte-identical; a change a model is meant to see re-blesses it in the same
+  commit, saying why: `python -m tests.prompts.manifest --bless` (`--dump DIR` writes every
+  payload, to `diff -r` two trees).  A new prompt file must render through the loader
+  (`tests/prompts/test_files.py`); a new language or track adds its scenario to `SCENARIOS`.
+  Every new template variable is guarded `{% if name is defined and name %}` for at least one
+  wave: templates are read at render time, so a live worker on old python renders the new file.
+* **A per-model variant**: `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]` name =
+  the directory name, version, generators, description; optional `[knobs]` — `skills_max`,
+  `skills_only`, `scene_lib` — applied as defaults, a user-stated field wins) beside the prompt
+  files that shadow the base ones by relative path (a template there may `include` a base
+  file), and `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name,
+  their `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]`
+  extra typed rows with fresh ids).  Nothing else changes: `prompts.load_text` / `render` /
+  `catalog.language_text` and `skills.all_skills` resolve through the active variant, the record
+  carries `extra.variant` {name, version, hash} + `prompt_hashes.variant`.  An overlay starts
+  EMPTY (the shipped `argon` is) so its first iteration measures the base; the manifest gets one
+  scenario per variant.  Selection is explicit — `--variant`, `C3D_VARIANT`, `C3D_VARIANTS` —
+  never a pattern over the model id.
+* **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…), languages=(…),
+  cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.  Update
+  `tests/spatial_tools` EXPECTED_TOOLS.
+* **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`, `criteria[{id, weight,
+  floor, title, description, anchors, kind}]`, `caps[{id, cap, when:
+  gate|acceptance|console|missing_views, gate, severity, kinds}]`, `defects[{id, text, penalty,
+  cap}]`.  Tracks pick rubrics in `tracks/*.py`; `3dcode judge` maps track → rubric in
+  `cli/_judge.py::rubric_for`.
+* **New backend**: ChatModel → `models/<provider>.py` + registry + prices; CodingAgent →
+  `agents/backends.py` using `cli_common` + registry + `materialize.py`.
+* **New track**: subclass `tracks/lifecycle.py::BaseTrack` (its pre-round graph `stages`, a
+  tuple of `StageNode`s — the default is skeleton → materialize, and a new track adds its line to
+  `docs/ARCHITECTURE.md` §7.1; hooks: `make_pipeline`, `baseline_tasks`, `refine_tasks`;
+  `system_prompt` defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)`
+  and `refine_file_for_target` to the runtime's `files_for`), a `RoundPipeline`, plan model in
+  `contracts/plan.py`, `.j2` prompts, the planner's per-track rows in `tracks/planner.py`,
+  branch in `tracks/__init__.py`.  `tracks/graphics.py` is the template for a track with no GLB.
 * **New bench battery**: `eval/bench/prompts/<name>.yaml` with `name, track, language,
   prompts[{id, tier, category, prompt, must_have, dimensions_m}]`.
-
-
-## Landing source changes while a wave is running
-
-Workers (`3dcode make`, `ab_plan.py cell`) are long-lived python processes that import
-`codeverse3d/` **lazily**: a module already in `sys.modules` stays as it was at spawn time, a
-module first touched later comes from the tree as it is *then*.  Two measured failures on
-2026-08-26:
-
-* a patch script that edited one file and aborted on the next left a two-minute window in which
-  `static_object.py` imported a name `prompting.py` did not have yet — a driver died on it;
-* a clean, fully tested refactor (`proc.read_json_or_none` replacing eight copies) landed on
-  main at 02:47 while cells spawned at 01:56 were still generating; at eval time they lazily
-  imported a rewritten module which asked their *old, cached* `proc` for the new name —
-  `ImportError`, 75 minutes of generation per cell lost, recorded `status=error`.
-
-Rules:
-
-1. Multi-file patches validate every anchor first and write only after all pass.
-2. **Do not land cross-module refactors on main under a live wave** — moved symbols, new shared
-   helpers, renamed imports.  Keep them on worktree branches and cherry-pick between waves.
-   Additive changes and dead-code deletions are safe; a moved name is not.
-3. After landing anything, check every driver's `results.jsonl` for `ImportError` rows and redo
-   them from a **fresh** driver with `--redo-status error` (the old driver's own modules are
-   stale too).
-4. You do not need to count harness processes to protect the provider: the in-flight slots are
-   machine-wide (`docs/COST.md` §23; `3dcode doctor` prints how many are busy).  If you list
-   processes anyway, never with `pgrep | grep` (it counts its own shell — measured: 3 phantoms
-   on an idle box); kill by PID, never by pattern (13 unrelated runs died to one
-   `pkill -f "3dcode make"`).

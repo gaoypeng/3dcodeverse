@@ -1,4 +1,4 @@
-"""docs/INTERFACES.md names only things that exist.
+"""docs/INTERFACES.md (a local-only note; skipped when absent) names only things that exist.
 
 Checked: in ```python fences, ``from codeverse3d.<m> import …`` / ``import codeverse3d.<m>`` and a
 line starting ``X.y(`` whose ``X`` was imported or is a subpackage; in prose, a backticked dotted
@@ -13,6 +13,8 @@ import pkgutil
 import re
 import types
 from pathlib import Path
+
+import pytest
 
 import codeverse3d
 
@@ -82,6 +84,8 @@ def resolves(dotted: str) -> bool:
 
 
 def test_every_name_interfaces_cites_resolves():
+    if not INTERFACES.is_file():
+        pytest.skip("docs/INTERFACES.md is a local-only note (not distributed)")
     names = cited_names(INTERFACES.read_text(encoding="utf-8"))
     assert len(names) > 150, "the parser stopped finding INTERFACES' names"
     assert [n for n in names if not resolves(n)] == [], "docs/INTERFACES.md cites names the code no longer has"

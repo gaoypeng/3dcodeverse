@@ -27,6 +27,8 @@ dist/
 /harness/docs/COST.md
 /harness/docs/DECISIONS.md
 /harness/docs/SKILLS_LEDGER.md
+/harness/docs/INTERFACES.md
+/harness/docs/HISTORY.md
 
 # Developer-only visual studies; agents use the production starter library.
 /harness/examples/graphics_lab/
