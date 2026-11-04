@@ -187,6 +187,22 @@ def test_cli_report_only(tmp_path: Path):
     assert json.loads((out / "results.jsonl").read_text().splitlines()[0])["score"] == 0.3
 
 
+@pytest.mark.parametrize("judge", [None, "gemini:gemini-3.1-pro-preview"])
+def test_cli_uses_argon_by_default_and_keeps_explicit_judge(tmp_path: Path, monkeypatch, judge):
+    import bench.compare_backends as cb
+
+    seen = {}
+    monkeypatch.setattr(cb, "FixedEvaluator", lambda model, **kw: seen.setdefault("judge", model))
+    monkeypatch.setattr(cb, "run_matrix", lambda prompts, out, arms, opts, deps, **kw: seen.update(opts=opts))
+    args = ["--prompts", str(BATTERY), "--arms", "oneshot:codex", "--out", str(tmp_path), "--no-preflight"]
+    if judge is not None:
+        args += ["--judge", judge]
+    assert main(args) == 0
+    expected = judge or "gemini:gemini-4-argon"
+    assert seen["judge"] == seen["opts"].judge == expected
+    assert CompareOptions().judge == "gemini:gemini-4-argon"
+
+
 def test_redo_status_reuses_recorded_answers(tmp_path: Path):
     """A redo of failed cells re-evaluates without a second generation call; a failed generation is not cached."""
     ev = FakeEvaluator()

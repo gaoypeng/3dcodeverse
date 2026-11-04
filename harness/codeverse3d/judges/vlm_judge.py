@@ -382,7 +382,7 @@ class ReferenceJudge(VlmJudge):
                                                 "view": match.view, "reference": Path(match.reference).name}
         try:
             return compare(inp.spec, targets, renders, model=self.model,
-                           part_names=inp.part_names, measured=measured)
+                           part_names=inp.part_names, measured=measured, thinking=self.thinking)  # type: ignore[arg-type]
         except Exception as e:  # noqa: BLE001
             log.warning("reference diff pass failed: %s", e)
             return None

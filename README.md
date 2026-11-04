@@ -81,6 +81,7 @@ on 805 fixed tasks:
 The harness needs Python 3.13, Node 20.6+, Git, Gemini API keys and the Antigravity CLI (`agy`, the
 default generator). Blender 5.2 LTS is optional (the `blender`, `urdf_blender` and `scene_blender`
 languages). Full guide: [harness/docs/INSTALL.md](harness/docs/INSTALL.md).
+The default judge is `gemini:gemini-4-argon` with thinking `medium`.
 
 ```bash
 cd harness

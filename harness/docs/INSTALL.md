@@ -362,7 +362,9 @@ render:
 limits:
   agent_timeout_s: 1800
   max_parallel_agents: 6
-default_judge: gemini:gemini-3.1-pro-preview
+default_judge: gemini:gemini-4-argon
+judge:
+  thinking: medium
 default_candidates: 1
 ```
 
@@ -374,6 +376,8 @@ export C3D_BINARIES__BLENDER=/opt/blender/blender
 export C3D_RENDER__GPU=off
 export C3D_LIMITS__AGENT_TIMEOUT_S=900
 export C3D_DEFAULT_CANDIDATES=2
+export C3D_DEFAULT_JUDGE=gemini:gemini-4-argon
+export C3D_JUDGE__THINKING=medium
 export C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'   # per-model prompt/skill variant by exact generator id; C3D_VARIANT=argon names one for every run
 ```
 

@@ -94,8 +94,9 @@ def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monk
 
 
 class _Pairwise:
-    def __init__(self, winner: str, confidence: float, *, fail: bool = False):
+    def __init__(self, winner: str, confidence: float, *, fail: bool = False, thinking: str = "medium"):
         self.winner, self.confidence, self.fail, self.calls = winner, confidence, fail, []
+        self.thinking = thinking
 
     def compare(self, spec, renders_a, renders_b, *, rubric):
         self.calls.append((renders_a.views[0].path, renders_b.views[0].path, rubric))
@@ -155,11 +156,26 @@ def test_pick_command_by_score_by_round_and_by_pairwise(tmp_path, monkeypatch):
 
     import codeverse3d.judges.pairwise as pw
 
-    monkeypatch.setattr(pw, "PairwiseJudge", lambda model: _Pairwise("b", 0.95))
-    r = runner.invoke(app, ["pick", "stool", "--runs-dir", str(runs), "--by", "pairwise", "--judge", "fake:pairwise"])
+    pairwise = _Pairwise("b", 0.95, thinking="low")
+    monkeypatch.setattr(pw, "PairwiseJudge", lambda model: pairwise)
+    args = ["pick", "stool", "--runs-dir", str(runs), "--by", "pairwise", "--judge", "fake:pairwise"]
+    r = runner.invoke(app, args)
     assert r.exit_code == 0, r.output
     sel = json.loads((ws.root / "selection.json").read_text())
     assert (sel["round"], sel["method"]) == (0, "pairwise")
+    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 1
+    cache = ws.judge_path(1, "_vs_r00_pairwise")
+    assert json.loads(cache.read_text())["thinking"] == "low"
+
+    # A new thinking level must run the comparison again, even with identical model and renders.
+    pairwise.thinking, pairwise.winner = "medium", "a"
+    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 2
+    assert json.loads((ws.root / "selection.json").read_text())["round"] == 1
+    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 2
+    cached = json.loads(cache.read_text())
+    assert cached.pop("thinking") == "medium"
+    ws.write_json(cache, cached)  # old caches did not record the level and cannot prove a match
+    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 3
     assert runner.invoke(app, ["pick", "stool", "--runs-dir", str(runs), "--by", "vibes"]).exit_code == 2
     assert runner.invoke(app, ["pick", "stool", "--runs-dir", str(runs), "--round", "9"]).exit_code == 2
 

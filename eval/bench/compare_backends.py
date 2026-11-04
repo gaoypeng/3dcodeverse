@@ -3,7 +3,7 @@
     python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \\
         --arms harness:agy:gemini-3.8-flash,harness:agy:gemini-4-argon,\\
 oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.8-flash \\
-        --judge gemini:gemini-3.1-pro-preview --out <dir> [--parallel 8] [--limit N]
+        --judge gemini:gemini-4-argon --out <dir> [--parallel 8] [--limit N]
 
 Arms
 * ``harness:<generator-id>`` — the full static_object track (plan → generate →
@@ -81,7 +81,7 @@ from bench.run_bench import (  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse3d.contracts.common import ENTRY_FILE, Track, Usage  # noqa: E402
+from codeverse3d.contracts.common import ENTRY_FILE, Backends, Track, Usage  # noqa: E402
 from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
@@ -133,7 +133,7 @@ def parse_arms(text: str) -> list[Arm]:
 
 
 class CompareOptions(BaseModel):
-    judge: str = "gemini:gemini-3.1-pro-preview"
+    judge: str = Backends().judge
     loop_judge: str | None = Field(default=None, description="harness in-loop judge (None → settings default)")
     planner: str | None = None
     rounds: int = 3
@@ -645,7 +645,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--prompts", required=True)
     ap.add_argument("--arms", required=True, help="comma-separated arm ids")
-    ap.add_argument("--judge", default="gemini:gemini-3.1-pro-preview", help="FIXED judge model id")
+    ap.add_argument("--judge", default=CompareOptions().judge, help="FIXED judge model id")
     ap.add_argument("--out", required=True)
     ap.add_argument("--parallel", type=int, default=8)
     ap.add_argument("--limit", type=int, default=None)

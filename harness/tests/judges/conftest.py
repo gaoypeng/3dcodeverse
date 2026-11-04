@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,20 @@ from codeverse3d.judges.rubrics import Rubric
 from tests.orchestrator_tracks.fakes import FakeChatModel as _FakeChatModel
 
 VIEW_NAMES = ("front_right_high", "back_left_high", "front", "top")
+
+
+@pytest.fixture
+def judge_settings(monkeypatch):
+    """Exercise shipped judge defaults without local configuration or environment overrides."""
+    from codeverse3d.config import Settings
+
+    for name in tuple(os.environ):
+        if name == "C3D_DEFAULT_JUDGE" or name == "C3D_JUDGE" or name.startswith("C3D_JUDGE__"):
+            monkeypatch.delenv(name)
+    settings = Settings()
+    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: settings)
+    monkeypatch.setattr("codeverse3d.judges.pairwise.get_settings", lambda: settings)
+    return settings
 
 
 def draw_chair(path: Path, *, az_hint: int = 0, size: int = 512, legs: int = 4, color=(150, 90, 40)) -> Path:

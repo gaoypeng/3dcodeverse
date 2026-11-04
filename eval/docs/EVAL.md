@@ -13,7 +13,7 @@ fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
 
 1. **Fixed judge.**  One judge model + rubric + `n_samples` for every arm of a
    comparison, never the in-loop judge's own score.  Default for decisive runs:
-   `gemini:gemini-3.1-pro-preview` (the settings default), `n_samples≥2`;
+   `gemini:gemini-4-argon` (the settings default), thinking `medium`, `n_samples≥2`;
    `gemini-3.8-flash` is fine for the loop but is lenient/noisy on fine
    distinctions (overall std ≈ 0.08–0.12 at n=3) — its dynamic range comes from
    the rubric defect checklist, not the criteria.
@@ -71,9 +71,9 @@ rung's prompts are generated ONCE and cached (`prompts/rung_R_<lang>.yaml`) with
 ```bash
 cd eval   # the battery launcher lives with the evaluation
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
-    --generator agy:gemini-4-argon --judge gemini:gemini-3.1-pro-preview \
+    --generator agy:gemini-4-argon --judge gemini:gemini-4-argon \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
-python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-4-argon --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-4-argon --judge gemini:gemini-4-argon --out bench/out/static_v1_gemcli
 python -m bench.report bench/out/static_v1_apiagent
 ```
 Like every bench script it imports THIS tree's `codeverse3d` (`../harness`), so a battery
@@ -111,8 +111,8 @@ cheaply.
 ```bash
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
     --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-4-argon,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.8-flash,oneshot+repair:gemini:gemini-3.8-flash \
-    --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
-    [--rounds 3] [--loop-judge gemini:gemini-3.8-flash] [--repair-attempts 2] [--gen-timeout 900]
+    --judge gemini:gemini-4-argon --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
+    [--rounds 3] [--loop-judge gemini:gemini-4-argon] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]
 ```
 Arms:
@@ -203,7 +203,7 @@ cross-backend candidate pairs keyed by prompt hash).
 
 ```bash
 python -m codeverse3d.addons.calibration <run-dir> [<run-dir> ...] \
-    --model gemini:gemini-3.1-pro-preview --n 3 --out out/calib [--geometry clay|normals|none] [--rounds 0,1]
+    --model gemini:gemini-4-argon --n 3 --out out/calib [--geometry clay|normals|none] [--rounds 0,1]
 # run dirs: any recorded run, e.g. bench/out/<battery>/runs/<slug>
 ```
 Output: `calibration_<model>.md/.json` with per-round mean±std (capped and uncapped),
@@ -220,8 +220,10 @@ schema, n=3, e2e chair/cabinet rounds):
 
 Dynamic range (static rubric, chair brief, n=2): crafted chair / crude drawing /
 wrong-object primitive → flash 0.91 / 0.00 / 0.20, pro 0.60 / 0.00 / 0.25 — the
-binary defect checklist gives flash the range its raw criteria lack.  Hence the
-default judge is pro; flash needs `n_samples ≥ 2` for decisions.
+binary defect checklist gives flash the range its raw criteria lack. These measurements
+supported the pro default at the time; flash needed `n_samples ≥ 2` for decisions.
+The current default is `gemini:gemini-4-argon` with thinking `medium`; the historical
+pro/flash results above do not measure Argon.
 Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01);
 "images beat gate text for visible facts" in the prompt fixed pro hallucinating
 "nothing moves" from contract-gate text.

@@ -14,6 +14,10 @@ The dependency is one-way: `bench` and `llm` import `codeverse3d` (the harness p
 evaluations share one set of battery files — `bench/prompts/*.yaml` — and `llm` reads the ten it can
 ask one-shot from there (`llm/config.py: HARNESS_BATTERIES`).
 
+Harness evaluation defaults to judge `gemini:gemini-4-argon` with thinking `medium`.
+Keep the judge model and sampling settings fixed across comparison arms; historical reports
+retain the judge they were measured with.
+
 ```bash
 cd eval
 pip install -e ../harness                     # once; both evaluations import codeverse3d

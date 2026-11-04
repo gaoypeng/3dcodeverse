@@ -173,9 +173,9 @@ class Judge(BaseModel):
         "connectivity gate carries an ERROR; clean rounds build a byte-identical payload either way.  "
         "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
     thinking: Annotated[Literal["off", "low", "medium", "high"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
-        default="low",
-        description="the in-run VLM judge's thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
-        "'low' = 1024 tokens is enough for gemini-3.1-pro; gemini-4-argon thinks only from 'medium' "
+        default="medium",
+        description="VLM and pairwise judges' thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
+        "The default gemini-4-argon thinks only from 'medium' "
         "(4096) — measured 2026-10-14 on 19 scene/object rounds: argon@medium within-sd .012 vs .029 at low, "
         "same cost, same mean (D105).  `3dcodeverse judge --thinking` replays with another level.")
 

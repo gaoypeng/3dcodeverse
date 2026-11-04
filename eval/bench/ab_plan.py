@@ -2,7 +2,7 @@
 
     python bench/ab_plan.py --prompts bench/prompts/static_objects_v2.yaml \\
         --variant-env C3D_PLAN_BRIEF=on --out bench/out/ab_brief \\
-        [--generator <backend-id>] [--judge gemini:gemini-3.1-pro-preview] \\
+        [--generator <backend-id>] [--judge gemini:gemini-4-argon] \\
         [--rounds 2] [--ids a,b] [--wait-for-provider 60] [--redo-status infra_failed]
 
 The only thing that differs between the arms is the ``--variant-env`` block, applied to
@@ -129,10 +129,10 @@ from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-#: derived from the canonical default (codeverse3d/contracts/common.py Backends.generator),
+#: derived from the canonical defaults (codeverse3d/contracts/common.py Backends),
 #: never a literal: a frozen baseline arm must be named at its use site, not hidden here.
 DEFAULT_GENERATOR = Backends().generator
-DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
+DEFAULT_JUDGE = Backends().judge
 #: the per-child cap.  The flat name is a first-class alias of ``C3D_RATE__MAX_IN_FLIGHT``
 #: since 2026-08-24 (``Settings.FLAT``; before that it was read by nothing) and
 #: wins over the nested spelling when both are set.

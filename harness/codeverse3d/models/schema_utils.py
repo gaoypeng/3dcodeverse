@@ -12,7 +12,7 @@ import copy
 import json
 import re
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -313,11 +313,11 @@ def parse_json_lenient(text: str) -> Any:
 
 def ask_structured(model: Any, schema: type[BaseModel], *, system: str, text: str,
                    images: Sequence[ImagePart] = (), temperature: float,
-                   label: str) -> tuple[Any, Usage, str]:
+                   label: str, thinking: Literal["off", "low", "medium", "high"] = "low") -> tuple[Any, Usage, str]:
     """One structured call → ``(validated object | None, usage, error)``; failures are returned, not raised."""
     req = ChatRequest(messages=[ChatMessage.user(text, images=list(images) or None)], system=system,
                       response_schema=schema.model_json_schema(), temperature=temperature,
-                      thinking="low", max_output_tokens=65_536, max_wait_s=900.0, label=label)
+                      thinking=thinking, max_output_tokens=65_536, max_wait_s=900.0, label=label)
     try:
         resp = model.generate(req)
     except ModelError as e:  # e.usage is what the provider ALREADY billed for the failure

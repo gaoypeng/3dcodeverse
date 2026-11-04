@@ -163,7 +163,7 @@ class Backends(BaseModel):
 
     planner: str = "gemini:gemini-4-argon"
     generator: str = "agy:gemini-4-argon"
-    judge: str = "gemini:gemini-3.1-pro-preview"
+    judge: str = "gemini:gemini-4-argon"
     captioner: str = "gemini:gemini-4-argon"
 
 

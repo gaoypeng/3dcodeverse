@@ -83,6 +83,7 @@ def test_ask_structured_returns_the_triple_and_the_billed_usage_on_failure():
 
     class Prose:
         def generate(self, request):
+            assert request.thinking == "low"  # the planner's structured helper keeps its own default
             return ChatResponse(text="I refuse.", usage=Usage(cost_usd=0.01))
 
     out, usage, err = ask_structured(Prose(), Answer, system="s", text="t", temperature=0.2, label="l")

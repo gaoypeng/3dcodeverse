@@ -15,21 +15,31 @@ def _judge(model, **kw):
     return VlmJudge("static_object", model_id="fake:fake-1", chat_model=model, **kw)
 
 
-def test_full_path_single_sample(judge_input, cache_dir):
+def test_full_path_single_sample(judge_input, cache_dir, judge_settings):
     model = FakeChatModel([good_reply(R, IDS, 0.8)])
-    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
+    j = VlmJudge("static_object", chat_model=model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and abs(j.overall - 0.8) < 1e-6
     assert j.scores["intent_fidelity"] == 0.8 and j.n_samples == 1 and j.score_std == 0.0
     assert j.acceptance_results == {"A1": True, "A2": True}
     assert j.improvement_plan[0].instruction.startswith("bevel")
     assert j.usage.cost_usd == pytest.approx(0.001)
-    assert j.judge_backend == "fake:fake-1" and j.rubric == "static_object"
+    assert j.judge_backend == judge_settings.backends().judge == "gemini:gemini-4-argon"
+    assert j.rubric == "static_object"
     raw = json.loads(j.raw)
     assert raw["status"] == "ok" and raw["n_used"] == 1 and raw["rubric_hash"] == R.content_hash()
     assert "[verdict: overall 0.80 vs threshold 0.72 → PASS]" in j.summary
     req = model.requests[0]
+    assert req.thinking == "medium"
     assert req.label == "judge:static_object:r00:s0" and len(image_parts(req)) == 3  # 2x2 montage + 2 detail crops
     assert raw["defects"] == {d.id: False for d in R.defects} and raw["defect_penalty"] == 0.0
+
+    # Explicit replay settings still override the defaults.
+    override = "gemini:gemini-3.1-pro-preview"
+    model = FakeChatModel([good_reply(R, IDS, 0.8)])
+    j = VlmJudge("static_object", model_id=override, thinking="low", chat_model=model,
+                 cache_dir=cache_dir).judge(judge_input)
+    assert j.judge_backend == judge_settings.backends(judge=override).judge == override
+    assert model.requests[0].thinking == "low"
 
 
 @pytest.mark.parametrize("fixed_order", [False, True])

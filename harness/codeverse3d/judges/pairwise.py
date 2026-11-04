@@ -75,6 +75,7 @@ class PairwiseJudge:
     def __init__(self, model_id: str | None = None, *, chat_model: ChatModel | None = None,
                  cache_dir: Path | None = None):
         self.model_id = model_id or get_settings().default_judge
+        self.thinking = get_settings().judge.thinking
         self._model = chat_model
         self.cache_dir = cache_dir
 
@@ -155,7 +156,7 @@ class PairwiseJudge:
         return ChatRequest(
             messages=[ChatMessage(role="user", parts=parts)], system=_SYSTEM,
             response_schema=PairwiseReply.model_json_schema(), temperature=TEMPERATURE,
-            max_wait_s=900.0, label=label,
+            thinking=self.thinking, max_wait_s=900.0, label=label,
         )
 
     def _side_images(self, tag: str, rs: RenderSet, *, scene: bool) -> list[tuple[str, ImagePart]]:

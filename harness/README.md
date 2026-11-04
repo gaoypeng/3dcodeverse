@@ -13,7 +13,7 @@ renders, judges, refines and records every run as data-flywheel material.
 * **Spatial tools** (direct, or over the MCP server `3dcode` for the agentic CLIs): build,
   measure, render, section, connectivity/contract checks, joint sweeps, scene and GL probes —
   the list is `docs/ARCHITECTURE.md` §5.
-* **Judging:** rubric VLM judge (default `gemini-3.1-pro-preview`) on labelled 2×2
+* **Judging:** rubric VLM judge (default `gemini:gemini-4-argon`, thinking `medium`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
   deterministic gates; pairwise, reference and likeness judges; best-of-N candidates;
   a calibration harness (`addons/calibration.py`).

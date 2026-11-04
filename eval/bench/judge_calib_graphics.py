@@ -4,7 +4,7 @@ The loop the object track had (rubric → re-judge recorded rounds → compare a
 person sees → revise) never ran for graphics.  This script is that loop's measuring half:
 
     python bench/judge_calib_graphics.py --corpus <corpus.json> --eye <eye.json> \
-        --rubrics shader --model gemini:gemini-3.1-pro-preview --n 2 \
+        --rubrics shader --model gemini:gemini-4-argon --n 2 \
         --out bench/out/judge_calib_graphics
 
 * ``corpus.json``: ``[[score, run_dir, sheet_path, generator], ...]`` — every graphics run with a
@@ -14,7 +14,7 @@ person sees → revise) never ran for graphics.  This script is that loop's meas
 
 For every run and every rubric it rebuilds the JudgeInput the loop used — ``build_judge_input``,
 the ``3dcodeverse judge`` payload (the picked round's judged views, gates, plan digest and acceptance
-list, previous verdict, frame metrics) — and judges it with a fresh ``VlmJudge`` (n samples, pro).  Output per rubric: ``<rubric>.jsonl`` (one
+list, previous verdict, frame metrics) — and judges it with a fresh ``VlmJudge`` (n samples).  Output per rubric: ``<rubric>.jsonl`` (one
 row per run: overall, per-criterion, defects present, caps) and one ``summary.md`` with
 Spearman(judge, eye), mean judge vs mean eye, the biggest disagreements, and defect firing rates.
 Judging only; nothing under the runs is modified.
@@ -32,6 +32,7 @@ from typing import Any
 from codeverse3d.addons import select
 from codeverse3d.addons.calibration import spearman
 from codeverse3d.cli._judge import build_judge_input, load_round
+from codeverse3d.contracts.common import Backends
 from codeverse3d.judges.vlm_judge import VlmJudge
 from codeverse3d.record.record import RecordError, load_record
 from codeverse3d.workspace import Workspace
@@ -67,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--eye", required=True)
     ap.add_argument("--rubrics", default="shader")
-    ap.add_argument("--model", default="gemini:gemini-3.1-pro-preview")
+    ap.add_argument("--model", default=Backends().judge)
     ap.add_argument("--n", type=int, default=2)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", default=str(OUT_ROOT / "judge_calib_graphics"))

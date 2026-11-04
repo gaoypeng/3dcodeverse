@@ -299,9 +299,10 @@ it); `ReferenceJudge` for image-conditioned specs.  Rubrics (pass threshold 0.70
 must-acceptance), `asset`, `reference`, `shader` (graphics, `gl_frames` caps; also the
 `LikenessJudge` default).
 
-**Calibration** (`addons/calibration.py`: re-judges recorded rounds, n samples each) is why the
-default judge is `gemini-3.1-pro-preview` (`Settings.default_judge`) and flash is the cheap
-option that needs `n_samples ≥ 2` for decisions; the numbers are in `eval/docs/EVAL.md` §6.
+The default judge is `gemini:gemini-4-argon` (`Settings.default_judge`) with
+`judge.thinking=medium`. **Calibration** (`addons/calibration.py`) re-judges recorded rounds
+with repeated samples. The pro/flash measurements in `eval/docs/EVAL.md` §6 describe those
+models; they do not establish Argon's variance or accuracy.
 
 ## 7. Run pipeline (all tracks)
 
@@ -400,9 +401,10 @@ run's recorded spend, `3dcodeverse cost estimate` a call's expected price.
 
 ## 9. Known limits
 
-* Judge: flash is lenient/noisy on fine distinctions (overall std ≈ 0.08–0.12 at n=3); its
-  dynamic range comes from the defect checklist.  Use pro (default) or `n_samples ≥ 3` for
-  decisions.  Detail crops are position-heuristic (no 2D part boxes).
+* Judge: recorded flash measurements are lenient/noisy on fine distinctions (overall std
+  ≈ 0.08–0.12 at n=3); its dynamic range comes from the defect checklist. Calibrate the
+  selected model with repeated samples before using small score differences for decisions.
+  Detail crops are position-heuristic (no 2D part boxes).
 * Scene judging is deliberately narrow: the judge sees the scene's OWN cameras plus at most four
   overview-rig tiles; the harness's eye-level rig is a diagnostic only.  A `must` acceptance item
   the harness cannot verify caps a round at 0.60 AND fails its verdict, so on the scene track

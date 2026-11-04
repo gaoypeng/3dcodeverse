@@ -33,7 +33,6 @@ from pathlib import Path
 DEFAULT_BATTERY = "bench/prompts/articulated_v2.yaml"
 DEFAULT_PLANNER = "gemini:gemini-3.8-flash"
 DEFAULT_GENERATOR = "agy:gemini-4-argon"
-DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 
 
 def _done(out: Path) -> set[tuple[str, int]]:
@@ -191,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
                          "same code (ab_plan.py's header documents this failure)")
 
     battery = Battery.load(ns.tree / ns.battery)
-    backends = get_settings().backends(generator=DEFAULT_GENERATOR, planner=ns.planner, judge=DEFAULT_JUDGE)
+    backends = get_settings().backends(generator=DEFAULT_GENERATOR, planner=ns.planner)
     wanted = [p for p in battery.prompts if not ns.ids or p.id in {i for i in ns.ids.split(",") if i}]
     done = _done(ns.out)
     jobs = [(item, rep) for item in wanted for rep in range(ns.reps) if (item.id, rep) not in done]

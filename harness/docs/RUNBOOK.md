@@ -127,6 +127,15 @@ bookmarked.  `--reload` re-scans on every page load (a run with no `record.json`
 
 ## 5. Resume, re-render, re-judge, export
 
+New runs and standalone calibration default to `gemini:gemini-4-argon` with thinking
+`medium`. Existing runs retain the judge model in `record.spec.backends.judge`: `resume`,
+`judge` and `pick --by pairwise` use that model by default. `resume` has no `--judge`
+override. Thinking still comes from the current `judge.thinking` setting (default `medium`),
+not the recorded model; `judge --thinking` overrides it for that call. `pick --by score`
+uses the recorded scores without calling a judge. To re-judge an old run with Argon, use
+`3dcodeverse judge <slug> --model gemini:gemini-4-argon --thinking medium`. For a pairwise
+pick with Argon, use `3dcodeverse pick <slug> --by pairwise --judge gemini:gemini-4-argon`.
+
 ```bash
 3dcodeverse resume <slug> [--candidates N] [--no-pick]
                                         # continues from run_state + stages/*.json and from the LAST round.  A
@@ -143,7 +152,7 @@ bookmarked.  `--reload` re-scans on every page load (a run with no `record.json`
                                         # the pairwise judge between the top two when within 0.03; --round N = that
                                         # round.  `make`/`resume` run `pick --by score` for you
 3dcodeverse render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
-3dcodeverse judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
+3dcodeverse judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-4-argon] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
 3dcodeverse tools list [--cards] · 3dcodeverse tools measure --workspace runs/<slug> · 3dcodeverse tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
                                         # panel says ok | FAIL (the verdict) | error (the tool could not run); exit 1 on either
@@ -154,7 +163,7 @@ bookmarked.  `--reload` re-scans on every page load (a run with no `record.json`
                                      # one row per round the harness asked to change (addons/dataset/refine.RefineTransition);
                                      # training formats live in finetune/llamafactory/, not here
 3dcodeverse flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
-python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-4-argon --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
 
@@ -180,11 +189,11 @@ imports the editable install, not the cwd.
 ```bash
 cd ../eval   # the battery launcher is the evaluation's
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.8-flash \
-    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
+    --judge gemini:gemini-4-argon --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
 python -m bench.report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
 cd ../harness
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
-    --arms harness:agy:gemini-4-argon,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
+    --arms harness:agy:gemini-4-argon,oneshot:claude-code --judge gemini:gemini-4-argon --out ../eval/bench/out/compare_v1
 ```
 
 Results stream to `results.jsonl` (resumable).  The batteries, the protocol and judge

@@ -206,6 +206,7 @@ def compare(
     part_names: Sequence[str] = (),
     measured: dict[str, Any] | None = None,
     temperature: float = 0.1,
+    thinking: Literal["off", "low", "medium", "high"] = "low",
     max_reference: int = 2,
     max_renders: int = 3,
 ) -> ReferenceDiff:
@@ -233,7 +234,7 @@ def compare(
     images = [ImagePart(path=str(p), label=f"REFERENCE {i + 1}") for i, p in enumerate(refs)]
     images += [ImagePart(path=str(p), label=f"RENDER {i + 1} ({p.stem})") for i, p in enumerate(rens)]
     ans, usage, err = ask_structured(model, DiffAnswer, system=DIFF_SYSTEM, text=text, images=images,
-                           temperature=temperature, label="reference_diff")
+                           temperature=temperature, thinking=thinking, label="reference_diff")
     diff.usage = usage
     if err:
         log.warning("reference diff %s", err)

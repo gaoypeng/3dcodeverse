@@ -143,14 +143,14 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
     seen = hashlib.sha256("\n".join(sha256_file(v.path) if Path(v.path).is_file() else v.path
                                   for rs in renders for v in rs.views).encode()).hexdigest()
     stored = read_json_or_none(cache) or {}
-    if (stored.get("model") == model and stored.get("renders") == seen
-            and isinstance(stored.get("note"), dict)):
-        return PairwiseNote.model_validate(stored["note"])
     try:
         if judge is None:
             from codeverse3d.judges.pairwise import PairwiseJudge
 
             judge = PairwiseJudge(model)
+        if (stored.get("model") == model and stored.get("renders") == seen
+                and stored.get("thinking") == judge.thinking and isinstance(stored.get("note"), dict)):
+            return PairwiseNote.model_validate(stored["note"])
         with call_context(stage=Stage.PAIRWISE, role=Role.JUDGE, label="pick"):
             res = judge.compare(rec.spec, renders[0], renders[1],
                                 rubric=rubric_of(rec))
@@ -161,7 +161,8 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
     note.winner, note.confidence = res.winner, float(res.confidence or 0.0)
     note.reasons, note.usage, note.error = list(res.reasons or [])[:6], res.usage or Usage(), res.error or ""
     note.accepted = note.winner == "b" and note.confidence >= PAIRWISE_MIN_CONFIDENCE
-    ws.write_json(cache, {"model": model, "renders": seen, "note": note.model_dump(mode="json")})
+    ws.write_json(cache, {"model": model, "renders": seen, "thinking": judge.thinking,
+                         "note": note.model_dump(mode="json")})
     EventLog(ws.events_path).emit("pick.pairwise", a=a, b=b, winner=note.winner, confidence=note.confidence,
                                   accepted=note.accepted, cost_usd=round(note.usage.cost_usd, 4))
     return note
