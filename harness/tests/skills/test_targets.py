@@ -15,12 +15,6 @@ from codeverse3d.skills.registry import ROUTED_SKILLS
 BUNDLES = bundle_dirs()
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")
 
-def _live_kinds() -> set[str]:
-    from codeverse3d.skills import registry
-
-    return {v for k, v in vars(registry).items()
-            if k.isupper() and isinstance(v, str) and "/" in v}
-
 # --------------------------------------------------------------------------- the table
 def test_target_table_exactly_covers_the_shipped_and_routed_bundles():
     """No orphan rows, unmeasured routes, duplicate rows or bundles maintained by taste."""

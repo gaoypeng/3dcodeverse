@@ -485,9 +485,9 @@ def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
     name = Path(run_root).name
     return (
         f"refusing to {action} run {name}: it is being run right now by pid {held.get('pid', '?')} "
-        f"(started {started}: {held.get('what') or '3dcode'}).  Two processes on one run "
-        f"corrupt each other's state.  Look at it with `3dcode status {name}`, or stop that "
-        f"ONE process with `kill {held.get('pid', '?')}` — never `pkill -f 3dcode`, which kills every "
+        f"(started {started}: {held.get('what') or '3dcodeverse'}).  Two processes on one run "
+        f"corrupt each other's state.  Look at it with `3dcodeverse status {name}`, or stop that "
+        f"ONE process with `kill {held.get('pid', '?')}` — never `pkill -f 3dcodeverse`, which kills every "
         f"other run on this machine too."
     )
 

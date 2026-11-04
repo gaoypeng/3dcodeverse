@@ -1,5 +1,5 @@
-"""``3dcode show`` — the single-run view: STATUS (works mid-run, without record.json;
-``3dcode status`` is ``show --section status``), DELIVERABLE, QUALITY EVIDENCE and
+"""``3dcodeverse show`` — the single-run view: STATUS (works mid-run, without record.json;
+``3dcodeverse status`` is ``show --section status``), DELIVERABLE, QUALITY EVIDENCE and
 COST & SETTINGS."""
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None
             "generator": spec.backends.generator, "judge": spec.backends.judge, "workspace": ws.root}))
     state: dict[str, Any] = {}
     if (held := holder_of(ws.root)) is not None:
-        state["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcode'})"
+        state["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcodeverse'})"
     if ws.state_path.is_file():
         raw = read_json_or_none(ws.state_path)
         state["run_state"] = "(unreadable)" if raw is None else ", ".join(
@@ -137,7 +137,7 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
     if d is not None:
         console.print(_deliverable_table(d))
     else:
-        console.print(kv_table("artifacts (no deliverable/ yet — `3dcode pick` packages a round)",
+        console.print(kv_table("artifacts (no deliverable/ yet — `3dcodeverse pick` packages a round)",
                                _unpackaged_artifact_rows(ws)))
 
 
@@ -263,7 +263,7 @@ def show(
         record: RunRecord | None = load_record(ws)
     except RecordError as e:
         if section not in ("all", "status"):
-            raise C.CliError(f"{e} (`3dcode status {slug}` shows where the run stands)") from e
+            raise C.CliError(f"{e} (`3dcodeverse status {slug}` shows where the run stands)") from e
         record, missing = None, str(e)
     if section in ("all", "status"):
         print_status(ws, record, events)
@@ -280,5 +280,5 @@ def show(
 
 
 def status(slug: str, runs_dir: RunsDirOpt = None, events: EventsOpt = 8) -> None:
-    """Where a run stands, mid-run too: `3dcode show <slug> --section status`."""
+    """Where a run stands, mid-run too: `3dcodeverse show <slug> --section status`."""
     show(slug, runs_dir, section="status", events=events)

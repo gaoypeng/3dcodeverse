@@ -44,7 +44,7 @@ def _writer(job, ws):
 
 
 def test_a_replayed_round_reads_the_payload_the_in_run_judge_read(tmp_path):
-    """``3dcode judge`` / calibration rebuild the payload the in-run judge read (``judges.base.round_input``)."""
+    """``3dcodeverse judge`` / calibration rebuild the payload the in-run judge read (``judges.base.round_input``)."""
     from codeverse3d.cli._judge import build_judge_input
     from codeverse3d.record.record import load_record
 

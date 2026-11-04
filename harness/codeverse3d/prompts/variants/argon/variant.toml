@@ -6,7 +6,7 @@
 # so iteration 0 of eval/bench/loop.py measures the base prompts under the variant plumbing;
 # the loop writes files beside this one and bumps `version` on accept.
 #
-# Selection is explicit, never a regex over the model id: `3dcode make --variant argon`,
+# Selection is explicit, never a regex over the model id: `3dcodeverse make --variant argon`,
 # C3D_VARIANT=argon, or C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}' (by the served model, so
 # agy:gemini-4-argon-high maps too).  `generators` below is informative.
 

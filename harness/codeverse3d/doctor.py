@@ -1,4 +1,4 @@
-"""Environment checks behind ``3dcode doctor`` — python deps, Blender, node/three/
+"""Environment checks behind ``3dcodeverse doctor`` — python deps, Blender, node/three/
 puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP.
 """
 

@@ -20,10 +20,10 @@ renders, judges, refines and records every run as data-flywheel material.
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/cross-backend
   pairs, captions, HTML gallery.
-* **Looking at results:** `3dcode gallery serve` — a local page over `runs/` +
+* **Looking at results:** `3dcodeverse gallery serve` — a local page over `runs/` +
   `eval/bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
   it serves the run directories too, so every link (sheet, renders, `src/`, `object.glb`
-  in an orbit viewer, `record.json`) actually opens.  `3dcode gallery build --embed` writes
+  in an orbit viewer, `record.json`) actually opens.  `3dcodeverse gallery build --embed` writes
   the same page as one shareable file.
 
 ## Architecture
@@ -55,8 +55,8 @@ codeverse3d/
   record/          what every run writes: record.json, deliverable/, telemetry
   addons/          optional tools that READ finished runs — nothing a run needs:
                    gallery (the runs browser), dataset (export, tiers, preference/repair pairs,
-                   captions), costreport (`3dcode cost`), calibration, skill_targets
-  cli/             the typer CLI · doctor.py  the environment checks behind `3dcode doctor`
+                   captions), costreport (`3dcodeverse cost`), calibration, skill_targets
+  cli/             the typer CLI · doctor.py  the environment checks behind `3dcodeverse doctor`
 ../eval/bench/     the evaluation harness around the harness: run_bench, compare_backends
                    (A/B matrix), ab_plan, infra-failure classification
 runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
@@ -71,22 +71,22 @@ Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.m
 ```bash
 bash setup.sh     # python package + runtime_js + headless Chrome + the agy / claude / codex CLIs at their latest + doctor
 # ...or by hand:
-pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcode
+pip install -e '.[all,dev]'    # entry point: 3dcodeverse
 (cd runtime_js && npm ci)      # three@0.182 + puppeteer 24 (chrome → ~/.cache/puppeteer)
 curl -fsSL https://antigravity.google/cli/install.sh | bash      # agy, the default generator's CLI (`agy update` later)
 npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest   # optional generators claude-code / codex (local subscriptions)
 export GEMINI_API_KEYS="key1,key2"                               # agy runs in Gemini-API mode on this key pool (docs/INSTALL.md §8)
-3dcode doctor
-3dcode make "a mid-century wooden dining chair" --track static_object --language blender
-3dcode make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender
-3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs
-3dcode make "neon cyberpunk rain on a window" --track graphics --language glsl_shader
-3dcode gallery serve             # browse every run at http://127.0.0.1:8765/ (docs/RUNBOOK.md §4)
+3dcodeverse doctor
+3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
+3dcodeverse make "a kitchen cabinet with one door and a drawer" --track articulated_object --language urdf_blender
+3dcodeverse make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs
+3dcodeverse make "neon cyberpunk rain on a window" --track graphics --language glsl_shader
+3dcodeverse gallery serve             # browse every run at http://127.0.0.1:8765/ (docs/RUNBOOK.md §4)
 python -m pytest tests -q -m "not live"
 ```
 
 Expected cost and time per track: `docs/RUNBOOK.md` §2. Inspect actual run costs with
-`3dcode cost <slug>` and a call's expected price with `3dcode cost estimate`.
+`3dcodeverse cost <slug>` and a call's expected price with `3dcodeverse cost estimate`.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/RUNBOOK.md` (operate / extend) ·

@@ -1,4 +1,4 @@
-"""materialize_workspace: bodies, ignore file, codex overrides."""
+"""Codex MCP environment overrides preserve the selected harness."""
 
 from __future__ import annotations
 
@@ -7,31 +7,7 @@ import subprocess
 import sys
 import tomllib
 
-from codeverse3d.agents.cli_common import default_mcp_command
-from codeverse3d.agents.materialize import (
-    codex_mcp_overrides,
-    materialize_workspace,
-)
-from codeverse3d.workspace import Workspace
-
-CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
-
-
-def _mat(ws: Workspace, kind: str = "agy"):
-    return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT,
-                                 mcp_command=default_mcp_command(ws))
-
-
-
-
-
-
-
-
-
-
-
-
+from codeverse3d.agents.materialize import codex_mcp_overrides
 
 
 def test_codex_mcp_preserves_explicit_engine_selection(tmp_path, monkeypatch):

@@ -119,7 +119,7 @@ def print_observation(obs: Any, *, as_json: bool) -> None:
 
 
 def doctor_table(rows: list[tuple[str, str, str]]) -> Table:
-    t = Table(title="3dcode doctor")
+    t = Table(title="3dcodeverse doctor")
     t.add_column("check", style="bold")
     t.add_column("status")
     t.add_column("detail")

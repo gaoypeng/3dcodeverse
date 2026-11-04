@@ -42,28 +42,20 @@ cad = ["cadquery>=2.4"]                                   # language `cadquery`
 urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]                # track `articulated_object` (urdf_blender)
 graphics = ["moderngl>=5.8"]                              # track `graphics` (glsl_shader / opengl_python)
 mesh = ["shapely>=2.0", "networkx>=3.2", "matplotlib>=3.8"]  # cross_section area, mesh split, judge slices (D48)
-mcp = ["mcp>=1.0"]                                        # `3dcode mcp` spatial-tool server for the agentic CLIs
-flywheel = ["pyarrow>=15"]                                # `3dcode flywheel export --pack` (parquet)
+mcp = ["mcp>=1.0"]                                        # `3dcodeverse mcp` spatial-tool server for the agentic CLIs
+flywheel = ["pyarrow>=15"]                                # `3dcodeverse flywheel export --pack` (parquet)
 all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
 dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "pyarrow>=15"]
 
 [project.scripts]
-3dcode = "codeverse3d.cli.main:app"
 3dcodeverse = "codeverse3d.cli.main:app"
 
 [tool.setuptools.packages.find]
 include = ["codeverse3d*"]
 
 [tool.setuptools.package-data]
-# Every non-python file a runtime reads at call time.  The scene starter tree was once
-# missing and `spatial/js/*` matched nothing at all (no such directory), so a wheel
-# install shipped no starter files: skeleton.write_example() rglob'd an absent
-# directory and wrote ZERO files while reporting success.  tests/core/test_portability.py
-# fails on a glob that matches nothing (languages/**/*.md died with the last README).
-# `skills/**/*` carries the SKILL.md bundles + their references/: an installed wheel that
-# ships none of them routes an empty set, and the failure is silent (the run still passes,
-# the skill simply never appears).  tests/skills/test_packaging.py builds a wheel and
-# asserts the files are in it.
+# Runtime data, including starter trees and skill bundles. tests/core/test_portability.py
+# checks that every data file matches a glob and every glob matches an existing file.
 codeverse3d = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
              "languages/**/starter/**/*", "skills/**/*"]
 
@@ -85,9 +77,8 @@ timeout = 600
 # that happens to have API keys configured fires real requests, and during a provider
 # outage it hangs instead of failing — which is exactly what happened on 2026-08-24.
 # Everyone's default run is the offline suite (run locally before every push; there is no CI).
-# -n auto: the offline suite is ~1 900 mostly-independent tests and this box has 24
-# cores — serial it is ~3 min, parallel ~15 s.  -p no:randomly is NOT set: xdist
-# distributes by file, and every test that touches shared state already uses tmp_path.
+# xdist distributes test items with work stealing. Tests isolate mutable state with tmp_path;
+# nested pytest invocations must use -n0 to avoid launching another worker pool.
 addopts = ["-m", "not live", "-n", "auto", "--dist", "worksteal"]
 markers = [
   "live: needs network + API keys (deselect with -m 'not live')",

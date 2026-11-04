@@ -58,7 +58,7 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     assert len(res) == 4
     by_id = {r.id: r for r in res}
     assert by_id["furn_easy_stool"].score_picked == 0.85 and by_id["furn_easy_stool"].picked_round == 1
-    # like `3dcode make`, the battery hands over the picked round
+    # like `3dcodeverse make`, the battery hands over the picked round
     assert (out / "runs" / "furn_easy_stool" / "deliverable" / "manifest.json").is_file()
     assert json.loads((out / "runs" / "furn_easy_stool" / "selection.json").read_text())["round"] == 1
     assert by_id["veh_easy_toy_car"].status == "error" and "boom" in by_id["veh_easy_toy_car"].errors
@@ -236,7 +236,7 @@ def test_a_redo_starts_from_a_fresh_workspace(tmp_path):
 
 
 def test_the_launcher_hands_its_flags_to_run_battery(tmp_path: Path, monkeypatch, capsys):
-    """``python -m bench.run_bench`` replaced ``3dcode bench run`` (2026-09-22) with the same flags."""
+    """``python -m bench.run_bench`` replaced ``3dcodeverse bench run`` (2026-09-22) with the same flags."""
     import bench.run_bench as rb
 
     seen: dict = {}
@@ -324,7 +324,7 @@ def test_a_variant_is_frozen_on_every_spec_and_active_for_the_battery(tmp_path: 
     assert fake.seen == ["argon/argon"] * 2 and fake.active == "", "frozen on the spec, active for the block, released"
     spec = json.loads((tmp_path / "a" / "runs" / "furn_easy_stool" / "spec.json").read_text())
     assert spec["options"]["variant"] == "argon"
-    # no --variant: the settings resolve it for the generator, as `3dcode make` does — frozen, not activated
+    # no --variant: the settings resolve it for the generator, as `3dcodeverse make` does — frozen, not activated
     fake.seen.clear()
     run_battery(battery, tmp_path / "b", BenchOptions(parallel=1, limit=1, generator="agy:gemini-4-argon"), run_fn=run)
     assert fake.seen == ["argon/"]
@@ -344,7 +344,7 @@ def test_a_variant_is_frozen_on_every_spec_and_active_for_the_battery(tmp_path: 
 
 
 def test_the_report_command_rebuilds_the_report(tmp_path: Path, capsys):
-    """``python -m bench.report <out>`` replaced ``3dcode bench report``."""
+    """``python -m bench.report <out>`` replaced ``3dcodeverse bench report``."""
     from bench.report import main
 
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"

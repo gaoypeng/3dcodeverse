@@ -1,4 +1,4 @@
-"""``3dcode doctor``: the GPU probe hands the browser back, and a broken install is a row, never a crash."""
+"""``3dcodeverse doctor``: the GPU probe hands the browser back, and a broken install is a row, never a crash."""
 
 from __future__ import annotations
 

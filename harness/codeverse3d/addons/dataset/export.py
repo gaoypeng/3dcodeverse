@@ -370,7 +370,7 @@ def load_manifest(out_dir: Path | str) -> DatasetGenerationManifest:
     path = Path(out_dir) / MANIFEST_NAME
     if not path.is_file():
         raise ManifestError(
-            f"{path} not found — run export first (3dcode flywheel export writes it): "
+            f"{path} not found — run export first (3dcodeverse flywheel export writes it): "
             f"pack no longer rescans directories")
     try:
         return DatasetGenerationManifest.model_validate_json(path.read_text())

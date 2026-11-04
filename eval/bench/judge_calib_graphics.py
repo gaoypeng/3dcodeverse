@@ -13,7 +13,7 @@ person sees → revise) never ran for graphics.  This script is that loop's meas
   curator screenshot it / does it look like the thing").  The ground truth this calibrates to.
 
 For every run and every rubric it rebuilds the JudgeInput the loop used — ``build_judge_input``,
-the ``3dcode judge`` payload (the picked round's judged views, gates, plan digest and acceptance
+the ``3dcodeverse judge`` payload (the picked round's judged views, gates, plan digest and acceptance
 list, previous verdict, frame metrics) — and judges it with a fresh ``VlmJudge`` (n samples, pro).  Output per rubric: ``<rubric>.jsonl`` (one
 row per run: overall, per-criterion, defects present, caps) and one ``summary.md`` with
 Spearman(judge, eye), mean judge vs mean eye, the biggest disagreements, and defect firing rates.
@@ -40,7 +40,7 @@ OUT_ROOT = Path(__file__).resolve().parent / "out"
 
 
 def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
-    """Re-judge the round ``codeverse3d.addons.select`` picks on the payload ``3dcode judge`` builds
+    """Re-judge the round ``codeverse3d.addons.select`` picks on the payload ``3dcodeverse judge`` builds
     (``build_judge_input``: the harness's ``round_input`` from disk), with ``rubric`` swapped in."""
     ws = Workspace(run)
     try:

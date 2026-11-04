@@ -10,20 +10,19 @@ import pytest
 from tests.prompts import manifest as M
 
 
-@pytest.fixture(scope="module", params=M.ALL)
-def scenario(request, tmp_path_factory) -> tuple[str, dict]:
-    """One run per scenario for both tests below (module scope keeps them together)."""
-    name = request.param
-    return name, M.digest(M.run_scenario(name, tmp_path_factory.mktemp(name.replace(".", "_"))))
-
-@pytest.mark.parametrize(("section", "hint"), [("payloads", M.PAYLOAD_HINT), ("stage_keys", M.STAGE_HINT)],
-                         ids=["payloads", "stage_keys"])
-def test_the_run_matches_the_manifest(scenario, section: str, hint: str) -> None:
-    name, got = scenario
+@pytest.mark.parametrize("name", M.ALL)
+def test_the_run_matches_the_manifest(name: str, tmp_path) -> None:
+    """Check both sections in one case so xdist cannot run the same scenario twice."""
     stored = M.load()
     assert name in stored, f"{name} is not in {M.MANIFEST.name}: bless it"
-    lines = M.diff(got[section], stored[name][section])
-    assert not lines, f"{name}: {section} changed\n" + "\n".join(lines) + "\n\n" + hint
+    got = M.digest(M.run_scenario(name, tmp_path))
+    changes = []
+    for section, hint in (("payloads", M.PAYLOAD_HINT), ("stage_keys", M.STAGE_HINT)):
+        lines = M.diff(got[section], stored[name][section])
+        if lines:
+            changes.append(f"{name}: {section} changed\n" + "\n".join(lines) + "\n\n" + hint)
+    assert not changes, "\n\n".join(changes)
+
 
 def test_the_manifest_holds_exactly_the_scenarios() -> None:
     assert sorted(M.load()) == M.ALL, "bless after adding or removing a scenario"

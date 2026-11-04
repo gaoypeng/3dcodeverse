@@ -20,7 +20,7 @@ restores the previous snapshot on rollback.
 * `variant_hash("argon")` (`codeverse3d/prompts/variants.py`) covers both halves, this README
   excluded; the run record names the variant, its version and that hash.
 
-How a run picks it: `3dcode make --variant argon`, `C3D_VARIANT=argon`, or
+How a run picks it: `3dcodeverse make --variant argon`, `C3D_VARIANT=argon`, or
 `C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'` (an exact generator id, looked up as typed
 and then by `<kind>:<served model>` so the effort suffix does not matter).  Never a pattern
 over the model id (Law 4).

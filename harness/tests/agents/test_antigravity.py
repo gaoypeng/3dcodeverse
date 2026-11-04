@@ -132,11 +132,3 @@ def test_without_keys_agy_is_unavailable_and_never_starts(tmp_ws: Workspace, fak
     assert not ok and "API keys" in why
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="nokey", timeout_s=30))
     assert not res.ok and res.exit_reason == "error" and not (tmp_ws.src / "hello.txt").exists()
-
-
-def _effort_job(tmp_ws: Workspace, **kw) -> AgentJob:
-    return AgentJob(workspace=str(tmp_ws.root), prompt="hello", timeout_s=30, spatial_tools=False, **kw)
-
-
-
-

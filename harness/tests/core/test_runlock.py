@@ -58,7 +58,7 @@ def test_a_second_process_is_refused_and_a_killed_holder_never_wedges_the_run(tm
         msg = str(got.value)
         assert str(child.pid) in msg  # names the holder, so a human can kill THAT pid
         assert "pkill" in msg, "and must warn against the pattern kill that took out 13 runs"
-        with pytest.raises(CliError) as ei, mutating(run_root, what="3dcode make slug"):
+        with pytest.raises(CliError) as ei, mutating(run_root, what="3dcodeverse make slug"):
             pytest.fail("the mutation boundary must not be entered")
         assert ei.value.exit_code == 2
         assert (run_root / "spec.json").exists(), "the live holder's workspace must survive"

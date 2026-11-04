@@ -25,7 +25,7 @@ def app(gallery_tree: dict[str, Path]) -> GalleryApp:
 def test_routes(app: GalleryApp):
     r = app.route("/")
     assert r.status == 200 and r.content_type.startswith("text/html")
-    assert b"3dcode gallery" in r.body
+    assert b"3dcodeverse gallery" in r.body
     assert app.route("/nope").status == 404
 
     # the detail of a broken / pending run does not crash

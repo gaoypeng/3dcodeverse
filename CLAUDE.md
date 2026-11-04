@@ -6,7 +6,7 @@ The harness lives in **`harness/`** — read `harness/CLAUDE.md` +
 `cd harness && python -m pytest tests -q -m "not live"`.
 
 **`eval/`** evaluates things and is never imported by the harness: `eval/bench` evaluates the HARNESS
-(batteries — `cd eval && python -m bench.run_bench <battery.yaml>`, which replaced `3dcode bench` —
+(batteries — `cd eval && python -m bench.run_bench <battery.yaml>` —
 A/B rigs, reports; its tests: `cd eval && python -m pytest`), `eval/llm` evaluates a bare LLM/VLM
 (was `finetune/3dcodeverse_eval`).  Read `eval/README.md` first.
 

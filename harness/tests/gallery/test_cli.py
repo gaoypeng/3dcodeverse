@@ -1,4 +1,4 @@
-"""``3dcode gallery build|serve``."""
+"""``3dcodeverse gallery build|serve``."""
 
 from __future__ import annotations
 

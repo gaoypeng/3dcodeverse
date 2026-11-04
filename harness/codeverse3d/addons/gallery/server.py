@@ -1,4 +1,4 @@
-"""The local gallery server: ``3dcode gallery serve``."""
+"""The local gallery server: ``3dcodeverse gallery serve``."""
 
 from __future__ import annotations
 
@@ -52,16 +52,16 @@ class Response:
 
 
 def _error_page(status: int, title: str, detail: str) -> Response:
-    body = (top_bar("3dcode gallery", "", crumbs="<a href='/'>gallery</a>")
+    body = (top_bar("3dcodeverse gallery", "", crumbs="<a href='/'>gallery</a>")
             + f"<main class='wrap'><div class='panel'><h2>{status} — {esc(title)}</h2>"
-              f"<p class='muted'>{esc(detail)}</p></div></main>" + footer("3dcode gallery"))
+              f"<p class='muted'>{esc(detail)}</p></div></main>" + footer("3dcodeverse gallery"))
     return Response.html(page_shell(f"{status} {title}", body), status=status)
 
 
 class GalleryApp:
 
     def __init__(self, roots: list[Path] | list[str], *, reload: bool = False,
-                 title: str = "3dcode gallery", runtime_js: Path | str | None = None) -> None:
+                 title: str = "3dcodeverse gallery", runtime_js: Path | str | None = None) -> None:
         self.roots = [Path(r).resolve() for r in roots]
         self.reload = reload
         self.title = title
@@ -290,7 +290,7 @@ def make_server(app: GalleryApp, host: str = DEFAULT_HOST, port: int = DEFAULT_P
 
 def serve(roots: list[Path] | list[str], *, host: str | None = None,
           port: int = DEFAULT_PORT, reload: bool = False, open_browser: bool = False,
-          title: str = "3dcode gallery", on_start: Any = None) -> None:
+          title: str = "3dcodeverse gallery", on_start: Any = None) -> None:
     bind = host or DEFAULT_HOST
     app = GalleryApp(roots, reload=reload, title=title)
     httpd = make_server(app, bind, port)

@@ -1,5 +1,5 @@
 """``codeverse3d.addons.select``: which round of a finished run is handed over, and how
-(``round_rows`` / ``pick`` / ``summarise`` / ``package``, ``3dcode pick``, ``make --no-pick``)."""
+(``round_rows`` / ``pick`` / ``summarise`` / ``package``, ``3dcodeverse pick``, ``make --no-pick``)."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monk
     asked: list[int] = []
     monkeypatch.setattr(J, "load_round", lambda ws, rec, idx: asked.append(idx))
     runner.invoke(app, ["judge", str(ws.root)])
-    assert asked == [0]                                           # `3dcode judge`'s default round
+    assert asked == [0]                                           # `3dcodeverse judge`'s default round
 
 
 class _Pairwise:

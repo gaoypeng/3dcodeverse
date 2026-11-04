@@ -1,4 +1,4 @@
-"""``3dcode flywheel export | pairs | caption | index``."""
+"""``3dcodeverse flywheel export | pairs | caption | index``."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def caption_cmd(
             continue
         # per run: captioning rewrites record.json (--out writes a side-car instead); a locked
         # run is skipped so one live run does not abort an --all batch
-        lock = nullcontext() if out else exclusive(ws.root, what=f"3dcode flywheel caption {ws.root.name}")
+        lock = nullcontext() if out else exclusive(ws.root, what=f"3dcodeverse flywheel caption {ws.root.name}")
         try:
             with lock, run_ledger(ws.root, run=ws.root.name, create=False):
                 caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)

@@ -41,7 +41,7 @@ def test_make_judge_routes_photos_to_the_likeness_judge_and_a_replay_picks_the_s
     assert BaseTrack.make_judge(me, _ctx(Track.STATIC_OBJECT, ["/x.png"])) == "R"
     assert BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, [])) == "P"
     assert calls[0] == ("likeness", "shader")
-    # a replay picks the judge the live run did: `3dcode judge` / calibration and the live run share
+    # a replay picks the judge the live run did: `3dcodeverse judge` / calibration and the live run share
     # `judge_for` — a graphics or scene run with photos was re-judged by ReferenceJudge (silhouette +
     # diff pass) where the run used likeness
     from codeverse3d.cli._judge import make_judge

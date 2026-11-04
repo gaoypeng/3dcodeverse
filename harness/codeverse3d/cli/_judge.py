@@ -1,4 +1,4 @@
-"""``3dcode judge`` implementation: re-judge a stored round with the inputs the in-run judge
+"""``3dcodeverse judge`` implementation: re-judge a stored round with the inputs the in-run judge
 saw, built by ``judges.base.round_input`` from the run directory."""
 
 from __future__ import annotations

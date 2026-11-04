@@ -149,7 +149,7 @@ class Slots:
             os.close(fd)
 
     def busy(self) -> int:
-        """How many slots are held machine-wide (``3dcode doctor``); never takes one."""
+        """How many slots are held machine-wide (``3dcodeverse doctor``); never takes one."""
         n = 0
         for i in range(self.n):
             try:

@@ -59,7 +59,7 @@ offline suite and `ruff` are run locally before every push (see `CLAUDE.md`).
 |---|---|---|---|
 | **python** | **3.13** | `requires-python = ">=3.13"`; ruff `target-version = "py313"`; `PY_FLOOR` in `tests/core/test_portability.py`; `MIN_PY_MINOR` in `setup.sh` | the four places are pinned together by the portability test |
 | **node** | **20.6.0+** (developed on 24 LTS) | `runtime_js/package.json` `engines.node`; `codeverse3d.spatial.node.NODE_MIN` fails every node workload with an actionable message | 20.6 is the `--import` module-hook floor |
-| **Blender** | **5.2 LTS** only | `BLENDER_MIN = (5, 2)` in `codeverse3d/config.py`; `3dcode doctor` fails anything older; `Settings.resolve_blender()` | `blender`, `urdf_blender` and `scene_blender` are the users; the prompts and lints state 5.2 API facts |
+| **Blender** | **5.2 LTS** only | `BLENDER_MIN = (5, 2)` in `codeverse3d/config.py`; `3dcodeverse doctor` fails anything older; `Settings.resolve_blender()` | `blender`, `urdf_blender` and `scene_blender` are the users; the prompts and lints state 5.2 API facts |
 | **OS** | Linux x86_64 (WSL2 works) | — | macOS should work (nothing is Linux-specific except `resource.setrlimit` guards) but is not tested |
 
 Moving to another Python later is the same four-line change (`requires-python`, ruff
@@ -90,7 +90,7 @@ cd 3dcodeverse
 ```
 
 Layout: the harness is the `harness/` subdirectory (python dist `3dcodeverse`, import package
-`codeverse3d`, CLIs `3dcodeverse` and `3dcode`).  See the repo `README.md` for the other
+`codeverse3d`, CLI `3dcodeverse`).  See the repo `README.md` for the other
 top-level components.
 
 Use a virtualenv or a conda env.  It is only optional when your interpreter already owns its
@@ -111,8 +111,8 @@ pip install -e harness            # core only
 pip install -e 'harness[all,dev]' # everything (what setup.sh does)
 ```
 
-`-e` (editable) is the intended mode: the harness is developed in place and the console scripts
-(`3dcodeverse`, `3dcode`) point back at the checkout.
+`-e` (editable) is the intended mode: the harness is developed in place and the console script
+`3dcodeverse` points back at the checkout.
 
 Core dependencies (always installed): pydantic + pydantic-settings (contracts, settings), typer +
 rich (CLI), jinja2 (prompt templates), pyyaml, numpy, trimesh (mesh measurement), python-fcl
@@ -124,8 +124,8 @@ rich (CLI), jinja2 (prompt templates), pyyaml, numpy, trimesh (mesh measurement)
 | `urdf` | yourdfpy, scipy | the `articulated_object` track: URDF parse/validate + joint math |
 | `graphics` | moderngl | the `graphics` track (`glsl_shader`, `opengl_python`) — headless GL rendering in `spatial/gl_render.py` |
 | `mesh` | shapely, networkx, matplotlib | `cross_section` (filled area / hollow ratio from shapely, the image drawn in matplotlib), mesh split / connectivity (networkx), judge cross-section slices on gate-ERROR rounds (without the extra the judge logs a warning and sends the payload without slices) |
-| `mcp` | mcp | `3dcode mcp` / `codeverse3d.spatial.mcp_server`, i.e. spatial tools for the `agy`, `claude-code` and `codex` backends |
-| `flywheel` | pyarrow | `3dcode flywheel export --pack` (parquet shards).  A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning |
+| `mcp` | mcp | `3dcodeverse mcp` / `codeverse3d.spatial.mcp_server`, i.e. spatial tools for the `agy`, `claude-code` and `codex` backends |
+| `flywheel` | pyarrow | `3dcodeverse flywheel export --pack` (parquet shards).  A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning |
 | `all` | all of the above | — |
 | `dev` | pytest, pytest-timeout, ruff | the test suite and the linter |
 
@@ -257,7 +257,7 @@ exec "$BLENDER_HOME/blender" "$@"
 frames: Cycles on CUDA with GPU denoising and persistent data when a CUDA device exists, CPU
 otherwise; `Settings.render.blender_frame_time_limit_s` (default 20 s) caps a heavy scene's
 sampling per frame.  **OptiX is never enumerated** (it is unavailable under WSL2 and probing it
-crashes Blender).  `3dcode doctor` times one small frame on exactly this path.
+crashes Blender).  `3dcodeverse doctor` times one small frame on exactly this path.
 
 ### How the harness finds it
 
@@ -439,16 +439,16 @@ real data:
 
 ```bash
 cd harness
-3dcode make "a slow rotating neon hex grid" \
+3dcodeverse make "a slow rotating neon hex grid" \
     --track graphics --language glsl_shader \
     --generator single-shot:gemini:gemini-3.8-flash \
     --rounds 0 --max-minutes 20 \
     --runs-dir /tmp/c3d_smoke
-3dcode status <slug> --runs-dir /tmp/c3d_smoke
+3dcodeverse status <slug> --runs-dir /tmp/c3d_smoke
 ```
 
 If node and Blender are installed, the equivalent object-track smoke is
-`3dcode make "a simple wooden stool" --track static_object --language blender
+`3dcodeverse make "a simple wooden stool" --track static_object --language blender
 --generator single-shot:gemini:gemini-3.8-flash --rounds 0` (~$0.1, a few minutes).
 
 Artifacts land in `<runs-dir>/<slug>/`:
@@ -465,12 +465,12 @@ artifacts/judge/rNN.json  the VLM verdict and the computed score
 trajectories/             per-call transcripts
 ```
 
-`3dcode status <slug>` prints the rounds table, cost and last events; the full operating guide is
+`3dcodeverse status <slug>` prints the rounds table, cost and last events; the full operating guide is
 `docs/RUNBOOK.md`.
 
 > **`capacity storm N/10 … waiting Ns`** means the Gemini endpoint is busy, not that your
 > install is broken: the harness backs off (up to 10 waits, ~10 min in total) and rotates keys,
-> which is why the smoke above gets `--max-minutes 20`.  `3dcode resume <slug> --runs-dir …`
+> which is why the smoke above gets `--max-minutes 20`.  `3dcodeverse resume <slug> --runs-dir …`
 > continues from the last completed stage.  To prove the key path alone, `3dcodeverse doctor
 > --live` is the one-call version.
 
@@ -479,7 +479,7 @@ trajectories/             per-call transcripts
 ## 11. Uninstall / cleanup
 
 ```bash
-pip uninstall 3dcodeverse                     # removes the editable install + 3dcodeverse/3dcode
+pip uninstall 3dcodeverse                     # removes the editable install + the 3dcodeverse command
 rm -rf harness/runtime_js/node_modules        # re-creatable with `npm ci`
 rm -rf ~/.cache/puppeteer                     # downloaded Chrome builds
 rm -rf ~/.cache/codeverse3d                   # harness cache — see below

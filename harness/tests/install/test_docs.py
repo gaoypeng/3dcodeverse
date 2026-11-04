@@ -30,7 +30,7 @@ ALLOWED_BINARIES = {
     "git", "python", "python3", "pip", "pip3", "pytest", "conda", "uv", "node", "npm", "npx", "nvm",
     "sudo", "apt-get", "apt", "brew", "dnf", "pacman",
     # this project
-    "3dcode", "3dcodeverse", "setup.sh", "blender", "gemini", "claude", "codex", "agy",
+    "3dcodeverse", "setup.sh", "blender", "gemini", "claude", "codex", "agy",
 }
 
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -98,6 +98,20 @@ def into_absent_eval(path: Path) -> bool:
 
 
 # --------------------------------------------------------------------------- tests
+def test_the_installed_cli_has_one_name_and_reports_it_in_its_version() -> None:
+    from typer.testing import CliRunner
+
+    from codeverse3d import __version__
+    from codeverse3d.cli.main import app
+
+    with (HARNESS / "pyproject.toml").open("rb") as fh:
+        scripts = tomllib.load(fh)["project"]["scripts"]
+    assert scripts == {"3dcodeverse": "codeverse3d.cli.main:app"}
+    result = CliRunner().invoke(app, ["--version"])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == f"3dcodeverse {__version__}"
+
+
 @pytest.mark.parametrize("doc", existing_docs(), ids=lambda p: str(p.relative_to(REPO)))
 def test_owned_docs_have_valid_commands_links_and_paths(doc: Path) -> None:
     bad: list[str] = []

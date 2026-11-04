@@ -119,8 +119,8 @@ when the control comes back opened (git reads untracked files too), the session'
 is `None`, not a number.
 
 ```
-3dcode skills report eval/bench/out/<battery>    # deep-read rate per skill per backend (--json)
-3dcode skills validate [--strict]                # bundles, overlays, routes, claims
+3dcodeverse skills report eval/bench/out/<battery>    # deep-read rate per skill per backend (--json)
+3dcodeverse skills validate [--strict]                # bundles, overlays, routes, claims
 ```
 
 Target: ≥ 60 % deep-read, counted only over sessions the control says were measurable.  A skill
@@ -150,14 +150,14 @@ found and opened through each discovery root.
    A row may also pin a sentence in a bundle file (`file = "references/x.md"`), a JS constant
    (`js = "runtime_js/lib/backdrop.mjs:GROUND_SPAN_M"`), a sequence (`sep`, `last_sep`) and the
    line it must stand on (`context = "WARN below"`).  The prompt corpus pins its numbers the
-   same way in `codeverse3d/prompts/_claims.toml` (`check_prompt_claims`, run by `3dcode skills
+   same way in `codeverse3d/prompts/_claims.toml` (`check_prompt_claims`, run by `3dcodeverse skills
    validate`).
 4. Its rows in `ROUTES` (`codeverse3d/skills/registry.py`), in the same commit.
 5. A `Target` row in `codeverse3d/addons/skill_targets.py` and the matching `target_*`
    frontmatter keys — the ONE deterministic quantity the bundle claims to move, its direction,
    and its baseline; if no deterministic instrument can see the claim, say so with
    `measurable=False` and a `caveat`.
-6. `3dcode skills validate --strict` and `pytest tests/skills`.
+6. `3dcodeverse skills validate --strict` and `pytest tests/skills`.
 
 Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 12 lines; never restate a frame,
 unit or naming rule (`conventions.py` owns those); every corpus percentage carries its battery,

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -16,35 +15,6 @@ HARNESS = Path(__file__).resolve().parents[3]
 LIB_DIR = HARNESS / "codeverse3d" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
 
 pytestmark = pytest.mark.node
-
-# The two hooks patchStandard injects into, as a material three would.
-# Nothing else is in the source, so what comes back is the patch itself:
-# `compile(mat)` runs a material's onBeforeCompile over it.
-SHADER_JS = """
-const fake = () => ({
-  vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-  fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-  uniforms: {},
-});
-function compile(mat) {
-  const shader = fake();
-  mat.onBeforeCompile(shader);
-  return shader;
-}
-"""
-
-
-def _find(pattern: str, src: str) -> re.Match:
-    """``re.search`` that fails naming the pattern and the source it missed."""
-    m = re.search(pattern, src)
-    assert m, f"{pattern} not in\n{src}"
-    return m
-
-
-def _main_body(src: str) -> str:
-    """The shader from ``void main`` on: where the patch bodies land."""
-    return src[src.index("void main"):]
-
 
 def _three_ready() -> None:
     if not (node_modules_dir() / "three" / "package.json").is_file():

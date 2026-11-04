@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -31,17 +30,6 @@ def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_p
     assert elapsed < 8.0, f"run_subprocess returned only after {elapsed:.1f}s"
 
 
-# --------------------------------------------------------------------------- ManagedProcess lifecycle
-#: spawns a grandchild, writes its OWN pid (== the new session's pgid) to argv[1] and
-#: hangs — so the probe below is a real GROUP probe, not just "the leader died".
-_PID_THEN_SLEEP = (
-    "import os, pathlib, subprocess, sys, time\n"
-    "subprocess.Popen(['sleep', '300'])\n"
-    "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n"
-    "time.sleep(300)\n"
-)
-
-
 @pytest.mark.timeout(120)
 def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
     """Large output is bounded while preserving its head, tail, and truncation marker; one bad byte
@@ -63,12 +51,3 @@ def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
     assert "bytes dropped" in r.stdout                 # marker sits between them
     cut = r.stdout.index("bytes dropped")
     assert "x" * 1000 in r.stdout[:cut] and "x" * 1000 in r.stdout[cut:]
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    with open(f"/proc/{pid}/stat") as f:   # a zombie is dead
-        return f.read().split()[2] != "Z"

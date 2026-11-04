@@ -1,4 +1,4 @@
-"""Which round of a finished run to hand over — and the hand-over itself (``3dcode pick``)."""
+"""Which round of a finished run to hand over — and the hand-over itself (``3dcodeverse pick``)."""
 
 from __future__ import annotations
 

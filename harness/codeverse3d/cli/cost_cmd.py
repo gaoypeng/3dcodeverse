@@ -1,13 +1,13 @@
-"""``3dcode cost`` — what the runs cost and where the money went, from each run's
+"""``3dcodeverse cost`` — what the runs cost and where the money went, from each run's
 ``telemetry/cost.jsonl`` ledger.
 
-    3dcode cost <slug>                      # one run, from its own ledger
-    3dcode cost --runs-dir eval/bench/out/x # a whole battery, aggregated
-    3dcode cost runs/ eval/bench/out/*      # any mix of run dirs / trees
-    3dcode cost show runs/ --md report.md   # the same, explicit + full markdown
-    3dcode cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
-    3dcode cost prices [--stale] [--unverified]
-    3dcode cost estimate gemini:… --in 12000 --out 800
+    3dcodeverse cost <slug>                      # one run, from its own ledger
+    3dcodeverse cost --runs-dir eval/bench/out/x # a whole battery, aggregated
+    3dcodeverse cost runs/ eval/bench/out/*      # any mix of run dirs / trees
+    3dcodeverse cost show runs/ --md report.md   # the same, explicit + full markdown
+    3dcodeverse cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
+    3dcodeverse cost prices [--stale] [--unverified]
+    3dcodeverse cost estimate gemini:… --in 12000 --out 800
 """
 
 from __future__ import annotations

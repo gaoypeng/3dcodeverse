@@ -1,4 +1,4 @@
-"""``3dcode cost``."""
+"""``3dcodeverse cost``."""
 
 from __future__ import annotations
 

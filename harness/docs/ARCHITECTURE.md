@@ -1,6 +1,6 @@
 # 3dcodeverse harness — architecture
 
-Package `codeverse3d`, CLI `3dcodeverse` (short alias `3dcode`), repo location `harness/` in the
+Package `codeverse3d`, CLI `3dcodeverse`, repo location `harness/` in the
 3dcodeverse checkout.  Backend only.  Python 3.13 (one fixed version), a small Node runtime
 (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl for the graphics track.
 How-to is in `docs/RUNBOOK.md`, the skill library in
@@ -29,7 +29,7 @@ of the language — for four **tracks**:
 
 Every run is: **spec → plan → skeleton → [scene stages] → baseline round (optionally best-of-N
 candidates) → `max_rounds` refine rounds → finalise → record**.  Which round to hand over is
-decided AFTER the run by the `addons/select` reader (`3dcode pick`; `3dcode make` calls it by
+decided AFTER the run by the `addons/select` reader (`3dcodeverse pick`; `3dcodeverse make` calls it by
 score): it writes `deliverable/` for that round.  The record, the git history of `src/` and every
 round's kept build are the flywheel unit.
 
@@ -80,14 +80,14 @@ codeverse3d/
                       (GateFinding, GateReport, BuildResult.gates, RenderView, RenderSet, Judgment), run
                       (+ SkillsUsage/SkillRead), chat, agent (typed AgentJob)
   workspace.py        run-dir layout + git snapshots
-  doctor.py           the environment checks behind `3dcode doctor` (deps, Blender, node, GPU probe, keys,
+  doctor.py           the environment checks behind `3dcodeverse doctor` (deps, Blender, node, GPU probe, keys,
                       pool admission, vendor CLIs, MCP, skills)
   proc.py             stdlib-only subprocess + atomic-JSON primitives (ManagedProcess owns every child's
                       lifecycle: group kill on ANY exception, bounded pumps, stdin writer; run_subprocess,
                       write_json_atomic, scrub_secrets), the tolerant readers/writer (read_json_or_none,
                       iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line), the JSONL event log (EventLog),
                       the run lock (ONE writer per run dir: fcntl.flock at <runs>/.locks/<slug>.lock naming the
-                      holder, printed by `3dcode status`), fan_out, sha256_file, version_line.  RULE: any
+                      holder, printed by `3dcodeverse status`), fan_out, sha256_file, version_line.  RULE: any
                       stdlib-only file / JSON / JSONL helper lives HERE.  A leaf: imports nothing from codeverse3d
   models/             ChatModel (base.py), parts.py; gemini.py (request/response shapes, dead-key + 429 rotation);
                       anthropic.py openai.py; retry.py (KeyPool with outcomes ok | 429 | 5xx | error | dead | skip,
@@ -136,9 +136,9 @@ codeverse3d/
                       MeteredAgent — one row per ChatModel.generate; one session row for a backend that does NOT
                       meter itself; run_ledger is context-local so parallel batteries work) tally.py (a block's
                       money = its ledger rows, its lost seconds → StepTime) guard.py (a call's cost estimated
-                      before it is sent — `3dcode cost estimate`)
+                      before it is sent — `3dcodeverse cost estimate`)
   judges/             base.py (JudgeInput; round_input + plan_summary, the ONE payload builder the in-run judge,
-                      `3dcode judge`, calibration and eval all use), rubrics.py + rubrics/*.yaml (defect
+                      `3dcodeverse judge`, calibration and eval all use), rubrics.py + rubrics/*.yaml (defect
                       checklists, the wire schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges), pairwise.py.  No Judge
                       Protocol: a judge is duck-typed `.judge(JudgeInput) -> Judgment`
@@ -166,11 +166,11 @@ codeverse3d/
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
                       (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py, refine.py,
                       captions.py, index.py, sample.py, quality.py (tiers + code fingerprints + duplicate groups)
-                      — `3dcode flywheel …`; costreport/ = audit.py, report.py, caching.py — `3dcode cost`;
+                      — `3dcodeverse flywheel …`; costreport/ = audit.py, report.py, caching.py — `3dcodeverse cost`;
                       calibration.py (judge repeatability over recorded runs); skill_targets.py (measured targets
                       + claims per skill bundle); select.py (round_rows / pick / summarise / package: which round
-                      of a finished run to hand over — `3dcode pick`, and `3dcode make` after the run)
-  addons/gallery/     THE local run gallery (`3dcode gallery serve|build`): cards.py, compare.py (side-by-side
+                      of a finished run to hand over — `3dcodeverse pick`, and `3dcodeverse make` after the run)
+  addons/gallery/     THE local run gallery (`3dcodeverse gallery serve|build`): cards.py, compare.py (side-by-side
                       arms), index.py (run roots → typed RunEntry, tolerant of half-written records), model.py,
                       page.py (cards + table + filters + per-filter summary), detail.py (/run/<battery>/<slug>),
                       code.py (src browser), viewer.py (GLB orbit viewer on the vendored three.js), urls.py
@@ -190,7 +190,7 @@ codeverse3d/
   cli/                main.py (app wiring, make/resume/mcp + the doctor/tools/gallery commands), inspect_cmd.py
                       (render/judge on one existing run), layout_cmd.py (THE single-run view: `show` = STATUS /
                       DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS; `status` = `show --section status`),
-                      flywheel_cmd.py, cost_cmd.py (`3dcode cost`), skills_cmd.py (`3dcode skills
+                      flywheel_cmd.py, cost_cmd.py (`3dcodeverse cost`), skills_cmd.py (`3dcodeverse skills
                       list|show|validate|report`)
 eval/bench/           the battery launcher and reports (`python -m bench.run_bench` / `bench.report`,
                       compare_backends.py, ab_plan.py, complexity_report.py, prompts/*.yaml); never imported by
@@ -209,7 +209,7 @@ tests/                one directory per package area (the count is `pytest --col
 One run is one directory, `runs/<slug>/`: `src/` is the code (git, one commit per round),
 `artifacts/` the last round's build plus every round's own `artifacts/rNN/`, and a pick writes
 `deliverable/` + `selection.json`; `telemetry/` holds the cost ledger and settings
-(`workspace.py` names the buckets; `3dcode show <slug>` walks a run).
+(`workspace.py` names the buckets; `3dcodeverse show <slug>` walks a run).
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 
@@ -282,7 +282,7 @@ shuffled per sample.  The wire schema is **observe-then-score** (summary, streng
 top; degraded verdicts are glitches, not scores.
 
 The judge's structure facts come from the gates, rendered from the stored `GateReport` so
-`3dcode judge <slug>` and calibration see exactly what the in-run judge saw: on the static track
+`3dcodeverse judge <slug>` and calibration see exactly what the in-run judge saw: on the static track
 the connectivity gate's **contact ledger** (parts / contacts / floating / deepest overlap, the
 plan's PLANNED JOINS as contact or OPEN with the gap, the lowest point above the floor); on an
 object-track round whose connectivity gate carries an ERROR, the payload grows **cross-section
@@ -291,7 +291,7 @@ GLB on the two vertical centre planes, red hatch only on the gate's ERROR penetr
 appended after the montages with a factual rig-text block.  A clean round's payload is
 byte-identical to the unconditional one (test-pinned).
 
-`PairwiseJudge` (position-swapped, tie on disagreement; only `3dcode pick --by pairwise` asks
+`PairwiseJudge` (position-swapped, tie on disagreement; only `3dcodeverse pick --by pairwise` asks
 it); `ReferenceJudge` for image-conditioned specs.  Rubrics (pass threshold 0.70 unless named):
 `static_object` (0.72), `articulated` (requires pose views: the `missing_pose_sheet` cap), `scene`
 (placement caps floating 0.60 / sunken 0.65 / interpenetration 0.70 / scale 0.75 / free_exempt
@@ -324,7 +324,7 @@ the run's minutes, a failing sibling raised after every sibling has finished and
 under a `Settings` switch (`layouts`: `zone_layouts`, on); `*` is not cached — it runs every
 session.  Every other stage is cached under its key (`stages/<name>.json`): what its result
 depends on, named in the declaration.  **Once rounds exist** a recorded stage is served whatever
-its key (`stage.frozen`), and the skeleton never runs at all; `3dcode resume --force` is the one
+its key (`stage.frozen`), and the skeleton never runs at all; `3dcodeverse resume --force` is the one
 way to regenerate a stage under them: it archives the round journal + `record.json` to
 `rounds/pre_force/` and the run starts again at round 0.  The plan itself is `run()`'s, before
 the graph (`plan_stage_key`).
@@ -373,7 +373,7 @@ then max_rounds refine rounds, EACH built on the round before it — a FIXED cou
 stop reasons: max_rounds | budget (the wall clock — BudgetGuard / max_minutes) | agent_quota | no_change |
               no_refine_tasks | judge_unavailable | failed
 finalise: the workspace ENDS AT THE LAST ROUND; finalize_record → record.json.  No best round, no deliverable/
-after the run (`3dcode make`, unless --no-pick): addons/select.pick(by="score") — highest effective score, ties →
+after the run (`3dcodeverse make`, unless --no-pick): addons/select.pick(by="score") — highest effective score, ties →
           fewer gate errors → the earlier round — then package(): deliverable/ + selection.json
 ```
 
@@ -395,8 +395,8 @@ the shader-traps skill).  `scene_probe` also holds the scene draw budget: the ce
 
 ## 8. Cost and time
 
-`docs/RUNBOOK.md` §2 gives expected cost and time per track.  `3dcode cost <slug>` prints a
-run's recorded spend, `3dcode cost estimate` a call's expected price.
+`docs/RUNBOOK.md` §2 gives expected cost and time per track.  `3dcodeverse cost <slug>` prints a
+run's recorded spend, `3dcodeverse cost estimate` a call's expected price.
 
 ## 9. Known limits
 
@@ -421,13 +421,13 @@ run's recorded spend, `3dcode cost estimate` a call's expected price.
 * Anthropic / OpenAI backends are mock-tested only.
 * Budget checks run between steps: a round the clock cuts mid-way is rolled back (its spend
   stays in `aborted_rounds`) — give scenes `--max-minutes 60`.
-* A sustained Gemini outage can still fail a round (`3dcode resume` re-uses cached stages).  A
+* A sustained Gemini outage can still fail a round (`3dcodeverse resume` re-uses cached stages).  A
   storm-dead agent session gets the round loop's ONE transport retry (fresh key), no single-shot
   fallback.
 
 ## 10. Flywheel
 
-`record.json` per run + git history; `3dcode flywheel export` writes sample folders
+`record.json` per run + git history; `3dcodeverse flywheel export` writes sample folders
 (`<out>/<track>/<language>/<slug>/{code.<ext>, src/**, robot.urdf, meta.json, captions.json,
 renders/}`) of the PICKED round (the last built round when none was judged) with **quality
 tiers** from that round's verdict (A passed & 0 gate errors, B passed, C score ≥ 0.6, D else),
@@ -441,13 +441,13 @@ written in response, both code snapshots and whether the score moved
 (`addons/dataset/refine.RefineTransition`).  That is the supervision the harness produces that a
 one-shot corpus cannot.  `finetune/llamafactory/` turns those rows into training files; the
 harness writes the measurement, not the trainer's format.  `flywheel caption` adds {detailed,
-instruction, factory} captions (`--out` for side-car mode); the gallery is `3dcode gallery build
+instruction, factory} captions (`--out` for side-car mode); the gallery is `3dcodeverse gallery build
 --embed`.
 
-`codeverse3d/addons/gallery/` is the **local** answer to the same question: `3dcode gallery
+`codeverse3d/addons/gallery/` is the **local** answer to the same question: `3dcodeverse gallery
 serve` indexes `runs/` + every `eval/bench/out/*/runs`, serves the page **and the run
 directories** on 127.0.0.1 (sheet, renders, `src/`, `object.glb` in an orbit viewer built on the
 vendored three.js, `record.json`), and re-reads a run's record per request so a battery that is
 still writing shows up live (RUNBOOK §4).  A URL can only name a `(battery, slug)` the scanner
 found under a declared root, and `urls.safe_join` refuses anything that escapes that run
-directory.  `3dcode gallery build [--embed]` writes the same page as one file.
+directory.  `3dcodeverse gallery build [--embed]` writes the same page as one file.

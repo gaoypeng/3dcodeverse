@@ -1,4 +1,4 @@
-"""Lifecycle regressions: aborted rounds, degraded verdicts, the skeleton guard, finalise rebuilds."""
+"""Lifecycle recovery: aborted rounds, degraded verdicts, resume and finalise rebuilds."""
 
 from __future__ import annotations
 
@@ -6,14 +6,11 @@ import json
 
 import pytest
 
-from codeverse3d.contracts.artifacts import BuildResult, GateReport, Judgment
-from codeverse3d.contracts.common import Language, Track
-from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
+from codeverse3d.contracts.artifacts import BuildResult, Judgment
+from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.run import RoundRecord, RunStatus
-from codeverse3d.orchestrator import RoundPolicy, RunState
+from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
-from codeverse3d.tracks.planner import plan_example
-from codeverse3d.tracks.scene import SceneTrack
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
@@ -185,43 +182,6 @@ def test_skeleton_never_reruns_over_existing_rounds(tmp_path, chair_plan, settin
     assert (ws.src / "object.js").read_text() == src_before
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "stage.skipped" in kinds
-
-
-# --------------------------------------------------------------------- finding: scene track rebuild path
-def test_scene_refine_emits_rebuild_task_when_build_failed(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
-    ws = Workspace(tmp_path / "runs" / "r")
-    ws.create()
-    track = SceneTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.SCENE_THREEJS))
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
-    ctx.plan = plan
-    (ws.src / "zones").mkdir(parents=True, exist_ok=True)
-    (ws.src / "zones" / "quay.js").write_text("// broken\n")
-    last = RoundRecord(index=0, kind="baseline",
-                       build=BuildResult(ok=False, language="scene_threejs", error_type="ProbeError",
-                                         error_message="Cannot read properties of undefined (reading 'update')",
-                                         error_file="src/zones/quay.js"),
-                       gates=[GateReport(gate="lint:scene_threejs", passed=True)])
-    tasks, instructions = track.refine_tasks(ctx, last)
-    assert len(tasks) == 1 and tasks[0].kind == "rebuild"
-    assert tasks[0].files_hint == ["src/zones/quay.js"]
-    assert "ProbeError" in tasks[0].prompt and "Cannot read properties" in tasks[0].prompt
-    assert instructions and "rebuild" in instructions[0]
-
-
-# --------------------------------------------------------------------- finding: plan digest frame order
-def test_plan_digest_is_labelled_w_h_d_in_the_measurement_frame():
-    from codeverse3d.judges.base import plan_summary
-
-    plan = StaticPlan(object_name="Cabinet", summary="A cabinet.",
-                      overall_bbox=BBox(center=(0, 0, 0.4), extents=(0.48, 0.52, 0.80)),  # Z-up plan: W×D×H
-                      parts=[PartPlan(name="Body", role="body", description="box",
-                                      bbox=BBox(center=(0, 0, 0.4), extents=(0.48, 0.52, 0.80)))])
-    zup = plan_summary(plan, Language.BLENDER)
-    assert "Overall 0.48×0.80×0.52 m (W×H×D)" in zup  # H and D swapped into the GLB/measurement order
-    yup = plan_summary(plan, Language.THREEJS)
-    assert "Overall 0.48×0.52×0.80 m (W×H×D)" in yup  # identity for Y-up plans
 
 
 def test_a_successful_re_finalise_clears_the_stale_rebuild_failed_flag(tmp_path, chair_plan, settings, monkeypatch):

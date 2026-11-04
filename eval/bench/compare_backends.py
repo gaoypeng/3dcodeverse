@@ -316,7 +316,7 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     with (exclusive(run_ws.root, what=f"compare {spec.id}:{run_ws.root.parent.name}"),
           run_ledger(run_ws.root, run=f"{spec.id}:{run_ws.root.parent.name}")):
         rec = deps.run_track(spec, run_ws, resume)
-        hand_over(run_ws, rec)  # what `3dcode make` delivers: the picked round, packaged
+        hand_over(run_ws, rec)  # what `3dcodeverse make` delivers: the picked round, packaged
     summary = select.summarise(run_ws.root, record=rec)
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls

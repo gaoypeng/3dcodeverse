@@ -149,7 +149,7 @@ def test_routes_toml_typing_errors_are_refused(variant, text, problem):
 BROKEN_SKILL = "---\nname: c3d-bbox-contract\ndescription: the closing fence is missing\n# body\n"
 
 def _cli(*args: str, width: int = 300):
-    """``3dcode skills ...`` through typer's runner, the CLI console wide enough for one table row per
+    """``3dcodeverse skills ...`` through typer's runner, the CLI console wide enough for one table row per
     line: an xdist worker runs under ``COLUMNS=80``, which rich pins on the console when it is built, so
     the width is set on the console itself (and restored) rather than through the environment."""
     from unittest import mock

@@ -1,4 +1,4 @@
-"""`3dcode tools <name>`: the three-state panel and the exit code behind it."""
+"""`3dcodeverse tools <name>`: the three-state panel and the exit code behind it."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from codeverse3d.spatial.registry import ToolContext
 
 
 def test_cli_exit_code_follows_the_verdict_not_the_failure(stool_ctx: ToolContext) -> None:
-    """`3dcode tools` exits 1 on ``not ok`` — a FAIL verdict included (docs/COST.md §30)."""
+    """`3dcodeverse tools` exits 1 on ``not ok`` — a FAIL verdict included (docs/COST.md §30)."""
     from codeverse3d.cli.main import app
 
     runner = CliRunner()

@@ -1,15 +1,15 @@
 # Runbook — operating the harness
 
 Paths are relative to the harness root (`harness/` in the checkout) unless absolute.  The CLI is
-`3dcodeverse` with short alias `3dcode` (used below).  Installing: `docs/INSTALL.md`.
+`3dcodeverse`.  Installing: `docs/INSTALL.md`.
 
 ## 1. Install and check
 
 ```bash
-pip install -e harness      # once, from the checkout root; entry points 3dcodeverse and 3dcode
+pip install -e harness      # once, from the checkout root; entry point 3dcodeverse
 cd harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
-3dcode doctor            # python deps, blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
-3dcode doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
+3dcodeverse doctor            # python deps, blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
+3dcodeverse doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure-python subset
 python -m pytest tests -q -m live                      # OPT-IN: real API calls
@@ -23,20 +23,20 @@ and description is its `Settings` field in `codeverse3d/config.py`.
 
 ```bash
 # static object — Blender (default language, multi-file src/model.py + src/parts/*.py)
-3dcode make "a mid-century wooden dining chair" --track static_object --language blender
-3dcode make "a brass desk lamp" --track static_object --language cadquery
-3dcode make "a classic park bench" --track static_object --language threejs --generator agy:gemini-4-argon
+3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
+3dcodeverse make "a brass desk lamp" --track static_object --language cadquery
+3dcodeverse make "a classic park bench" --track static_object --language threejs --generator agy:gemini-4-argon
 # articulated object — bpy links + URDF
-3dcode make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
+3dcodeverse make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
 # scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner), or bpy on Blender
-3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
-3dcode make "a small japanese garden at dusk with a koi pond" --track scene --language scene_blender --rounds 2 --max-minutes 90
+3dcodeverse make "a small japanese garden at dusk with a koi pond" --track scene --language scene_threejs --rounds 2 --max-minutes 60
+3dcodeverse make "a small japanese garden at dusk with a koi pond" --track scene --language scene_blender --rounds 2 --max-minutes 90
 # graphics — animated shader / raw OpenGL program
-3dcode make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
-3dcode make "instanced pastel cubes with bloom" --track graphics --language opengl_python
+3dcodeverse make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
+3dcodeverse make "instanced pastel cubes with bloom" --track graphics --language opengl_python
 ```
 
-Useful flags (`3dcode make --help`):
+Useful flags (`3dcodeverse make --help`):
 
 * `--generator`, `--planner`, `--judge` — backend ids (§3).
 * `--image <png>` (repeatable) — reference images → `ReferenceJudge` + silhouette gate + IoU
@@ -46,7 +46,7 @@ Useful flags (`3dcode make --help`):
 * `--candidates N` — best-of-N baseline: N parallel candidates in `<ws>/_cand/`, quick-judged,
   the highest quick score kept (fewer gate errors on a tie); multiplies baseline cost ≈ N;
   object and graphics tracks only (a scene writes its baseline in its stages).
-* `--no-pick` — package nothing (no `deliverable/`, no `selection.json`; `3dcode pick` later).
+* `--no-pick` — package nothing (no `deliverable/`, no `selection.json`; `3dcodeverse pick` later).
 * `--max-minutes`, `--dim height=0.45`, `--must`, `--must-not`, `--style`, `--tag`, `--seed` (a
   label: it re-keys the plan, nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
   `--no-run` (workspace + spec.json only).
@@ -58,7 +58,7 @@ Useful flags (`3dcode make --help`):
 Expected cost/time with gemini-3.8-flash: object tracks ≈ $0.7–0.9 and 12–36 min for baseline +
 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot ≈ $0.05 / 2 min per judged
 round; scenes ≈ $2.3 and 30 min before the first judged round, then ≈ $0.36 / ~7 min per refine
-(give scenes `--max-minutes 60`).  Actual spend: `3dcode cost <slug>`.
+(give scenes `--max-minutes 60`).  Actual spend: `3dcodeverse cost <slug>`.
 
 ## 3. Backends
 
@@ -95,22 +95,22 @@ How `agents/backends.py` runs agy (do not undo):
   hides only noise (renders/judge output, `trajectories/`); build/census/measurement JSON stay
   readable.
 * MCP server argv is `[sys.executable, -m, codeverse3d.spatial.mcp_server, --workspace, ws]`;
-  server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcode mcp
+  server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcodeverse mcp
   --workspace runs/<slug>` execs the same server; `python -m codeverse3d.spatial.mcp_server
   --workspace ws --list` prints the tools.
 
 ## 4. Where outputs land
 
 Everything lands in `runs/<slug>/` — code in `src/` (git, one commit per round), each round's
-build in `artifacts/rNN/`, and after a pick `deliverable/` + `selection.json`.  `3dcode status <slug>` prints the stop reason, baseline → picked score,
+build in `artifacts/rNN/`, and after a pick `deliverable/` + `selection.json`.  `3dcodeverse status <slug>` prints the stop reason, baseline → picked score,
 the rounds table, cost and the last events.
 
 ### Looking at results locally
 
 ```bash
-3dcode gallery serve                       # ./runs + every eval/bench/out/*/runs → http://127.0.0.1:8765/
-3dcode gallery serve ../eval/bench/out/static_v2_flash/runs --port 9000 --reload --no-open
-3dcode gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
+3dcodeverse gallery serve                       # ./runs + every eval/bench/out/*/runs → http://127.0.0.1:8765/
+3dcodeverse gallery serve ../eval/bench/out/static_v2_flash/runs --port 9000 --reload --no-open
+3dcodeverse gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
 ```
 
 `serve` indexes the run roots and serves the run **directories** too, so every link works:
@@ -128,7 +128,7 @@ bookmarked.  `--reload` re-scans on every page load (a run with no `record.json`
 ## 5. Resume, re-render, re-judge, export
 
 ```bash
-3dcode resume <slug> [--candidates N] [--no-pick]
+3dcodeverse resume <slug> [--candidates N] [--no-pick]
                                         # continues from run_state + stages/*.json and from the LAST round.  A
                                         # max_rounds run resumes only with a raised --rounds, a budget run with any
                                         # raised cap; an agent_quota, judge_unavailable or failed run resumes as is.
@@ -137,42 +137,42 @@ bookmarked.  `--reload` re-scans on every page load (a run with no `record.json`
                                         # recorded stage never runs again; `resume --force` regenerates the stages:
                                         # it archives the round journal + record.json to rounds/pre_force/ and the
                                         # run starts again at round 0
-3dcode pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]
+3dcodeverse pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]
                                         # hand over a round: deliverable/ + selection.json.  score = highest
                                         # effective score, ties → fewer gate errors → the earlier round; pairwise =
                                         # the pairwise judge between the top two when within 0.03; --round N = that
                                         # round.  `make`/`resume` run `pick --by score` for you
-3dcode render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
-3dcode judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
+3dcodeverse render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
+3dcodeverse judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
-3dcode tools list [--cards] · 3dcode tools measure --workspace runs/<slug> · 3dcode tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
+3dcodeverse tools list [--cards] · 3dcodeverse tools measure --workspace runs/<slug> · 3dcodeverse tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
                                         # panel says ok | FAIL (the verdict) | error (the tool could not run); exit 1 on either
-3dcode flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
+3dcodeverse flywheel export runs/ dataset/ [--min-score 0.7] [--only-passed] [--pack] [--include-unbuilt]
                                      [--captions-dir caps/] [--drop-duplicates]
-3dcode flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
-3dcode flywheel refine runs/ refine.jsonl [--with-code]
+3dcodeverse flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
+3dcodeverse flywheel refine runs/ refine.jsonl [--with-code]
                                      # one row per round the harness asked to change (addons/dataset/refine.RefineTransition);
                                      # training formats live in finetune/llamafactory/, not here
-3dcode flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
+3dcodeverse flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
 python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
 
-A run that crashed outside its own handling leaves `record.json` with `status=failed`; `3dcode
+A run that crashed outside its own handling leaves `record.json` with `status=failed`; `3dcodeverse
 resume` retries from the last completed stage/round (cached plan/skeleton/scene stages are
 reused — this also recovers from a provider outage).  A refine session that dies on the
 VENDOR's usage limit stops the run at `agent_quota`: every round so far is kept and picked from,
-and `3dcode resume` continues it once the limit resets.  Ctrl-C and `kill <pid>` (SIGTERM) are
+and `3dcodeverse resume` continues it once the limit resets.  Ctrl-C and `kill <pid>` (SIGTERM) are
 safe: `make` / `resume` kill every agent / build process group the run has open, record the
 stop, and end within `proc.STOP_GRACE_S` (30 s).  Kill by PID, never by pattern: a
-`pkill -f "3dcode make"` takes every other run on the box with it.
+`pkill -f "3dcodeverse make"` takes every other run on the box with it.
 
 Two things to keep apart on one machine: run the offline test suite and a battery at different
 times (both hold Blender, a browser pool and most cores; a red browser test under load is not
 evidence until it reproduces on a quiet box), and give two concurrent batteries separate
 `C3D_CACHE_DIR`s and half the `--parallel` each.  A worktree needs its own
 `runtime_js/node_modules` (copy, do not symlink: `serve.cjs` refuses a real path outside its
-root) and `PYTHONPATH=<worktree>/harness` before `3dcode make`, because the console script
+root) and `PYTHONPATH=<worktree>/harness` before `3dcodeverse make`, because the console script
 imports the editable install, not the cwd.
 
 ## 6. Benchmarks
@@ -239,7 +239,7 @@ storm's rows (`--redo-status error,infra_failed,budget`) rather than reading the
 * **New rubric**: `judges/rubrics/<name>.yaml` with `pass_threshold`, `criteria[{id, weight,
   floor, title, description, anchors, kind}]`, `caps[{id, cap, when:
   gate|acceptance|console|missing_views, gate, severity, kinds}]`, `defects[{id, text, penalty,
-  cap}]`.  Tracks pick rubrics in `tracks/*.py`; `3dcode judge` maps track → rubric in
+  cap}]`.  Tracks pick rubrics in `tracks/*.py`; `3dcodeverse judge` maps track → rubric in
   `cli/_judge.py::rubric_for`.
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices; CodingAgent →
   `agents/backends.py` using `cli_common` + registry + `materialize.py`.

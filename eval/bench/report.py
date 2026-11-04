@@ -1,11 +1,11 @@
 """Aggregate a bench run: per-tier / per-category stats → markdown + HTML gallery.
 
-    cd eval && python -m bench.report bench/out/static_objects_v1     (was ``3dcode bench report``)
+    cd eval && python -m bench.report bench/out/static_objects_v1     (was ``3dcodeverse bench report``)
 
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
 baseline / picked-round mean + median, the delta and cost per tier and category (no pass
 rate: a run is not passed or failed since 2026-09-22), writes ``report.md`` and
-``report.html`` — the same self-contained page as ``3dcode gallery build --embed``
+``report.html`` — the same self-contained page as ``3dcodeverse gallery build --embed``
 (``codeverse3d.addons.gallery``), one section per tier, with the stats tables under the
 summary strip.
 """

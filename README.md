@@ -84,11 +84,11 @@ languages). Full guide: [harness/docs/INSTALL.md](harness/docs/INSTALL.md).
 
 ```bash
 cd harness
-bash setup.sh                       # pip install -e . + runtime_js + headless Chrome + the agy / claude-code / codex CLIs at their latest, then `3dcode doctor`
+bash setup.sh                       # pip install -e . + runtime_js + headless Chrome + the agy / claude-code / codex CLIs at their latest, then `3dcodeverse doctor`
 export GEMINI_API_KEYS="key1,key2"  # agy runs in Gemini-API mode on this key pool
-3dcode doctor                       # every row OK or WARN; a FAIL row says what to fix
-3dcode make "a classic park bench" --track static_object --language threejs
-3dcode gallery serve                # browse every run at http://127.0.0.1:8765/
+3dcodeverse doctor                       # every row OK or WARN; a FAIL row says what to fix
+3dcodeverse make "a classic park bench" --track static_object --language threejs
+3dcodeverse gallery serve                # browse every run at http://127.0.0.1:8765/
 ```
 
 The optional generators claude-code and codex use your local subscriptions: `--generator claude-code:<model>`

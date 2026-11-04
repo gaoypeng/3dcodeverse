@@ -67,9 +67,9 @@ def test_calibrate_offline(tmp_path):
 
 
 def test_calibration_judges_what_the_in_run_judge_saw(tmp_path, monkeypatch):
-    """It rebuilt a thinner JudgeInput than `3dcode judge` (no previous verdict, track
+    """It rebuilt a thinner JudgeInput than `3dcodeverse judge` (no previous verdict, track
     context, stored clay views or GLB for the D48 slices), re-rendered clay views a round
-    had stored, and always used VlmJudge where `3dcode judge` picks ReferenceJudge."""
+    had stored, and always used VlmJudge where `3dcodeverse judge` picks ReferenceJudge."""
     import codeverse3d.addons.calibration as cal
     import codeverse3d.judges.vlm_judge as vj
     from codeverse3d.contracts.spec import ReferenceImage

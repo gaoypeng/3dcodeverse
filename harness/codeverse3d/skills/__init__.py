@@ -115,7 +115,7 @@ class ShippedRoot:
 def shipped_roots(variants: Iterable[str] | None = None) -> list[ShippedRoot]:
     """The base root, then the skills overlay of every shipped variant that has one.
 
-    ``3dcode skills validate`` / ``list`` walk this so a malformed overlay bundle fails validation
+    ``3dcodeverse skills validate`` / ``list`` walk this so a malformed overlay bundle fails validation
     instead of silently not routing.  ``variants`` defaults to every variant ``list_variants`` knows.
     """
     from codeverse3d.prompts.variants import list_variants

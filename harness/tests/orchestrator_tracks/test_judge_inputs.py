@@ -1,36 +1,15 @@
-"""Refine grouping and judge-view flags."""
+"""The track's judge inputs: selected views, artifact paths and plan coordinates."""
 
 from __future__ import annotations
 
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
-from codeverse3d.orchestrator import RefineTask, plan_refine_groups
+from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.tracks.scene import ScenePipeline
 from codeverse3d.workspace import Workspace
-from tests.orchestrator_tracks.fakes import (
-    FakeServices,
-)
+from tests.orchestrator_tracks.fakes import FakeServices
 
 
-# --------------------------------------------------------------------- plan_refine_groups
-def _task(target: str, files: list[str] | None = None, priority: int = 2) -> RefineTask:
-    return RefineTask(target=target, kind="geometry", instruction=f"fix {target}", priority=priority, files=files or [])
-
-
-def test_plan_refine_groups_fans_out_only_when_allowed_and_disjoint():
-    tasks = [_task("Seat", ["src/parts/seat.js"]), _task("Leg", ["src/parts/leg.js"])]
-    groups, parallel = plan_refine_groups(tasks, allow_fanout=True, parallel_min_tasks=2)
-    assert parallel and len(groups) == 2
-
-    groups, parallel = plan_refine_groups(tasks, allow_fanout=False, parallel_min_tasks=2)
-    assert not parallel and len(groups) == 1
-    assert groups[0].files == ["src/parts/leg.js", "src/parts/seat.js"] and len(groups[0].tasks) == 2
-
-    # unknown file ownership collapses into one group even when fan-out is allowed
-    groups, parallel = plan_refine_groups([_task("Seat", ["src/parts/seat.js"]), _task("overall")], allow_fanout=True)
-    assert not parallel and len(groups) == 1
-
-
-# --------------------------------------------------------------------- judge-view flags (F30 consumption)
 def _rs(flags: list[bool | None]) -> RenderSet:
     views = [RenderView(name=f"v{i}", path=f"/tmp/v{i}.png", judge=f) for i, f in enumerate(flags)]
     return RenderSet(views=views, renderer="fake")
@@ -58,3 +37,16 @@ def test_judge_view_flags_and_path_reconstruction(tmp_path):
     fixed = resolve_paths(ws, rel)
     assert fixed.out_dir == str(ws.root / "artifacts/renders/r00")
     assert fixed.views[0].path == str(ws.root / "artifacts/renders/r00/a.png")
+
+
+def test_plan_digest_is_labelled_w_h_d_in_the_measurement_frame():
+    from codeverse3d.judges.base import plan_summary
+
+    plan = StaticPlan(object_name="Cabinet", summary="A cabinet.",
+                      overall_bbox=BBox(center=(0, 0, 0.4), extents=(0.48, 0.52, 0.80)),  # Z-up plan: W×D×H
+                      parts=[PartPlan(name="Body", role="body", description="box",
+                                      bbox=BBox(center=(0, 0, 0.4), extents=(0.48, 0.52, 0.80)))])
+    zup = plan_summary(plan, Language.BLENDER)
+    assert "Overall 0.48×0.80×0.52 m (W×H×D)" in zup  # H and D swapped into the GLB/measurement order
+    yup = plan_summary(plan, Language.THREEJS)
+    assert "Overall 0.48×0.52×0.80 m (W×H×D)" in yup  # identity for Y-up plans

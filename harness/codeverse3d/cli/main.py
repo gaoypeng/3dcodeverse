@@ -1,4 +1,4 @@
-"""``3dcode`` — the command line: the typer app, every registration, and ``make`` /
+"""``3dcodeverse`` — the command line: the typer app, every registration, and ``make`` /
 ``resume`` / ``pick`` / ``mcp``.  Commands import the harness lazily so ``--help`` stays fast."""
 
 from __future__ import annotations
@@ -120,7 +120,7 @@ def resolve_roots(roots: list[Path] | None) -> list[Path]:
             return [fallback]
         raise C.CliError(f"no run roots found (looked for runs/ and eval/bench/out/*/runs under {Path.cwd()}, "
                          f"and {C.EVAL_ROOT / 'bench' / 'out'}/*/runs); "
-                         f"pass one explicitly: `3dcode gallery serve path/to/runs`")
+                         f"pass one explicitly: `3dcodeverse gallery serve path/to/runs`")
     return found
 
 
@@ -133,7 +133,7 @@ def serve_cmd(
     open_browser: Annotated[bool, typer.Option("--open/--no-open", help="open the page in a browser")] = True,
     reload: Annotated[bool, typer.Option("--reload", help="re-scan the roots on every page load "
                                                           "(cheap: records only, images stay lazy)")] = False,
-    title: Annotated[str, typer.Option("--title")] = "3dcode gallery",
+    title: Annotated[str, typer.Option("--title")] = "3dcodeverse gallery",
 ) -> None:
     """Serve the gallery (and the run directories) on localhost."""
     from codeverse3d.addons.gallery.server import GalleryError, serve
@@ -174,11 +174,11 @@ def build_cmd(
         warn(f"{broken} run(s) have no usable record.json (shown as broken cards)")
     ok(f"gallery of {n} runs → {path} ({path.stat().st_size // 1024} KB)")
     if not embed:
-        console.print("[dim]file:// links; `--embed` inlines the images, `3dcode gallery serve` makes them clickable[/dim]")
+        console.print("[dim]file:// links; `--embed` inlines the images, `3dcodeverse gallery serve` makes them clickable[/dim]")
 
 
 app = typer.Typer(
-    name="3dcode",
+    name="3dcodeverse",
     help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
     pretty_exceptions_enable=False,
 )
@@ -197,7 +197,7 @@ app.add_typer(
 app.command("doctor", help="Environment checks.")(doctor)
 app.command(
     "tools",
-    help="List spatial tools or run one: `3dcode tools list` | `3dcode tools <name> --json '{...}' --workspace ws`.",
+    help="List spatial tools or run one: `3dcodeverse tools list` | `3dcodeverse tools <name> --json '{...}' --workspace ws`.",
 )(tools)
 
 @app.callback(invoke_without_command=True)
@@ -210,7 +210,7 @@ def _root(
         with contextlib.suppress(Exception):
             faulthandler.register(signal.SIGUSR1, file=sys.__stderr__, all_threads=True)
     if version:
-        console.print(f"3dcode {__version__}")
+        console.print(f"3dcodeverse {__version__}")
         raise typer.Exit()
     if ctx.invoked_subcommand is None:
         console.print(ctx.get_help())
@@ -284,7 +284,7 @@ def make(
         typer.Option(
             "--no-pick",
             help="stop after the rounds: no round is picked, no deliverable/ is written "
-            "(`3dcode pick <slug>` does it later)",
+            "(`3dcodeverse pick <slug>` does it later)",
         ),
     ] = False,
     seed: Annotated[
@@ -355,7 +355,7 @@ def make(
     except ValueError as e:
         raise C.CliError(f"invalid run spec: {e}") from e
     # the run mutex: taken before the workspace is created (or --force wipes one), held through the run
-    with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcode make {run_slug}", action="create"):
+    with C.mutating(C.runs_root(runs_dir) / run_slug, what=f"3dcodeverse make {run_slug}", action="create"):
         ws = C.create_workspace(C.runs_root(runs_dir) / run_slug, force=force)
         ws.write_json(ws.spec_path, spec)
         ws.commit("spec")
@@ -377,7 +377,7 @@ def make(
             )
         )
         if no_run:
-            ok(f"spec written: {ws.spec_path} (not run; `3dcode resume {run_slug}` to start)")
+            ok(f"spec written: {ws.spec_path} (not run; `3dcodeverse resume {run_slug}` to start)")
             return
         _run_track(spec, ws, resume=False, candidates=candidates, pick=not no_pick)
 
@@ -400,7 +400,7 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
             record = get_track(spec.track, **options).run(spec, ws, resume=resume, force=force)
     except KeyboardInterrupt:
         raise C.CliError(
-            f"interrupted; resume with `3dcode resume {ws.root.name}`", code=130
+            f"interrupted; resume with `3dcodeverse resume {ws.root.name}`", code=130
         ) from None
     except Exception as e:  # the track failed outside its own error handling
         from codeverse3d.orchestrator import StateCorrupt
@@ -430,7 +430,7 @@ def _pick_and_package(ws, *, by: str, round_index: int | None = None,
 
     idx = round_index if round_index is not None else select.pick(ws.root, by=by, pairwise_model=judge_model)
     if idx is None:
-        warn("no round was judged, so none was picked: name one with `3dcode pick <slug> --round N`")
+        warn("no round was judged, so none was picked: name one with `3dcodeverse pick <slug> --round N`")
         return None
     try:
         select.package(ws.root, idx, method="round" if round_index is not None else by)
@@ -513,7 +513,7 @@ def resume(
     C.check_minutes(max_minutes)
     ws = C.open_workspace(slug, runs_dir)
     # the run mutex, before the spec is rewritten
-    with C.mutating(ws, what=f"3dcode resume {ws.root.name}"):
+    with C.mutating(ws, what=f"3dcodeverse resume {ws.root.name}"):
         spec = C.load_spec(ws)
         if candidates and candidates > 1 and not TRACK_INFO[spec.track].best_of_n:
             raise _no_best_of_n(spec.track)
@@ -528,7 +528,7 @@ def resume(
         if not force and (why := _finished_reason(ws, raised)):
             raise C.CliError(
                 f"run {ws.root.name} already finished ({why}); nothing to resume.  "
-                f"`3dcode status {ws.root.name}` to look at it, or --force to re-enter it "
+                f"`3dcodeverse status {ws.root.name}` to look at it, or --force to re-enter it "
                 f"(that re-plans, re-scores and overwrites the final state)."
             )
         if raised:
@@ -560,7 +560,7 @@ def pick(
         raise C.CliError("--judge is the pairwise judge: it goes with --by pairwise (and no --round)", code=2)
     ws = C.open_workspace(slug, runs_dir)
     # writes deliverable/ + selection.json: one writer per run dir
-    with (C.mutating(ws, what=f"3dcode pick {ws.root.name}", action="pick"),
+    with (C.mutating(ws, what=f"3dcodeverse pick {ws.root.name}", action="pick"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         try:
             idx = _pick_and_package(ws, by=by, round_index=round_index, judge_model=judge)

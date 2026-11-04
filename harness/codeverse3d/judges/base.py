@@ -51,7 +51,7 @@ class JudgeInput(BaseModel):
     )
     glb_path: str | None = Field(
         default=None,
-        description="the round's canonical GLB (object tracks fill it; `3dcode judge` fills it from the stored "
+        description="the round's canonical GLB (object tracks fill it; `3dcodeverse judge` fills it from the stored "
         "build) — the D48 slice channel cuts it on gate-ERROR rounds; None disables the channel",
     )
 

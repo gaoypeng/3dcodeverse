@@ -120,7 +120,7 @@ def _section(label: str, path: str, entries: list[RunEntry], hidden: set[str], u
     )
 
 
-def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode gallery",
+def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcodeverse gallery",
                  flt: dict[str, str] | None = None, sort: str = "score", view: str = "cards",
                  note: str = "", extra_html: str = "") -> str:
     flt = {k: (flt or {}).get(k, "") for k in FILTER_KEYS}
@@ -138,7 +138,7 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode ga
     right = (f"<button class='btn' id='view-btn' type='button' aria-pressed='{'true' if view == 'table' else 'false'}'>"
              f"{'▤ table' if view == 'table' else '▦ cards'}</button>")
     body = (
-        top_bar("3dcode gallery", f"{len(all_entries)} runs · {len(index.sections)} roots", right=right)
+        top_bar("3dcodeverse gallery", f"{len(all_entries)} runs · {len(index.sections)} roots", right=right)
         + "<main class='wrap'>"
         + (f"<p class='small muted'>{esc(note)}</p>" if note else "")
         + _summary_strip(selected, len(all_entries))
@@ -155,12 +155,12 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode ga
 
 
 # ===================================================================== static_site
-def render_static(index: GalleryIndex, *, title: str = "3dcode gallery", embed: bool = False,
+def render_static(index: GalleryIndex, *, title: str = "3dcodeverse gallery", embed: bool = False,
                   thumb_px: int = THUMB_PX, sort: str = "score", view: str = "cards",
                   extra_html: str = "") -> str:
     note = ("images are inlined; the links open the original run directories on this machine"
             if embed else "images and links point at the run directories with file:// — "
-                          "use `3dcode gallery serve` for a page that works anywhere")
+                          "use `3dcodeverse gallery serve` for a page that works anywhere")
     return render_index(index, StaticUrls(embed=embed, thumb_px=thumb_px),
                         title=title, sort=sort, view=view, note=note, extra_html=extra_html)
 
@@ -168,7 +168,7 @@ def render_static(index: GalleryIndex, *, title: str = "3dcode gallery", embed: 
 def build_static(roots: list[Path] | list[str], out_html: Path | str, *, title: str | None = None,
                  embed: bool = False, thumb_px: int = THUMB_PX) -> tuple[Path, int, GalleryIndex]:
     index = build_index(roots)
-    label = title or ("3dcode gallery — " + ", ".join(s.label for s in index.sections[:4])
+    label = title or ("3dcodeverse gallery — " + ", ".join(s.label for s in index.sections[:4])
                       + ("…" if len(index.sections) > 4 else ""))
     html = render_static(index, title=label, embed=embed, thumb_px=thumb_px)
     return write_text_atomic(Path(out_html), html), len(index.entries()), index

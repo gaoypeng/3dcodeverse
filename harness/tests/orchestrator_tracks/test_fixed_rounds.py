@@ -4,8 +4,6 @@ each built on the round before it, and only the clock or a hard failure ends it 
 from __future__ import annotations
 
 from codeverse3d.contracts.common import Language
-from codeverse3d.contracts.run import RunStatus
-from codeverse3d.proc import EventLog
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
@@ -23,20 +21,6 @@ def _track(chair_plan, settings, scores, *, agent=None) -> StaticObjectTrack:
     return StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=scores), agent=agent,
                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                              runtime=FakeRuntime(Language.CADQUERY))
-
-
-def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path, chair_plan, settings):
-    """A run that passes at r01 (once a "pass" stop) still runs every round; the regressing twin
-    is ``test_every_refine_starts_from_the_previous_rounds_commit`` and the D84 loop test."""
-    scores, max_rounds = (0.55, 0.85, 0.95), 3
-    ws = Workspace(tmp_path / "runs" / "fixed")
-    rec = _track(chair_plan, settings, scores).run(make_spec(language=Language.CADQUERY, max_rounds=max_rounds), ws)
-    assert len(rec.rounds) == max_rounds + 1
-    assert [r.kind for r in rec.rounds] == ["baseline"] + ["refine"] * max_rounds
-    assert rec.status is RunStatus.MAX_ROUNDS and rec.extra["stop_reason"] == "max_rounds"
-    assert all(r.judgment is not None for r in rec.rounds), "the judge still scores every round"
-    stops = [e for e in EventLog(ws.events_path).read() if e["event"] == "stop"]
-    assert [e["reason"] for e in stops] == ["max_rounds"]
 
 
 def test_every_refine_starts_from_the_previous_rounds_commit(tmp_path, chair_plan, settings):

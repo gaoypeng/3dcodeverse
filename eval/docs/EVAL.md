@@ -69,7 +69,7 @@ rung's prompts are generated ONCE and cached (`prompts/rung_R_<lang>.yaml`) with
 ## 3. Harness battery runs (`python -m bench.run_bench`)
 
 ```bash
-cd eval   # was `3dcode bench run|report` until 2026-09-22: the launcher lives with the evaluation now
+cd eval   # the battery launcher lives with the evaluation
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
     --generator agy:gemini-4-argon --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
@@ -77,9 +77,9 @@ python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:g
 python -m bench.report bench/out/static_v1_apiagent
 ```
 Like every bench script it imports THIS tree's `codeverse3d` (`../harness`), so a battery
-launched from a worktree measures the worktree — the `3dcode` console script resolved the
+launched from a worktree measures the worktree — the `3dcodeverse` console script resolves the
 editable install instead.
-Each item = one full `3dcode make` run (its own workspace under `--out`) followed by the
+Each item = one full `3dcodeverse make` run (its own workspace under `--out`) followed by the
 hand-over `make` does — `addons/select.pick` by score, then `package` (deliverable/ +
 selection.json); `results.jsonl` rows carry `score_baseline`, `score_picked` (rows written
 before 2026-09-22 say `score_final`), `picked_round`, `rounds`, `cost_usd`, `minutes`,
@@ -226,7 +226,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
 "images beat gate text for visible facts" in the prompt fixed pro hallucinating
 "nothing moves" from contract-gate text.
 
-* Variance on your own runs: `3dcode judge <slug> --n k` and read `score_std`.
+* Variance on your own runs: `3dcodeverse judge <slug> --n k` and read `score_std`.
 * Sanity anchors: a skeleton placeholder should score ≈ 0.3–0.5; a deliberately wrong
   object should trip the `intent_fidelity` floor / `wrong_object` defect; a floating
   part should cap via `connectivity` findings with `data["kind"]="floating"`.
@@ -366,7 +366,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
     tile is not silently dropped.  `judge_prompt_hash` moves for every rubric (the rig rules
     are shared), the manifest with it.
   * **Thinking** — `VlmJudge(thinking=None)` reads `Settings.judge.thinking`
-    (`C3D_JUDGE__THINKING`; argon thinks only from `medium`), `3dcode judge --thinking` and
+    (`C3D_JUDGE__THINKING`; argon thinks only from `medium`), `3dcodeverse judge --thinking` and
     `addons.calibration --thinking` default to it, the record's sampling snapshot carries it.
   * **The A/B evaluator** (`eval/bench/_fixed_eval.py`) runs `placement_gate` on a scene cell
     before the judge, so the deterministic caps fire in a compare cell as in the loop.
@@ -822,7 +822,7 @@ python -m bench.loop status      --out bench/out/loop_argon
   Pearson / Spearman of gate ERRORs against the score, the defect histogram, cost and latency.  The
   judge is a measuring instrument; this is its calibration certificate per iteration.
 * **accept** first refuses an overlay whose `routes.toml` does not type-check or whose bundles fail
-  `validate_bundle` (the standards of `3dcode skills validate`), then bumps `variant.toml`'s `version`, snapshots both overlay dirs to
+  `validate_bundle` (the standards of `3dcodeverse skills validate`), then bumps `variant.toml`'s `version`, snapshots both overlay dirs to
   `<out>/snapshots/<v>_v<N>/`, and appends a row to `bench/data/loop/<name>/ledger.jsonl` (format:
   `bench/data/loop/README.md`); **rollback** restores the last accepted snapshot (an iteration that
   was itself the latest accept is un-accepted, version and all); **status** prints the ledger and the

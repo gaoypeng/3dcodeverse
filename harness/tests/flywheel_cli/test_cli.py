@@ -17,7 +17,7 @@ runner = CliRunner()
 
 @pytest.fixture
 def made_run(tmp_path: Path):
-    """`3dcode make --no-run` into a fresh runs dir → ``(runs_dir, run_dir)``."""
+    """`3dcodeverse make --no-run` into a fresh runs dir → ``(runs_dir, run_dir)``."""
     def make(*extra: str) -> tuple[Path, Path]:
         runs = tmp_path / "runs"
         r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", *extra])
@@ -241,7 +241,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
 
 
 def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_record(tmp_path: Path, monkeypatch):
-    """`3dcode judge` replays the run it reads.  r0 0.55, r1 unjudged (a judge outage), r2 0.90, of a
+    """`3dcodeverse judge` replays the run it reads.  r0 0.55, r1 unjudged (a judge outage), r2 0.90, of a
     static `--image` run:
     * no --round after `pick --round 0` is r0, the packaged round — not the best-scored r2 (N55a);
     * the unjudged r1 replays on the run's reference, not the track's static_object (N49);

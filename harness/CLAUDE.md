@@ -1,6 +1,6 @@
 # 3dcodeverse — standing context
 
-Backend harness (python package `codeverse3d`, CLI `3dcodeverse` / short alias `3dcode`,
+Backend harness (python package `codeverse3d`, CLI `3dcodeverse`,
 repo path `harness/` under the 3dcodeverse checkout) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
@@ -82,11 +82,11 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
 - Every model call and vendor session is priced into the run's `telemetry/cost.jsonl` — the ONLY record of
   money: `record.total_usage` is its sum at list price (D84).  A run's minutes are its steps' time minus
-  the time lost to provider errors (`RunRecord.minutes`). Use `3dcode cost <slug>` for actual costs.
+  the time lost to provider errors (`RunRecord.minutes`). Use `3dcodeverse cost <slug>` for actual costs.
 
 ## Commands
 ```
-pip install -e harness   # once, from the 3dcodeverse checkout (entry points: 3dcodeverse, 3dcode)
+pip install -e harness   # once, from the 3dcodeverse checkout (entry point: 3dcodeverse)
 cd harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
@@ -101,14 +101,14 @@ cd harness
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
-3dcode pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
-3dcode resume <slug> · 3dcode show <slug> [--section status] (`status` = its STATUS section) · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3 --thinking medium]
-3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>
-3dcode cost <slug> · 3dcode cost --runs-dir ../eval/bench/out/<battery> · 3dcode cost cache <slug>
-3dcode cost prices [--stale] · 3dcode cost estimate gemini:gemini-3.1-pro-preview --in 12000
-3dcode flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcode flywheel pairs runs/ pairs.jsonl
-3dcode flywheel caption <slug> [--out dir]   # the gallery is `3dcode gallery build --embed`
-3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
+3dcodeverse pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
+3dcodeverse resume <slug> · 3dcodeverse show <slug> [--section status] (`status` = its STATUS section) · 3dcodeverse render <slug> [--mode wire] · 3dcodeverse judge <slug> [--model ... --n 3 --thinking medium]
+3dcodeverse tools list · 3dcodeverse tools measure --workspace runs/<slug> · 3dcodeverse mcp --workspace runs/<slug>
+3dcodeverse cost <slug> · 3dcodeverse cost --runs-dir ../eval/bench/out/<battery> · 3dcodeverse cost cache <slug>
+3dcodeverse cost prices [--stale] · 3dcodeverse cost estimate gemini:gemini-3.1-pro-preview --in 12000
+3dcodeverse flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcodeverse flywheel pairs runs/ pairs.jsonl
+3dcodeverse flywheel caption <slug> [--out dir]   # the gallery is `3dcodeverse gallery build --embed`
+3dcodeverse gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcodeverse gallery build --out gallery.html [--embed]
 (cd ../eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview)   # report: python -m bench.report bench/out/<battery>
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 (cd ../eval && python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon --languages scene_threejs,scene_blender --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 && python -m bench.loop generate --iter 0 && python -m bench.loop run --iter 0 && python -m bench.loop diagnose --iter 0)   # the argon loop (eval/docs/EVAL.md §10): then compare --iter N --against M · judge-calib --iter N · accept|rollback --iter N · status

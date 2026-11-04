@@ -1,1 +1,1 @@
-"""``3dcode`` command line."""
+"""``3dcodeverse`` command line."""

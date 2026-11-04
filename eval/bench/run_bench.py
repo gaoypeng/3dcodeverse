@@ -2,7 +2,7 @@
 
     cd eval && python -m bench.run_bench bench/prompts/<battery>.yaml --generator ... --judge ...
 
-(``3dcode bench run`` until 2026-09-22.  Like every bench script it imports THIS tree's
+(``3dcodeverse bench run`` until 2026-09-22.  Like every bench script it imports THIS tree's
 ``codeverse3d``; the console script resolved the editable install's, main's from a worktree.)
 
 Layout of ``out_dir``::
@@ -16,11 +16,11 @@ Every prompt becomes a ``Spec`` with the battery's track/language, a FIXED judge
 model (methodology: paired runs share the judge), and the generator under test.
 
 Each prompt runs inside its own ``codeverse3d.cost.run_ledger``, exactly like a
-``3dcode make``: the batteries are where most runs come from, so without it the
+``3dcodeverse make``: the batteries are where most runs come from, so without it the
 priced per-call rows of a whole battery went to the per-process fallback log and
-``3dcode cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
+``3dcodeverse cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
 The binding is context-local, so ``--parallel N`` keeps N ledgers apart.  And like
-``3dcode make``, the round ``codeverse3d.addons.select`` picks is packaged after the run
+``3dcodeverse make``, the round ``codeverse3d.addons.select`` picks is packaged after the run
 (``deliverable/`` + ``selection.json``); a result row is baseline → picked, no pass/fail.
 """
 
@@ -142,7 +142,7 @@ class BenchOptions(BaseModel):
                                    description="re-run prompts already recorded with one of these statuses "
                                                "(the point of `infra_failed`: retry what the weather lost)")
     variant: str = Field(default="", description="the per-model prompt/skill variant every run is created with "
-                                                 "(RunOptions.variant, D105); '' = resolve from Settings like `3dcode make`")
+                                                 "(RunOptions.variant, D105); '' = resolve from Settings like `3dcodeverse make`")
 
 
 REFS_DIR = Path(__file__).resolve().parent / "refs"
@@ -183,7 +183,7 @@ def build_spec(
 ) -> Spec:
     """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
     Drivers resolve their own ``Backends`` and pass their leading tag; ``variant`` is frozen on
-    ``RunOptions.variant`` the way ``3dcode make --variant`` freezes it (the track activates it)."""
+    ``RunOptions.variant`` the way ``3dcodeverse make --variant`` freezes it (the track activates it)."""
     return Spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
@@ -197,7 +197,7 @@ def build_spec(
 def resolve_variant(name: str, generator_id: str) -> str:
     """The variant a bench run is created with: ``name`` when stated (``--variant``), else what the
     settings resolve for the generator (``prompts.variants.resolve_variant`` — the same rule as
-    ``3dcode make``), else the base.  A tree without the variant layer (pre-D105) resolves to the base
+    ``3dcodeverse make``), else the base.  A tree without the variant layer (pre-D105) resolves to the base
     unless a name was stated, which it cannot honour."""
     if name:
         return name
@@ -302,7 +302,7 @@ def default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
 
 
 def hand_over(ws: Workspace, rec: RunRecord) -> None:
-    """What ``3dcode make`` does after a run: package the round ``select`` picks (by score).
+    """What ``3dcodeverse make`` does after a run: package the round ``select`` picks (by score).
     A packaging failure costs the hand-over, never the scored row."""
     try:
         idx = select.pick(ws.root, record=rec)
@@ -435,7 +435,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="write report.md + report.html when the battery ends")
     ap.add_argument("--variant", default="",
                     help="per-model prompt/skill variant for every run (codeverse3d/prompts/variants/<name>, D105); "
-                         "default: what the settings resolve for the generator, like `3dcode make`")
+                         "default: what the settings resolve for the generator, like `3dcodeverse make`")
     ns = ap.parse_args(argv)
     if not ns.battery.is_file():
         ap.error(f"battery not found: {ns.battery}")

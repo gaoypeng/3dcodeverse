@@ -1,4 +1,4 @@
-"""``3dcode render`` / ``3dcode judge`` — act on one existing run: re-render its working
+"""``3dcodeverse render`` / ``3dcodeverse judge`` — act on one existing run: re-render its working
 tree, or re-judge a round into ``artifacts/judge/rNN_cli.json``."""
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def render(
     idx = max(ws.rendered_rounds(), default=0)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
     # a graphics render rebuilds the run: one writer per run dir
-    with C.mutating(ws, what=f"3dcode render {ws.root.name}", action="render"):
+    with C.mutating(ws, what=f"3dcodeverse render {ws.root.name}", action="render"):
         if spec.track is Track.GRAPHICS:
             _render_graphics(ws, spec, out_dir)
             return
@@ -126,7 +126,7 @@ def judge(
         raise C.CliError(str(e), code=2) from e
     n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
     # writes into the run: one writer per run dir; judged under the run's variant
-    with C.mutating(ws, what=f"3dcode judge {ws.root.name}", action="judge"), C.replay_variant(rec):
+    with C.mutating(ws, what=f"3dcodeverse judge {ws.root.name}", action="judge"), C.replay_variant(rec):
         try:
             with join_post_run(ws):
                 verdict = judge_obj.judge(inp)

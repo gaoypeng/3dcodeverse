@@ -20,6 +20,7 @@ from codeverse3d.orchestrator import (
     StageRunner,
     build_refine_instructions,
     plan_parallel_groups,
+    plan_refine_groups,
 )
 from codeverse3d.proc import EventLog, fan_out
 
@@ -126,3 +127,21 @@ def test_two_env_errors_of_one_gate_are_two_refine_tasks(chair_plan):
     tasks = build_refine_instructions(None, [GateReport(gate="scene_placement", passed=False, findings=env)], [], chair_plan)
     lines = [t.instruction for t in tasks]
     assert len(tasks) == 2 and any("fog" in x for x in lines) and any("background" in x for x in lines), lines
+
+
+def _task(target: str, files: list[str] | None = None, priority: int = 2) -> RefineTask:
+    return RefineTask(target=target, kind="geometry", instruction=f"fix {target}", priority=priority, files=files or [])
+
+
+def test_plan_refine_groups_fans_out_only_when_allowed_and_disjoint():
+    tasks = [_task("Seat", ["src/parts/seat.js"]), _task("Leg", ["src/parts/leg.js"])]
+    groups, parallel = plan_refine_groups(tasks, allow_fanout=True, parallel_min_tasks=2)
+    assert parallel and len(groups) == 2
+
+    groups, parallel = plan_refine_groups(tasks, allow_fanout=False, parallel_min_tasks=2)
+    assert not parallel and len(groups) == 1
+    assert groups[0].files == ["src/parts/leg.js", "src/parts/seat.js"] and len(groups[0].tasks) == 2
+
+    # unknown file ownership collapses into one group even when fan-out is allowed
+    groups, parallel = plan_refine_groups([_task("Seat", ["src/parts/seat.js"]), _task("overall")], allow_fanout=True)
+    assert not parallel and len(groups) == 1

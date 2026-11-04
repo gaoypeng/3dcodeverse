@@ -47,6 +47,10 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
                               settings=settings, runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.MAX_ROUNDS and [r.score for r in rec.rounds] == [0.55, 0.7, 0.85, 0.85]
+    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
+    assert rec.extra["stop_reason"] == "max_rounds"
+    stops = [e for e in EventLog(ws.events_path).read() if e["event"] == "stop"]
+    assert [e["reason"] for e in stops] == ["max_rounds"]
     assert rec.rounds[1].instructions[0].startswith("[gate/gate:contract] Seat")   # gate findings lead the refine
     # Law 6: one commit per round, and the workspace ends at the last one
     assert len({r.commit for r in rec.rounds}) == 4 and ws.head() == rec.rounds[3].commit

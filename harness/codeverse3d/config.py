@@ -58,7 +58,7 @@ Flag = Annotated[bool, WrapValidator(_or_default)]
 Count = Annotated[int, Field(ge=0), WrapValidator(_or_default)]
 
 
-#: the supported Blender (5.2 LTS); ``3dcode doctor`` fails anything older.
+#: the supported Blender (5.2 LTS); ``3dcodeverse doctor`` fails anything older.
 BLENDER_MIN: tuple[int, int] = (5, 2)
 
 
@@ -177,7 +177,7 @@ class Judge(BaseModel):
         description="the in-run VLM judge's thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
         "'low' = 1024 tokens is enough for gemini-3.1-pro; gemini-4-argon thinks only from 'medium' "
         "(4096) — measured 2026-10-14 on 19 scene/object rounds: argon@medium within-sd .012 vs .029 at low, "
-        "same cost, same mean (D105).  `3dcode judge --thinking` replays with another level.")
+        "same cost, same mean (D105).  `3dcodeverse judge --thinking` replays with another level.")
 
 
 class Placement(BaseModel):

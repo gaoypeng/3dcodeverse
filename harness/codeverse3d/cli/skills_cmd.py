@@ -1,4 +1,4 @@
-"""``3dcode skills`` — list and validate the skill library, and report how often agents read it."""
+"""``3dcodeverse skills`` — list and validate the skill library, and report how often agents read it."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def list_skills(
     roots = _roots()
     found = [(root, s) for root in roots for s in iter_skills(root.path)]
     overlay_rows = {root.variant: _overlay_routes(root.variant) for root in roots if root.variant}
-    t = Table(title="3dcode skills")
+    t = Table(title="3dcodeverse skills")
     for col in ("name", "variant", "evidence", "verified", "lines", "~tokens", "refs", "target", "dir",
                 *(["routes"] if routes else [])):
         t.add_column(col)

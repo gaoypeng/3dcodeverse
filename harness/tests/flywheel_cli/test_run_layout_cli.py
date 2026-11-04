@@ -1,4 +1,4 @@
-"""deliverable/ (addons/select.package) + telemetry/ (record.package_run), `3dcode show`, and
+"""deliverable/ (addons/select.package) + telemetry/ (record.package_run), `3dcodeverse show`, and
 export / gallery on BOTH layouts (old runs must keep working)."""
 
 from __future__ import annotations
