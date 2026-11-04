@@ -242,8 +242,7 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     ("contract", [(0.70, 1), (0.60, 0)], 0),             # any other gate's errors still only break score ties
 ], ids=["project-check", "fixed-part", "all-fail", "other-gate"])
 def test_a_round_failing_the_projects_own_checks_loses_to_one_that_passes(tmp_path, gate, rounds, want):
-    """Measured 2026-11-03 (codecity3d): a refine task fixed the survey check's footprint error, and the unfixed
-    round was handed over anyway on a judge score 0.04 higher."""
+    """The project's own checks outrank the judge score when picking; other gates still only break ties."""
     ws = _run(tmp_path / "r", [(score, 0) for score, _ in rounds])
     rec = json.loads(ws.record_path.read_text())
     for r, (_, errors) in zip(rec["rounds"], rounds, strict=True):

@@ -214,8 +214,7 @@ def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool
     assert len(d["contacts"]) == 4 and all(c[1] == "Seat" or c[0] == "Seat" for c in d["contacts"])
 
 def test_inside_test_uses_trimesh_rays_unless_embree_is_asked_for(switch) -> None:
-    """embreex 4 segfaulted in this parity test on a large multi-part GLB (2026-11-03): the default ray engine is
-    trimesh's own intersector, Embree only by ``C3D_RAY_ENGINE=embree``, and both answer the same."""
+    """The default ray engine is trimesh's own intersector, Embree only by ``C3D_RAY_ENGINE=embree``."""
     from trimesh.ray.ray_triangle import RayMeshIntersector
 
     from codeverse3d.spatial import joints_collide

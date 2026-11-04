@@ -32,11 +32,7 @@ class FixedPart(BaseModel):
     """A file the PROJECT seeds into ``src/`` that no session may rewrite: measured geometry (a survey shell), the
     data it reads, a shared library.  The planner is told it is given and does not plan it; the agent imports it
     unchanged (an edit is reverted, like a language's ``HARNESS_OWNED_SRC``); the skeleton keeps it; and when it
-    builds a part, the ``contract_fixed`` gate measures that part against ``bbox_min``/``bbox_max``.
-
-    Measured, 2026-11-02 (codecity3d dry run 5): told only in the prompt, one agent cut a seeded chimney to pass a
-    selfcheck sized to the spec, another rescaled the whole seeded shell 0.9 m to fit the box the planner had
-    invented for it — the contract gate rewarded that."""
+    builds a part, the ``contract_fixed`` gate measures that part against ``bbox_min``/``bbox_max``."""
 
     path: str = Field(description="workspace-relative file under src/, e.g. 'src/parts/survey_shell.js'")
     name: str = Field(default="", description="the GLB part it builds (a child of the root, e.g. 'SurveyShell'); "

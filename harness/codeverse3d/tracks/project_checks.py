@@ -2,9 +2,7 @@
 
 The harness gates what it can know about any object — the build, the plan contract, connectivity, budgets.  A
 project often knows more: the true geometry of the thing (a surveyed building, a catalogue part), definitions
-of its own (a building's eaves line) and thresholds.  Its checks used to run after the run, outside the loop, so
-refine never heard of a measured error (codecity3d, 2026-10-25..11-02: wrong roofs and eaves went unrefined, and
-a house one storey too tall was judged 0.82).  Registered here, a check's reports join the round's gates under
+of its own (a building's eaves line) and thresholds.  A registered check's reports join the round's gates under
 ``project:<name>``: an ERROR becomes a refine task with its ``fix_hint``, the judge reads it in the gates section,
 and a rubric ``CapRule(when="gate", gate="project:*")`` caps the score.
 

@@ -249,9 +249,8 @@ class Settings(BaseSettings):
     ray_engine: Literal["numpy", "embree"] = Field(
         default="numpy",
         description="ray engine of the deterministic inside tests (connectivity penetration, pose sweep): trimesh's "
-        "own ray-triangle intersector, or Embree via embreex when installed.  numpy by default: embreex 4 "
-        "segfaults on some large multi-part GLBs (a 2 600 m2 building, 2026-11-03), and a segfault kills every "
-        "parallel run of the process; numpy measured the same gate in 16 s.  C3D_RAY_ENGINE.",
+        "own ray-triangle intersector, or Embree via embreex when installed.  numpy by default: embreex 4 can "
+        "segfault on large multi-part GLBs, which kills every parallel run of the process.  C3D_RAY_ENGINE.",
     )
 
     model_timeout_s: float = Field(

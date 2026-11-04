@@ -342,7 +342,7 @@ def check_contract(measurement: Measurement, plan: StaticPlan, *, language: str,
 # --------------------------------------------------------------------------- fixed parts
 FIXED_GATE = "contract_fixed"
 #: a fixed part is built by code the agent may not change, so its box must come out as declared: any face of
-#: it further than this from the declared box is an ERROR (the measured abuse moved one by 0.9 m)
+#: it further than this from the declared box is an ERROR
 FIXED_TOL_M = 0.05
 
 
