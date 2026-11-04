@@ -7,7 +7,7 @@
  * ground under a tree is a flat tone with a shadow blob on it.
  *
  * It goes on the material of the surface BEING LIT, not on the canopy,
- * for the same reason `patchCaustics` does — the pattern belongs to the
+ * because the pattern belongs to the
  * leaves overhead, which the floor knows nothing about. So the caller
  * states where the canopy is and how dense it is.
  *
@@ -53,8 +53,7 @@ const FLECK_LOW = new THREE.Color(0xffc287);
  * cloudy blur that reads as fog on the floor instead. It lifts the
  * light rather than the albedo — a sunfleck on a shaded floor is often
  * the only direct light there is, and lifting albedo alone would cap it
- * at the ambient the floor already receives, exactly the choice
- * `windows.js` and `caustics.js` document.
+ * at the ambient the floor already receives.
  *
  * Three things make a fleck read as SUNLIGHT rather than as a pale
  * texture, and all three are geometry the caller already stated:

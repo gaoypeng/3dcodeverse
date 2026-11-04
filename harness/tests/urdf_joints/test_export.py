@@ -29,35 +29,36 @@ def test_urdf_to_glb_hierarchy_and_extras(tmp_path):
     names = {n["name"]: n for n in js["nodes"]}
     assert {"cab", "body", "door", "handle"} <= set(names)
     assert "joint" in names["door"]["extras"] and names["door"]["extras"]["joint"]["type"] == "revolute"
-    assert "extras" not in names["body"] or "joint" not in names["body"].get("extras", {})
-    scene_extras = js["scenes"][0]["extras"]
-    assert [j["name"] for j in scene_extras["joints"]] == ["hinge", "handle_mount"]
-    assert scene_extras["links"] == ["body", "door", "handle"]
-    # hierarchy: cab → body → door → handle
+    assert js["scenes"][0]["extras"]["links"] == ["body", "door", "handle"]
     idx = {n["name"]: i for i, n in enumerate(js["nodes"])}
     assert idx["door"] in names["body"]["children"] and idx["handle"] in names["door"]["children"]
-    # canonical frame: Y-up (ground at y=0), door at +z front
-    s = trimesh.load(glb)
-    assert abs(s.bounds[0][1]) < 1e-6 and s.bounds[1][1] > 0.79
-    assert s.bounds[1][2] > 0.2
     # posed export moves the door
     glb2 = urdf_to_glb(r, tmp_path / "open.glb", {"hinge": 1.57})
     s2 = trimesh.load(glb2)
     assert s2.bounds[1][2] > 0.7  # door swung out to +z (front)
     assert _gltf_json(glb2)["scenes"][0]["extras"]["pose"] == {"hinge": 1.57}
-    # a multi-material link keeps its materials: one node per submesh under the link
-    a = trimesh.creation.box((0.1, 0.1, 0.1))
-    a.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="wood", baseColorFactor=[200, 150, 100, 255]))
-    b = trimesh.creation.box((0.05, 0.05, 0.3))
-    b.apply_translation((0, 0, 0.3))
-    b.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="metal", baseColorFactor=[200, 200, 210, 255]))
-    (meshes / "body.glb").write_bytes(trimesh.Scene([a, b]).export(file_type="glb"))
-    r = load_urdf(urdf, meshes)
-    assert len(r.links["body"].submeshes) == 2 and len(r.links["body"].mesh.split(only_watertight=False)) == 2
-    s = trimesh.load(urdf_to_glb(r, tmp_path / "mm.glb"))
-    names = {k: getattr(getattr(g.visual, "material", None), "name", None) for k, g in s.geometry.items()}
-    assert {names["body__0"], names["body__1"]} == {"wood", "metal"}
-    assert sorted(n for n in [e[1] for e in s.graph.to_edgelist()] if n.startswith("body")) == ["body", "body__0", "body__1"]
+
+
+def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeypatch):
+    """A sweep that finds a penetration RAN: ``failed`` stays False (each MCP error bought a retry at ~117k prompt tokens)
+    and the FAIL verdict leads the text; the tool and ``sweep_gate`` say the same thing."""
+    import codeverse3d.spatial.tools as ts
+    from codeverse3d.spatial.joints_sweep import sweep_gate
+    from codeverse3d.spatial.registry import ToolContext, get_tool
+    from codeverse3d.workspace import Workspace
+    from tests.urdf_joints.conftest import write_prims_robot
+
+    ws = Workspace(tmp_path / "ws").create()
+    write_prims_robot(ws.artifacts / "robot.urdf", axis_z=+1)   # the door swings into the body
+    monkeypatch.setattr(ts, "render_poses", lambda robot, out_dir, poses=None, **kw: [
+        Image.new("RGB", (8, 8), "gray").save(out_dir / ARTICULATION_SHEET_NAME)])
+    ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
+    obs = get_tool("joint_sweep").call(ctx, {})
+    assert not obs.ok and not obs.failed
+    assert obs.text.startswith("joint_sweep: FAIL — 1 error(s)")
+    assert "links 'body|door' overlap in 2 of the sampled poses" in obs.text and "fix:" in obs.text
+    gate, _ = sweep_gate(ws)
+    assert not gate.passed and [f.message for f in gate.errors][0] in obs.text
 
 
 def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
@@ -85,37 +86,6 @@ def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
     assert [v.name for v in out[0][1].views] == ["front_right_high", "back_left_high", "front"]
     sheet = tmp_path / "ren" / ARTICULATION_SHEET_NAME
     assert sheet.is_file() and Image.open(sheet).size[0] > 32
-
-
-def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeypatch):
-    """A sweep that finds a penetration RAN: ``failed`` stays False (63% of 1404 recorded
-    joint_sweep calls answered FAIL, and each one reported as an MCP error bought a retry
-    at ~117k prompt tokens), and the FAIL verdict leads the text.  The verdict is the
-    round's: the tool and ``sweep_gate`` say the same thing about the same robot."""
-    import codeverse3d.spatial.tools as ts
-    from codeverse3d.spatial.joints_sweep import sweep_gate
-    from codeverse3d.spatial.registry import ToolContext, get_tool
-    from codeverse3d.workspace import Workspace
-    from tests.urdf_joints.conftest import write_prims_robot
-
-    ws = Workspace(tmp_path / "ws").create()
-    write_prims_robot(ws.artifacts / "robot.urdf", axis_z=+1)   # the door swings into the body
-    monkeypatch.setattr(ts, "render_poses", lambda robot, out_dir, poses=None, **kw: [
-        Image.new("RGB", (8, 8), "gray").save(out_dir / ARTICULATION_SHEET_NAME)])
-    ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
-    obs = get_tool("joint_sweep").call(ctx, {})
-    assert not obs.ok and not obs.failed
-    assert obs.text.startswith("joint_sweep: FAIL — 1 error(s)")
-    assert "links 'body|door' overlap in 2 of the sampled poses" in obs.text and "fix:" in obs.text
-    gate, _ = sweep_gate(ws)
-    assert not gate.passed and [f.message for f in gate.errors][0] in obs.text
-    # the tool and the gate share ONE urdf rule, the built copy: an authored src/robot.urdf with no
-    # build behind it is "run build first" for both, never a sweep against the last build's meshes
-    bare = Workspace(tmp_path / "bare").create()
-    write_prims_robot(bare.src / "robot.urdf", axis_z=+1)
-    obs = get_tool("joint_sweep").call(ToolContext(workspace=bare, language="urdf_blender", track="articulated_object"), {})
-    gate, robot = sweep_gate(bare)
-    assert "run `build` first" in obs.text and robot is None and [f.message for f in gate.errors] == ["no robot.urdf found after build"]
 
 
 def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):

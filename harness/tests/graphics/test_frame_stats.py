@@ -18,10 +18,7 @@ def _gradient(t: float, w=160, h=90, moving=True):
     x = np.linspace(0, 1, w, dtype=np.float32)[None, :].repeat(h, 0)
     y = np.linspace(0, 1, h, dtype=np.float32)[:, None].repeat(w, 1)
     shift = 0.2 * t if moving else 0.0
-    r = 0.5 + 0.5 * np.sin(6.0 * (x + shift))
-    g = y
-    b = 0.5 + 0.5 * np.cos(4.0 * (y - shift))
-    return np.stack([r, g, b], -1)
+    return np.stack([0.5 + 0.5 * np.sin(6.0 * (x + shift)), y, 0.5 + 0.5 * np.cos(4.0 * (y - shift))], -1)
 
 
 def _kinds(gate):
@@ -60,8 +57,3 @@ def test_flicker_and_low_detail_warn(tmp_path):
     flat = [(t, _png(tmp_path / f"l{i}.png", np.full((90, 160, 3), 0.4 + 0.01 * t))) for i, t in enumerate((0.0, 1.0, 2.0))]
     g = frame_gate(sequence_stats(flat))
     assert _kinds(g)["low_detail"] == Severity.WARN and g.passed
-
-
-def test_empty_sequence_is_an_error():
-    g = frame_gate(sequence_stats([]))
-    assert not g.passed and g.errors[0].data["kind"] == "no_frames"

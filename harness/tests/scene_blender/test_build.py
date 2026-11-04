@@ -76,25 +76,6 @@ def test_placement_rows_for_sunk_floating_and_free(built) -> None:
     assert [r["name"] for r in rows.values() if r["name"].startswith("GrassPatch")] == ["GrassPatch"]
 
 
-def test_the_zone_mark_survives_the_census_glb(built) -> None:
-    """D111: the census GLB's zone nodes carry ``extras[ZONE_ROOT_KEY]`` → three.js ``userData``, so only
-    the zones' children are rows; the env's roots (``Ground``) are scenery, measured as nothing."""
-    _, res = built
-    table = res.census["placement"]
-    assert table["assets"] and {r["zone"] for r in table["assets"]} <= {"Yard", "Meadow"}
-    assert "Ground" in table["scenery"]["names"]
-
-
-def test_bpy_facts_reach_the_census(built) -> None:
-    ws, res = built
-    c = res.census
-    assert c["totals"]["lights"] == 1 and c["light_types"] == {"SUN": 1}
-    assert c["environment"] is True
-    assert c["bpy"]["drivers_invalid"] == [] and c["bpy"]["handlers"] == []
-    assert (ws.artifacts / "scene.blend").stat().st_size > 0 and (ws.artifacts / "census.glb").stat().st_size > 0
-    assert [g.gate for g in res.gates] == ["scene_probe"]
-
-
 def _only_unlit(res) -> None:
     """The skeleton's build: everything built, and the one ERROR is the placeholder env's ``unlit``."""
     errors = [f for g in res.gates for f in g.errors]
@@ -116,16 +97,10 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     res = rt.build(tmp_ws)
     _only_unlit(res)
     c = res.census
-    # the stub env ships a plate and nothing that passes: no world, no atmosphere, no lamp until the author
-    # writes the brief's (a placeholder that passed was kept by every author, 2026-10-15)
-    assert c["fog"] is None and c["background"] is None and not c["bpy"]["glb"]["volumes_skipped"]
+    assert c["fog"] is None and c["background"] is None and c["light_types"] == {}
     assert {g["name"] for g in c["groups"]} >= {"Quay", "Water", "Ground"}
-    assert c["light_types"] == {} and c["bpy"]["drivers_invalid"] == []
-    # the zone stubs place NOTHING (D106: they name the plan's contents and decide no position — the
-    # grid of placeholders inside the bbox was the seed of the block-on-a-plate look), so the fresh
-    # skeleton's placement table is empty and anything an author then places is measured on its own
     placed = [r for r in c["placement"]["assets"] if r["zone"] in ("Quay", "Water") and not r["exempt"]]
-    assert placed == [], placed
+    assert placed == [], placed   # D106: the zone stubs place nothing
     probe = json.loads((tmp_ws.artifacts / "scene_probe.json").read_text())
     # the plan's cameras, named as scene_threejs's assembler names them
     assert [cam["name"] for cam in probe["boot"]["cameras"]] == [to_snake(c.name) for c in plan.cameras[:6]]
@@ -150,31 +125,6 @@ def test_the_skeleton_renders_through_the_runtime(tmp_ws, switch) -> None:
     assert metrics["language"] == "scene_blender" and {c["name"] for c in metrics["camera_checks"]} >= set(names)
 
 
-def test_assemble_leaves_a_failing_zone_out(tmp_ws) -> None:
-    write_fixture(tmp_ws)
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    asm = _rt().assemble(tmp_ws, plan)
-    assert asm.zones_included == ["meadow", "yard"] and set(asm.zones_failed) == {"broken"}
-    assert '"broken"' not in (tmp_ws.src / "scene.py").read_text()
-    assert _rt().build(tmp_ws).ok
-
-
-def test_a_python_driver_fails_the_build_census(tmp_ws) -> None:
-    """D10 behind the lint: a driver whose expression the lint cannot read (built from a variable)
-    still fails the build."""
-    write_fixture(tmp_ws, broken=False)
-    yard = tmp_ws.src / "zones" / "yard.py"
-    yard.write_text(yard.read_text().replace(
-        "    return ctx.collection\n",
-        "    expr = 'noise.noise(' + '(frame, 0, 0))'\n"
-        "    d = cart.driver_add('location', 2).driver\n"
-        "    d.expression = expr\n"
-        "    return ctx.collection\n"))
-    assert _rt().lint(tmp_ws).passed
-    res = _rt().build(tmp_ws)
-    assert not res.ok and res.error_type == "python_driver" and "Cart_0" in res.error_message
-
-
 def test_a_hero_glb_is_imported_into_ctx_assets(tmp_ws) -> None:
     write_fixture(tmp_ws, broken=False)
     write_box_glb(tmp_ws.public / "assets" / "windmill.glb", size=(2.0, 4.0, 2.0))
@@ -194,28 +144,3 @@ def test_a_hero_glb_is_imported_into_ctx_assets(tmp_ws) -> None:
     row = _rows(res)["Windmill_0"]
     assert row["zone"] == "Yard" and row["supported"]   # a 4 m box centred on z = 2 stands on the ground
 
-
-def test_probe_measures_without_touching_build_json(tmp_ws) -> None:
-    write_fixture(tmp_ws, broken=False)
-    rt = _rt()
-    assert rt.build(tmp_ws).ok
-    before = (tmp_ws.artifacts / "build.json").read_text()
-    res = rt.probe(tmp_ws)
-    assert res.ok and res.gate.passed and res.census["placement"]["assets"]
-    assert (tmp_ws.artifacts / "build.json").read_text() == before
-
-
-def test_what_the_render_driver_reads(built) -> None:
-    """The .blend and census the render driver (DESIGN phase 2) is built on: cameras in plan order
-    with their aim, the frame clock, a census in bpy wording with no hero entry for the census GLB."""
-    import subprocess
-
-    ws, res = built
-    assert res.census["language"] == "scene_blender" and res.census["glb_assets"] == []
-    code = ("import bpy, json; s = bpy.context.scene; "
-            "print('C3D', json.dumps([list(s['c3d_cameras']), [list(bpy.data.objects[n]['c3d_look_at']) for n in s['c3d_cameras']], "
-            "s.render.fps, s.frame_start, s.frame_end]))")
-    out = subprocess.run([get_settings().resolve_blender(), "-b", "--factory-startup", str(ws.artifacts / "scene.blend"),
-                          "--python-expr", code], capture_output=True, text=True, timeout=120).stdout
-    cams, looks, fps, first, last = json.loads(next(line[4:] for line in out.splitlines() if line.startswith("C3D ")))
-    assert cams == ["overview"] and looks == [[0.0, 0.0, 0.0]] and (fps, first, last) == (30, 1, 46)

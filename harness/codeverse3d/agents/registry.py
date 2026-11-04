@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 
 
-@runtime_checkable
 class CodingAgent(Protocol):
     """Runs ONE headless agent session in ``job.workspace``.
 
@@ -28,9 +27,6 @@ class CodingAgent(Protocol):
 
     kind: str  # claude-code | codex | agy
     model: str
-
-    @property
-    def id(self) -> str: ...
 
     def run(self, job: AgentJob) -> AgentResult: ...
 

@@ -198,7 +198,7 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
     seen = hashlib.sha256("\n".join(sha256_file(v.path) if Path(v.path).is_file() else v.path
                                   for rs in renders for v in rs.views).encode()).hexdigest()
     stored = read_json_or_none(cache) or {}
-    if (stored.get("model") == model and stored.get("renders", seen) == seen   # pre-2026-09-23 caches kept no fingerprint
+    if (stored.get("model") == model and stored.get("renders") == seen
             and isinstance(stored.get("note"), dict)):
         return PairwiseNote.model_validate(stored["note"])
     try:

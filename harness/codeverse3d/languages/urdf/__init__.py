@@ -757,7 +757,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
 
         # 5. the rest pose — the only pose that decides the build (D17); every other pose is
         #    the round's joint_sweep gate (spatial.joints_sweep.sweep_gate), which the tool reports too
-        report = sweep_collisions(robot, [{}], volumes=False)
+        report = sweep_collisions(robot, [{}])
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
 
         # 6. canonical GLB at rest

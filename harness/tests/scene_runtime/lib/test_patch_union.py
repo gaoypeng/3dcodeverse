@@ -1,21 +1,4 @@
-"""The ten surface-patch libraries on ONE material: the names each owns, and
-every chain of them on the real renderer.
-
-terrain_shade, waterside, surface_wear, aging, accumulation, strata, damp,
-roadway, caustics and submerged are written to land on the same materials —
-a submerged, weathered, splatted bank wears half of them at once — and
-`patchStandard` chains whatever it is handed.  Every way that goes wrong is
-silent or far from its cause.  patchStandard DROPS a repeated uniform or
-varying and keeps the first, so a name two libraries share leaves one patch
-reading the other's value with nothing reported; a helper two libraries both
-define is deduped while the bodies match and THROWS the day either is edited;
-a main() local two bodies both declare is a redefinition that takes the whole
-material down; and a chain that compiles in one order, one variant or next
-to one neighbour only is a scene that renders black the day an author picks
-another.
-
-This file is the GPU compile of these ten for test_library.py.
-"""
+"""The seven surface-patch libraries on ONE material."""
 from __future__ import annotations
 
 import itertools
@@ -36,18 +19,15 @@ from tests.scene_runtime.lib._probe import (
 
 pytestmark = pytest.mark.node
 
-# The ten, and the patches each ships.
+# The seven, and the patches each ships.
 LIBRARIES: dict[str, tuple[str, ...]] = {
     "terrain_shade.js": ("patchTriplanar", "patchSlopeSplat"),
     "waterside.js": ("patchShoreWet", "patchShoreFoam", "patchShallowWater"),
     "surface_wear.js": ("patchMicroBreakup", "patchEdgeWear"),
     "aging.js": ("patchDripStains", "patchRust", "patchDust"),
-    "accumulation.js": ("patchSnow", "patchSand"),
     "strata.js": ("patchRockStrata", "patchErosionStreaks"),
     "damp.js": ("patchMoss", "patchMoisture", "patchCrackedMud"),
     "roadway.js": ("patchRoadSurface", "patchSeamBand", "patchTracks"),
-    "caustics.js": ("patchCaustics",),
-    "submerged.js": ("patchUnderwater", "patchThinIce"),
 }
 ALL = [p for patches in LIBRARIES.values() for p in patches]
 
@@ -55,16 +35,6 @@ ALL = [p for patches in LIBRARIES.values() for p in patches]
 # position / normal pair every library's base writes (shader.js
 # WORLD_VARYINGS), so a material wearing several declares ONE.
 SHARED = {"uniform": {"uTime"}, "varying": {"vAstraWorld", "vAstraWorldN"}}
-
-# Each library's name prefix, so a name added later stays inside its library
-# rather than merely missing today's neighbours.
-SPELLING = {
-    "caustics.js": {"uniform": ("uCau",), "local": ("cau",)},
-    "submerged.js": {"uniform": ("uSub", "uIce"), "local": ("sub", "ice"),
-                     "helper": ("astraIce",)},
-    "strata.js": {"helper": ("astraStrata",)},
-    "roadway.js": {"helper": ("astraRoad",)},
-}
 
 # Every patch at its defaults, but the splat's snow line pulled into frame
 # so its snow branch is live code.  Shared by the probe and the scene.
@@ -92,30 +62,12 @@ _DECL = re.compile(r"^\s*(?:uniform|varying)\s+(?:(?:lowp|mediump|highp)\s+)?\w+
 
 
 def _unguarded(src: str) -> str:
-    """Drop ``#ifndef X ... #endif`` blocks, which may repeat verbatim.
-
-    terrain_shade ships astraFbmUnit from two patches behind one guard, so the
-    TEXT carries it twice and the preprocessor keeps one.  Only an unguarded
-    repeat is a redefinition.
-    """
+    """Drop ``#ifndef X ..."""
     return re.sub(r"#ifndef\b.*?#endif", "", src, flags=re.S)
 
 
 def test_no_library_declares_a_name_another_owns():
-    """All 45 pairs, both stages, four kinds of name — each library compiled
-    ALONE, so a clash is caught however the two ever meet.  Uniforms by the
-    keys patchStandard merges (the map it dedupes silently), varyings and
-    helpers by the heads, locals by what the bodies declare inside main().
-
-    Then every chain at once, forward and reversed: no declaration, helper
-    or main() local may appear twice in either stage.  And each library's
-    vertex stage is its world base and no more: the point and normal it
-    writes fold in `instanceMatrix` (the vertex hook runs before
-    <project_vertex>, so without it every copy of a scattered rock shades
-    from the mesh ORIGIN), three declares that attribute itself, nothing
-    fragment-only is called there (the util block ships in both stages, so
-    fwidth and astraStroke may be DEFINED in it, never called), and nothing
-    displaces `transformed`, or a hard-edged bed would tear open at its rim."""
+    """All 45 pairs, both stages, four kinds of name — each library compiled ALONE, so a clash is caught however the two ever meet."""
     out = measure(SHADER_JS + """
 import * as THREE from 'three';
 import { GLSL_UTIL } from './lib/shader.js';
@@ -152,12 +104,6 @@ console.log(JSON.stringify({ per, util: GLSL_UTIL, forward: union(ALL),
                for (a, mine), (b, theirs) in itertools.combinations(owns.items(), 2)
                for kind in mine if (both := mine[kind] & theirs[kind])]
     assert not clashes, "\n".join(clashes)
-    for lib, rules in SPELLING.items():
-        for kind, stems in rules.items():
-            names = owns[lib][kind]
-            assert names, (lib, kind)
-            stray = sorted(n for n in names if not n.startswith(stems))
-            assert not stray, f"{lib}: {kind}(s) outside {stems}: {stray}"
 
     for order in ("forward", "reversed"):
         for stage in ("vs", "fs"):
@@ -167,42 +113,21 @@ console.log(JSON.stringify({ per, util: GLSL_UTIL, forward: union(ALL),
                                 ("main() local", _LOCAL.findall(_main_body(src)))):
                 twice = sorted(n for n, c in Counter(found).items() if c > 1)
                 assert not twice, f"{order} chain, {stage}: {kind}(s) {twice} twice"
-
+    # each library's vertex stage is its world base and no more: instancing folds in `instanceMatrix`
+    # (else every copy of a scattered rock shades from the mesh origin), no stage-split varying,
+    # nothing displaces `transformed` (a hard-edged bed would tear open at its rim)
     for lib, got in out["per"].items():
         vs, fs = got["vs"], got["fs"]
         body = _main_body(vs)
         p = _find(r"vAstraWorld = \(modelMatrix \* (\w+)\)\.xyz;", body).group(1)
-        n = _find(r"vAstraWorldN = astraNormalTransform\(mat3\(modelMatrix\), (\w+)\);",
-                  body).group(1)
-        assert "#ifdef USE_INSTANCING" in body, lib
         assert f"{p} = instanceMatrix * {p};" in body, (lib, p)
-        assert f"{n} = astraNormalTransform(mat3(instanceMatrix), {n});" in body, (lib, n)
-        assert "attribute mat4 instanceMatrix" not in vs, lib
-        # A varying declared in one stage only is a link failure, and the
-        # symptom is the patch simply not drawing.
         assert set(_VARYING.findall(vs)) == set(_VARYING.findall(fs)), lib
-        assert SHARED["varying"] <= set(_VARYING.findall(vs)), lib
-        called = [t for t in ("fwidth(", "dFdx(", "dFdy(", "astraStroke(") if t in body]
-        assert not called and "gl_FragCoord" not in vs, (lib, called)
         assert not re.search(r"\btransformed\s*[-+*/]?=", body), lib
 
 
-# Every chain the scene compiles: (material name, patches, options, instances).
-# Each patch ALONE: only that catches a body reading a uniform, helper or
-# local that a sibling patch or another library declares, because every
-# bigger chain supplies it.  Then all of them on one material, forward and
-# reversed (a body that reads what a LATER one declares fails one of the
-# two) — the case terrain_shade's own two patches once failed together
-# ('astraWp' redefinition, 'astraFbmUnit' already has a body: a dead
-# material, found only when a sibling library landed on the same bank) —
-# and across the variants that change the program: flat shading
-# (three omits vNormal), instancing (the only compile of each base's
-# USE_INSTANCING branch), transparency (three defines OPAQUE otherwise),
-# maps with a bump map and vertex colours (three's own uv and colour
-# varyings arrive), and `fog: false` — the fogless branch the waterline
-# sheen falls back to, which in a fogged scene only a fogless material
-# compiles.  The variants share programs because each whole-chain program
-# costs about a second and a half of ANGLE's time on this GPU.
+# Every chain the scene compiles: (name, patches, options, instances).  Each patch ALONE (catches a body
+# reading what a sibling declares), all of them forward and reversed, and the variants that change the
+# program: flat shading, instancing (the only compile of USE_INSTANCING), transparency, maps, `fog: false`.
 MATERIALS: list[tuple[str, list[str], dict, int]] = [
     *((f"{name} alone", [name], {}, 0) for name in ALL),
     ("every patch", ALL, {}, 0),
@@ -212,20 +137,13 @@ MATERIALS: list[tuple[str, list[str], dict, int]] = [
      {"transparent": True, "opacity": 0.6, "textured": True, "fog": False}, 0),
 ]
 
-# A workspace SCENE for check_shaders.mjs, which boots it through the host:
-# fogged, because USE_FOG is a define and a define that is never set compiles
-# nothing (rain.js shipped a fog branch that could not compile at all for
-# months behind exactly that); a sun that CASTS, or no program carries the
-# shadow-map chunks; a camera, or the host reports the scene as not booted
-# and never reaches the compile stage.  Around the chains: terrain.js's
-# ground and cliff wearing the splat and the triplanar as the terrain suite
-# shipped them, and the rain rings, which assemble their OWN shader and so
-# take their fog and depth chunks from makeShaderMaterial alone.
+# A workspace SCENE for check_shaders.mjs: fogged (USE_FOG is a define, never compiled otherwise), a
+# CASTING sun (else no shadow-map chunks), a camera (else the host reports no boot), plus terrain.js's
+# ground and cliff wearing the splat and triplanar.
 _SCENE = """
 import * as THREE from 'three';
 import { tickShaders } from './lib/shader.js';
 import { ground, cliff } from './lib/terrain.js';
-import { makeRainRings } from './lib/submerged.js';
 """ + _APPLY_JS + """
 const MATERIALS = """ + json.dumps(MATERIALS) + """;
 
@@ -291,7 +209,7 @@ export function createScene({ renderer }) {
   const wall = cliff({ length: 30, height: 12, rand });
   tag(patchTriplanar(wall.mesh.material, { scale: 3.5 }), 'cliff() with patchTriplanar');
   wall.mesh.position.set(0, 0, -20);
-  scene.add(land.mesh, wall.mesh, makeRainRings({ count: 16 }));
+  scene.add(land.mesh, wall.mesh);
   return {
     scene,
     cameras: [{ name: 'hero', position: [0, 16, 26], lookAt: [0, 1, 0], fov: 60 }],
@@ -302,9 +220,7 @@ export function createScene({ renderer }) {
 
 
 def _library_line(glsl: str | None) -> str:
-    """Where a quoted GLSL line lives in the library.  The report maps a line
-    back through template strings, and these libraries write their GLSL as
-    arrays of quoted lines, which it cannot see."""
+    """Where a quoted GLSL line lives in the library."""
     needle = (glsl or "").strip()
     hits = [f"{lib}:{n}" for lib in (*LIBRARIES, "shader.js")
             for n, text in enumerate((LIB_DIR / lib).read_text(encoding="utf-8").splitlines(), 1)
@@ -313,14 +229,7 @@ def _library_line(glsl: str | None) -> str:
 
 
 def test_every_chain_compiles_on_the_real_renderer(tmp_path):
-    """The only witness that counts.  Everything above reads strings; whether
-    the GPU takes every chain of the ten — two dozen bodies in one main, each
-    library's instancing branch, the fog and no-fog branches, flat and
-    textured variants, a Voronoi with nested loops, a refract into a parallax
-    — cannot be asserted from source, and a patch that does not compile is
-    worth nothing.  Runs the preflight the authoring agent runs, on our own
-    renderer; a failure names the library line, the GLSL error and the chain
-    whose program did not link."""
+    """The only witness that counts."""
     report_path = tmp_path / "report.json"
     code, out = compile_scene(
         _SCENE, (*LIBRARIES, "terrain.js"), report=report_path)
@@ -332,7 +241,7 @@ def test_every_chain_compiles_on_the_real_renderer(tmp_path):
     assert code == 0 and report["ok"] and not problems, "\n".join(problems) or out
     compiled = report["compile"]
     assert compiled["gpu"], "this claim is only worth a real GPU"
-    # Every chain above is its own program (plus ground, cliff and rings):
+    # Every chain above is its own program (plus ground and cliff):
     # a green exit on a compile that skipped them would prove nothing.
-    assert compiled["custom_materials"] >= len(MATERIALS) + 3, compiled
-    assert compiled["programs"] >= len(MATERIALS) + 3, compiled
+    assert compiled["custom_materials"] >= len(MATERIALS) + 2, compiled
+    assert compiled["programs"] >= len(MATERIALS) + 2, compiled

@@ -36,12 +36,29 @@ from codeverse3d.cli._common import (
     warn,
 )
 from codeverse3d.cli.cost_cmd import cost_app
-from codeverse3d.cli.doctor import doctor_app
 from codeverse3d.cli.flywheel_cmd import flywheel_app
 from codeverse3d.cli.skills_cmd import skills_app
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import TRACK_INFO, TRACK_LANGUAGES, Budget, Language, Track
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
+
+
+# ===================================================================== doctor
+def doctor(
+    live: Annotated[bool, typer.Option("--live", help="make one tiny Gemini call")] = False,
+    gpu: Annotated[bool, typer.Option("--gpu/--no-gpu", help="probe headless Chrome WebGL")] = True,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Check python deps, Blender, node/three/puppeteer, keys, CLIs and MCP."""
+    from codeverse3d.doctor import run_doctor
+
+    rows = run_doctor(live=live, gpu=gpu)
+    if as_json:
+        console.print_json(json.dumps([{"check": c, "status": s, "detail": d} for c, s, d in rows]))
+    else:
+        console.print(C.doctor_table(rows))
+    if any(s == "FAIL" for _, s, _ in rows):
+        raise typer.Exit(code=1)
 
 
 # ===================================================================== tools_cmd
@@ -141,7 +158,7 @@ def serve_cmd(
         console.print("[dim]Ctrl-C to stop[/dim]")
 
     try:
-        serve(root_paths, host=host, host_explicit=host is not None, port=port, reload=reload,
+        serve(root_paths, host=host, port=port, reload=reload,
               open_browser=open_browser, title=title, on_start=announce)
     except GalleryError as e:
         raise C.CliError(str(e)) from e
@@ -174,7 +191,7 @@ app = typer.Typer(
     help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
     pretty_exceptions_enable=False,
 )
-app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions / index.")
+app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions.")
 app.add_typer(
     gallery_app,
     name="gallery",
@@ -183,10 +200,10 @@ app.add_typer(
 app.add_typer(
     cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per run."
 )
-app.add_typer(doctor_app, name="doctor", help="Environment checks.")
 app.add_typer(
     skills_app, name="skills", help="The skill library: list / show / validate / read-rate report."
 )
+app.command("doctor", help="Environment checks.")(doctor)
 app.command(
     "tools",
     help="List spatial tools or run one: `3dcode tools list` | `3dcode tools <name> --json '{...}' --workspace ws`.",
@@ -241,7 +258,6 @@ def make(
     ] = None,
     planner: Annotated[str | None, typer.Option()] = None,
     judge: Annotated[str | None, typer.Option()] = None,
-    captioner: Annotated[str | None, typer.Option()] = None,
     image: Annotated[list[Path] | None, typer.Option("--image", help="reference image(s)")] = None,
     variant: Annotated[
         str,
@@ -326,9 +342,7 @@ def make(
         candidates = settings.default_candidates
     if candidates > 1 and not TRACK_INFO[track].best_of_n:  # the same rule for best-of-N
         raise _no_best_of_n(track)
-    backends = settings.backends(
-        generator=generator, planner=planner, judge=judge, captioner=captioner
-    )
+    backends = settings.backends(generator=generator, planner=planner, judge=judge)
     C.check_backends(backends)
     # the prompt/skill variant, resolved ONCE here (flag > C3D_VARIANT > C3D_VARIANTS by the generator
     # id) and frozen on the spec: the track activates what the spec says, on `resume` too

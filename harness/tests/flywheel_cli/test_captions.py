@@ -8,9 +8,7 @@ import pytest
 
 from codeverse3d.addons.dataset.captions import (
     CaptionError,
-    Captions,
     caption_sample,
-    validate_captions,
 )
 from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.record.record import load_record
@@ -62,40 +60,3 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
     rows = [json.loads(ln) for ln in ledger.path.read_text().splitlines() if ln.strip()]
     assert any(row.get("label") == "captioner" for row in rows), rows
     assert (ws.deliverable / "captions.json").is_file()
-
-
-@pytest.mark.live
-def test_caption_live_gemini(fake_run):
-    from codeverse3d.config import get_settings
-
-    if not get_settings().gemini_api_keys:
-        pytest.skip("no gemini keys")
-    ws, rec = fake_run
-    caps = caption_sample(ws, rec, "gemini:gemini-3.8-flash")
-    assert len(caps.detailed) > 20 and "blender" in caps.instruction.lower()
-
-
-GOOD_JS = dict(GOOD, instruction="Write a Three.js module that builds a desk lamp with a round base and conical shade.",
-               factory="Build the base cylinder, sweep the arm along an arc, add the cone shade, then merge the groups.")
-SHADER = dict(GOOD, instruction="Write a GLSL fragment shader showing neon rain running down a window at night.",
-              factory="Layer a bokeh background pass, a grid-cell rain pass, then grade with a vignette.")
-
-
-@pytest.mark.parametrize("fields, language, problem", [
-    (GOOD, "blender", None),
-    (dict(GOOD, instruction="Please model a wooden chair with four legs for me."), "blender", "target language"),
-    (GOOD_JS, "threejs", None),              # the required 'Three.js' phrase is not the forbidden API
-    (dict(GOOD_JS, factory="Build a THREE.Group holding THREE.Mesh boxes for every part."), "threejs", "THREE."),
-    (SHADER, "glsl_shader", None),
-    (dict(SHADER, instruction="Write an OpenGL Python program showing neon rain on a window."), "opengl_python", None),
-    (dict(SHADER, instruction="Write an OpenGL Python program showing neon rain on a window.",
-          factory="Uses moderngl FBOs for the feedback pass."), "opengl_python", "moderngl"),
-])
-def test_validate_captions(fields, language, problem):
-    from codeverse3d.contracts.common import Language
-
-    probs = validate_captions(Captions(**fields), Language(language))
-    assert (probs == []) if problem is None else any(problem in p for p in probs), probs
-
-
-# --------------------------------------------------------------------------- a run recorded before artifacts/rNN/

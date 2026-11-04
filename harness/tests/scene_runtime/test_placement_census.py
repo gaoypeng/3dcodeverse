@@ -93,15 +93,6 @@ def test_supported_floating_and_sunk_boxes(table):
     assert anvil["supported"] and not anvil["floating"]
 
 
-def test_interpenetration_is_a_pair_not_a_burial(table):
-    pairs = table["interpenetrations"]
-    assert [(p["a"], p["b"], p["aabb_overlap"]) for p in pairs] == [("CrateA", "CrateB", 0.5)]
-    assert pairs[0]["inside_frac"] > 0.2 and pairs[0]["zone_a"] == "Yard"
-    for name in ("CrateA", "CrateB"):
-        r = _row(table, name)
-        assert r["sunk_m"] == 0 and r["ground_gap_m"] == 0 and r["attached"] == ["CrateB" if name == "CrateA" else "CrateA"]
-
-
 def test_no_false_positives_on_legitimate_placements(table):
     """Nested furniture, canopy, water, and terrain contacts classify correctly."""
     for name, support in (("Table", "Ground"), ("Cup", "Table"), ("Chair", "Ground"), ("Tree", "Ground"), ("Bench", "Ground")):
@@ -113,7 +104,6 @@ def test_no_false_positives_on_legitimate_placements(table):
     assert boat["on_water"] and boat["supported"] and not boat["floating"] and boat["sunk_into"] == "PondWater"
     rock = _row(table, "Rock")
     assert rock["sunk_into"] == "Ground" and 0.3 < rock["sunk_m"] < 0.5 and not rock["floating"]
-
 
 
 SETTLE_JS = """

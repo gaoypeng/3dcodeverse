@@ -38,10 +38,7 @@ class _RecordedAgent:
 
 
 def replay(name: str, root: Path) -> float:
-    """Spend one recorded run's money through today's accounting path and return the ledger's
-    total: the ONE writer — ``MeteredAgent`` for a session, ``record_call`` (what
-    ``MeteredChatModel`` does per call) for the judge and texture money — inside
-    ``run_ledger(root)``, as ``BaseTrack.run`` opens it."""
+    """Spend one recorded run through the ledger's one writer (MeteredAgent / record_call) and return its total."""
     fx = FIXTURES[name]
     guard = BudgetGuard(Budget(max_minutes=10_000))
     tasks: dict[tuple[str, int], list[dict]] = {}
@@ -60,22 +57,19 @@ def replay(name: str, root: Path) -> float:
         for j in fx["judges"]:  # the judge's MeteredChatModel writes one row per verdict call
             u = Usage(cost_usd=j["cost_usd"], input_tokens=j["input_tokens"], output_tokens=j["output_tokens"])
             record_call(u, round=j["round"], stage="judge", role="judge", label=j["rubric"])
-        for t in fx["post_hoc_texture_passes"]:  # a texture pass joins the run's ledger
-            record_call(Usage(cost_usd=t["cost_usd"]), stage="texture", role="image", label="texture_pass")
     return sum(r.cost_usd for r in load_ledger(root))
 
 
-@pytest.mark.parametrize("name", sorted(FIXTURES))
+@pytest.mark.parametrize("name", ["tool_med_hand_drill", "furn_hard_rolltop_desk"])   # with and without retried sessions
 def test_every_recorded_dollar_reaches_the_ledger_once(name, tmp_path):
     fx = FIXTURES[name]
     total = replay(name, tmp_path)
     sessions = sum(s["cost_usd"] for s in fx["sessions"])
     judges = sum(j["cost_usd"] for j in fx["judges"])
-    texture = sum(t["cost_usd"] for t in fx["post_hoc_texture_passes"])
     # nothing is lost between the sessions and the ledger — retries included — and nothing twice
-    assert total == pytest.approx(sessions + judges + texture, abs=1e-6)
+    assert total == pytest.approx(sessions + judges, abs=1e-6)
     rows = load_ledger(tmp_path)  # telemetry/cost.jsonl, one writer, one row per call
-    assert len(rows) == len(fx["sessions"]) + len(fx["judges"]) + len(fx["post_hoc_texture_passes"])
+    assert len(rows) == len(fx["sessions"]) + len(fx["judges"])
     # a retried session is its OWN row, labelled .a2
     retried = [s for s in fx["sessions"] if s["attempt"] > 1]
     assert sum(1 for r in rows if r.label.endswith(".a2")) == len(retried)

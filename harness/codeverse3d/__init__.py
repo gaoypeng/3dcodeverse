@@ -27,22 +27,4 @@ Package map (each sub-package has its own docstring):
 - ``cli``           ``3dcode`` command line.
 """
 
-import os as _os
-
 __version__ = "0.1.0"
-
-
-def _adopt_legacy_env() -> None:
-    """``CV3D_`` was the settings prefix until D78 (2026-09-22).  A shell or a script that still
-    sets ``CV3D_X`` keeps working: each one with no ``C3D_X`` beside it is copied over once, at
-    first import — before anything reads a switch — and named in one warning."""
-    old = sorted(k for k in _os.environ if k.startswith("CV3D_") and "C3D_" + k[5:] not in _os.environ)
-    for k in old:
-        _os.environ["C3D_" + k[5:]] = _os.environ[k]
-    if old:
-        import logging
-
-        logging.getLogger(__name__).warning("the CV3D_ prefix is now C3D_; read as C3D_: %s", ", ".join(old))
-
-
-_adopt_legacy_env()

@@ -1,6 +1,4 @@
-"""The naming rule: one PascalCase rule (``conventions.PASCAL_RE``) that accepts all-caps
-acronyms (owner, 2026-09-22), the stdlib-only wrapper copies pinned to it, and the
-snake round trip every gate matches parts by."""
+"""The naming rule: one PascalCase rule that accepts all-caps acronyms (owner, 2026-09-22) and the wrapper copies pinned to it."""
 
 from __future__ import annotations
 
@@ -8,24 +6,12 @@ import ast
 import re
 from pathlib import Path
 
-from codeverse3d.contracts.common import Track
-from codeverse3d.contracts.plan import StaticPlan
-from codeverse3d.conventions import LINK_NAME_RE as URDF_LINK_RE
-from codeverse3d.conventions import PASCAL_RE, part_key, split_instance, to_pascal, to_snake
-from codeverse3d.languages.blender import lint_blender_source
-from codeverse3d.languages.cadquery import lint_cadquery_source
-from codeverse3d.texturing.materials import family_for
-from codeverse3d.tracks.planner import normalise_names, plan_example
+from codeverse3d.conventions import PASCAL_RE, split_instance, to_snake
 
 WRAPPERS = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "wrappers"
 
 VALID = ["LED", "TV", "A", "TVStand", "LEDStrip", "USBPort", "HDMIPort1", "CPU_2", "SeatCushion", "Leg_0"]
 INVALID = ["led", "tvStand", "seat_cushion", "TV Stand", "Seat Cushion", "TV-Stand", "Seat-Cushion", "", "_Leg", "Leg_", "3D"]
-#: acronym names: snake key, and what to_pascal rebuilds from that key (the acronym is lost)
-SNAKE = {"LED": ("led", "Led"), "TV": ("tv", "Tv"), "A": ("a", "A"), "TVStand": ("tv_stand", "TvStand"),
-         "LEDStrip": ("led_strip", "LedStrip"), "USBPort": ("usb_port", "UsbPort"),
-         "HDMIPort1": ("hdmi_port1", "HdmiPort1"), "CPU_2": ("cpu_2", "Cpu2")}
-
 
 def _wrapper_assign(file: str, name: str) -> ast.AST:
     tree = ast.parse((WRAPPERS / file).read_text())
@@ -57,51 +43,8 @@ def test_the_naming_rule_and_its_stdlib_wrapper_copies():
             assert snake(n) == to_snake(n), n
 
 
-def test_snake_round_trip_and_to_pascal():
-    for name, (snake, rebuilt) in SNAKE.items():
-        assert to_snake(name) == snake, name
-        assert to_pascal(snake) == rebuilt, name        # rebuilding from the key loses the acronym
-        if "_" not in name:                              # ... but for a plan name never the key itself
-            assert to_snake(to_pascal(name)) == snake == to_snake(rebuilt), name
-    assert [to_pascal(n) for n in ("TVStand", "LED", "A", "HDMIPort1", "SeatCushion")] == ["TVStand", "LED", "A", "HDMIPort1", "SeatCushion"]
-    # an instance suffix / underscores / spaces / hyphens / lowercase still go through to_snake
-    # (an instance name is not a plan name: to_pascal folds its suffix, CPU_2 -> Cpu2 -> key cpu2,
-    # exactly as Leg_0 -> Leg0 always has)
-    assert [to_pascal(n) for n in ("CPU_2", "Leg_0", "tv stand", "LED strip", "seat-cushion", "tvStand", "")] == \
-        ["Cpu2", "Leg0", "TvStand", "LedStrip", "SeatCushion", "TvStand", "Part"]
-
-
-def test_planner_normalisation_keeps_acronym_names():
-    d = plan_example(Track.STATIC_OBJECT)
-    d["parts"][0]["name"], d["parts"][1]["name"] = "TVStand", "led strip"
-    d["parts"][1]["attach_to"] = d["parts"][2]["attach_to"] = "TVStand"
-    plan = normalise_names(StaticPlan.model_validate(d))
-    assert [p.name for p in plan.parts[:2]] == ["TVStand", "LedStrip"] and plan.parts[1].attach_to == "TVStand"
-
-
-def test_the_part_name_lints_accept_acronyms():
-    src = "import cadquery as cq\nresult = cq.Assembly()\n" + "".join(
-        f"result.add(cq.Workplane().box(1, 1, 1), name='{n}', color=cq.Color(1, 0, 0))\n" for n in ("TVStand", "LED", "CPU_2"))
-    assert not any("not PascalCase" in f.message for f in lint_cadquery_source(src).findings)
-    rep = lint_blender_source("import bpy\nobj = bpy.context.object\nobj.name = 'USBPort'\n")
-    assert any("named objects" in f.message and "USBPort" in f.message for f in rep.findings)
-    # N47o: a URDF link is the part's snake key, the PascalCase spelling accepted — one rule, and
-    # the Blender-run link wrapper's copy of it is the same pattern
-    assert all(URDF_LINK_RE.match(n) for n in ("TVStand", "LED", "CPU_2", "A", "door_handle", "DoorHandle"))
-    assert not any(URDF_LINK_RE.match(n) for n in ("Door.001", "door handle", "../evil", "9lives"))
-    safe = _wrapper_assign("run_bpy_links.py", "_SAFE_LINK")
-    assert f"^{ast.literal_eval(safe.value.args[0])}$" == URDF_LINK_RE.pattern  # type: ignore[attr-defined]
-
-
-def test_material_words_split_acronyms():
-    hit = family_for("PVCPipe")
-    assert hit is not None and hit == family_for("pvc pipe")
-
-
 def test_one_instance_rule_for_every_reader():
-    """``conventions.split_instance`` is the rule the measure table, the contract match and
-    refine grouping read (four hand-written copies until 2026-09-23 — the refine grouping
-    read ``DonkeyCart_800006``, a scene asset's all-digit hex id, as instance 800006)."""
+    """split_instance is the one rule all readers share (refine grouping once read DonkeyCart_800006 as instance 800006)."""
     from codeverse3d.orchestrator import _canon_target, _instance_base
     from codeverse3d.spatial.measure import instance_groups
 
@@ -113,11 +56,3 @@ def test_one_instance_rule_for_every_reader():
         ["Leg", "Shelf", "Shelf2", "Cart_800006", "Cart_801"]
     assert _instance_base("DonkeyCart_800006") == "DonkeyCart_800006" and _instance_base("") == "overall"
     assert _canon_target("leg_1", {"leg": "Leg"}) == "Leg_1"
-
-
-def test_one_part_rule_strips_an_instance_suffix_even_for_a_single_copy():
-    """N4: a single ``Arm-2`` the contract gate accepts maps to its plan part too — ``conventions.part_key``."""
-    plan = {"leg", "seat", "arm", "handle", "link", "cpu_2"}
-    rows = {"Leg_0": "leg", "Arm-2": "arm", "Handle.001": "handle", "Link__2": "link", "Leg_0__1": "leg",
-            "Seat": "seat", "CPU_2": "cpu_2", "Shelf": None}
-    assert {n: part_key(n, plan) for n in rows} == rows

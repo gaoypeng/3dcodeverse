@@ -1,10 +1,5 @@
-"""A hand-written scene_blender workspace with one of everything the census GLB must carry.
-
-Blender frame (Z up, -Y front).  ``yard`` places four crates as collection instances — seated,
-floating 1.5 m, sunk 0.6 m, and one tagged ``placement = 'free'`` — plus a parented cart (a mesh
-with a child mesh: one placement row).  ``meadow`` scatters grass blades with geometry nodes (an
-instance cloud).  ``broken`` raises on a known line.  ``CRATE_TRIS`` etc. are what bpy must count.
-"""
+"""A hand-written scene_blender workspace (Blender frame: Z up): ``yard`` places four crates as collection instances
+(seated, floating, sunk, free) and a parented cart, ``meadow`` scatters grass with geometry nodes, ``broken`` raises."""
 
 from __future__ import annotations
 

@@ -9,17 +9,16 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2] / "codeverse3d"
 
+_UP = ("tracks", "addons", "cli", "orchestrator", "agents", "skills", "spatial", "languages", "reference",
+       "judges", "models", "cost", "config")
+
 #: leaf → the codeverse3d packages it must NOT import
 FORBIDDEN: dict[str, tuple[str, ...]] = {
-    "judges": ("tracks", "addons", "cli", "orchestrator", "agents", "skills", "texturing"),
-    "workspace.py": ("tracks", "addons", "cli", "orchestrator", "agents", "skills", "texturing",
-                     "spatial", "languages", "reference", "judges", "models", "cost", "config"),
-    "contracts": ("tracks", "addons", "cli", "orchestrator", "agents", "workspace", "skills", "texturing",
-                  "spatial", "languages", "reference", "judges", "models", "cost", "config", "proc"),
-    "proc.py": ("tracks", "addons", "cli", "orchestrator", "agents", "workspace", "skills", "texturing",
-                "spatial", "languages", "reference", "judges", "models", "cost", "config", "contracts"),
-    "conventions.py": ("tracks", "addons", "cli", "orchestrator", "agents", "workspace", "skills",
-                       "texturing", "spatial", "languages", "reference", "judges", "models", "cost", "config"),
+    "judges": ("tracks", "addons", "cli", "orchestrator", "agents", "skills"),
+    "workspace.py": _UP,
+    "contracts": (*_UP, "workspace", "proc"),
+    "proc.py": (*_UP, "workspace", "contracts"),
+    "conventions.py": (*_UP, "workspace"),
 }
 
 

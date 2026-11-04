@@ -17,8 +17,7 @@ be zipped and sent on its own:
 
 WHICH round is not decided here: since 2026-09-22 the run keeps every round and ends at the
 last one, and ``codeverse3d.addons.select`` picks a round and packages it.  Renders per
-round, gates, judge verdicts and measurements stay in the evidence bucket (``artifacts/`` =
-``evidence/``); tokens, prices and settings stay in ``telemetry/``.
+round, gates, judge verdicts and measurements stay in ``artifacts/``; tokens, prices and settings stay in ``telemetry/``.
 """
 
 from __future__ import annotations
@@ -32,14 +31,11 @@ from pathlib import Path
 
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
-from codeverse3d.proc import sha256_file, write_json_atomic
+from codeverse3d.proc import write_json_atomic
 from codeverse3d.record import git_history
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
-
-MAX_FILE_BYTES = 128 * 1024 * 1024
-MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
 #: a round's build output → its role in the hand-over.  Exactly these (and ``meshes/``)
 #: are what a round keeps under ``artifacts/rNN/``: the census, build.json, the .blend and
@@ -78,52 +74,25 @@ def keep_round_artifacts(ws: Workspace, round_index: int) -> list[str]:
 
 
 class _Writer:
-    """Collects files into ``deliverable/`` and remembers role/size/hash."""
+    """Collects files into ``deliverable/`` and remembers role/size/hash.  Every file is a real
+    copy, never a hard link: a user editing the delivered file would otherwise mutate the
+    canonical evidence in ``artifacts/`` and break the sha256 recorded in the manifest."""
 
     def __init__(self, ws: Workspace):
         self.ws = ws
         self.files: list[DeliverableFile] = []
-        self.skipped: dict[str, str] = {}
         self.total = 0
 
     def add_bytes(self, rel: str, data: bytes, role: str) -> None:
-        if len(data) > MAX_FILE_BYTES:
-            self.skipped[rel] = f"file too large ({len(data)} bytes)"
-            return
-        if self.total + len(data) > MAX_TOTAL_BYTES:
-            self.skipped[rel] = "deliverable size cap reached"
-            return
         dest = self.ws.deliverable / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         self.total += len(data)
         self.files.append(DeliverableFile(path=f"deliverable/{rel}", role=role, bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
 
-    def add_file(self, src: Path, rel: str, role: str) -> bool:
-        if not src.is_file():
-            return False
-        size = src.stat().st_size
-        if size > MAX_FILE_BYTES:
-            self.skipped[rel] = f"file too large ({size} bytes)"
-            return False
-        if self.total + size > MAX_TOTAL_BYTES:
-            self.skipped[rel] = "deliverable size cap reached"
-            return False
-        dest = self.ws.deliverable / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _place(src, dest)
-        self.total += size
-        self.files.append(DeliverableFile(path=f"deliverable/{rel}", role=role, bytes=size,
-                                          sha256=sha256_file(src)))
-        return True
-
-
-def _place(src: Path, dest: Path) -> None:
-    """ALWAYS a real copy, never a hard link: a user editing the delivered file
-    would otherwise mutate the canonical evidence in ``artifacts/`` and silently
-    break the sha256 recorded in the manifest.  The size caps above already bound
-    the copy cost."""
-    shutil.copy2(src, dest)
+    def add_file(self, src: Path, rel: str, role: str) -> None:
+        if src.is_file():
+            self.add_bytes(rel, src.read_bytes(), role)
 
 
 def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
@@ -174,10 +143,7 @@ def _copy_sheet(ws: Workspace, rnd: RoundRecord | None, w: _Writer) -> None:
 def _copy_captions(ws: Workspace, record: RunRecord, w: _Writer) -> None:
     caps = record.extra.get("captions") or {}
     if not caps.get("detailed"):
-        side = ws.root / "captions.json"
-        if side.is_file():
-            w.add_file(side, "captions.json", "captions")
-            return
+        w.add_file(ws.root / "captions.json", "captions.json", "captions")
         return
     keys = ("detailed", "instruction", "factory")
     w.add_bytes("captions.json", json.dumps({k: str(caps.get(k, "") or "") for k in keys},
@@ -215,7 +181,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     manifest = RunDeliverable(
         round=(rnd.index if rnd is not None else None), commit=(rnd.commit if rnd is not None else ""), code_source=code_source,
         entry=f"deliverable/{entry}" if entry in files else "",
-        files=sorted(w.files, key=lambda f: f.path), total_bytes=w.total, skipped=w.skipped,
+        files=sorted(w.files, key=lambda f: f.path), total_bytes=w.total,
         generated_at=datetime.now(UTC),
     )
     manifest.generated_at = _stable_timestamp(previous, manifest)

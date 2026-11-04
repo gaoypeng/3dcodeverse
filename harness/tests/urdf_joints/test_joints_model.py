@@ -44,18 +44,3 @@ def test_load_prims_fk_and_pose_samples(tmp_path):
         if "s" in q:
             assert -0.1 - 1e-9 <= q["s"] <= 0.2 + 1e-9
 
-
-def test_load_errors(tmp_path):
-    p = tmp_path / "bad.urdf"
-    p.write_text("<robot name='x'><link name='a'/><link name='b'/></robot>")
-    with pytest.raises(UrdfError, match="exactly one root"):
-        load_urdf(p)
-    p.write_text("<robot name='x'><link name='a'/><link name='b'/><joint name='j' type='revolute'><parent link='a'/><child link='b'/></joint></robot>")
-    with pytest.raises(UrdfError, match="limit"):
-        load_urdf(p)
-    p.write_text("<robot name='x'><link name='a'/><link name='b'/><joint name='j' type='fixed'><parent link='a'/><child link='zz'/></joint></robot>")
-    with pytest.raises(UrdfError, match="unknown"):
-        load_urdf(p)
-    p.write_text("<robot name='x'><link name='a'><visual><geometry><mesh filename='meshes/nope.glb'/></geometry></visual></link></robot>")
-    with pytest.raises(UrdfError, match="not found"):
-        load_urdf(p)

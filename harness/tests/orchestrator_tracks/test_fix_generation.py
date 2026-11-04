@@ -61,7 +61,7 @@ def test_generate_files_truncation_policy(tmp_path):
 
 # --------------------------------------------------------------------- finding: whole-workspace diff claimed sibling tasks' files
 class NonReportingAgent:
-    """An agent that writes its own file but reports no files_changed (fallback path)."""
+    """An agent that writes its own file but reports no files_changed."""
 
     kind = "fake"
     model = "m"
@@ -80,10 +80,10 @@ class NonReportingAgent:
         return AgentResult(ok=True, exit_reason="completed", files_changed=[], usage=Usage(backend="fake", cost_usd=0.001))
 
 
-def test_run_agent_task_passes_files_hint_and_attributes_fallback_diff(tmp_path):
+def test_run_agent_task_passes_files_hint_and_trusts_only_the_sessions_report(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
     ws.commit("init")
-    # noise a fallback whole-tree diff used to claim as the task's own work
+    # noise a whole-tree diff would claim as the task's own work
     (ws.root / "events.jsonl").write_text("{}\n")
     (ws.root / "notes.md").write_text("scratch\n")
     (ws.root / "artifacts").mkdir(exist_ok=True)
@@ -92,4 +92,4 @@ def test_run_agent_task_passes_files_hint_and_attributes_fallback_diff(tmp_path)
     task = GenerationTask(label="refine_seat", prompt="p", files_hint=["src/parts/seat.js"], round=1, kind="refine")
     res = run_agent_task(ws, agent=agent, task=task)
     assert agent.jobs[0].files_hint == ["src/parts/seat.js"]  # per-session attribution key
-    assert res.ok and [c.path for c in res.files_changed] == ["src/parts/seat.js"]
+    assert not res.ok and res.files_changed == []  # the session reported nothing: nothing is credited

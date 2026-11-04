@@ -1,14 +1,5 @@
-"""2026-10-15, iteration 2 of the argon loop: two Blender scenes shipped three EMPTY zones (0.18).
-
-A runaway single-shot asset call held the asset stage for ~47 minutes; the zone stage then started
-0.4 min before the scene track's soft cap and its agent session was clipped to the 180 s floor; it
-read files until it was killed and wrote no zone; ``zones.done`` listed them failed and nothing acted;
-refine spent its window on asset files.  Three fixes, pinned here:
-
-* a single-shot call is bounded by its task's own window (never below ``SINGLE_SHOT_MIN_WAIT_S``);
-* the zone window comes from the HARD budget minus round 0's reserve, not the soft cap;
-* every zone the session left unwritten gets one single-shot recovery before assembly.
-"""
+"""2026-10-15, iteration 2 (two scenes shipped three EMPTY zones, 0.18): a single-shot call is bounded by its task's window;
+the zone window is the HARD budget minus round 0's reserve; every unwritten zone gets one single-shot recovery."""
 
 from __future__ import annotations
 

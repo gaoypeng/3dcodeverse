@@ -39,10 +39,9 @@ why real water is dark at your feet and mirror-bright at the horizon.
 `makeOceanSurface` from `lib/ocean.js` for the ocean, a lake or any sizeable body
 (dispersive Gerstner waves on displaced geometry, reflected scene, crest foam);
 `makeOcean` from `lib/water.js` for calm or distant water where no wave shape reads;
-`makeStream` for a curved shallow stream that refracts its bed; `makeWaterfall` for a sheet
-over a weir with its own spray; `makeWaterMist` / `makeSpray` from `lib/watermist.js`;
+`makeWaterMist` / `makeSpray` from `lib/watermist.js`;
 `patchShoreWet` / `patchShoreFoam` / `patchShallowWater` from `lib/waterside.js` on the
-bank; `patchCaustics` on the bed and `patchUnderwater` on anything below the surface. Each
+bank. Each
 carries `userData.update(t, dt)` — call it from the zone's own update.
 
 ## Your own material
@@ -72,7 +71,7 @@ displaces (Gerstner waves, dispersive — `makeOceanSurface` ships them; your ow
 steepness sum below 1 or the crests loop over, and takes normals from the displaced
 surface) rather than only scrolling normals on a flat plane. A waterfall reads with scrolled
 vertical streaks thresholded to white over translucent water and soft mist at the base
-(`makeWaterfall`, `makeWaterMist`); a fountain's particles as pure ballistic arcs of `t` still
+(`makeWaterMist`); a fountain's particles as pure ballistic arcs of `t` still
 read frozen mid-flight. `references/gerstner-and-foam.md` has the wave maths.
 
 ## Verify before you finish

@@ -36,22 +36,15 @@ log = logging.getLogger(__name__)
 
 # ===================================================================== state
 class StageState(BaseModel):
-    """One completed stage: inputs hash + where its result JSON lives."""
+    """One completed stage: its inputs hash (the result JSON is at ``stages/<name>.json``)."""
 
-    name: str
     inputs_hash: str
-    result_path: str = ""
-    finished_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_s: float = 0.0
 
 
 class RunState(BaseModel):
     """Everything the orchestrator needs to resume a run — except the round history, which is
     the round journal's alone (``rounds/rNN.json`` + each round's commit; ``lifecycle.reconcile_resume``
-    reads it).  A state saved before 2026-09-22 also caches that journal (``completed_rounds`` /
-    ``round_commits`` / ``current_round``) and names a best round (``best_round`` / ``best_commit`` /
-    ``best_score`` / ``best_considered_through``): unknown keys, ignored — a resume goes on from the
-    journal's LAST round."""
+    reads it)."""
 
     status: RunStatus = RunStatus.PLANNING
     stages: dict[str, StageState] = Field(default_factory=dict)
@@ -192,7 +185,7 @@ class StageRunner:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.ws.write_json(path, {"stage": name, "inputs_hash": h, "result": _jsonable(result)})
         with self._lock:
-            self.state.stages[name] = StageState(name=name, inputs_hash=h, result_path=str(path), duration_s=dt)
+            self.state.stages[name] = StageState(inputs_hash=h)
             self.state.save(self.ws)
         self.events.emit("stage.done", stage=name, inputs_hash=h, duration_s=round(dt, 2))
         return result
@@ -586,9 +579,9 @@ class BudgetGuard:
         left = max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
         return int(max(floor_s, min(float(want_s), left) if left > 0 else floor_s))
 
-    def left_s(self, *, soft: bool = False) -> float:
-        """Seconds left before the hard ceiling (the soft one with ``soft``), never negative."""
-        return max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
+    def left_s(self) -> float:
+        """Seconds left before the hard ceiling, never negative."""
+        return max(0.0, self.hard_minutes - self.elapsed_minutes()) * 60.0
 
     def summary(self) -> dict[str, float]:
         """``record.extra["budget"]``: the clock at the end, beside its ceiling."""
@@ -597,7 +590,6 @@ class BudgetGuard:
 
 class BudgetSnapshot(BaseModel):
     """What survives a resume (``run_state.extra["budget_snapshot"]``): cumulative ACTIVE
-    seconds.  A snapshot written before 2026-09-22 also carries the guard's money
-    (``spent`` / ``billed_usd`` / ``calls`` / ``by_stage``): unknown keys, ignored."""
+    seconds."""
 
     active_s: float = 0.0

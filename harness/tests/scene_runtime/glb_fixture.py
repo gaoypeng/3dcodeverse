@@ -8,8 +8,7 @@ from pathlib import Path
 
 
 def write_box_glb(path: Path, size: tuple[float, float, float] = (2.0, 2.0, 2.0), name: str = "HeroCube") -> Path:
-    """Write a GLB holding one box mesh (8 vertices, 12 triangles, no normals — the loader's
-    consumer computes them) centred on the origin.  Returns ``path``."""
+    """Write a GLB holding one box mesh (8 vertices, 12 triangles, no normals — the loader's consumer computes them) centred on the origin."""
     sx, sy, sz = (s / 2 for s in size)
     verts = [(-sx, -sy, -sz), (sx, -sy, -sz), (sx, sy, -sz), (-sx, sy, -sz),
              (-sx, -sy, sz), (sx, -sy, sz), (sx, sy, sz), (-sx, sy, sz)]

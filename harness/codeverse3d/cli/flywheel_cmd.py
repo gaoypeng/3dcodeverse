@@ -136,27 +136,3 @@ def caption_cmd(
     ok(f"captioned {done}, skipped {skipped} (already), failed {failed}")
     if failed and not done:
         raise typer.Exit(code=1)
-
-
-@flywheel_app.command("index")
-def index_cmd(
-    runs_dir: Annotated[Path, typer.Argument()],
-    out_sqlite: Annotated[Path, typer.Argument()] = Path("runs_index.sqlite"),
-    show: Annotated[bool, typer.Option("--summary/--no-summary")] = True,
-) -> None:
-    """Build the SQLite index (runs / rounds / usage) and print a summary."""
-    from codeverse3d.addons.dataset.index import build_index, summary
-
-    n = build_index(runs_dir, out_sqlite)
-    ok(f"indexed {n} runs → {out_sqlite}")
-    if show and n:
-        from rich.table import Table
-
-        t = Table(title="summary")
-        for col in ("track", "language", "generator", "n", "baseline", "picked", "Δ", "cost"):
-            t.add_column(col)
-        for r in summary(out_sqlite):
-            t.add_row(r["track"], r["language"], r["generator"], str(r["n"]),
-                      f"{(r['baseline_mean'] or 0):.3f}", f"{(r['picked_mean'] or 0):.3f}",
-                      f"{(r['delta_mean'] or 0):+.3f}", f"${(r['cost_usd'] or 0):.2f}")
-        console.print(t)

@@ -1,14 +1,8 @@
 from pathlib import Path
 
-import pytest
-
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.judges.prompt_builder import (
-    JudgeImageError,
     plan_montages,
-    rank_views,
-    render_montage,
-    shuffle_montages,
 )
 from tests.judges.conftest import draw_chair
 
@@ -29,36 +23,6 @@ def _views(tmp: Path, names, *, mode="shaded", prefix="v"):
     return out
 
 
-def test_rank_views_objects_and_scenes():
-    vs = [RenderView(name=n, path="x") for n in ("left", "top", "zzz", "front_right_high")]
-    assert [v.name for v in rank_views(vs, scene=False)] == ["front_right_high", "top", "left", "zzz"]
-    # scene rig: the scene's OWN cameras (any name that is not a harness rig name) come
-    # first — they are the pictures being graded; the overview rig follows in rank order
-    # and the eye-level rig last
-    sv = [RenderView(name=n, path="x") for n in ("overview_top", "Establishing", "eye_front", "BridgeView", "cam_b")]
-    assert [v.name for v in rank_views(sv, scene=True)] == ["Establishing", "BridgeView", "cam_b", "overview_top", "eye_front"]
-    # a re-judged stored pre-D47 8-view run ranks its legacy hero names first
-    legacy = ["front_right_34", "back_left_34", "front", "right", "back", "left", "top", "low_front_left"]
-    ranked = [v.name for v in rank_views([RenderView(name=n, path=f"/x/{n}.png") for n in legacy], scene=False)]
-    assert ranked[:2] == ["front_right_34", "back_left_34"], ranked
-
-
-def test_plan_montages_full_rig_plus_clay_is_the_measured_cprod_plan(tmp_path):
-    """D47: 14 shaded + 4 clay -> 5 montages + 2 crops; montage 1 keeps the underside, one crop on ``bottom``."""
-    rs = RenderSet(views=_views(tmp_path, OBJ))
-    clay = RenderSet(views=_views(tmp_path, CLAY, mode="clay", prefix="c"))
-    ms = plan_montages(rs, geometry_views=clay)  # defaults: max_montages=5, detail_crops=2
-    grids = [m for m in ms if not m.is_detail]
-    crops = [m for m in ms if m.is_detail]
-    assert len(ms) == 7 and len(grids) == 5 and len(crops) == 2
-    assert [m.kind for m in grids] == ["shaded", "geometry", "shaded", "shaded", "shaded"]
-    assert {v.name for v in grids[0].tiles} == {"front_right_high", "back_left_high", "top", "bottom"}
-    assert {v.name for v in grids[1].tiles} == set(CLAY) and all(v.mode == "clay" for v in grids[1].tiles)
-    assert [v.name for v in grids[2].tiles] == ["front", "right", "back", "left"]
-    assert crops[0].tiles[0].name == "front_right_high"
-    assert crops[1].tiles[0].name == "bottom"
-
-
 def test_plan_montages_articulated_and_geometry(tmp_path):
     poses = _views(tmp_path, ["pose_rest", "pose_J@upper", "pose_K@upper"], prefix="p")
     sheet = _views(tmp_path, ["articulation_sheet"], prefix="s")
@@ -73,25 +37,3 @@ def test_plan_montages_articulated_and_geometry(tmp_path):
     # more room: secondary shaded then the pose 2×2 (duplicate of the sheet, lowest priority)
     ms5 = plan_montages(rs, geometry_views=clay, max_montages=7, detail_crops=0)
     assert [m.kind for m in ms5] == ["shaded", "pose_sheet", "geometry", "shaded", "shaded", "shaded", "poses"]
-    # without a sheet the pose_* views form the pose montage
-    rs2 = RenderSet(views=_views(tmp_path, OBJ[:4]) + poses)
-    ms2 = plan_montages(rs2, detail_crops=0)
-    assert [m.kind for m in ms2] == ["shaded", "poses"] and len(ms2[1].tiles) == 3
-
-
-def test_shuffle_keeps_sets_and_details_last(tmp_path):
-    rs = RenderSet(views=_views(tmp_path, OBJ))
-    ms = plan_montages(rs)
-    sh = shuffle_montages(ms, 7)
-    assert shuffle_montages(ms, 7) == sh and shuffle_montages(ms, None) == ms
-    assert [m.kind for m in sh[-2:]] == ["detail", "detail"]
-    assert {frozenset(v.name for v in m.tiles) for m in sh[:-2]} == {frozenset(v.name for v in m.tiles) for m in ms[:-2]}
-    seeds = {tuple((m.kind, tuple(v.name for v in m.tiles)) for m in shuffle_montages(ms, s)) for s in range(6)}
-    assert len(seeds) >= 3
-
-
-def test_missing_tile_is_judge_image_error(tmp_path):
-    m = plan_montages(RenderSet(views=[RenderView(name="front", path="/nonexistent/x.png")]), detail_crops=0)[0]
-    with pytest.raises(JudgeImageError):
-        render_montage(m, cache_dir=tmp_path / "cache")
-

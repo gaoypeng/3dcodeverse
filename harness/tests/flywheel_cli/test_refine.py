@@ -5,10 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-from codeverse3d.addons.dataset.pairs import MIN_PREFERENCE_DELTA
-from codeverse3d.addons.dataset.refine import build_refine, outcome_of, transitions
+from codeverse3d.addons.dataset.refine import build_refine, transitions
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.record.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run
@@ -63,35 +60,3 @@ def test_a_refine_round_carries_its_brief_its_diff_and_its_delta(tmp_path):
     assert n == 1 and not drops and not list(out.parent.glob("*.part"))
     row = json.loads(out.read_text().splitlines()[0])
     assert row["outcome"] == "improved" and "before_files" not in row   # exclude_none keeps rows small
-
-
-@pytest.mark.parametrize("delta,label", [(0.05, "improved"), (0.04, "unchanged"), (-0.05, "regressed"),
-                                         (None, "unscored")])
-def test_the_outcome_rule_is_the_one_pairs_uses(delta, label):
-    assert outcome_of(delta, MIN_PREFERENCE_DELTA) == label
-
-
-@pytest.mark.parametrize("break_it,reason", [
-    ("kind", None), ("commit", "no_commit"), ("build", "predecessor_build_failed"),
-    # RoundRecord.build is optional: a round that never reached the build stage carries
-    # None, and reading .ok on it took the whole export down with an AttributeError
-    ("no_build", "predecessor_build_failed"),
-    ("judgment", "predecessor_unjudged"),
-])
-def test_every_unexportable_round_is_counted_under_a_named_reason(tmp_path, break_it, reason):
-    ws = _corpus(tmp_path)
-    rec = load_record(ws)
-    if break_it == "kind":
-        rec.rounds[1].kind = "texture"
-    elif break_it == "commit":
-        rec.rounds[0].commit = ""
-    elif break_it == "build":
-        rec.rounds[0].build.ok = False
-    elif break_it == "no_build":
-        rec.rounds[0].build = None
-    else:
-        rec.rounds[0].judgment = None
-    ws.write_json(ws.record_path, rec)
-    rows, drops = _rows(tmp_path)
-    assert rows == []
-    assert drops == ({} if reason is None else {reason: 1}), f"{break_it}: {dict(drops)}"

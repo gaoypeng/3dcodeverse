@@ -459,18 +459,17 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
         _fold_pass(ps)
     if brief is None:
         return plan_obj
-    items: list[AcceptanceItem] = list(getattr(plan_obj, "acceptance", None) or [])
+    items: list[AcceptanceItem] = list(plan_obj.acceptance)
     for feature in brief.signature_features:
         add_acceptance_item(items, "sig", f"Signature feature visible: {feature.strip()}", "visual", priority="should")
-    if hasattr(plan_obj, "acceptance"):
-        plan_obj.acceptance = items
-    notes = getattr(plan_obj, "style_notes", "")
+    plan_obj.acceptance = items
+    notes = plan_obj.style_notes
     extra = []
     if brief.reference and brief.reference.lower() not in notes.lower():
         extra.append(f"Reference instance: {brief.reference}.")
     if brief.not_present:
         extra.append("Does NOT have: " + "; ".join(brief.not_present) + ".")
-    if extra and hasattr(plan_obj, "style_notes"):
+    if extra:
         plan_obj.style_notes = " ".join([notes.strip(), *extra]).strip()
     return plan_obj
 
@@ -835,14 +834,7 @@ def plan_temperature(track: Track) -> float:
 
 
 class PlanningError(RuntimeError):
-    """The planner could not produce a valid plan after MAX_VALIDATION_REASKS re-asks.
-
-    Carries the ``usage`` already spent so callers can charge the budget even
-    when planning fails (a failed re-ask is still paid for)."""
-
-    def __init__(self, message: str, usage: Usage | None = None):
-        super().__init__(message)
-        self.usage = usage or Usage()
+    """The planner could not produce a valid plan after MAX_VALIDATION_REASKS re-asks."""
 
 
 def plan_event_stats(plan_obj: Any) -> dict[str, Any]:
@@ -883,8 +875,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     ``budget`` (the run's ``BudgetGuard``; ``guard`` below, because ``budget`` becomes this
     request's PlanBudget) only clips each call's wait to the clock left; every call is a
     ledger row of its own (the metered model), so success, ``PlanningError`` and a crash on
-    a LATER attempt all leave the earlier dollars on the ledger.  ``PlanningError`` carries
-    the total usage for a caller that wants it."""
+    a LATER attempt all leave the earlier dollars on the ledger."""
     guard = budget
     events = NULL_EVENTS if events is None else events
     if model is None:
@@ -995,7 +986,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         if guard is not None:
             guard.check()
         return result
-    raise PlanningError(f"plan did not validate after re-ask: {last_error}", usage)
+    raise PlanningError(f"plan did not validate after re-ask: {last_error}")
 
 
 def _echo(raw: Any, text: str) -> ChatMessage:
@@ -1090,8 +1081,6 @@ def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
     if solid and c.dimensions_m:
         dims = ", ".join(f"{k} = {v:.3f} m" for k, v in c.dimensions_m.items())
         add_acceptance_item(items, "dim", f"Overall dimensions match the request within 5%: {dims}", "measure")
-    if solid and c.max_triangles:
-        add_acceptance_item(items, "tri", f"Triangle count ≤ {c.max_triangles}", "measure")
     for m in c.must_have:
         add_acceptance_item(items, "must", f"Includes: {m}", "visual")
     for m in c.must_not:
@@ -1149,11 +1138,3 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
         for j in plan_obj.joints:
             j.parent, j.child = to_pascal(j.parent), to_pascal(j.child)
     return plan_obj
-
-
-__all__ = ["MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
-           "PLAN_TEMPLATES", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
-           "articulation_acceptance", "build_system_prompt", "build_user_prompt", "plan_event_stats",
-           "ensure_acceptance", "missing_link_names", "normalise_names", "plan",
-           "degenerate_plan", "plan_example", "plan_schema", "plan_template", "plan_temperature", "plan_tokens",
-           "restart_enabled", "restart_note"]

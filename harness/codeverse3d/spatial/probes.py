@@ -101,7 +101,7 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
         # D3: nothing moves the JS copy of a scene Blender renders — no settle, no camera repair
         args += ["--glb", str(Path(glb).resolve()), "--no-settle"]   # node runs in runtime_js/: a relative path would miss
     else:
-        # every probe runs under the SAME settle / camera-repair / auto-exposure policy every
+        # every probe runs under the SAME settle / camera-repair policy every
         # render uses — ONE parser, render_scene (review-3 S4: the build used to carry none of
         # the flags, so its gate measured a census the renders then contradicted)
         args += probe_env_args()
@@ -366,7 +366,7 @@ def _draw_findings(c: dict[str, Any]) -> list[GateFinding]:
     return [_f(PROBE_GATE, sev,
                f"{draws:,} draw calls per frame (each visible mesh is one) exceed the {limit:,} budget"
                + (f" — most in {where}" if where else "")
-               + "; instance repeated geometry with InstancedMesh (lib/instancing.js instanceAsset) or merge "
+               + "; instance repeated geometry with InstancedMesh or merge "
                  "static clutter with mergeGeometries (lib/merge.js mergeStatic)",
                target="scene", kind="draw_calls", draws=draws, limit=limit)]
 

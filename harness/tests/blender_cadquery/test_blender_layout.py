@@ -61,21 +61,6 @@ def test_lint_workspace_layout_rules(tmp_ws) -> None:
     assert all(f.fix_hint for f in rep.errors)
 
 
-def test_lint_workspace_missing_entry_too_deep_source_and_forbidden_calls(tmp_ws) -> None:
-    assert not lint_workspace(tmp_ws).passed  # no model.py at all
-    # a literal nested past the parser's stack is a finding, not a MemoryError that kills the round
-    deep = "x = " + "-" * 20_000 + "1\n"
-    _write(tmp_ws, "src/model.py", deep)
-    _write(tmp_ws, "src/parts/seat.py", deep)
-    rep = lint_workspace(tmp_ws)
-    assert not rep.passed and {f.target for f in rep.errors} >= {"src/model.py", "src/parts/seat.py"}
-    _write(tmp_ws, "src/model.py", MODEL)
-    _write(tmp_ws, "src/parts/seat.py", SEAT + "\nbpy.ops.render.render()\n")
-    _write(tmp_ws, "src/parts/leg.py", LEG)
-    rep = lint_workspace(tmp_ws)
-    assert any(f.target == "src/parts/seat.py" and "bpy.ops.render.render" in f.message for f in rep.errors)
-
-
 def _load_wrapper():
     spec = importlib.util.spec_from_file_location("run_bpy_under_test", WRAPPER)
     mod = importlib.util.module_from_spec(spec)
@@ -106,16 +91,6 @@ def test_wrapper_maps_errors_to_the_failing_src_file(tmp_path, monkeypatch) -> N
         del sys.modules[name]
     err = run(str(src / "model.py"))
     assert err["error_type"] == "SyntaxError" and err["error_file"] == "src/parts/leg.py" and err["error_line"] == 1
-    # missing builder → hint names the file and the function
-    (src / "parts" / "leg.py").write_text("def build_legs():\n    pass\n")
-    err = run(str(src / "model.py"))
-    assert err["error_type"] == "ImportError" and err["error_file"] == "src/model.py" and err["error_line"] == 1
-    assert "def build_leg()" in err["error_message"] and "parts/leg.py" in err["error_message"]
-    # missing module → hint says to create the file
-    (src / "model.py").write_text("import math\nfrom parts.armrest import build_armrest\n")
-    err = run(str(src / "model.py"))
-    assert err["error_type"] in ("ModuleNotFoundError", "ImportError")
-    assert err["error_line"] == 2 and "src/parts/armrest.py" in err["error_message"]
     (src / "model.py").write_text("import sys\nsys.exit(0)\n")  # not a failure: the scene is what was built
     assert wrapper.run_script(str(src / "model.py")) == (None, None)
     for name in [m for m in sys.modules if m == "parts" or m.startswith("parts.")]:

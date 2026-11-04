@@ -34,9 +34,12 @@ drafts the whole object.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codeverse3d.conventions import MAX_TRIS_OBJECT
+
+if TYPE_CHECKING:
+    from codeverse3d.contracts.plan import StaticPlan
 
 # --------------------------------------------------------------------------- triangle / time budget
 #: triangles a well-detailed single part is worth.  Corpus: median tri/part ≈ 430, and the
@@ -74,10 +77,9 @@ DETAIL_ADVICE = (
 )
 
 
-def depth_budget(plan: Any, *, build_timeout_s: int = 300) -> DepthBudget:
+def depth_budget(plan: StaticPlan, build_timeout_s: int) -> DepthBudget:
     """Triangle + build-time budget sized from the plan's part/instance count."""
-    parts = list(getattr(plan, "parts", None) or [])
-    n_units = sum(max(1, int(getattr(p, "leaf_count", None) or getattr(p, "instances", 1) or 1)) for p in parts) or 1
+    n_units = plan.leaf_count
     target = _clamp(TRIS_PER_UNIT_TARGET * n_units, 6_000, 200_000)
     return DepthBudget(
         n_units=n_units,

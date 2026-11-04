@@ -159,11 +159,6 @@ class Joint:
     def movable(self) -> bool:
         return self.type in MOVABLE_TYPES
 
-    @property
-    def driven(self) -> bool:
-        """Moves, but not on its own: its value follows another joint's."""
-        return self.movable and self.mimic is not None
-
     def motion(self, q: float) -> np.ndarray:
         """Local motion transform for joint value ``q`` (identity for fixed)."""
         T = np.eye(4)
@@ -182,10 +177,6 @@ class Link:
     visual_origin: np.ndarray = field(default_factory=lambda: np.eye(4))
     mesh_file: str | None = None
 
-    @property
-    def tri_count(self) -> int:
-        return 0 if self.mesh is None else int(len(self.mesh.faces))
-
 
 @dataclass
 class Robot:
@@ -193,7 +184,6 @@ class Robot:
     links: dict[str, Link]
     joints: dict[str, Joint]
     root: str
-    urdf_path: str = ""
 
     # -------------------------------------------------------------- topology
     def parent_joint(self, link: str) -> Joint | None:
@@ -405,7 +395,7 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
     roots = [n for n in links if n not in children]
     if len(roots) != 1:
         raise UrdfError(f"expected exactly one root link, found {roots}")
-    robot = Robot(name=root_el.get("name", "robot"), links=links, joints=joints, root=roots[0], urdf_path=str(urdf_path))
+    robot = Robot(name=root_el.get("name", "robot"), links=links, joints=joints, root=roots[0])
     if len(robot.link_order()) != len(links):
         raise UrdfError("joint graph contains a cycle or unreachable links")
     return robot

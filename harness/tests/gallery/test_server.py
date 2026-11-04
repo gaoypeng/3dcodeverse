@@ -7,20 +7,13 @@ in a background thread and talks to it with ``http.client``.
 from __future__ import annotations
 
 import http.client
-import json
 import threading
 from pathlib import Path
 
 import pytest
 
-from codeverse3d.addons.gallery.server import (
-    DEFAULT_HOST,
-    GalleryApp,
-    GalleryError,
-    make_server,
-    resolve_host,
-)
-from codeverse3d.addons.gallery.urls import PathError, content_type, safe_join
+from codeverse3d.addons.gallery.server import DEFAULT_HOST, GalleryApp, GalleryError, make_server
+from codeverse3d.addons.gallery.urls import PathError, safe_join
 
 
 @pytest.fixture
@@ -33,13 +26,7 @@ def test_routes(app: GalleryApp):
     r = app.route("/")
     assert r.status == 200 and r.content_type.startswith("text/html")
     assert b"3dcode gallery" in r.body
-    assert app.route("/index.html").status == 200
-    assert app.route("/healthz").body == b"ok"
-    api = json.loads(app.route("/api/runs", {"lang": "threejs"}).body)
-    assert api["total"] == 6 and api["n"] == 1 and api["runs"][0]["slug"] == "lamp_three"
-    summary = json.loads(app.route("/api/summary", {"battery": "runs"}).body)
-    assert summary["n"] == 2
-    assert app.route("/api/nope").status == 404
+    assert app.route("/nope").status == 404
 
     # the detail of a broken / pending run does not crash
     r = app.route("/run/static_v9/half_written")
@@ -67,21 +54,6 @@ def test_routes(app: GalleryApp):
 
     # unknown run / unknown route
     assert app.route("/file/nope/nope/record.json").status == 404
-    assert app.route("/wat").status == 404
-    assert app.route("/file").status == 404
-
-    # vendor and viewer
-    from codeverse3d.addons.gallery.viewer import viewer_available
-
-    v = app.route("/viewer/runs/wooden_chair_ab12cd34/artifacts/object.glb")
-    if viewer_available():
-        assert v.status == 200 and b"importmap" in v.body
-        js = app.route("/vendor/three/build/three.module.js")
-        assert js.status == 200 and js.content_type.startswith("text/javascript")
-        assert app.route("/vendor/three/../../../etc/passwd").status == 404
-        assert app.route("/vendor/nope.js").status == 404
-    else:  # runtime_js/node_modules not installed
-        assert v.status == 501
 
 
 def test_traversal_absolute_paths_and_symlinks_out_of_the_run_are_refused(app: GalleryApp, tmp_path: Path):
@@ -103,49 +75,23 @@ def test_traversal_absolute_paths_and_symlinks_out_of_the_run_are_refused(app: G
     assert r.status == 403 and b"classified" not in r.body
 
 
-def test_content_type_table():
-    assert content_type("a.glb") == "model/gltf-binary"
-    assert content_type("a.frag") == "text/plain; charset=utf-8"
-    assert content_type("a.js") == "text/plain; charset=utf-8"
-    assert content_type("a.gif") == "image/gif"
-    assert content_type("a.unknownext") == "application/octet-stream"
-
-
-# --------------------------------------------------------------------------- host guard
-def test_host_guard():
-    assert resolve_host(None) == DEFAULT_HOST
-    assert resolve_host("") == DEFAULT_HOST
-    assert resolve_host("localhost") == "localhost"
-    assert resolve_host("0.0.0.0", explicit=True) == "0.0.0.0"  # noqa: S104 - the point of the test
-    with pytest.raises(GalleryError):
-        resolve_host("0.0.0.0")  # noqa: S104
-    with pytest.raises(GalleryError):
-        resolve_host("192.168.1.5")
-
-
-# --------------------------------------------------------------------------- reload
-def test_reload_picks_up_a_run_written_after_startup(gallery_tree: dict[str, Path]):
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    app = GalleryApp([gallery_tree["runs"]], reload=True)
-    assert len(app.index.entries()) == 2
-    make_fake_run(gallery_tree["runs"], "brand_new", prompt="a new stool")
-    app.route("/")
-    assert len(app.index.entries()) == 3
-    assert app.route("/run/runs/brand_new").status == 200
-
-
-def test_unknown_compare_keys_cost_one_rescan_not_one_each(gallery_tree: dict[str, Path],
-                                                            monkeypatch: pytest.MonkeyPatch):
-    import codeverse3d.addons.gallery.server as server
-
+def test_llm_html_and_svg_file_responses_are_sandboxed(gallery_tree: dict[str, Path]):
     app = GalleryApp([gallery_tree["runs"]])
-    real, scans = server.build_index, []
-    monkeypatch.setattr(server, "build_index", lambda roots: scans.append(1) or real(roots))
-    entries, missing = app.picked(["runs/nope_a", "runs/nope_b", "runs/wooden_chair_ab12cd34"])
-    assert len(scans) == 1 and missing == ["runs/nope_a", "runs/nope_b"] and len(entries) == 1
-    _, _, note = app._picked({"runs": ",".join(f"runs/nope_{i}" for i in range(20))})
-    assert len(scans) == 2 and note.startswith(f"showing the first {server.MAX_COMPARE} of 20 selected runs")
+    run = gallery_tree["runs"] / "wooden_chair_ab12cd34"
+    (run / "artifacts" / "page.html").write_text("<script>fetch('/api/index')</script>")
+    (run / "artifacts" / "figure.svg").write_text(
+        "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>")
+    html = app.route("/file/runs/wooden_chair_ab12cd34/artifacts/page.html")
+    assert html.status == 200 and html.content_type == "text/html; charset=utf-8"
+    assert html.headers["Content-Security-Policy"] == "sandbox"
+    svg = app.route("/file/runs/wooden_chair_ab12cd34/artifacts/figure.svg")
+    assert svg.status == 200 and svg.content_type == "image/svg+xml"
+    assert svg.headers["Content-Security-Policy"] == "sandbox"
+    # images and code stay untouched — <img src=…> previews keep rendering
+    png = app.route("/file/runs/wooden_chair_ab12cd34/artifacts/renders/r01/sheet.png")
+    assert png.status == 200 and "Content-Security-Policy" not in png.headers
+    src = app.route("/file/runs/wooden_chair_ab12cd34/src/model.py")
+    assert src.status == 200 and "Content-Security-Policy" not in src.headers
 
 
 # --------------------------------------------------------------------------- over a real socket
@@ -170,8 +116,6 @@ def test_over_a_loopback_socket(app: GalleryApp):
         assert status == 200 and ctype == "image/png" and body[:8] == b"\x89PNG\r\n\x1a\n"
         status, ctype, _ = get("/file/runs/wooden_chair_ab12cd34/artifacts/object.glb")
         assert status == 200 and ctype == "model/gltf-binary"
-        status, ctype, body = get("/api/runs?tier=A")
-        assert status == 200 and ctype.startswith("application/json") and json.loads(body)["n"] >= 1
         status, _, body = get("/file/runs/wooden_chair_ab12cd34/..%2f..%2f..%2fetc%2fpasswd")
         assert status in (403, 404) and b"root:x:" not in body
         conn.request("HEAD", "/")

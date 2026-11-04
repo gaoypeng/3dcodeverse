@@ -181,17 +181,17 @@ Requirement: weather and fire read as the phenomenon at the authored cameras and
 hard-edged quads or discs (judged: `hard_edged_particles`); a particle cloud moves or it
 is a decal. Options that read:
 
-* **A walking figure**: `figure` + `walk` from `lib/figure.js`; or your own hierarchy
+* **A walking figure**: your own hierarchy
   with pivots AT the joints, legs opposite-phase from `t`, a per-person seed on phase and
   speed so a crowd is not in lockstep — frozen mid-stride reads perfectly.
-* **Paths**: `alongPath` / `route` / `crowdOn` in `lib/place.js`, or a `CatmullRomCurve3`
+* **Paths**: a `CatmullRomCurve3`
   sampled at `(t * speed / len + u0) % 1`, facing the tangent; distinct `u0` offsets space
   the traffic.
-* **Rain** as elongated streaks (`makeRain`, `makeRainVeil` at distance) — elongation is
+* **Rain** as elongated streaks (`makeRainVeil` at distance) — elongation is
   the motion cue; **snow** as soft sprites with per-flake sway (`makeSnowfall`); **motes**
   and pollen from `makeMotes`; every particle gets its own phase so a frozen frame is
   mid-motion, never at a synchronized extreme.
-* **Fire additive, smoke normal**: `makeFire` / `makeFireField` with a flickering light,
+* **Fire additive, smoke normal**: `makeFire` with a flickering light,
   `makeSmoke` / `makeSteam` as a bounded density — a chain of spheres is not steam.
 
 ## Depth

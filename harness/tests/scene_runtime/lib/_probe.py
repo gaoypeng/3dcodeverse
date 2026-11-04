@@ -1,14 +1,4 @@
-"""Node probes for the shipped effect library (``starter/src/lib``).
-
-A probe is an ES module run under OUR resolve hook (``runtime_js/lib/resolve_three.mjs``
-maps ``three`` / ``three/addons/*`` to the harness's own install), in a private temp
-dir holding a copy of the library — never a live workspace.  ``measure`` returns the
-LAST stdout line of the probe as JSON; ``compile_scene`` compiles every program a
-fixture scene builds through ``runtime_js/check_shaders.mjs`` (headless GPU).
-
-The readers the patch tests share live here too: ``SHADER_JS`` (the two hooks
-patchStandard injects into, and ``compile``), ``_find`` and ``_main_body``.
-"""
+"""Node probes for the shipped effect library (``starter/src/lib``)."""
 from __future__ import annotations
 
 import json
@@ -69,8 +59,7 @@ def _stage(root: Path, libs: tuple[str, ...]) -> None:
 
 
 def measure(script: str, libs: tuple[str, ...] = (), *, timeout_s: float = 120.0) -> dict:
-    """Run ``script`` (an ES module; ``import ... from './lib/x.js'``) and parse its
-    last stdout line as JSON.  The script is responsible for ``console.log(JSON...)``."""
+    """Run ``script`` (an ES module."""
     _three_ready()
     with tempfile.TemporaryDirectory(prefix="c3d-libprobe-") as tmp:
         root = Path(tmp)
@@ -88,27 +77,7 @@ def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
                   audit_module: str | None = None,
                   report: Path | None = None,
                   timeout_s: float = 180.0) -> tuple[int, str]:
-    """Compile every program a fixture SCENE builds, on the headless GPU.
-
-    ``scene_src`` is a workspace ``src/scene.js``: it must export
-    ``createScene({THREE, renderer, loaders})`` returning
-    ``{scene, cameras, update}`` with at least one camera, because
-    ``check_shaders.mjs`` boots the workspace through ``openHost`` before it
-    force-compiles.  ``extra`` writes further files under ``src/`` (a fixture
-    the scene imports).  Returns (exit_code, combined output); 0 == every
-    program compiled, and the LAST line of the output is the JSON report.
-
-    ``audit_module`` scopes the STATIC audit to one staged file (the compile
-    stage still covers everything).  Use it when a fixture of your own calls
-    ``patchStandard``: the audit's per-file rule cannot see that shader.js
-    declares and binds ``uTime`` at assembly time, so it reports an
-    undeclared/unbound pair on GLSL that is correct.  ``src/lib/`` is already
-    exempt for that reason (``shader_report.mjs``); a fixture is not.
-
-    ``report`` also writes the WHOLE JSON report to that path: the output
-    returned is cut to its last 4000 characters, and a scene with many
-    programs can overrun that before its report line even starts.
-    """
+    """Compile every program a fixture SCENE builds, on the headless GPU."""
     _three_ready()
     with tempfile.TemporaryDirectory(prefix="c3d-compile-scene-") as tmp:
         root = Path(tmp)

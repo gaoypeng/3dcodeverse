@@ -38,7 +38,6 @@ class Stage(StrEnum):
     RENDER = "render"
     JUDGE = "judge"
     PAIRWISE = "pairwise"
-    TEXTURE = "texture"  # historical: ledgers of runs that had a texture pass still carry it
     CAPTION = "caption"
     OTHER = "other"
 
@@ -54,7 +53,6 @@ class Role(StrEnum):
     GENERATOR = "generator"
     JUDGE = "judge"
     CAPTIONER = "captioner"
-    IMAGE = "image"  # historical: rows booked by the removed image model
     OTHER = "other"
 
 

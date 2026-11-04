@@ -122,7 +122,7 @@ def load_round_journal(ws: Workspace) -> list[RoundRecord]:
 
 
 def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask], *,
-                         steps: list[StepTime] | None = None) -> list[GenerationResult]:
+                         steps: list[StepTime]) -> list[GenerationResult]:
     """Run tasks side by side — one ``generate`` step: its sessions share one clock.  Raises
     ``RoundFailed`` when none succeeded."""
     if not tasks:
@@ -133,7 +133,7 @@ def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask], *,
 
     # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
     # result → RoundFailed (a refine round then stops the run as no_change) instead of killing it.
-    with timed("generate", [] if steps is None else steps, round_index=tasks[0].round):
+    with timed("generate", steps, round_index=tasks[0].round):
         results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
                           label="generate", item_name=lambda t: t.label)
     out: list[GenerationResult] = []
@@ -354,19 +354,11 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
     renders = rec.renders
     jv = getattr(pipeline, "judge_views", None)
     if callable(jv) and renders is not None:
-        try:
-            renders = jv(ctx, renders) or renders
-        except Exception as e:  # noqa: BLE001 — view selection is an optimisation, never a blocker
-            log.warning("judge_views selection failed: %s", e)
-            renders = rec.renders
+        renders = jv(ctx, renders) or renders
     geometry = None
     gv = getattr(pipeline, "geometry_views", None) if geometry_views else None
     if callable(gv):
-        try:
-            geometry = gv(ctx, index, build)
-        except Exception as e:  # noqa: BLE001 — clay views are optional judge context
-            log.warning("geometry views failed in round %d: %s", index, e)
-            ctx.events.emit("judge.geometry_views_failed", round=index, error=f"{type(e).__name__}: {e}")
+        geometry = gv(ctx, index, build)
     inp = round_input(ctx.spec, ctx.plan, rec, renders=renders, gates=gates, previous=previous,
                       extra_context=pipeline.judge_context(ctx.ws, ctx.plan, index, build, gates),
                       geometry_views=geometry, glb_path=build.glb_path)
@@ -405,7 +397,7 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
     ctx.events.emit("judge.retry", round=rec.index)
     notes: list[str] = [rec.notes] if rec.notes else []
     # a round recorded before step timing keeps counting its own clock (RoundRecord.minutes)
-    with timed("judge", rec.steps if rec.steps is not None else [], round_index=rec.index) as spent:
+    with timed("judge", rec.steps, round_index=rec.index) as spent:
         judgment = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous, notes)
     # paid either way: a retry that failed AGAIN keeps its money and its note on the record
     rec.usage = rec.usage + spent.usage

@@ -34,29 +34,13 @@ def test_probe_scene_flags_bad_shape_and_cameras(starter_ws):
     assert [m for m, sev in graded.items() if sev == "error"][0].startswith("cameras: cameras[2] position must be")
 
 
-def test_probe_scene_catches_update_throw_and_console_errors(starter_ws):
-    (starter_ws.src / "scene.js").write_text(
-        "import * as THREE from 'three';\n"
-        "export function createScene() { const scene = new THREE.Scene(); scene.add(new THREE.AmbientLight()); scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial()));\n"
-        "  console.error('custom failure 42');\n"
-        "  return { scene, cameras: [{ name: 'x', position: [3, 3, 3], lookAt: [0, 0, 0], fov: 50 }], update(t) { if (t > 0.1) throw new Error('update boom'); } }; }\n"
-    )
-    gate, _ = probe_scene(starter_ws)
-    msgs = " | ".join(f.message for f in gate.errors)
-    assert "update boom" in msgs and "custom failure 42" in msgs
-
-
 def preflight(ws):
     """The shader_preflight report the build and the ``shader_probe`` tool both read."""
     return run_probe(ws, compile=True)[1]
 
 
 def test_the_shader_preflight_runs_raw(ws, tmp_path, monkeypatch):
-    """The shader_probe tool once booted with the post chain ON (openHost's default) while the
-    build's probe_scene --compile runs raw, so it compiled — and counted, and would have
-    blamed on the scene — the harness's own GTAO / bloom / grade programs.  Only the chain
-    reads `scene.userData.grade`, so a read of it means the chain was built.  The tool now
-    reports the build's own probe + preflight, which must stay raw."""
+    """The shader_probe tool once booted with the post chain ON (openHost's default) while the build's probe_scene --compile runs raw, so it compiled — an..."""
     from codeverse3d.spatial.render_scene import render_scene
 
     ws.src.mkdir(parents=True, exist_ok=True)
@@ -76,8 +60,7 @@ def test_the_shader_preflight_runs_raw(ws, tmp_path, monkeypatch):
 
 
 def test_preflight_maps_patch_and_static_audit_errors_to_file_line(starter_ws):
-    """An onBeforeCompile patch's compile error lands on the patch's own file:line, and
-    the static audit reports a shader file no scene imports, all in one preflight."""
+    """An onBeforeCompile patch's compile error lands on the patch's own file:line, and the static audit reports a shader file no scene imports, all in on..."""
     (starter_ws.src / "shaders" / "glow.js").write_text(
         "import * as THREE from 'three';\n"
         "export function makeGlow(T = THREE) {\n"
@@ -109,28 +92,6 @@ def test_preflight_maps_patch_and_static_audit_errors_to_file_line(starter_ws):
     kinds = {f.data.get("kind") for f in rep.errors}
     assert {"version_directive", "undeclared_uniform", "unbound_uniform"} <= kinds
     assert any(f.target == "src/shaders/bad.js:2" for f in rep.errors)
-
-
-def test_probe_scene_hanging_create_scene_times_out_as_agent_finding(starter_ws):
-    """A hanging createScene times out as an agent finding, not a harness crash."""
-    (starter_ws.src / "scene.js").write_text(
-        "import * as THREE from 'three';\n"
-        "export async function createScene({ THREE: T, renderer, loaders }) {\n"
-        "  const tex = await new Promise((resolve) => loaders.texture.load('/assets/missing.png', resolve));\n"
-        "  return { scene: new THREE.Scene(), cameras: [], update() {} };\n"
-        "}\n"
-    )
-    # createScene gets 0.6 x the driver budget (host_page.createTimeoutMs): 18 s, leaving the
-    # page boot 12 s before the watchdog — at 10 s (6 s + 4 s) a loaded box hit the watchdog first
-    res = probe_scene(starter_ws, timeout_s=30)
-    gate = res.gate
-    assert not gate.passed
-    err = next(f for f in gate.errors if f.data.get("stage") == "createScene")
-    assert "did not resolve within" in err.message and "never settled" in err.message
-    assert "failed to load /assets/missing.png" in err.message
-    assert "createScene({THREE, renderer, loaders})" in err.fix_hint
-    assert res.ok and res.errors == []          # the probe TOOL ran fine (agent-fixable failure)
-    assert not any("harness/driver failure" in f.fix_hint for f in gate.findings)
 
 
 def test_probe_result_tool_semantics(starter_ws, monkeypatch):

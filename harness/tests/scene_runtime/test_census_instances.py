@@ -69,34 +69,3 @@ export function createScene({renderer}) {
 }
 """, audit_module="src/scene.js")
     assert code == 0, output
-
-
-def test_bound_gpu_capacity_ignores_unused_short_instanced_attributes():
-    """Only attributes used by the linked program constrain Three's draw."""
-    code, output = compile_scene("""
-import * as THREE from 'three';
-import {sceneCensus} from '/__runtime/lib/host_census.mjs';
-export function createScene({renderer}) {
- const scene=new THREE.Scene(),geo=new THREE.InstancedBufferGeometry().copy(new THREE.PlaneGeometry());
- geo.setAttribute('activeOffset',new THREE.InstancedBufferAttribute(new Float32Array(24),3));
- geo.setAttribute('unusedShort',new THREE.InstancedBufferAttribute(new Float32Array(3),3));
- const material=new THREE.ShaderMaterial({vertexShader:
- 'attribute vec3 activeOffset;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position+activeOffset,1.0);}',
- fragmentShader:'void main(){gl_FragColor=vec4(.3,.6,.8,1.0);}'});
- const mesh=new THREE.Mesh(geo,material);mesh.frustumCulled=false;scene.add(mesh);
- const camera=new THREE.PerspectiveCamera(45,1,.01,100);camera.position.z=3;
- const target=new THREE.WebGLRenderTarget(32,32),previous=renderer.getRenderTarget();
- try {
-  for(const requested of [8,3,Infinity]) {
-   geo.instanceCount=requested;
-   renderer.setRenderTarget(target);renderer.render(scene,camera);
-   const census=sceneCensus(scene,THREE).totals,expected=Math.min(requested,8);
-   if(geo._maxInstanceCount!==8 || census.instances!==expected ||
-      census.triangles!==renderer.info.render.triangles || census.triangles!==expected*2)
-    throw new Error(JSON.stringify({requested,census,capacity:geo._maxInstanceCount,render:renderer.info.render}));
-  }
- } finally {renderer.setRenderTarget(previous);target.dispose();}
- return {scene,cameras:[{name:'a',position:[0,0,3],lookAt:[0,0,0]}]};
-}
-""", audit_module="src/scene.js")
-    assert code == 0, output

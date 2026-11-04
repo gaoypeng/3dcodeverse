@@ -85,7 +85,7 @@ THINKING_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
 #: battery measures it.  The scene rig moved 3 → 4 with scene (2026-10-14): the fourth
 #: overview (``overview_low_front``, the contact camera) plus the t=1.5 tiles need a third
 #: grid on a three-camera plan and a fourth on a four-camera one — a cap of 3 silently
-#: dropped the low tile the contact crops are cut from.  An explicit ``max_montages`` wins.
+#: dropped the low tile the contact crops are cut from.
 TRACK_MONTAGE_CAP: dict[str, int] = {"scene": 4, "graphics": 3}
 
 
@@ -115,9 +115,6 @@ class VlmJudge:
         *,
         thinking: Literal["off", "low", "medium", "high"] | None = None,
         max_attempts: int = 3,
-        max_montages: int | None = None,
-        detail_crops: int | None = None,
-        max_px: int | None = None,
         chat_model: ChatModel | None = None,
         cache_dir: Path | None = None,
         label: str = "judge",
@@ -139,7 +136,7 @@ class VlmJudge:
                         "acceptance item follows the representative sample (rubrics.aggregate_samples); an odd n "
                         "gives a true majority", self.n_samples)
         self.temperature = temperature
-        # payload size and thinking: the profile's dial (Settings.judge) unless the caller states one
+        # payload size and thinking: Settings.judge
         jd = get_settings().judge
         # ``thinking=None`` reads ``Settings.judge.thinking`` (C3D_JUDGE__THINKING) — the one place a run,
         # a replay (`3dcode judge --thinking`) and the calibration tool take the level from (D105:
@@ -150,19 +147,18 @@ class VlmJudge:
         self.thinking: str = level
         self.max_attempts = max(1, int(max_attempts))
         self.sample_budget_s = SAMPLE_BUDGET_S if sample_budget_s is None else float(sample_budget_s)
-        self.max_montages = max(1, int(jd.montages if max_montages is None else max_montages))
-        self._montages_explicit = max_montages is not None
-        self.detail_crops = max(0, int(jd.detail_crops if detail_crops is None else detail_crops))
-        self.max_px = int(jd.max_px if max_px is None else max_px)
+        self.max_montages = max(1, int(jd.montages))
+        self.detail_crops = max(0, int(jd.detail_crops))
+        self.max_px = int(jd.max_px)
         self._model = chat_model
         self.cache_dir = cache_dir
         self.label = label
 
     def _montages_for(self, inp: JudgeInput) -> int:
         """Per-track montage cap (``TRACK_MONTAGE_CAP``: scene 4, graphics 3; the object rig takes
-        the dial, D47).  An explicit ``max_montages`` from the caller always wins."""
+        the dial, D47)."""
         cap = TRACK_MONTAGE_CAP.get(inp.spec.track.value)
-        if self._montages_explicit or cap is None:
+        if cap is None:
             return self.max_montages
         return min(self.max_montages, cap)
 
@@ -389,15 +385,11 @@ class ReferenceJudge(VlmJudge):
         rubric: str | Rubric = "reference",
         silhouette_fn: CompareFn | None = None,
         diff: bool = True,
-        diff_model: Any | None = None,
-        diff_model_id: str = "",
         **kwargs: Any,
     ):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
         self.silhouette_fn = silhouette_fn or compare_silhouette
         self.diff = diff
-        self._diff_model = diff_model
-        self.diff_model_id = diff_model_id
 
     # ------------------------------------------------------------------ hook
     def context(self, inp: JudgeInput) -> JudgeContext:
@@ -466,20 +458,11 @@ class ReferenceJudge(VlmJudge):
         measured = None if match is None else {"iou": match.iou, "aspect_ratio_err": match.aspect_ratio_err, "reliable": match.reliable,
                                                 "view": match.view, "reference": Path(match.reference).name}
         try:
-            return compare(inp.spec, targets, renders, model=self._pick_diff_model(),
+            return compare(inp.spec, targets, renders, model=self.model,
                            part_names=inp.part_names, measured=measured)
         except Exception as e:  # noqa: BLE001 — an advisory pass must never fail a verdict
             log.warning("reference diff pass failed: %s", e)
             return None
-
-    def _pick_diff_model(self) -> Any:
-        """``diff_model`` > ``diff_model_id`` (a cheaper perception model) > the judge's own model."""
-        if self._diff_model is not None:
-            return self._diff_model
-        if self.diff_model_id:
-            self._diff_model = get_chat_model(self.diff_model_id)
-            return self._diff_model
-        return self.model
 
     def diff_views(self, views: list[RenderView]) -> list[str]:
         """Up to 3 shaded views for the diff, front-ish first."""
@@ -522,14 +505,13 @@ class LikenessJudge(VlmJudge):
     name = "likeness"
 
     def __init__(self, model_id: str | None = None, n_samples: int = 1, temperature: float = 0.2, *,
-                 rubric: str | Rubric = "shader", max_refs: int = 3, **kwargs: Any):
+                 rubric: str | Rubric = "shader", **kwargs: Any):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
-        self.max_refs = max(1, int(max_refs))
 
     def context(self, inp: JudgeInput) -> JudgeContext:
         if self.rubric.measured_criteria():
             raise ValueError(f"rubric {self.rubric.name} has measured criteria; LikenessJudge measures nothing")
-        refs = [r for r in inp.spec.references if Path(r.path).is_file()][: self.max_refs]
+        refs = [r for r in inp.spec.references if Path(r.path).is_file()][:3]
         images = [(f"REAL-WORLD REFERENCE {i}/{len(refs)}" + (f" — {r.note}" if r.note else ""), r.path)
                   for i, r in enumerate(refs, 1)]
         return JudgeContext(extra_text=LIKENESS_NOTE if refs else "", extra_images=images)

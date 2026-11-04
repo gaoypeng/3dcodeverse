@@ -167,7 +167,6 @@ class CapRule(BaseModel):
 class Rubric(BaseModel):
     name: str
     version: int = 1
-    track_hint: str = Field(default="", description="static_object | articulated_object | scene | asset | reference")
     pass_threshold: float = Field(ge=0.0, le=1.0)
     criteria: list[Criterion] = Field(min_length=1)
     caps: list[CapRule] = Field(default_factory=list)
@@ -195,12 +194,6 @@ class Rubric(BaseModel):
     @property
     def weights(self) -> dict[str, float]:
         return {c.id: c.weight for c in self.criteria}
-
-    def criterion(self, cid: str) -> Criterion:
-        for c in self.criteria:
-            if c.id == cid:
-                return c
-        raise KeyError(f"rubric {self.name} has no criterion {cid!r}")
 
     def defect(self, did: str) -> DefectItem:
         for d in self.defects:

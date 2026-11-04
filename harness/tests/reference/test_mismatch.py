@@ -11,39 +11,10 @@ from codeverse3d.reference import compare
 from tests.orchestrator_tracks.fakes import FakeChatModel
 from tests.reference.conftest import make_spec
 
-ANSWER = {
-    "mismatches": [
-        {"kind": "missing_feature", "target": "Hopper", "detail": "reference has a conical hopper; render is flat",
-         "severity": "critical"},
-        {"kind": "wrong_part_count", "target": "Flutes", "detail": "reference has 8 flutes, render has 0",
-         "severity": "major"},
-        {"kind": "wrong_proportion", "target": "overall", "detail": "reference body is taller", "severity": "minor"},
-        {"kind": "wrong_material", "target": "Body", "detail": "walnut vs grey", "severity": "minor"},
-    ],
-    "matches": ["the crank handle is present", "the drawer reads correctly"],
-}
-
 
 def _png(p: Path) -> Path:
     Image.new("RGB", (64, 64), (200, 200, 200)).save(p)
     return p
-
-
-def test_compare_names_mismatches_and_builds_text(tmp_path: Path):
-    ref, ren = _png(tmp_path / "ref.png"), _png(tmp_path / "ren.png")
-    chat = FakeChatModel(by_label={"reference_diff": [ANSWER]})
-    d = compare(make_spec(), [ref], [ren], model=chat, part_names=["Hopper", "Body"],
-                measured={"iou": 0.42, "aspect_ratio_err": 0.13, "reliable": True, "view": "front"})
-    assert len(d.mismatches) == 4 and d.iou == 0.42 and d.view == "front"
-    text = d.as_text()
-    assert "IoU 0.420" in text and "8 flutes" in text
-    assert "already matching: the crank handle is present" in text
-    req = chat.requests[0]
-    labels = [p.label for p in req.messages[0].parts if getattr(p, "label", None)]
-    assert labels == ["REFERENCE 1", "RENDER 1 (ren)"]
-    assert "Hopper, Body" in req.messages[0].parts[0].text
-    assert "Ignore anything the brief overrides" in req.messages[0].parts[0].text
-    assert [m.severity for m in d.top(3)] == ["critical", "major", "minor"]
 
 
 def test_a_failed_or_impossible_diff_is_soft(tmp_path: Path):

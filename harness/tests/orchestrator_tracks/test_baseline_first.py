@@ -40,9 +40,9 @@ def _ctx(tmp_path, settings, language: Language, plan):
     return track, ctx
 
 
-@pytest.mark.parametrize("language", [Language.THREEJS, Language.BLENDER, Language.CADQUERY])
+@pytest.mark.parametrize("language", [Language.THREEJS, Language.CADQUERY])   # per-part files vs one file
 def test_round0_is_one_session_owning_every_part_file_and_the_entry(tmp_path, settings, language):
-    """An 8-part plan was split into 3-5 serial scope sessions + an assemble session before D110."""
+    """D110: one draft session, not 3-5 scope sessions + an assemble session."""
     track, ctx = _ctx(tmp_path, settings, language, _big_plan(10))
     (draft,) = track.baseline_tasks(ctx)
     files = ctx.runtime.expected_files(ctx.plan)
@@ -107,8 +107,7 @@ def test_articulated_runs_one_draft_and_one_refine_session_end_to_end(tmp_path, 
 
 
 def test_single_shot_refine_is_fenced_to_the_files_it_is_shown(tmp_path, settings):
-    """A single-shot call has no read tool and sees only the inlined files: told "the whole object"
-    it could rewrite a part file it was never shown, so it keeps the files its tasks name."""
+    """A single-shot call sees only the inlined files, so it is fenced to the files its tasks name."""
     track, ctx = _ctx(tmp_path, settings, Language.THREEJS, _big_plan(8))
     ctx.agent_id = "single-shot:gemini:x"
     (refine,), _ = track.refine_tasks(ctx, _last(ctx.plan))
@@ -120,9 +119,7 @@ def test_single_shot_refine_is_fenced_to_the_files_it_is_shown(tmp_path, setting
 
 
 def test_refine_session_ends_before_the_run_clock_so_the_round_is_judged(tmp_path, settings):
-    """The baseline-first smoke's blender refine started at 25.8 of 60 min with a 30-min window: the
-    watchdog let the busy session run its 5-min grace on top, the run clock killed it at 60.0 min and
-    the round was dropped unbuilt and unjudged ($4.63).  The window now ends reserve + grace early."""
+    """Smoke: a refine at 25.8 of 60 min plus the 5-min grace was killed by the run clock, unjudged ($4.63); the window now ends reserve + grace early."""
     from codeverse3d.agents.cli_common import HARD_GRACE_S
     from codeverse3d.tracks.static_object import REFINE_MIN_WINDOW_S
 

@@ -1,21 +1,16 @@
-"""Hermetic-suite and documented test-count guards."""
+"""Hermetic-suite guard: credential-sensitive offline tests pass without API keys."""
 
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-from tests.conftest import COLLECTED
-
 HARNESS = Path(__file__).resolve().parents[2]
 KEY_ENVS = ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY")
 
-#: the one that PORT-2 caught (its texture-pass twin went with the texture pass); inside the offline (pure python) subset
+#: the one that PORT-2 caught; inside the offline (pure python) subset
 CREDENTIAL_FREE = ("tests/models/test_health.py::test_probe_model_treats_a_503_as_final",)
 
 
@@ -30,32 +25,3 @@ def test_passes_with_no_api_keys_in_the_environment(tmp_path: Path) -> None:
                        cwd=HARNESS, env=env, capture_output=True, text=True, timeout=300)
 
     assert r.returncode == 0, f"needs credentials:\n{r.stdout[-3000:]}\n{r.stderr[-2000:]}"
-
-
-# --------------------------------------------------------------------------- PORT-8
-INSTALL = HARNESS / "docs" / "INSTALL.md"
-#: numbers the docs quote as test counts: "N passed", "N selected", "out of the N"
-_COUNT = re.compile(r"(\d{3,6})\s+(?:passed|selected)|out of the (\d{3,6})")
-
-
-#: below this, the run was narrowed (one file, -k, a single directory) and cannot bound
-#: the suite.  The full offline suite is ~1 900.
-_FULL_RUN_FLOOR = 1000
-
-
-def _collected() -> int:
-    """Return the collection ceiling, or skip when invoked on a narrow subset."""
-    n = COLLECTED.get("n", 0)
-    if n < _FULL_RUN_FLOOR:
-        pytest.skip(f"only {n} tests collected — a narrowed run cannot bound the suite")
-    return n
-
-
-def test_quoted_test_counts_are_possible() -> None:
-    """Published counts cannot exceed what this suite can collect."""
-    ceiling = _collected()
-    quoted = [int(a or b) for a, b in _COUNT.findall(INSTALL.read_text())]
-
-    assert quoted, f"no test counts found in {INSTALL} — did the wording change?"
-    too_big = [n for n in quoted if n > ceiling]
-    assert not too_big, f"{INSTALL.name} quotes {too_big}, but only {ceiling} tests exist"

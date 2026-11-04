@@ -1,14 +1,13 @@
 # Run directory layout
 
 One run = one directory (`runs/<slug>/`, `eval/bench/out/<battery>/runs/<slug>/`).
-It answers three different questions, and since 2026-08-23 it keeps them in
-three separate buckets:
+It answers three different questions and keeps them in three separate buckets:
 
 | bucket | question | contents |
 |---|---|---|
 | `deliverable/` | **what did I get?** | ONE round, the one a pick chose (`3dcode pick`; `3dcode make` picks by score after the run): its code snapshot, its artifact (`object.glb` / `robot.urdf` + `meshes/` / `frames/` + `preview.gif` / the scene bundle), its contact sheet, `captions.json`, `manifest.json` |
-| `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `tool_renders/` |
-| `telemetry/` | **what did it cost and how was it configured?** | `cost.jsonl` (the ledger), `settings.json`, `cost.json`, plus `events.jsonl`, `run_state.json`, `stages/`, `trajectories/` |
+| `artifacts/` | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `tool_renders/` |
+| `telemetry/` | **what did it cost and how was it configured?** | `cost.jsonl` (the ledger), `settings.json`, `cost.json` |
 
 The run's **identity** stays at the root, where every tool has always looked for it.
 This is the one full tree; every other doc points here:
@@ -24,8 +23,7 @@ runs/<slug>/
                   around every session, rNN <kind>; ends at the LAST round)
   public/         (scene) compiled assets public/assets/<snake>.glb
   deliverable/    (a) the hand-over — one round, written by a pick
-  evidence/  ->  artifacts/                  (b) the proof
-  artifacts/      the LAST round's build: object.glb object.stl|step robot.urdf meshes/ build.json census.json
+  artifacts/      (b) the proof: the LAST round's build: object.glb object.stl|step robot.urdf meshes/ build.json census.json
                   measurement.json …; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json
     rNN/          each round's own build, copied when it built (below)
     renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png
@@ -35,10 +33,6 @@ runs/<slug>/
     tool_renders/rNN_<name>/
   telemetry/      (c) the accounting
     cost.jsonl  settings.json cost.json
-    events.jsonl -> ../events.jsonl
-    run_state.json -> ../run_state.json
-    stages -> ../stages
-    trajectories -> ../trajectories
   stages/<name>.json                         each cached pre-round stage's result (keyed, ARCHITECTURE §7.1)
   rounds/rNN.json  rounds/candidates.json    the round journal; best-of-N's summary (= record.extra["candidates"])
   rounds/aborted_rNN.json                    a round the budget or a crash cut: what it burned, never resumed from
@@ -52,37 +46,15 @@ runs/<slug>/
   AGENTS.md CLAUDE.md .antigravityignore                (vendor-CLI context; no .3dcode/cookbook.md since D107)
 ```
 
-## Why the aliases point that way
+`deliverable/`, `telemetry/settings.json` and `telemetry/cost.json` are *derived*: `telemetry/` is
+rebuilt from the run's own artifacts, trajectories and events every time the run is finalised, and
+`deliverable/` from a round's commit and its `artifacts/rNN/` every time a round is picked.
+`deliverable/` is self-contained so it can be zipped and handed to someone (the flywheel exporter
+only falls back to it when git cannot answer).  `telemetry/cost.jsonl` is the ledger itself,
+appended while the run happens.
 
-Only **one** physical copy of anything exists; the second name is a relative
-symlink.  Which side is physical was not a matter of taste:
-
-* **`artifacts/` stays physical, `evidence/` is the alias.**  Six packages
-  (`spatial`, `languages`, `tracks`, `judges`, `flywheel`) write
-  into `ws.artifacts`, and ~50 completed runs have absolute `artifacts/...`
-  paths frozen inside `record.json`, `rounds/rNN.json` and `views.json`.
-  Moving the bytes would either break those paths or force a rewrite of files
-  we treat as immutable evidence.  The alias costs nothing and gives the
-  directory listing the name that explains what is inside.
-* **`events.jsonl` / `run_state.json` / `stages/` / `trajectories/` stay at the
-  root, `telemetry/` links to them.**  `events.jsonl` is opened in append mode
-  by long-lived writers and `run_state.json` is rewritten atomically
-  (tmp + rename) — a rename onto a *symlink* replaces the link, so the symlink
-  must be on the alias side, never on the side that gets written.
-* **`deliverable/`, `telemetry/settings.json` and `telemetry/cost.json` are real
-  files.**  They are *derived*: `telemetry/` is rebuilt from the run's own
-  artifacts, trajectories and events every time the run is finalised,
-  `deliverable/` from a round's commit and its `artifacts/rNN/` every time a round
-  is picked, and both on the fly by `3dcode show` / the exporters for a run that
-  predates them — old runs are read as-is, never rewritten.  `deliverable/` is self-contained so it can be zipped and handed to
-  someone (the flywheel exporter only falls back to it when git cannot answer).
-  `telemetry/cost.jsonl` is the ledger itself, appended while the run happens, and has
-  one name: the root `cost_ledger.jsonl` and `telemetry/usage.jsonl` symlinks runs written
-  before 2026-09-22 carry are no longer written or read.
-
-`.gitignore` inside the run ignores `deliverable/`, `telemetry/` and `evidence`
-(as well as `artifacts/`, `stages/`, `trajectories/`, …) so the derived buckets
-never enter the code snapshot.
+`.gitignore` inside the run ignores `deliverable/`, `telemetry/` (as well as `artifacts/`,
+`stages/`, `trajectories/`, …) so the derived buckets never enter the code snapshot.
 
 ## Every round, kept (`artifacts/rNN/`)
 
@@ -103,8 +75,7 @@ The rest of a round is already per round: its code is its git commit (a scene's 
 are `renders/rNN/` (a graphics round's judged frames among them), its gates `gates/rNN/`,
 its verdict `judge/rNN.json` and `rounds/rNN.json`.  The census, `build.json`, the `.blend`
 and the measurement are evidence of the LAST build only.  A round that did not build keeps
-nothing.  A run recorded before 2026-09-22 has no `rNN/`: its canonical files are the build
-of the best round its `record.json` still names (`round_outputs` reads it that way).
+nothing.
 
 ## `deliverable/`
 
@@ -131,8 +102,7 @@ Beside `record.json`, `selection.json` says which round that is and why: `{round
 `addons.select.summarise` reads it, so every reader reports the round that was handed over.
 
 Every file is hashed with sha256 and is a real copy (never a hard link), so editing the
-hand-over folder can never touch the evidence.  A file over 128 MB (or a bucket over
-512 MB) is left out and named in `manifest.skipped`.  Rebuilding is idempotent: the manifest
+hand-over folder can never touch the evidence.  Rebuilding is idempotent: the manifest
 keeps its previous `generated_at` when the content is unchanged, so re-running the packager
 produces no diff.
 
@@ -145,15 +115,11 @@ produces no diff.
   harness version + git sha; key-pool size; **price-table hash**; resolved
   render and limit settings.  Sampling values are what the track stamped as it ran,
   `record.extra["sampling"]` (the planner's `plan_temperature(track)`, the judge's own
-  temperature / thinking / samples; `source="run"`) — a vendor CLI owns its knobs, and a
-  record written before 2026-09-22 carries no stamp, so they are left empty, never guessed
-  (they were read off the call sites' signature defaults, which reported the default judge
-  sample count whatever the run used).
+  temperature / thinking / samples; `source="run"`) — a vendor CLI owns its knobs.
 * **`cost.jsonl`** — THE ledger: one priced row per model call or CLI session, in the
   **`codeverse3d.cost` ledger format** (`CallCost`: tokens, unit prices, price
   provenance, stage, role, outcome), written by the metered models and agents while the
-  run happens.  It is the only record of money; a run without one (recorded before
-  2026-08-23) has no rows — nothing is reconstructed.
+  run happens.  It is the only record of money.
 * **`cost.json`** (`CostSummary`) — the run-layout view of those rows, computed by the
   ledger's own `summarise`: the total (= `record.total_usage`, the ledger's sum at list
   price — post-run work a pick buys joins it the next time the run is packaged), tokens, per
@@ -166,11 +132,6 @@ produces no diff.
 `record.telemetry` stores the settings snapshot and cost summary written at finalization.
 The hand-over is described by `deliverable/manifest.json` and `selection.json`, not by
 `record.json`. Round artifacts live in `artifacts/rNN/`.
-
-Historical record migration is not supported: retired `passed` / `plateau` / `stopped`
-statuses, `best_round` manifest aliases, pre-step timing fallbacks and canonical-artifact
-ownership inference have been removed. Use the repository revision that wrote an old run
-if you need to read it. Existing local run data is not migrated or deleted.
 
 ## Reading a run
 
@@ -189,11 +150,8 @@ For the money itself across many runs — waste, $ per run, price provenance —
 package's own command, `3dcode cost --runs-dir <root>`.
 `3dcode show` is the single-run view; both read the same ledger rows.
 
-## Back-compatibility contract
+## Reading artifacts
 
-* Old runs load unchanged — `load_record`, `3dcode status`, `3dcode judge`,
-  `3dcode render`, `flywheel export/pairs/index`, `gallery` all work with no
-  `deliverable/` or `telemetry/` present.
 * Consumers resolve artifacts through
   `record.deliverable.deliverable_path(ws, name)`: `deliverable/<name>` first,
   `artifacts/<name>` second.  A reader that wants a given ROUND's file asks

@@ -54,8 +54,6 @@ const state = {
   cameraRepair: false,
   cameraRepairs: [],
   repairedSpecs: new Map(),
-  autoExposure: false,
-  autoExposureInfo: null,
   post: null,
   postInfo: null,
 };
@@ -87,11 +85,6 @@ function makeHostRenderer(width, height, opts) {
   document.body.appendChild(canvas);
   return { renderer: makeRenderer(canvas, width, height, { logDepth: !!opts.logDepth }), canvas };
 }
-
-/** Auto-exposure's target mean-luminance band.  Its floor is the scene_frames gate's dark line
- *  (`frame_metrics.DARK_MEAN_LUM`, pinned by a test): at 0.10 a frame lifted to 0.10-0.119
- *  still drew "frame too dark". */
-const EXPOSURE_BAND = [0.12, 0.45];
 
 /** The authored cameras, and each problem as {severity, text}: the severity is decided HERE,
  *  where the problem is known (the python gate used to re-derive it from the wording).
@@ -283,8 +276,6 @@ async function boot(opts) {
     state.cameraRepair = !!opts.cameraRepair;
     state.cameraRepairs = [];
     state.repairedSpecs = new Map();
-    state.autoExposure = !!opts.autoExposure;
-    state.autoExposureInfo = null;
     state.width = opts.width || 1024;
     state.height = opts.height || 576;
     window.requestAnimationFrame = () => { state.rafCalls += 1; return 0; };
@@ -344,8 +335,7 @@ async function boot(opts) {
 
     // post chain (browser/post.js): ON for scene renders unless `post: false`.
     // Built here — after the first update, so a scene that sets its grade hint
-    // while building has already set it — and before auto-exposure, which must
-    // measure the frame that will actually be judged.  A chain that cannot be
+    // while building has already set it.  A chain that cannot be
     // built is a host WARNING, never a boot failure: the raw path still renders.
     if (opts.post !== false) {
       info.stage = 'post';
@@ -381,33 +371,6 @@ async function boot(opts) {
       info.settled = state.settleInfo.count;
     }
 
-    // auto-exposure (opt-in, --auto-exposure): one scene-wide bounded exposure, like a
-    // photographer picking ISO once.  fv_izakaya_night sat at mean_lum 0.07 for three
-    // rounds with the 'frame too dark' ERROR in every refine prompt and nobody fixed it;
-    // the frame gate's healthy band is 0.12..0.35.  Factor clamped to [0.5, 3.0] so a
-    // deliberately moody scene is brightened, never rewritten; recorded in the census.
-    if (opts.autoExposure && state.cameras.length) {
-      info.stage = 'auto_exposure';
-      try {
-        const probeCam = () => buildCameraRaw(state.cameras[0]);
-        const lum = () => { renderOnce(probeCam()); return frameStats(state.canvas).mean_lum; };
-        const before = lum();
-        let factor = 1;
-        let after = before;
-        const [lo, hi] = EXPOSURE_BAND;
-        for (let i = 0; i < 4 && (after < lo || after > hi); i++) {
-          const step = after < lo ? 1.6 : 0.7;
-          const next = Math.min(3.0, Math.max(0.5, factor * step));
-          if (next === factor) break;
-          factor = next;
-          state.renderer.toneMappingExposure = factor;
-          after = lum();
-        }
-        if (factor !== 1) state.autoExposureInfo = { factor: +factor.toFixed(2), lum_before: before, lum_after: after };
-      } catch (e) {
-        state.hostWarnings.push(`auto-exposure failed: ${String((e && e.message) || e).slice(0, 200)}`);
-      }
-    }
     state.booted = true;
     info.ok = cameras.length > 0;
     // A camera-less scene used to fail with info.error EMPTY, so the caller
@@ -723,7 +686,6 @@ function census() {
   c.glb_assets = glbUsage(state.scene);
   if (state.settleInfo) c.settle = state.settleInfo;
   if (state.cameraRepairs.length) c.camera_repair = state.cameraRepairs.slice();
-  if (state.autoExposureInfo) c.auto_exposure = state.autoExposureInfo;
   if (state.postInfo) c.post = state.postInfo;
   state.contentBox = c.content_bbox;
   state.fullBox = c.bbox;

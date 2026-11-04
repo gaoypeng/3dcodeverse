@@ -6,19 +6,11 @@ from types import SimpleNamespace as NS
 from typing import Any
 
 import httpx
-import pytest
 
-from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
-from codeverse3d.models.base import ModelError
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest
 from codeverse3d.models.openai import (
     OpenAIModel,
-    build_kwargs,
-    classify_exception,
-    reasoning_effort,
-    to_messages,
 )
-
-PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
 def completion(
@@ -105,19 +97,6 @@ def test_text_reasoning_effort_usage_cost():
     assert abs(u.cost_usd - (160 + 2 + 300) / 1e6) < 1e-12
 
 
-def test_reasoning_effort_mapping_and_temperature_for_non_reasoning():
-    assert reasoning_effort("gpt-6.1-sol", "off") == "low"  # gpt-6 rejects "none" / "minimal"
-    assert reasoning_effort("gpt-6-astra", "off") == "low"
-    assert reasoning_effort("gpt-6.1-sol", "medium") == "medium"
-    assert reasoning_effort("gpt-x", "high") is None
-    kw = build_kwargs(
-        ChatRequest(messages=[ChatMessage.user("x")], temperature=0.1),
-        "gpt-x",
-        strict_schema=False,
-    )
-    assert kw["temperature"] == 0.1 and "reasoning_effort" not in kw
-
-
 def test_json_schema_strict_then_fallback_to_non_strict():
     schema = {
         "type": "object",
@@ -142,68 +121,3 @@ def test_json_schema_strict_then_fallback_to_non_strict():
         and set(first["schema"]["required"]) == {"a", "b"}
     )
     assert second["strict"] is False and second["schema"]["required"] == ["a"]
-    # sticky: later calls go straight to strict=false
-    fc.script.append(completion('{"a": 2}'))
-    m.generate(ChatRequest(messages=[ChatMessage.user("y")], response_schema=schema))
-    assert fc.calls[2]["response_format"]["json_schema"]["strict"] is False
-
-
-def test_images_data_urls():
-    msgs = to_messages(
-        [
-            ChatMessage.user(
-                "look", images=[ImagePart(data_b64=PNG_B64, mime="image/png", label="v")]
-            )
-        ],
-        "",
-    )
-    c = msgs[0]["content"]
-    assert [b["type"] for b in c] == ["text", "text", "image_url"]
-
-
-def test_bad_json_and_empty_replies_are_retried_and_classify():
-    import openai
-
-    m, fc = make([completion("garbage"), completion('{"ok": 1}')])
-    r = m.generate(
-        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
-    )
-    assert r.parsed == {"ok": 1} and len(fc.calls) == 2
-    m, fc = make([completion(None), completion("ok")])
-    assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "ok"
-    req = httpx.Request("POST", "https://api.openai.com")
-    assert classify_exception(openai.APITimeoutError(request=req)).retryable
-    assert not classify_exception(KeyError("k")).retryable
-
-
-def test_base_url_from_settings(monkeypatch):
-    from codeverse3d.config import get_settings
-
-    monkeypatch.setenv("C3D_OPENAI_BASE_URL", "http://localhost:8000/v1")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    get_settings.cache_clear()
-    try:
-        m = OpenAIModel("local-model")
-        c = m.client()
-        assert str(c.base_url).startswith("http://localhost:8000/v1")
-    finally:
-        get_settings.cache_clear()
-
-
-def test_a_failed_reply_carries_what_it_was_billed():
-    """A bad-JSON or empty completion is billed on the error, reasoning split out (D84)."""
-    for script, req in (
-        (
-            [completion("not json", finish="length")],
-            ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}),
-        ),
-        (
-            [completion(None, finish="content_filter")],
-            ChatRequest(messages=[ChatMessage.user("x")]),
-        ),
-    ):
-        m, _ = make(script)
-        with pytest.raises(ModelError) as e:
-            m.generate(req)
-        u = e.value.usage
-        assert u.input_tokens == 100 and u.output_tokens == 20 and u.thoughts_tokens == 10

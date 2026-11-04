@@ -162,7 +162,7 @@ function clumpField(seed, extent) {
 /**
  * Place the blades on a fully jittered grid, thinned by the clumps.
  *
- * Full-cell jitter, not scatterGrid's 0.35: from directly above, a
+ * Full-cell jitter, not a 0.35 fraction: from directly above, a
  * partly jittered lattice still shows its rows, which is the "grid of
  * dots" this library exists to avoid.
  */

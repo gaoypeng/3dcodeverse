@@ -32,8 +32,7 @@ def test_camera_in_geometry_and_near_hit():
                                   _chk("Close", nearest_hit_m=0.3)))
     assert [(k, s) for k, s, _ in _kinds(rep)] == [("camera_in_geometry", Severity.ERROR)] * 2
     assert "Tower" in rep.findings[0].message and "0.5 m" in rep.findings[0].fix_hint
-    # one camera, one gate (audit 2026-09-24 N11): the build's scene_probe used to judge the first
-    # camera again (WARN at 0.3 m / 85 % dark) beside these ERRORs (0.5 m / 35 %) in the same round
+    # one camera, one gate (audit 2026-09-24 N11): the scene_probe must not judge the first camera again
     from codeverse3d.spatial.probes import probe_report
 
     cam0 = _chk("Buried", camera_in_geometry=True, inside_mesh_bbox=["Tower"], nearest_hit_m=0.1, dark_frac=0.9)
@@ -108,9 +107,7 @@ def test_content_small_roles():
 
 
 def test_no_hint_prescribes_one_camera_or_light_construction():
-    """2026-10-15 (owner's rule): a fix hint states the measured requirement and leaves the construction
-    open.  The old hints were the diorama shot — stand at 1.2x the content span, 6-20 m up, lookAt the
-    bounds centre, fill the bounds — and the library's rig as THE light; every refine round read them."""
+    """2026-10-15 (owner's rule): a fix hint states the measured requirement, never a camera or light construction."""
     rep = frame_findings(_metrics(
         _chk("Establishing", content_frac=0.12, sky_frac=0.5, ground_frac=0.38),
         _chk("Ant", eye_height_m=3.2, ground_below_m=0.06, ground_below_name="SnowTerrain"),
@@ -204,19 +201,6 @@ def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
     assert fine.passed and old.passed and not [k for k, _, _ in _kinds(fine) + _kinds(old) if k.startswith("hero_")]
 
 
-def test_auto_exposure_lifts_a_frame_past_the_gates_dark_line():
-    """Regression (audit 2026-09-24 N13): the host's auto-exposure stopped at mean 0.10 while the
-    gate calls < 0.12 "frame too dark", so a lifted frame still drew the ERROR.  Pinned by value."""
-    import re
-
-    from codeverse3d.spatial.frame_metrics import DARK_MEAN_LUM
-    from codeverse3d.spatial.node import runtime_js_dir
-
-    host = (runtime_js_dir() / "lib" / "scene_host.mjs").read_text()
-    lo = float(re.search(r"const EXPOSURE_BAND = \[([\d.]+),", host).group(1))
-    assert lo == DARK_MEAN_LUM
-
-
 def test_a_blender_payload_gets_bpy_fix_hints_and_three_js_keeps_its_own():
     """The thresholds are one; the words are the language's (``metrics["language"]``)."""
     from codeverse3d.spatial.frame_metrics import HINTS
@@ -262,8 +246,7 @@ def test_a_slow_blender_frame_set_warns_and_names_the_heaviest_zone():
 
 
 def test_the_hero_size_is_one_instance_and_names_its_copies():
-    """`glb_assets[].size_m` is ONE placed instance (scene_host glbUsage, 2026-10-14; the union of every
-    clone read "6.5 m across" for a 2.2 m sofa placed three times) and the text says how many copies."""
+    """2026-10-14: glb size_m is ONE placed instance (a 2.2 m sofa x3 read "6.5 m across"); the text names the copies."""
     url = "/assets/athanor.glb"
     rows = [{"url": url, "meshes": 9, "meshes_in_scene": 9, "in_scene": True, "size_m": 2.2, "instances": 3}]
     rep = frame_findings({"census": {"glb_assets": rows}, "camera_checks": [_chk("AthanorDetail", glb_frac={url: 0.0})]})

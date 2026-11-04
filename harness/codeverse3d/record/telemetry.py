@@ -21,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.run import (
@@ -44,16 +43,12 @@ log = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- settings snapshot
 def price_table_version() -> str:
     """Content hash of the USD price table — the run was costed with THIS table."""
-    try:
-        from codeverse3d.models.pricing import PRICES
+    from codeverse3d.models.pricing import PRICES
 
-        payload = json.dumps(
-            {f"{p}/{m}": [v.input, v.output, v.cached, v.cache_write, v.approximate] for (p, m), v in sorted(PRICES.items())},
-            sort_keys=True,
-        )
-    except Exception as e:  # pragma: no cover - defensive
-        log.debug("price table unavailable: %s", e)
-        return ""
+    payload = json.dumps(
+        {f"{p}/{m}": [v.input, v.output, v.cached, v.cache_write, v.approximate] for (p, m), v in sorted(PRICES.items())},
+        sort_keys=True,
+    )
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
@@ -98,16 +93,10 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     """The resolved 'how was this run configured' block (no secrets, ever)."""
     spec = record.spec
     rubric = rubric_of(record)
-    render: dict[str, Any] = {}
-    limits: dict[str, Any] = {}
-    keys = 0
-    try:
-        s = get_settings()
-        render = s.render.model_dump(mode="json")
-        limits = s.limits.model_dump(mode="json")
-        keys = len(s.gemini_api_keys)
-    except Exception as e:  # pragma: no cover - settings should always load
-        log.debug("settings unavailable: %s", e)
+    s = get_settings()
+    render = s.render.model_dump(mode="json")
+    limits = s.limits.model_dump(mode="json")
+    keys = len(s.gemini_api_keys)
     env = dict(record.environment)
     variant, variant_version, variant_hash = _variant_fields(record)
     return SettingsSnapshot(

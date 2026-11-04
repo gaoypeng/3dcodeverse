@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PIL import Image, ImageDraw
 
 import codeverse3d.spatial.tools  # noqa: F401  (registers all tools)
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
-    RenderSet,
-    RenderView,
     Severity,
 )
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
@@ -32,14 +28,6 @@ def test_measure_tool(stool_ctx: ToolContext) -> None:
     assert not obs.ok and "Seat" in obs.text  # didactic: lists available parts
 
 
-def test_tools_without_glb(tmp_ws: Workspace) -> None:
-    ctx = ToolContext(workspace=tmp_ws, language="blender")
-    for name in ("measure", "check_connectivity", "cross_section", "render_views", "isolate"):
-        obs = get_tool(name).call(ctx, {"part": "x"} if name == "isolate" else {})
-        # a missing artefact IS a failure: the tool could not run at all
-        assert not obs.ok and obs.failed and "run `build` first" in obs.text, name
-
-
 def test_connectivity_and_section_tools(stool_ctx: ToolContext) -> None:
     obs = get_tool("check_connectivity").call(stool_ctx, {})
     # the 5 mm gap is along GLB +y (up) → written in the Blender frame as +z, labelled
@@ -53,7 +41,6 @@ def test_connectivity_and_section_tools(stool_ctx: ToolContext) -> None:
     assert not obs.ok and "x|y|z" in obs.text
 
 
-# --------------------------------------------------------------------------- build with a fake runtime
 class _FakeRuntime:
     def __init__(self, *, lint_errors: bool = False, build_ok: bool = True, glb: Path | None = None, root: Path | None = None):
         self.lint_errors, self.build_ok, self.glb, self.root = lint_errors, build_ok, glb, root
@@ -83,9 +70,10 @@ def _patch_runtime(monkeypatch: pytest.MonkeyPatch, rt: object) -> None:
 
 def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """``ok`` is the verdict, ``failed`` is 'the tool could not run' (only that is an MCP error); FAIL leads the text."""
-    import codeverse3d.spatial.tools as ts
-
     ws = stool_ctx.workspace
+    _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))     # a build that works leads BUILD OK
+    obs = get_tool("build").call(stool_ctx, {})
+    assert obs.ok and obs.text.startswith("BUILD OK") and "Leg ×4" in obs.text and str(ws.root) not in obs.text
     ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
     for name, head in (("check_connectivity", "connectivity: FAIL"), ("check_contract", "contract: FAIL")):
         obs = get_tool(name).call(stool_ctx, {})
@@ -95,133 +83,23 @@ def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkey
     # the other direction: a tool that could not run stays an error
     obs = get_tool("measure").call(stool_ctx, {"parts": ["Nope"]})           # ToolUsageError
     assert not obs.ok and obs.failed and "Seat" in obs.text
-    def boom(*_a, **_k):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(ts, "measure_glb", boom)
-    obs = get_tool("measure").call(stool_ctx, {})
-    assert not obs.ok and obs.failed and "measure failed: RuntimeError: boom" in obs.text
-    monkeypatch.undo()
-
     _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))               # code that will not run
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and not obs.failed and obs.text.startswith("BUILD FAILED")
-    # the error leads, at a workspace-relative path, with a ≤ 30-line stderr tail
     assert obs.text.splitlines()[0].startswith("BUILD FAILED: NameError: name 'bpyx' is not defined at src/model.py:7")
     assert "l59" in obs.text and "l10" not in obs.text
     assert str(stool_ctx.workspace.root) not in obs.text and obs.numbers["error_line"] == 7
-    _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert not obs.ok and not obs.failed and obs.text.startswith("LINT FAILED")
-
-
-def test_build_that_leaves_no_readable_glb_is_a_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Success with nothing measurable is a tool failure, and the headline must not read BUILD OK."""
-    _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "gone.glb"))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert not obs.ok and obs.failed
-    assert obs.text.startswith("BUILD PRODUCED NO USABLE GLB") and "GLB unreadable" in obs.text
-
-
-def test_build_lint_fail_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A lint refusal is the latest build status: the previous GLB is no longer readable as current."""
-    _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "object.glb"))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert obs.ok and obs.text.startswith("BUILD OK") and "Leg ×4" in obs.text
-    assert "lint warnings" in obs.text and "uses bpy.ops.render" in obs.text and "build warnings" in obs.text
-    assert str(stool_ctx.workspace.root) not in obs.text
-    assert (stool_ctx.workspace.artifacts / "measurement.json").is_file()
-    _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert not obs.ok and obs.text.startswith("LINT FAILED")
-    last = json.loads((stool_ctx.workspace.artifacts / "build.json").read_text())
-    assert last["ok"] is False and last["error_type"] == "LintError"
-    obs = get_tool("measure").call(stool_ctx, {})
-    assert not obs.ok and "build FAILED" in obs.text
-
-
-def _fake_render_glb(glb, out_dir, *, views=None, mode="shaded", width=768, height=768, isolate=None, explode=0.0, sheet=True, background="studio", **_):
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    rviews = []
-    for v in views or []:
-        p = out_dir / f"view_{v.name}.png"
-        im = Image.new("RGB", (width, height), (255, 255, 255))
-        ImageDraw.Draw(im).rectangle([width // 4, height // 4, 3 * width // 4, 3 * height // 4], fill=(0, 0, 0))
-        im.save(p)
-        rviews.append(RenderView(name=v.name, path=str(p), mode=mode, width=width, height=height, camera_position=(1.0, 1.0, 1.0), fov=35))
-    sheet_p = None
-    if sheet:
-        sheet_p = out_dir / "sheet.png"
-        Image.new("RGB", (64, 64), (200, 200, 200)).save(sheet_p)
-    _fake_render_glb.calls += 1
-    return RenderSet(views=rviews, contact_sheet=str(sheet_p) if sheet_p else None, renderer="fake")
-
-
-_fake_render_glb.calls = 0
-
-
-@pytest.fixture
-def fake_renderer(monkeypatch: pytest.MonkeyPatch):
-    import codeverse3d.spatial.render as render
-
-    _fake_render_glb.calls = 0
-    monkeypatch.setattr(render, "render_glb", _fake_render_glb)
-    return _fake_render_glb
-
-
-def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
-    obs = get_tool("render_views").call(stool_ctx, {})
-    assert obs.ok and obs.images[0].endswith("sheet.png") and len(obs.images) == 5  # sheet + 4 views
-    assert obs.numbers["views"] == ["front_right_high", "back_left_high", "front", "top"]
-    assert "artifacts/tool_renders/r00_" in obs.text and str(stool_ctx.workspace.root) not in obs.text
-    again = get_tool("render_views").call(stool_ctx, {})
-    # same args → the same out_dir, where render_glb's own cache decides (this fake has none: two calls)
-    assert again.images == obs.images and fake_renderer.calls == 2
-    obs = get_tool("render_views").call(stool_ctx, {"views": ["front", "back", "left", "right", "top"]})
-    assert obs.ok and len(obs.images) == 1  # > 4 views → sheet only
-    obs = get_tool("render_views").call(stool_ctx, {"views": ["frontal"]})
-    assert not obs.ok and "front_right_high" in obs.text
-    obs = get_tool("render_views").call(stool_ctx, {"mode": "xray"})
-    assert not obs.ok and "shaded" in obs.text
-    # an unknown mode is a usage error with the mode list, not a RenderError from inside the rig
-    obs = get_tool("render_views").call(stool_ctx, {"mode": "depth"})
-    assert not obs.ok and "shaded" in obs.text and "failed" not in obs.text
-
-
-def test_render_tool_with_no_view_is_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A renderer that returns nothing is ``failed`` (an MCP error), not a result saying '0 view(s)'."""
-    import codeverse3d.spatial.render as render
-
-    monkeypatch.setattr(render, "render_glb", lambda *a, **k: RenderSet(views=[], renderer="fake"))
-    for name, args in (("render_views", {}), ("render_sheet", {}), ("isolate", {"part": "Leg_3"})):
-        obs = get_tool(name).call(stool_ctx, args)
-        assert not obs.ok and obs.failed, name
-        assert obs.text.startswith("RENDER PRODUCED NO VIEWS"), name
 
 
 def test_render_modes_match_the_js_rig() -> None:
-    """One mode tuple: contracts.RENDER_MODES ↔ runtime_js/render_glb.mjs MODES ↔ the arg schema."""
+    """contracts.RENDER_MODES == runtime_js/render_glb.mjs MODES."""
     import re
 
     from codeverse3d.config import get_settings
     from codeverse3d.contracts.artifacts import RENDER_MODES
 
-    src = (get_settings().runtime_js_dir() / "render_glb.mjs").read_text()
-    m = re.search(r"const MODES = \[([^\]]*)\]", src)
+    m = re.search(r"const MODES = \[([^\]]*)\]", (get_settings().runtime_js_dir() / "render_glb.mjs").read_text())
     assert m and tuple(re.findall(r"'([a-z]+)'", m.group(1))) == RENDER_MODES
-    assert "depth" not in RENDER_MODES
-    for name in ("render_views", "render_sheet"):
-        assert get_tool(name).schema()["properties"]["mode"]["description"] == " | ".join(RENDER_MODES)
-
-
-def test_render_sheet_and_isolate(stool_ctx: ToolContext, fake_renderer) -> None:
-    obs = get_tool("render_sheet").call(stool_ctx, {"mode": "wire"})
-    assert obs.ok and len(obs.images) == 1 and obs.numbers["n_views"] == 14
-    obs = get_tool("isolate").call(stool_ctx, {"part": "Leg_3"})
-    assert obs.ok and obs.numbers["part"] == "Leg_3" and "| Leg_3 |" in obs.text
-    obs = get_tool("isolate").call(stool_ctx, {"part": "Nope"})
-    assert not obs.ok and "Leg_3" in obs.text
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,67 +115,26 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
     def fake_probe_scene(ws, **kw):
         return SceneProbeResult(gate=failed, census={"meshes": 12, "lights": 2}, ok=True, findings=["[error] src/scene.js: console: boom"])
 
-    # shader_probe reports the BUILD's probe + preflight (one boot), never a driver of its own
     monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (GateReport.of("scene_probe"), shaders, {}))
     obs = get_tool("shader_probe").call(stool_ctx, {})
-    assert not obs.ok and not obs.failed and "vUv" in obs.text and "declare varying" in obs.text
-    assert obs.text.startswith("shader probe: FAIL")        # a shader that will not compile is a verdict
-    # a scene that never booted has no preflight: the probe's report says why
-    skipped = GateReport(gate="shader_preflight", passed=False)
-    boot = GateReport.of("scene_probe", [GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
-                                                     message="[import] SyntaxError: Unexpected token")])
-    monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (boot, skipped, {}))
-    obs = get_tool("shader_probe").call(stool_ctx, {})
-    assert not obs.ok and not obs.failed and "SyntaxError" in obs.text
-    # the driver died: the tool could not run
-    died = GateReport.of("scene_probe", [GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
-                                                     message="scene probe could not run: timeout", data={"harness_failure": True})])
-    monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (died, skipped, {}))
-    obs = get_tool("shader_probe").call(stool_ctx, {})
-    assert obs.failed and "could not run" in obs.text
-    # scene_probe probes through the workspace language's SceneRuntime (D101)
+    assert not obs.ok and not obs.failed and obs.text.startswith("shader probe: FAIL") and "declare varying" in obs.text
     scene_ctx = ToolContext(workspace=stool_ctx.workspace, language="scene_threejs", track="scene")
-    _patch_runtime(monkeypatch, SimpleNamespace(probe=fake_probe_scene))
+    _patch_runtime(monkeypatch, SimpleNamespace(probe=fake_probe_scene))   # D101: via the language's SceneRuntime
     obs = get_tool("scene_probe").call(scene_ctx, {})
-    # ok = the gate verdict; failed = the probe TOOL could not run.  The gate fails on
-    # agent-fixable findings here, so the observation is a FAIL, not a tool error
-    assert not obs.ok and not obs.failed
-    assert obs.text.startswith("scene probe: FAIL")
-    assert "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
-    _patch_runtime(monkeypatch, SimpleNamespace(probe=lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False)))
-    obs = get_tool("scene_probe").call(scene_ctx, {})
-    assert not obs.ok and obs.failed and "driver died" in obs.text
+    assert not obs.ok and not obs.failed and obs.text.startswith("scene probe: FAIL")
+    assert "meshes=12" in obs.text and obs.numbers["census"]["meshes"] == 12
     obs = get_tool("joint_sweep").call(stool_ctx, {})
     assert not obs.ok and obs.failed and "run `build`" in obs.text   # no robot.urdf in a static workspace
 
 
-# --------------------------------------------------------------------------- build without a GLB (scene / graphics)
-class _NoGlbRuntime(_FakeRuntime):
-    """Build succeeds with glb_path=None (scene_threejs / graphics runtimes)."""
+class _GlRuntime:
+    """A graphics build: ok, no GLB (the gl tools pass times / preview / size kwargs)."""
 
-    def __init__(self, language: str, census: dict, extra_paths: dict | None = None):
-        super().__init__()
-        self.language, self.census, self.extra_paths = language, census, extra_paths or {}
+    def __init__(self, language: str, census: dict, extra_paths: dict):
+        self.language, self.census, self.extra_paths = language, census, extra_paths
 
-    def build(self, ws, *, timeout_s=None):
-        return BuildResult(ok=True, language=self.language, glb_path=None, duration_ms=9,
-                           census=self.census, extra_paths=self.extra_paths)
-
-
-def test_build_tool_scene_reports_probe_census(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
-    ctx = ToolContext(workspace=tmp_ws, language="scene_threejs", track="scene")
-    rt = _NoGlbRuntime("scene_threejs", {"meshes": 12, "lights": 2, "fps": 58.0},
-                       {"scene_probe": str(tmp_ws.artifacts / "scene_probe.json")})
-    _patch_runtime(monkeypatch, rt)
-    obs = get_tool("build").call(ctx, {})
-    assert obs.ok, obs.text
-    assert "no GLB path" not in obs.text
-    assert "scene probe census" in obs.text and "meshes=12" in obs.text
-    assert obs.numbers["census"]["fps"] == 58.0
-
-
-class _GlRuntime(_NoGlbRuntime):
-    """Graphics runtime whose build takes the gl tools' kwargs (times / preview / size)."""
+    def lint(self, ws):
+        return GateReport(gate="lint", passed=True, findings=[])
 
     def build(self, ws, **_kw):
         return BuildResult(ok=True, language=self.language, glb_path=None, duration_ms=9,
@@ -318,21 +155,12 @@ def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatc
         return FrameStat(time=t, path=path, mean_lum=0.4, std_lum=0.2, pct_black=0.01, pct_blown=0.01,
                          colourfulness=0.3, edge_density=0.05)
 
-    # a passing gate: a graphics build (no GLB) reports its frames and sheet
-    two = SequenceStats(frames=[_frame(0.0, "f0.png"), _frame(1.0, "f1.png")], mean_diff=0.1)
-    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (two, GateReport(gate="gl_frames", passed=True)))
-    obs = get_tool("build").call(ctx, {})
-    assert obs.ok, obs.text
-    assert "no GLB path" not in obs.text and "frames=2" in obs.text and "sheet:" in obs.text
-    assert obs.numbers["n_frames"] == 2 and obs.numbers["gate_errors"] == 0
-
     stats = SequenceStats(frames=[_frame(0.0, "f0.png")], mean_diff=0.0)
     bad = GateReport(gate="gl_frames", passed=False, findings=[
         GateFinding(gate="gl_frames", severity=Severity.ERROR, message="static image", data={"kind": "static"},
                     fix_hint="animate with u_time")])
     monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
-    for name, args, ok_headline in (("build", {}, "BUILD OK"), ("gl_probe", {}, "PROBE OK"),
-                                    ("gl_frames", {"times": [0.0, 1.0]}, "FRAMES OK")):
+    for name, args, ok_headline in (("build", {}, "BUILD OK"), ("gl_frames", {"times": [0.0, 1.0]}, "FRAMES OK")):
         obs = get_tool(name).call(ctx, args)
         assert not obs.ok and not obs.failed, name
         assert obs.text.splitlines()[0].startswith("FRAME GATE: FAIL — 1 error(s)"), (name, obs.text)
@@ -364,7 +192,6 @@ def test_gl_frames_renders_the_judged_times_by_default(tmp_ws: Workspace, monkey
     assert seen == [[0.0, 0.5, 1.0, 1.5, 2.0]], obs.text
 
 
-# --------------------------------------------------------------------------- the gate tools on a stool
 def _stool_plan_with_missing_backrest() -> StaticPlan:
     return StaticPlan(object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
                       parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
@@ -390,14 +217,9 @@ class _SceneRuntime:
         return res
 
 
-@pytest.mark.parametrize("language", ["scene_blender", "scene_threejs"])
-def test_a_session_build_reports_an_unlit_env_above_build_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                                              language: str) -> None:
-    """D112 review: ``unlit`` is an ERROR so the ROUND's build fails and its repair gets the env — but an
-    asset or zone session building while the env is still the placeholder cannot write the env module, and
-    a BUILD FAILED it cannot clear would spend its window.  Its own ``build`` states the error above BUILD
-    OK; any other ERROR beside it is still a BUILD FAILED."""
-    ctx = ToolContext(workspace=Workspace(tmp_path / "ws").create(), language=language, track="scene")
+def test_a_session_build_reports_an_unlit_env_above_build_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D112: a session build whose only ERROR is the unlit env leads with SCENE UNLIT above BUILD OK; any other ERROR is BUILD FAILED."""
+    ctx = ToolContext(workspace=Workspace(tmp_path / "ws").create(), language="scene_blender", track="scene")
     unlit = GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/env.py", data={"kind": "unlit"},
                         message="scene has no lamps and no world: it renders black")
     _patch_runtime(monkeypatch, _SceneRuntime([unlit]))

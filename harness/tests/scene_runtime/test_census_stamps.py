@@ -1,5 +1,4 @@
-"""The census measures a stamped ring: >= 8 copies of a family, how evenly they sit on a circle
-round their centroid and how alike their sizes are (`groups[].stamps`, 2026-09-09)."""
+"""The census measures a stamped ring."""
 
 from __future__ import annotations
 
@@ -49,8 +48,3 @@ def test_a_perfect_ring_of_instances_reads_as_stamped():
     assert peaks["radius_cv"] < 0.01 and peaks["gap_cv"] < 0.01 and peaks["size_cv"] < 0.01, peaks
     cols = st["Column"]                                    # numbered plain meshes are one family
     assert cols["n"] == 10 and abs(cols["radius_m"] - 5) < 0.2, cols
-
-
-def test_a_jittered_ring_is_not():
-    peaks = _stamps(0.25)["Peaks"]
-    assert peaks["radius_cv"] > 0.1 and peaks["size_cv"] > 0.1, peaks

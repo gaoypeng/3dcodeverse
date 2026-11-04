@@ -133,8 +133,6 @@ class PartPlan(BaseModel):
         pmin, pmax = self.bbox.min, self.bbox.max
         for c in self.children:
             key = to_snake(c.name)
-            if not key:
-                raise ValueError(f"part {self.name}: a sub-part has an empty name")
             if key == to_snake(self.name):
                 raise ValueError(f"part {self.name}: sub-part {c.name} repeats its parent's name")
             if key in seen:
@@ -172,13 +170,8 @@ class StaticPlan(BaseModel):
         for p in self.parts:
             if p.attach_to and to_snake(p.attach_to) not in names:
                 raise ValueError(f"part {p.name} attaches to unknown part {p.attach_to}")
-        dotted: set[str] = set()
         for p in self.parts:
             for c in p.children:
-                key = f"{to_snake(p.name)}.{to_snake(c.name)}"
-                if key in dotted:  # pragma: no cover — PartPlan._children_ok already rejects this
-                    raise ValueError(f"duplicate sub-part name {p.name}.{c.name}")
-                dotted.add(key)
                 if to_snake(c.name) in names:
                     raise ValueError(f"sub-part {p.name}.{c.name} has the same name as top-level part {c.name}; "
                                      "either rename it or promote it to a top-level part")

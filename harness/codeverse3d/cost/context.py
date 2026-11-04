@@ -221,8 +221,8 @@ class AttemptRecord:
     The metering layer (``instrument.MeteredChatModel``) installs a sink for these
     with :func:`attempt_recording`; the backend reports every round-trip — the
     winner included — so a hedge loser's and a charged-but-invalid reply's tokens
-    reach the ledger instead of vanishing (audit 2026-08-27).  Rows written from
-    these carry ``source="attempt"`` and are excluded from every total."""
+    reach the ledger instead of vanishing (audit 2026-08-27).  A discarded one that cost
+    money becomes a ``source="extra"`` row."""
 
     attempt: int  #: 1-based issue order within the logical call
     key: str  #: the full API key that served it; the ledger keeps only its last 4 chars

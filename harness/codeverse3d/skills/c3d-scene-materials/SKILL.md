@@ -37,7 +37,7 @@ Requirement: copies of one asset do not read as identical at the authored camera
 distance (judged: `monotonous_vegetation`, `asset_quality_detail`). Vary what the thing
 really varies — a tree in scale, yaw and hue; a lamp post in nothing but yaw; a crate in
 yaw and wear. `tint` from `lib/materials.js` makes a hue/lightness variant of a material
-(clone per VARIANT, not per instance); `instanceAsset` from `lib/instancing.js` takes
+(clone per VARIANT, not per instance); an InstancedMesh takes
 per-placement scale and rotation.
 
 ## Roughness is the realism dial
@@ -78,7 +78,7 @@ silhouette, size or hue, and placed in a ring or a grid rather than clusters". S
 than one species where the place has more than one (`makeTree` / `makeShrub` from
 `lib/tree.js` for near trees, `makeCanopy` for every broadleaf crown and hedge,
 `makeImposters` for a forest at distance), clusters with clearings rather than a lattice
-(`scatterGrid` with jitter times a clump mask from `fbm2` is one option), and a ground
+(a jittered grid times a clump mask from `fbm2` is one option), and a ground
 cover layer (`makeGrass`, `makeMeadow`) so plants grow out of the ground instead of standing
 on it.
 
@@ -96,8 +96,7 @@ structure meets the ground, so the seam is not a hard undressed line (`flat_grou
 Requirement: every placed copy's feet are within the placement gate's tolerance of what is
 under them — the gate reports `floating` and `sunken` with the gap it measured, and
 `interpenetration` where boxes overlap; instanced clouds are exempt and are never supports.
-Seat on the shared `heightAt` (`seat` from `lib/place.js` seats an object on the surfaces
-you pass); sink only what the thing really sinks (a rock, a post, a tree root) and by less
+Seat on the shared `heightAt`; sink only what the thing really sinks (a rock, a post, a tree root) and by less
 than the gate's `sunk_m`, or the WARN names it.
 
 ## Shadows resolve

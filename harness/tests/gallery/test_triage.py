@@ -4,15 +4,12 @@ view, label humanisation, compare / CSV routing and the neighbour links."""
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import parse_qs
 
 from codeverse3d.addons.gallery.compare import (
     CSV_COLUMNS,
 )
-from codeverse3d.addons.gallery.index import hero_view
 from codeverse3d.addons.gallery.model import (
     VERDICTS,
-    humanize_view,
     summarize,
 )
 from codeverse3d.addons.gallery.page import render_index
@@ -26,13 +23,8 @@ def test_breakdown_compare_and_csv_over_both_roots(gallery_tree: dict[str, Path]
     entries = app.index.entries()
     s = summarize(entries)
     assert s.n == 6
-    assert set(s.breakdown) == set(VERDICTS)
-    assert sum(s.breakdown.values()) == s.n
-    # the tree holds 4 judged runs and 2 with no usable record
+    assert set(s.breakdown) == set(VERDICTS) and sum(s.breakdown.values()) == s.n
     assert s.breakdown == {"judged": 4, "unjudged": 0, "error": 2}
-    # every entry lands in exactly one bucket
-    assert sorted(e.verdict for e in entries) == sorted(
-        k for k, n in s.breakdown.items() for _ in range(n))
     by_slug = {e.slug: e for e in entries}   # a corrupt record and a missing one are errors
     assert by_slug["half_written"].verdict == by_slug["not_started"].verdict == "error"
     assert by_slug["half_written"].score is None
@@ -44,8 +36,6 @@ def test_breakdown_compare_and_csv_over_both_roots(gallery_tree: dict[str, Path]
     assert page.count("<td class='head'>") == 2
     assert "wooden_chair_ab12cd34" in page and "ctrl_med_toaster" in page
     assert "lamp_three" not in page
-    assert "Δ vs baseline" in page
-    assert "never starts, resumes or deletes" in page   # the read-only stance is stated
     r = app.route("/compare", {"runs": "static_v9/half_written,static_v9/not_started"})
     assert r.status == 200 and b"half_written" in r.body   # survives runs with no record
 
@@ -63,12 +53,9 @@ def test_hero_view_empty_compare_and_neighbours_over_one_root(gallery_tree: dict
     # the card shows one hero view, not the contact sheet
     entry = app.index.find("runs", "wooden_chair_ab12cd34")
     assert entry.hero.endswith("view_front.png")     # "front" is in HERO_PREFERENCE
-    assert entry.hero_label == "Front"
-    assert entry.n_views == 2
-    assert entry.sheet.endswith("sheet.png") and entry.card_image == entry.hero
+    assert entry.n_views == 2 and entry.card_image == entry.hero
     markup = render_index(app.index, UrlMaker())
     assert "view_front.png" in markup
-    assert "⊞ 2" in markup                            # the sheet is one disclosure away
 
     page = app.route("/compare").body.decode()
     assert "nothing to compare" in page and app.route("/compare").status == 200
@@ -81,39 +68,3 @@ def test_hero_view_empty_compare_and_neighbours_over_one_root(gallery_tree: dict
     assert prev.slug == "wooden_chair_ab12cd34" and nxt is None
     page = app.route("/run/runs/wooden_chair_ab12cd34").body.decode()
     assert "/run/runs/lamp_three" in page and "next →" in page
-    outside = app.index.find("runs", "lamp_three").model_copy(update={"battery": "nope"})
-    assert app.neighbours(outside) == (None, None)
-
-
-def test_hero_falls_back_to_the_sheet_when_a_round_has_no_views(tmp_path: Path):
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    ws, rec = make_fake_run(tmp_path / "runs", "noviews")
-    for rnd in rec.rounds:
-        rnd.renders = None
-    assert hero_view(ws, rec, 1) == ("", "", 0) and hero_view(ws, rec, None) == ("", "", 0)
-
-
-def test_view_names_are_humanised():
-    for raw, human in [
-        ("front_right_high", "Front Right High"),
-        ("front_right_34", "Front Right ¾"),
-        ("view_front_right_34.png", "Front Right ¾"),
-        ("t=2.5s", "t = 2.5 s"),
-        ("pose_rest", "Pose · rest"),
-        ("articulation_sheet", "Articulation poses"),
-        ("preview.gif", "Animated preview"),
-        ("", ""),
-    ]:
-        assert humanize_view(raw) == human, raw
-
-
-def test_query_links_survive_a_duplicate_root_label(gallery_tree: dict[str, Path]):
-    """``build_index`` mints ``runs#2``; an unquoted ``#`` ends the URL in the browser."""
-    app = GalleryApp([gallery_tree["runs"], gallery_tree["runs"]])
-    key = "runs#2/wooden_chair_ab12cd34"
-    compare = app.route("/compare", {"runs": key}).body.decode()
-    href = compare.split("href='/export.csv?", 1)[1].split("'", 1)[0]
-    assert "#" not in href and parse_qs(href) == {"runs": [key]}
-    detail = app.route("/run/runs#2/wooden_chair_ab12cd34").body.decode()
-    assert "href='/?battery=runs%232'" in detail

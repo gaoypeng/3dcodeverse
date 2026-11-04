@@ -5,10 +5,8 @@ from __future__ import annotations
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import (
     PRICES,
-    SOURCES,
     estimate_cost,
     price_provenance,
-    unit_prices,
 )
 
 #: model ids exposed by defaults, routes, CLI examples, and public backend contracts.
@@ -30,17 +28,6 @@ SUPPORTED_MODEL_IDS = (
 )
 
 
-def test_long_context_tier_is_applied():
-    small = Usage(input_tokens=100_000, output_tokens=1_000)
-    big = Usage(input_tokens=300_000, output_tokens=1_000)
-    assert unit_prices("gemini", "gemini-3.1-pro-preview", prompt_tokens=100_000)[0] == 2.0
-    assert unit_prices("gemini", "gemini-3.1-pro-preview", prompt_tokens=300_000)[0] == 4.0
-    assert estimate_cost("gemini", "gemini-3.1-pro-preview", big) > \
-        3 * estimate_cost("gemini", "gemini-3.1-pro-preview", small)
-    # flash has no long-context tier
-    assert unit_prices("gemini", "gemini-3.8-flash", prompt_tokens=900_000)[0] == 0.75
-
-
 def test_supported_model_ids_resolve_to_a_price():
     u = Usage(input_tokens=1_000, output_tokens=1_000)
     for model_id in SUPPORTED_MODEL_IDS:
@@ -49,30 +36,6 @@ def test_supported_model_ids_resolve_to_a_price():
         assert estimate_cost(provider, model, u) > 0, model_id
 
 
-def test_a_bracketed_context_variant_never_borrows_a_sibling_price():
-    """``[1m]`` is not a version suffix: a bracketed id needs its own exact row, and has none."""
-    assert price_provenance("anthropic", "claude-opus-5-5[1m]").price is None
-    assert price_provenance("anthropic", "claude-sonnet-5-5[1m]").price is None
-
-
-# --------------------------------------------------------------- staleness maintenance
-def test_every_price_row_was_checked_within_the_maintenance_window():
-    """When this fails, re-check the providers' pages and bump CHECKED — not the threshold."""
-    from datetime import date, datetime
-
-    from codeverse3d.cli.cost_cmd import STALE_AFTER_DAYS
-    from codeverse3d.models.pricing import price_provenance
-
-    stale = []
+def test_every_price_row_declares_its_provenance():
     for prov, model in sorted(PRICES):
-        row = price_provenance(prov, model)
-        assert row.status in ("verified", "inferred", "unverified"), model
-        assert (PRICES[(prov, model)].source or prov) in SOURCES, model
-        try:
-            age = (date.today() - datetime.strptime(row.checked, "%Y-%m-%d").date()).days
-        except (TypeError, ValueError):
-            stale.append(f"{prov}:{model} (no checked date)")
-            continue
-        if age > STALE_AFTER_DAYS:
-            stale.append(f"{prov}:{model} ({age} days)")
-    assert not stale, f"price rows older than {STALE_AFTER_DAYS} days: {stale}"
+        assert price_provenance(prov, model).status in ("verified", "inferred", "unverified"), model

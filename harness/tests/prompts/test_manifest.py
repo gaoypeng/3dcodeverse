@@ -16,7 +16,6 @@ def scenario(request, tmp_path_factory) -> tuple[str, dict]:
     name = request.param
     return name, M.digest(M.run_scenario(name, tmp_path_factory.mktemp(name.replace(".", "_"))))
 
-
 @pytest.mark.parametrize(("section", "hint"), [("payloads", M.PAYLOAD_HINT), ("stage_keys", M.STAGE_HINT)],
                          ids=["payloads", "stage_keys"])
 def test_the_run_matches_the_manifest(scenario, section: str, hint: str) -> None:
@@ -25,7 +24,6 @@ def test_the_run_matches_the_manifest(scenario, section: str, hint: str) -> None
     assert name in stored, f"{name} is not in {M.MANIFEST.name}: bless it"
     lines = M.diff(got[section], stored[name][section])
     assert not lines, f"{name}: {section} changed\n" + "\n".join(lines) + "\n\n" + hint
-
 
 def test_the_manifest_holds_exactly_the_scenarios() -> None:
     assert sorted(M.load()) == M.ALL, "bless after adding or removing a scenario"

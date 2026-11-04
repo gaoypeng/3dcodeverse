@@ -25,10 +25,8 @@ lit like a fairground. Read c3d-scene-lighting's linear-vs-hex section first —
 
 Requirement: a lit facade is lit with variation — not every window, not one flat glow —
 and the street under it agrees with the windows above (emissive illuminates nothing, so a
-facade with no light beside it floats in the dark). Strong option: `makeNightWindows(mesh)`
-and `patchWindowInteriors` from `lib/windows.js`, which light a jittered fraction of the
-grid with per-window colour; pair each big lit facade with one dim matching PointLight.
-`references/window-canvas.md` describes the hand-made canvas version.
+facade with no light beside it floats in the dark). Pair each big lit facade with one dim
+matching PointLight. `references/window-canvas.md` describes the canvas version.
 
 ## Glow without postprocessing
 
@@ -57,8 +55,7 @@ does it with its own ceiling. If the shaft reads clearly in a thumbnail, it is t
 A near-black road is one of the dark-ground cases the lighting skill warns about: it passes
 the band only because it mirrors something. Low roughness, high metalness, and a night
 environment bake whose LOWER half carries the window and neon colours (see
-c3d-scene-atmosphere for the bake) — `makeMirrorFloor` from `lib/wetground.js` and
-`wetten` / `makePuddle` from `lib/rain.js` are the shipped versions. Without a coloured bake
+c3d-scene-atmosphere for the bake) — without a coloured bake
 the wet road has nothing to mirror and just goes black.
 
 ## Light that agrees with itself

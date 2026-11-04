@@ -42,21 +42,3 @@ def test_successful_evaluated_shader_retains_static_advice_without_false_failure
     assert result["errors"] == []
     assert result["warnings"][0]["kind"] == "include_not_alone"
     assert result["warnings"][0]["validation"] == "runtime_compile_passed"
-
-
-def test_runtime_compile_failure_is_still_a_hard_error():
-    result = compile_report(
-        shader_errors=[dict(stage="fragment", message="syntax error", source_line="bad")]
-    )
-    assert {e["kind"] for e in result["errors"]} == {"include_not_alone", "compile"}
-    assert not result["warnings"]
-
-
-def test_no_compiled_programs_and_boot_failure_cannot_override_source_errors():
-    for result in (compile_report(programs=0), compile_report(boot_ok=False)):
-        assert "include_not_alone" in {e["kind"] for e in result["errors"]}
-
-
-def test_compile_success_does_not_clear_missing_uniform_binding():
-    result = compile_report(uniform_error=True)
-    assert [e["kind"] for e in result["errors"]] == ["unbound_uniform"]

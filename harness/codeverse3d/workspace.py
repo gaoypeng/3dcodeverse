@@ -24,36 +24,21 @@ from pydantic import BaseModel
 from codeverse3d.contracts.agent import FileChange
 from codeverse3d.proc import write_json_atomic
 
-#: the three top-level buckets of a run directory (docs/RUN_LAYOUT.md)
+#: the top-level buckets of a run directory (docs/RUN_LAYOUT.md); ``artifacts/`` is the evidence
 DELIVERABLE_DIR = "deliverable"   # (a) what the user asked for
-EVIDENCE_DIR = "evidence"         # (b) why we believe it is good  (alias of artifacts/)
 TELEMETRY_DIR = "telemetry"       # (c) what it cost and how it was configured
 #: harness-owned read-only files inside the workspace (task images: ``tracks/generation.IMAGES_DIR``)
 C3D_DIR = ".3dcode"
 
-#: physical directories every run owns.  ``artifacts/`` is the physical home of the
-#: evidence (six packages and ~50 recorded runs write paths into it); ``evidence/``
-#: is an alias for it — see docs/RUN_LAYOUT.md for why the alias points that way.
+#: directories every run owns
 LAYOUT_DIRS = ("src", "public", "artifacts", "artifacts/renders", "artifacts/gates", "artifacts/judge",
                "trajectories", DELIVERABLE_DIR, TELEMETRY_DIR)
-
-#: navigation aliases: ``alias path`` → ``symlink target`` (relative to the alias's parent).
-#: The alias is always the symlink, never the physical file: writers (events.jsonl append,
-#: atomic run_state.json rewrite) keep using the paths they already use, and a tmp+rename
-#: on the physical path can never replace a symlink out from under a reader.
-LAYOUT_ALIASES: tuple[tuple[str, str], ...] = (
-    (EVIDENCE_DIR, "artifacts"),
-    (f"{TELEMETRY_DIR}/events.jsonl", "../events.jsonl"),
-    (f"{TELEMETRY_DIR}/run_state.json", "../run_state.json"),
-    (f"{TELEMETRY_DIR}/stages", "../stages"),
-    (f"{TELEMETRY_DIR}/trajectories", "../trajectories"),
-)
 
 #: harness-owned paths that never belong in the code snapshot
 _GITIGNORE_LINES = (
     "# harness-owned run state is never part of the code snapshot",
-    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", "_cand/", ".3dcode/", ".3dcv/", ".gemini/", ".claude/", ".agents/",
-    "deliverable/", "telemetry/", "evidence", "captions.json",
+    "artifacts/", "trajectories/", "stages/", "rounds/", "_assets/", "_cand/", ".3dcode/", ".gemini/", ".claude/", ".agents/",
+    "deliverable/", "telemetry/", "captions.json",
     "events.jsonl", "run_state.json", "record.json", "*.log", "node_modules/", "*.tmp", "__pycache__/",
 )
 
@@ -260,43 +245,10 @@ class Workspace:
         self._git_init()
         return self
 
-    def ensure_layout(self, *, dry_run: bool = False) -> dict[str, str]:
-        """Create the directory buckets + navigation aliases.  Idempotent, never
-        destructive: an alias path that already holds real data is left alone.
-
-        Returns ``{path: action}`` with action in ``created`` / ``relinked`` /
-        ``kept`` / ``skipped:<reason>`` — the migration helper prints it.
-        ``dry_run`` reports the same actions without touching the filesystem."""
-        actions: dict[str, str] = {}
+    def ensure_layout(self) -> None:
+        """Create the directory buckets.  Idempotent."""
         for d in LAYOUT_DIRS:
-            p = self.root / d
-            if not p.exists():
-                if not dry_run:
-                    p.mkdir(parents=True, exist_ok=True)
-                actions[d] = "created"
-        for name, target in LAYOUT_ALIASES:
-            actions.update(self._ensure_alias(name, target, dry_run=dry_run))
-        return actions
-
-    def _ensure_alias(self, name: str, target: str, *, dry_run: bool = False) -> dict[str, str]:
-        link = self.root / name
-        if link.is_symlink():
-            if os.readlink(link) == target:
-                return {}
-            if not dry_run:
-                link.unlink()
-                os.symlink(target, link)
-            return {name: "relinked"}
-        if link.exists():  # a real file/dir sits there — never clobber run data
-            return {name: "kept"}
-        if dry_run:
-            return {name: "created"}
-        link.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            os.symlink(target, link)
-        except OSError as e:  # filesystem without symlinks (some Windows shares)
-            return {name: f"skipped:{type(e).__name__}"}
-        return {name: "created"}
+            (self.root / d).mkdir(parents=True, exist_ok=True)
 
     def exists(self) -> bool:
         return self.spec_path.is_file()
@@ -369,7 +321,7 @@ class Workspace:
             self._git("add", "-A")
             self._git("commit", "-q", "-m", "init", "--allow-empty")
 
-    def ensure_gitignore(self, *, dry_run: bool = False) -> bool:
+    def ensure_gitignore(self) -> bool:
         """Make sure every harness-owned path is ignored by the run's git repo.
         Idempotent: missing lines are appended, existing ones are left in place.
         Returns True when the file changed."""
@@ -377,8 +329,8 @@ class Workspace:
         existing = path.read_text().splitlines() if path.is_file() else []
         have = {line.strip() for line in existing}
         missing = [line for line in _GITIGNORE_LINES if line not in have]
-        if not missing or dry_run:
-            return bool(missing)
+        if not missing:
+            return False
         lines = existing + ([""] if existing and existing[-1].strip() else []) + missing
         path.write_text("\n".join(lines).rstrip("\n") + "\n")
         return True
@@ -412,25 +364,16 @@ class Workspace:
 
     def changed_files(self, since: str | None = None) -> list[FileChange]:
         """Files changed vs ``since`` (a commit) or vs HEAD (uncommitted work)."""
-        with self._lock:  # add -N + two diffs are one unit: a sibling commit between them mislabels a status
+        with self._lock:  # add -N + the diff are one unit: a sibling commit between them mislabels a status
             self._sanitise_git_config()  # `add` applies clean filters; -c cannot unset a local one
             self._git("add", "-A", "-N")  # register untracked so they show up in diff
-            args = ["diff", *GIT_SAFE_DIFF_FLAGS, "--numstat", "--diff-filter=ADM"] + ([since] if since else ["HEAD"])
-            out = self._git(*args).stdout
-            status = {}
-            for line in self._git("diff", *GIT_SAFE_DIFF_FLAGS, "--name-status", since or "HEAD").stdout.splitlines():
-                if "\t" in line:
-                    st, path = line.split("\t", 1)
-                    status[path] = {"A": "added", "D": "deleted"}.get(st[0], "modified")
+            out = self._git("diff", *GIT_SAFE_DIFF_FLAGS, "--name-status", "--no-renames", "--diff-filter=ADM",
+                            since or "HEAD").stdout
             changes = []
             for line in out.splitlines():
-                parts = line.split("\t")
-                if len(parts) != 3:
-                    continue
-                add, rem, path = parts
-                changes.append(FileChange(path=path, status=status.get(path, "modified"),
-                                          lines_added=int(add) if add.isdigit() else 0,
-                                          lines_removed=int(rem) if rem.isdigit() else 0))
+                st, sep, path = line.partition("\t")
+                if sep:
+                    changes.append(FileChange(path=path, status={"A": "added", "D": "deleted"}.get(st[0], "modified")))
             return changes
 
     def restore(self, commit: str) -> None:

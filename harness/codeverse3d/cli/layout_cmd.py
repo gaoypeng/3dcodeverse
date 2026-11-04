@@ -151,8 +151,6 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
     console.print(kv_table("deliverable", head))
     if d is not None:
         console.print(_deliverable_table(d))
-        for name, why in d.skipped.items():
-            warn(f"not packaged: {name} — {why}")
     else:
         console.print(kv_table("artifacts (no deliverable/ yet — `3dcode pick` packages a round)",
                                _unpackaged_artifact_rows(ws)))

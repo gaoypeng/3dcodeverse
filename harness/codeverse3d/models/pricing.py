@@ -28,14 +28,8 @@ log = logging.getLogger(__name__)
 #: date the tables below were last reconciled against the providers' pricing pages
 CHECKED = "2026-08-23"
 
-#: ``Price.source`` ids; a row with no source was read off its provider's own page
-SOURCES: dict[str, str] = {
-    "gemini": "https://ai.google.dev/gemini-api/docs/pricing",
-    "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
-    "openai": "https://developers.openai.com/api/docs/pricing",
-    "inferred": "inferred from the closest sibling model (no published row)",
-    "provider-cost": "reproduced from a provider-reported cost in our own run telemetry",
-}
+#: the pricing pages the rows are read off: ai.google.dev/gemini-api/docs/pricing,
+#: platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing
 
 
 @dataclass(frozen=True)
@@ -54,8 +48,7 @@ class Price:
     ``cache_write`` = cache creation (Anthropic explicit caching, 5-minute TTL);
     ``thoughts`` are billed at the output rate.
 
-    Provenance: ``source`` is a :data:`SOURCES` key ("" = the provider's own pricing page),
-    ``checked`` the day it was last read there, and ``status``:
+    Provenance: ``checked`` is the day it was last read off the provider's pricing page, and ``status``:
 
     * ``verified``   — read off the provider's public pricing page on ``checked``
     * ``inferred``   — no published row; copied from the nearest sibling
@@ -68,7 +61,6 @@ class Price:
     cache_write: float | None = None
     approximate: bool = False
     long_context: LongContext | None = None
-    source: str = ""
     checked: str = CHECKED
     status: str = "verified"
     note: str = ""

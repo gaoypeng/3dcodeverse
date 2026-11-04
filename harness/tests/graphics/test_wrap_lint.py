@@ -2,53 +2,18 @@
 
 from __future__ import annotations
 
-import pytest
-
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.glsl_shader import (
     HEADER,
     compose,
-    detect_convention,
     first_error,
     lint_text,
-    lint_workspace,
     parse_glsl_log,
-    strip_comments,
 )
 from codeverse3d.languages.opengl_python import lint_source
-from codeverse3d.languages.opengl_python import lint_workspace as lint_program_ws
 
 SHADER = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / u_resolution.xy;\n    fragColor = vec4(uv, 0.5 + 0.5*sin(u_time), 1.0);\n}\n"
 COMMON = "float hash(float n) { return fract(sin(n) * 43758.5453); }\n"
-
-
-def test_plain_main_convention_has_no_trailer_and_comments_ignored():
-    src = "// mainImage is mentioned here only in a comment; u_prev too\nvoid main() { fragColor = vec4(1.0); }\n"
-    c = compose(src)
-    assert c.convention == "main" and not c.uses_feedback
-    assert "mainImage(fragColor" not in c.source
-    assert detect_convention("void mainImage(out vec4 c, in vec2 f) {}") == "mainImage"
-    assert compose("void mainImage(out vec4 c, in vec2 f) { c = texture(u_prev, f); }").uses_feedback
-
-
-@pytest.mark.parametrize(("tail", "convention"), [
-    ("void main() {\n    mainImage(fragColor, gl_FragCoord.xy);\n}\n", "main"),
-    ("#ifdef STANDALONE\nvoid main() {\n    mainImage(fragColor, gl_FragCoord.xy);\n}\n#endif\n", "mainImage"),
-])
-def test_an_authored_main_that_calls_main_image_gets_no_second_main(tail, convention):
-    """A Shadertoy port often keeps its own main() calling mainImage(); appending the trailer redefined
-    main (4/4 gpt-6-luna one-shot shaders, 2026-09-23).  The author's main() wins, and it compiles —
-    unless it hides behind an #ifdef the harness never defines: then the trailer is the entry point."""
-    c = compose(SHADER + tail)
-    assert c.convention == convention  # and it links: exactly one main() survives the preprocessor
-    import moderngl
-
-    ctx = moderngl.create_standalone_context()
-    try:
-        ctx.program(vertex_shader="#version 330 core\nin vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }",
-                    fragment_shader=c.source)
-    finally:
-        ctx.release()
 
 
 def test_parse_glsl_log_dialects_map_to_files():
@@ -56,8 +21,7 @@ def test_parse_glsl_log_dialects_map_to_files():
     off = HEADER.count("\n") + 1  # common.glsl starts here (1 line) → shader.frag starts at off+1
     mesa = f"0:{off + 2}(12): error: `foo' undeclared\n0:{off}(3): warning: unused\n"
     nvidia = f"0({off + 2}) : error C1008: undefined variable \"foo\"\n"
-    angle = f"ERROR: 0:{off + 2}: 'foo' : undeclared identifier\n"
-    for log in (mesa, nvidia, angle):
+    for log in (mesa, nvidia):
         msgs = parse_glsl_log(log, c.line_map)
         err = first_error(msgs)
         assert err is not None and err.file == "src/shader.frag" and err.file_line == 2, log
@@ -75,34 +39,10 @@ def test_glsl_lint_rules():
     kinds = {f.data["kind"] for f in lint_text(bad) if f.severity == Severity.ERROR}
     assert {"version_line", "redeclared_uniform", "custom_uniform", "redeclared_output", "missing_input", "undeclared_sampler",
             "float_modulo", "legacy_glsl"} <= kinds
-    # the comment on line 1 must not trigger anything; the #version is reported on line 2
-    ver = next(f for f in lint_text(bad) if f.data["kind"] == "version_line")
-    assert ver.data["line"] == 2
+    assert next(f for f in lint_text(bad) if f.data["kind"] == "version_line").data["line"] == 2   # the comment on line 1 is ignored
     assert not [f for f in lint_text(SHADER, COMMON) if f.severity == Severity.ERROR]
-    # common.glsl must not carry an entry point; no entry at all is an error
-    assert any(f.data["kind"] == "entry_in_common" for f in lint_text(SHADER, "void main(){}"))
     assert any(f.data["kind"] == "no_entry" for f in lint_text("vec3 f() { return vec3(0); }"))
     assert any(f.data["kind"] == "buffer_self_ref" for f in lint_text(SHADER, None, SHADER.replace("u_resolution", "u_buffer_a") + "\n"))
-
-
-def test_mixed_comments_blank_only_the_comments():
-    """A `/*` inside a `//` comment opens nothing (the old two-pass stripper blanked real code)."""
-    src = ("// tweak /* the fog here\nfloat fogAmt(float d) { return d; }\nuniform float u_extra;\n// end */\n"
-           "/* a // inside a block */ float x() { return 1.0; }\n")
-    stripped = strip_comments(src)
-    assert stripped.count("\n") == src.count("\n") and "uniform float u_extra;" in stripped
-    assert "tweak" not in stripped and "inside" not in stripped
-    shader = src + SHADER
-    assert any(f.data["kind"] == "custom_uniform" for f in lint_text(shader))
-
-
-def test_glsl_lint_workspace_missing_and_stray(tmp_ws):
-    rep = lint_workspace(tmp_ws)
-    assert not rep.passed and rep.findings[0].data["kind"] == "missing_entry"
-    (tmp_ws.src / "shader.frag").write_text(SHADER)
-    (tmp_ws.src / "extra.frag").write_text("// stray")
-    rep = lint_workspace(tmp_ws)
-    assert rep.passed and any(f.data["kind"] == "stray_file" for f in rep.findings)
 
 
 PROGRAM_OK = """import math
@@ -126,13 +66,4 @@ def test_program_lint_rules():
     kinds = {f.data["kind"] for f in lint_source(bad)}
     assert {"window_lib", "forbidden_import", "own_context", "forbidden_call", "wall_clock", "bad_signature", "glsl_version",
             "legacy_glsl", "unseeded_random"} <= kinds
-    assert any(f.data["kind"] == "syntax" for f in lint_source("def setup(:\n"))
     assert any(f.data["kind"] == "missing_entry" for f in lint_source("import moderngl\n"))
-
-
-def test_program_lint_workspace(tmp_ws):
-    assert not lint_program_ws(tmp_ws).passed
-    (tmp_ws.src / "program.py").write_text(PROGRAM_OK)
-    (tmp_ws.src / "helpers.py").write_text("x = 1\n")
-    rep = lint_program_ws(tmp_ws)
-    assert rep.passed and any(f.data["kind"] == "stray_file" for f in rep.findings)

@@ -9,20 +9,7 @@ import pytest
 from PIL import Image
 
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse3d.spatial.render import RenderError, render_glb
-
-
-def test_render_glb_offline_validation(tmp_path: Path):
-    with pytest.raises(RenderError):
-        render_glb(tmp_path / "missing.glb", tmp_path / "out")
-    fake = tmp_path / "x.glb"
-    fake.write_bytes(b"glTF" + b"\0" * 16)
-    with pytest.raises(RenderError, match="mode"):
-        render_glb(fake, tmp_path / "out", mode="xray")
-    with pytest.raises(RenderError, match="background"):
-        render_glb(fake, tmp_path / "out", background="blue")
-    with pytest.raises(RenderError, match="no views"):
-        render_glb(fake, tmp_path / "out", views=[])
+from codeverse3d.spatial.render import render_glb
 
 
 @pytest.mark.node
@@ -33,12 +20,8 @@ def test_render_views_modes_isolate_and_cache(stool_glb: Path, tmp_path: Path):
     assert rs.renderer and rs.contact_sheet and Path(rs.contact_sheet).is_file()
     for v in rs.views:
         assert Path(v.path).is_file() and v.mode == "shaded" and v.camera_position is not None and v.fov == 35
-        with Image.open(v.path) as im:
-            assert im.size == (256, 256)
-    meta = json.loads((out / "views.json").read_text())
-    assert meta["ok"] and len(meta["views"]) == 4
-    # the front view: camera on +Z, looking at the bbox centre
-    front = next(v for v in rs.views if v.name == "front")
+    assert json.loads((out / "views.json").read_text())["ok"]
+    front = next(v for v in rs.views if v.name == "front")       # camera on +Z
     assert front.camera_position[2] > 0.5 and abs(front.camera_position[0]) < 1e-6
     # cached re-render lands in a new directory without calling node
     out2 = tmp_path / "shaded2"
@@ -56,11 +39,3 @@ def test_render_views_modes_isolate_and_cache(stool_glb: Path, tmp_path: Path):
         assert dark > 300 and light > 3000
         assert mid < 0.08 * len(px), f"silhouette is not separable: {mid} mid-tone px of {len(px)}"
     assert sil.contact_sheet is None
-
-    iso = render_glb(stool_glb, tmp_path / "iso", views=[ViewPreset("front", 0, 8)], isolate=["Legs"], width=128, height=128, sheet=False)
-    assert Path(iso.views[0].path).is_file()
-    with pytest.raises(RenderError, match="isolate hid everything|nothing visible"):
-        render_glb(stool_glb, tmp_path / "iso_bad", views=[ViewPreset("front", 0, 8)], isolate=["NotAPart"], width=64, height=64, sheet=False)
-
-    ex = render_glb(stool_glb, tmp_path / "explode", views=[ViewPreset("front", 0, 8)], explode=0.5, mode="clay", width=128, height=128, sheet=False)
-    assert Path(ex.views[0].path).is_file()

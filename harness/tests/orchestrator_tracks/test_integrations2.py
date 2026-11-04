@@ -1,4 +1,4 @@
-"""Integration wiring into the tracks: runtime file layout, no texture pass inside a run."""
+"""Integration wiring into the tracks: runtime file layout."""
 
 from __future__ import annotations
 

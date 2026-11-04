@@ -38,7 +38,7 @@ Three multiplied gates, in order of visual weight:
 
 1. Clump mask: low-frequency noise thresholded — groves and clearings.
 2. Slope rejection: no trees on cliffs; rocks roll off steep faces in the viewer's head.
-3. A jittered grid (`scatterGrid` from `lib/instancing.js`) — the Poisson look without
+3. A jittered grid — the Poisson look without
    the Poisson cost.
 
 Per instance: y from the height authority, yaw and scale varied, hue/lightness from

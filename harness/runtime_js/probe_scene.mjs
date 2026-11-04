@@ -37,7 +37,6 @@ import { compileIntoReport, staticShaderReport } from './lib/shader_report.mjs';
 const args = parseCli({
   'no-settle': { type: 'boolean', default: false },
   'camera-repair': { type: 'boolean', default: false },
-  'auto-exposure': { type: 'boolean', default: false },
   // The probe is a 320x180 GEOMETRY instrument, never a judged picture: it runs raw
   // so its shader report names the scene's own programs and nothing of ours.  The
   // flag parses (drivers share a switch list) and changes nothing.
@@ -83,7 +82,6 @@ async function main() {
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
-      autoExposure: !!args['auto-exposure'],
       post: false,
       onBoot: () => { phase = 'scene'; },
     });

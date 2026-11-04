@@ -33,7 +33,7 @@ from codeverse3d.orchestrator import TaskGroup
 from codeverse3d.prompts import render
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import GenerationTask
-from codeverse3d.tracks.lifecycle import MATERIALIZE, SKELETON, BaseTrack
+from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     judge_digest,
@@ -149,7 +149,6 @@ class GraphicsTrack(BaseTrack):
     # refinement is always ONE whole-program task
     allow_refine_fanout = False
     baseline_temperature = 0.6
-    stages = (SKELETON, MATERIALIZE)
 
     def make_pipeline(self) -> GraphicsPipeline:
         return GraphicsPipeline()

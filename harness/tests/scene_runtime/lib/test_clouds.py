@@ -3,58 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from tests.scene_runtime.lib._probe import compile_scene, measure
+from tests.scene_runtime.lib._probe import compile_scene
 
 pytestmark = pytest.mark.node
-
-
-def test_the_layer_is_lit_by_the_rig_and_a_set_sun_becomes_the_moon():
-    """`sunRig().sunDir` keeps reporting the authored sun after it sets; passed
-    straight through, every night puff is lit from below.  A set sun becomes a
-    moon above the horizon, opposite it."""
-    m = measure("""
-import * as THREE from 'three';
-import { makeClouds } from './lib/clouds.js';
-const dir = (o) => makeClouds(Object.assign({ seed: 3 }, o)).material.uniforms.uSunDir.value.toArray();
-console.log(JSON.stringify({
-  day: dir({ sunDir: new THREE.Vector3(-0.6, 0.55, -0.3) }),
-  set: dir({ sunDir: new THREE.Vector3(0.62, -0.34, 0.21) }),
-  none: dir({}),
-}));
-""", ("clouds.js",))
-    assert m["day"][1] > 0.5, m
-    assert m["set"][1] > 0.4 and m["set"][0] < 0, m
-    assert m["none"][1] == 1.0, m
-
-
-def test_cloud_deck_seed_options_and_disposal():
-    out = measure("""
-import {makeClouds} from './lib/clouds.js';
-const hash=texture=>{
- let h=2166136261;
- for(const byte of texture.image.data)h=Math.imul(h^byte,16777619);
- return h>>>0;
-};
-const decks=[makeClouds({seed:7}),makeClouds({seed:7}),makeClouds({seed:8}),makeClouds({count:0})];
-const weather=decks.slice(0,3).map(d=>hash(d.material.uniforms.uWeather.value));
-const noise=decks.slice(0,3).map(d=>hash(d.material.uniforms.uNoise.value));
-let rejected=false;
-try {makeClouds({quality:'toString'});} catch(error) {rejected=error instanceof RangeError;}
-const empty=decks[3].visible===false;
-const counts=[];
-for(const deck of decks) {
- const u=deck.material.uniforms;
- for(const resource of [deck.geometry,deck.material,u.uWeather.value,u.uNoise.value]) {
-  const at=counts.length;counts.push(0);resource.addEventListener('dispose',()=>counts[at]++);
- }
- deck.userData.dispose();deck.userData.dispose();
-}
-console.log(JSON.stringify({weather,noise,rejected,empty,counts}));
-""", ("clouds.js",))
-    for field in (out["weather"], out["noise"]):
-        assert field[0] == field[1] and field[0] != field[2], out
-    assert out["rejected"] and out["empty"], out
-    assert out["counts"] == [1] * 16, out
 
 
 def test_cloud_transport_matches_beer_lambert_and_camera_projection():

@@ -59,15 +59,10 @@ class ScriptedJudge(FakeJudge):
 
 # --------------------------------------------------------------------- finding: finalise with a dirty tree at the last commit
 def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_path, chair_plan, settings):
-    """A refine round that died after writing files leaves src/ back on the last judged round.
-
-    finalise's own guarantee, so D112's two budget levers are off here: the launch window (4 min are
-    left, under min_session_s + judge_reserve_s) and the refine salvage (which would JUDGE these
-    edits — tests/orchestrator_tracks/test_transport_retry.py pins that path)."""
+    """A refine that died after writing files leaves src/ on the last judged round (D112 launch window and salvage off)."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
-    # the baseline session's 6 minutes fit the 10-minute clock; the refine session's 6 more
-    # cross it AFTER its files hit the disk.
+    # the refine session's 6 minutes cross the 10-minute clock AFTER its files hit the disk
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer, minutes=6.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS), policy=_NO_RESERVE)
@@ -130,9 +125,7 @@ def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_pa
     (["degraded", "degraded"], RunStatus.JUDGE_UNAVAILABLE, None),
 ])
 def test_the_last_round_is_rejudged_before_the_run_ends(tmp_path, chair_plan, settings, verdicts, status, score):
-    """`--rounds 0`: the baseline IS the last round.  Its failed verdict was never re-judged (the
-    re-judge lived in the refine branch) and the run stopped MAX_ROUNDS unscored; now it gets the
-    same one re-judge as any round, and a second failure says judge_unavailable (D80)."""
+    """D80, `--rounds 0`: the baseline is the last round and gets the same one re-judge; a second failure is judge_unavailable."""
     ws = Workspace(tmp_path / "runs" / "r")
     judge = ScriptedJudge(verdicts)
     track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer),

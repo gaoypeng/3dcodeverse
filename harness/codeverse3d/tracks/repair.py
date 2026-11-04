@@ -16,7 +16,6 @@ import logging
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import BuildResult, GateReport
-from codeverse3d.contracts.common import Usage
 from codeverse3d.prompts import render
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for
@@ -38,7 +37,6 @@ class RepairOutcome(BaseModel):
     build: BuildResult
     lint: GateReport
     attempts: list[GenerationResult] = Field(default_factory=list)
-    usage: Usage = Field(default_factory=Usage)
     max_attempts: int = Field(default=0, description="repair budget this outcome ran under")
 
     @property
@@ -166,7 +164,6 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
         ctx.events.emit("repair.attempt", round=round_index, attempt=attempt, repeats=repeats, signature=sig[:200])
         res = generate_for(ctx, task)
         outcome.attempts.append(res)
-        outcome.usage = outcome.usage + res.usage
         if not res.ok:
             log.warning("repair attempt %d produced no files (%s)", attempt, res.notes)
         build, lint = build_once(ctx)

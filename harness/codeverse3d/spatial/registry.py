@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -90,7 +90,6 @@ class ToolContext:
     round_index: int = 0
     language: str = ""
     track: str = ""
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -186,13 +185,6 @@ def tool_cards(*, track: str = "", language: str = "") -> str:
     return "\n".join(t.card() for t in list_tools(track=track, language=language))
 
 
-_LOADED = False
-
-
 def _ensure_loaded() -> None:
     """Import the module that registers every tool (idempotent)."""
-    global _LOADED
-    if _LOADED:
-        return
-    _LOADED = True
     import codeverse3d.spatial.tools  # noqa: F401 — its @tool decorators fill _REGISTRY

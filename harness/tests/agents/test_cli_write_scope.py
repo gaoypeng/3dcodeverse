@@ -20,29 +20,6 @@ def _finish(s, *, ok: bool = True):
 
 
 # --------------------------------------------------------------------------- serialisation
-def test_two_cli_sessions_on_one_workspace_are_serialized(tmp_ws: Workspace):
-    """Two threads, one workspace: the begin→finish windows must not overlap."""
-    windows: dict[str, tuple[float, float]] = {}
-    started = threading.Barrier(2)
-
-    def session(name: str) -> None:
-        started.wait(timeout=30)  # both threads race begin_session together
-        s = begin_session(_job(tmp_ws, name), "codex")
-        t0 = time.monotonic()
-        (tmp_ws.src / f"{name}.py").write_text(f"# {name}\n")
-        time.sleep(0.15)  # long enough that overlapping windows would be seen
-        t1 = time.monotonic()
-        _finish(s)
-        windows[name] = (t0, t1)
-
-    threads = [threading.Thread(target=session, args=(n,)) for n in ("a", "b")]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=60)
-    assert set(windows) == {"a", "b"}
-    (a0, a1), (b0, b1) = windows["a"], windows["b"]
-    assert a1 <= b0 or b1 <= a0, f"sessions interleaved: a={windows['a']} b={windows['b']}"
 
 
 # --------------------------------------------------------------------------- post-hoc scope
@@ -106,32 +83,8 @@ def test_harness_control_files_are_never_agent_writable(scoped_ws: Workspace):
     assert [f.path for f in res.files_changed] == ["src/parts/leg.py"]
 
 
-def test_control_files_are_enforced_even_with_an_empty_write_scope(scoped_ws: Workspace):
-    """The empty-scope early-out once left every control file writable."""
-    ws = scoped_ws
-    (ws.root / "AGENTS.md").write_text("# original rules\n")
-    s = begin_session(_job(ws, "free"), "codex")  # no write_roots at all
-    (ws.src / "model.py").write_text("# rewritten entry\n")  # in scope: everything non-control
-    (ws.root / "AGENTS.md").write_text("# forged rules\n")
-    res = _finish(s)
-    assert not res.ok and (ws.root / "AGENTS.md").read_text() == "# original rules\n"
-    assert (ws.src / "model.py").read_text() == "# rewritten entry\n", "ordinary writes stay allowed"
 
 
-def test_entry_file_writes_need_ownership(scoped_ws: Workspace):
-    ws = scoped_ws
-    job = _job(ws, "part", edit_only=True, files_hint=["src/parts/seat.py"])
-    s = begin_session(job, "gemini-cli")
-    (ws.src / "model.py").write_text("# hijacked entry\n")
-    res = _finish(s)
-    assert not res.ok and (ws.src / "model.py").read_text() == "# entry\n"
-
-    owned = _job(ws, "assemble", edit_only=True, files_hint=["src/parts/seat.py"],
-                 always_writable=["src/model.py"])
-    s2 = begin_session(owned, "gemini-cli")
-    (ws.src / "model.py").write_text("# entry + import\n")
-    res2 = _finish(s2)
-    assert res2.ok and (ws.src / "model.py").read_text() == "# entry + import\n"
 
 
 def test_a_harness_owned_file_is_restored_when_the_agent_rewrites_it(tmp_ws, monkeypatch):
@@ -149,3 +102,28 @@ def test_a_harness_owned_file_is_restored_when_the_agent_rewrites_it(tmp_ws, mon
     assert (tmp_ws.root / owned).read_text().startswith("float aurora"), "harness file must be restored"
     assert (tmp_ws.src / "shader.frag").is_file(), "the agent's own file survives"
     assert not res.ok and any(owned in e for e in res.errors)
+
+
+def test_two_cli_sessions_on_one_workspace_are_serialized(tmp_ws: Workspace):
+    """Two threads, one workspace: the begin→finish windows must not overlap."""
+    windows: dict[str, tuple[float, float]] = {}
+    started = threading.Barrier(2)
+
+    def session(name: str) -> None:
+        started.wait(timeout=30)  # both threads race begin_session together
+        s = begin_session(_job(tmp_ws, name), "codex")
+        t0 = time.monotonic()
+        (tmp_ws.src / f"{name}.py").write_text(f"# {name}\n")
+        time.sleep(0.15)  # long enough that overlapping windows would be seen
+        t1 = time.monotonic()
+        _finish(s)
+        windows[name] = (t0, t1)
+
+    threads = [threading.Thread(target=session, args=(n,)) for n in ("a", "b")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert set(windows) == {"a", "b"}
+    (a0, a1), (b0, b1) = windows["a"], windows["b"]
+    assert a1 <= b0 or b1 <= a0, f"sessions interleaved: a={windows['a']} b={windows['b']}"

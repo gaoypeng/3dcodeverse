@@ -94,7 +94,7 @@ def humanize_view(name: str) -> str:
 LinkKind = Literal["file", "dir", "code", "viewer"]
 RunState = Literal["ok", "pending", "broken"]
 
-#: filter names the index page and ``/api/runs`` both understand
+#: filter names the index page understands
 FILTER_KEYS = ("q", "track", "lang", "tier", "backend", "verdict", "battery")
 
 

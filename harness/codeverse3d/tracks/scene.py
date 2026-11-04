@@ -57,12 +57,10 @@ from codeverse3d.tracks.prompting import (
 )
 from codeverse3d.tracks.repair import format_error_report
 from codeverse3d.tracks.scene_assets import (
-    MAX_ASSETS,
     AssetResult,
     asset_api_summary,
     read_dedupe_note,
     run_asset_stage,
-    select_assets,
     ships_lib,
 )
 from codeverse3d.tracks.zone_layout import layout_block, layout_zones
@@ -254,12 +252,10 @@ class SceneTrack(BaseTrack):
         """What the zones are told about the assets.  The asset results come back revived (a cached
         stage is JSON), with the merge map the STAGE used: its cap depends on the soft budget at the
         time (a degraded run folded more), so it is read back for a resumed run and the zones to
-        agree; the plan-only recomputation is the fallback for a workspace without the note."""
+        agree."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (ctx.extra.get("assets") or {}).items()}
         alias = read_dedupe_note(ctx.ws)
-        if alias is None:
-            _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"], ctx.extra["asset_alias"] = assets, alias
         return asset_api_summary(plan, assets, alias, language=ctx.language, lib=ships_lib(ctx))
 
@@ -410,8 +406,6 @@ class SceneTrack(BaseTrack):
         t0 = time.time()
         # one author for the whole world (D70; the fan-out control arm was removed 2026-09-21)
         zones = list(plan.zones)
-        if len(zones) > 1:
-            ctx.events.emit("zones.batched", batches=[[z.name for z in zones]])
         try:
             r = self._stage_session(ctx, "zones", "zone", lambda gen: self._zone_task(gen, zones))
         except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the stage is still
@@ -537,7 +531,6 @@ class SceneTrack(BaseTrack):
         zones = [z for z in plan.zones if (ctx.ws.root / ctx.runtime.zone_file(z.name)).is_file()]
         if not zones:
             return False
-        ctx.extra.setdefault("asset_api", asset_api_summary(plan, ctx.extra.get("assets") or {}, ctx.extra.get("asset_alias")))
         self.note_degraded(ctx, f"salvage: assembled {len(zones)}/{len(plan.zones)} zones written before the budget stop")
         ctx.plan = plan.model_copy(update={"zones": zones})
         try:

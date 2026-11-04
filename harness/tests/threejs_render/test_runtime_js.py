@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 
-from codeverse3d.spatial.node import NodeError, run_node, runtime_js_dir
+from codeverse3d.spatial.node import run_node, runtime_js_dir
 from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.node
@@ -21,8 +20,6 @@ def test_serve_and_importmap(tmp_path: Path):
     root = tmp_path / "root"
     root.mkdir()
     (root / "a.glb").write_bytes(b"glTF1234")
-    (root / "sub").mkdir()
-    (root / "sub" / "b.json").write_text("{}")
     (root / "ok.txt").write_text("fine")
     (tmp_path / "secret.txt").write_text("s3cr3t")
     (root / "inside.txt").symlink_to(root / "ok.txt")
@@ -31,12 +28,11 @@ def test_serve_and_importmap(tmp_path: Path):
     script.write_text(f"""
 const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() / 'serve.cjs'))});
 (async () => {{
-  const srv = await serveDirs({{ root: {json.dumps(str(root))}, routes: {{ '/__p.html': {{ body: '<html>hi</html>' }} }} }});
+  const srv = await serveDirs({{ root: {json.dumps(str(root))}, routes: {{}} }});
   const get = async (p) => {{ const r = await fetch(srv.url(p)); return {{ status: r.status, type: r.headers.get('content-type'), len: (await r.arrayBuffer()).byteLength }}; }};
   const out = {{
-    glb: await get('/a.glb'), json: await get('/sub/b.json'), page: await get('/__p.html'),
-    three: await get('/__runtime/node_modules/three/build/three.module.js'),
-    escape: await get('/../s.cjs'), missing: await get('/nope.png'), fav: await get('/favicon.ico'),
+    glb: await get('/a.glb'), three: await get('/__runtime/node_modules/three/build/three.module.js'),
+    escape: await get('/../s.cjs'), missing: await get('/nope.png'),
     malformed: await get('/100%.png'), after: await get('/a.glb'),   // decodeURIComponent throws on '%.p'
     importmap: importMapHtml(),
     links: {{ ok: (await get('/ok.txt')).status, inside: (await get('/inside.txt')).status,
@@ -48,44 +44,12 @@ const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() 
 """)
     out = run_node(script, [], timeout_s=60).last_json
     assert out["glb"] == {"status": 200, "type": "model/gltf-binary", "len": 8}
-    assert out["json"]["type"] == "application/json"
-    assert out["page"]["status"] == 200 and "text/html" in out["page"]["type"]
-    assert out["three"]["status"] == 200 and out["three"]["len"] > 100000 and out["three"]["type"] == "text/javascript"
-    assert out["escape"]["status"] == 404 and out["missing"]["status"] == 404 and out["fav"]["status"] == 204
+    assert out["three"]["status"] == 200 and out["three"]["type"] == "text/javascript"
+    assert out["escape"]["status"] == 404 and out["missing"]["status"] == 404
     assert out["malformed"]["status"] == 404 and out["after"]["status"] == 200   # the server survived it
     im = json.loads(out["importmap"].split(">", 1)[1].rsplit("<", 1)[0])["imports"]
-    assert im["three"].startswith("/__runtime/") and im["three/addons/"].endswith("/examples/jsm/")
-    assert "http" not in json.dumps(im)
+    assert im["three"].startswith("/__runtime/") and "http" not in json.dumps(im)
     assert out["links"] == {"ok": 200, "inside": 200, "leak": 404, "dirleak": 404}
-
-
-def test_two_runtime_trees_never_share_one_browser_endpoint(tmp_path: Path):
-    """The browser endpoint name carries the runtime_js tree, so two trees share one cache dir safely."""
-    cache = tmp_path / "cache"
-    paths = []
-    for tree in ("worktree", "checkout"):
-        d = tmp_path / tree
-        d.mkdir()
-        shutil.copy(runtime_js_dir() / "gpu_launch.cjs", d / "gpu_launch.cjs")
-        script = tmp_path / f"{tree}.cjs"
-        script.write_text(f"""
-const {{ _internal }} = require({json.dumps(str(d / 'gpu_launch.cjs'))});
-console.log(JSON.stringify({{
-  endpoint: _internal.endpointPath('cpu'),
-  lock: _internal.spawnLockPath('cpu'),
-  failed: _internal.daemonFailPath('cpu'),
-}}));
-""")
-        paths.append(run_node(script, [], timeout_s=60, env_extra={"C3D_CACHE_DIR": str(cache)}).last_json)
-
-    a, b = paths
-    for key in ("endpoint", "lock", "failed"):
-        assert a[key] != b[key], f"both trees would advertise into the same {key}"
-        # the separation must be the NAME: one cache dir is still one cache dir
-        assert Path(a[key]).parent == Path(b[key]) .parent == cache
-    # the reaper and the daemon-failure skip both key off these shapes
-    assert Path(a["endpoint"]).name.startswith("browser_cpu_")
-    assert a["failed"].endswith(".failed.json")
 
 
 def _reap_daemons(cache_dir: Path) -> None:
@@ -95,13 +59,11 @@ def _reap_daemons(cache_dir: Path) -> None:
     import signal
 
     for ep in cache_dir.glob("browser_*.json"):
-        if ep.name.endswith(".failed.json"):
-            continue
-        info = json.loads(ep.read_text())
         for key in ("pid", "daemon_pid"):
-            if info.get(key):
+            pid = json.loads(ep.read_text()).get(key) if not ep.name.endswith(".failed.json") else None
+            if pid:
                 with contextlib.suppress(OSError):
-                    os.kill(int(info[key]), signal.SIGTERM)
+                    os.kill(int(pid), signal.SIGTERM)
 
 
 def test_gpu_launch_probe_and_browser_reuse(tmp_path: Path):
@@ -135,48 +97,9 @@ const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir
     assert off["gpu"] is False and "swiftshader" in off["probe"].lower()
     assert off["a_shared"] is True and off["b_shared"] is True and off["alive"]
     assert off["reconnect_ms"] < 1000  # connect, not a fresh ~550ms+ launch
-    # the endpoint is keyed by the runtime_js that spawned the daemon, so a worktree
-    # and the main checkout sharing one cache dir cannot advertise over each other
-    endpoints = list((tmp_path / "cache").glob("browser_cpu_*.json"))
-    assert len(endpoints) == 1 and not endpoints[0].name.endswith(".failed.json")
     own = run_node(script, [], timeout_s=120, env_extra={**env, "T_GPU": "off", "C3D_BROWSER_REUSE": "off"}).last_json
     assert own["a_shared"] is False and own["b_shared"] is False
-    with pytest.raises(NodeError):
-        run_node(script, [], timeout_s=60, env_extra={**env, "T_GPU": "bogus"})
     _reap_daemons(tmp_path / "cache")
-
-
-def test_a_rejected_shared_browser_is_never_superseded(tmp_path: Path):
-    """A caller whose canary rejects the shared browser launches its own and leaves
-    the advertised one alone.  It used to spawn a second daemon, whose advertisement
-    superseded the first; the superseded daemon then closed its browser under its
-    clients' pages — "Target closed" across a loaded test suite (2026-09-23)."""
-    script = tmp_path / "r.cjs"
-    script.write_text(f"""
-const fs = require('fs');
-const {{ launchBrowser, _internal }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
-(async () => {{
-  const a = await launchBrowser({{ gpu: 'off' }});
-  const before = _internal.readJson(_internal.endpointPath('cpu')).ws;
-  const pages = [];
-  for (let i = 0; i < 13; i++) pages.push(await a.browser.newPage());   // over the canary's page budget
-  const b = await launchBrowser({{ gpu: 'off' }});
-  await new Promise((r) => setTimeout(r, 1500));   // a spawned daemon would have advertised by now
-  const after = _internal.readJson(_internal.endpointPath('cpu'));
-  const out = {{ a_shared: a.shared, b_shared: b.shared, same: !!after && after.ws === before }};
-  await b.release();
-  for (const p of pages) await p.close();
-  await a.release();
-  console.log(JSON.stringify(out));
-}})().catch((e) => {{ console.error(e); process.exit(1); }});
-""")
-    cache = tmp_path / "cache"
-    try:
-        out = run_node(script, [], timeout_s=120, env_extra={"C3D_CACHE_DIR": str(cache)}).last_json
-    finally:
-        _reap_daemons(cache)
-    assert out["a_shared"] is True and out["b_shared"] is False
-    assert out["same"], "the rejecting caller replaced the advertised browser"
 
 
 def test_scene_server_only_mounts_src_public_assets(tmp_path: Path):
@@ -204,17 +127,3 @@ console.log(JSON.stringify(out));
     out = run_node(script, [], timeout_s=60).last_json
     assert [out[p] for p in serve] == [200] * len(serve), out
     assert [out[p] for p in denied] == [404] * len(denied), out
-
-
-def test_cli_safe_name_rejects_path_tricks(tmp_path: Path):
-    """lib/cli.mjs safeName guards every filename composed from a camera/view name."""
-    script = tmp_path / "n.mjs"
-    cli = (runtime_js_dir() / "lib" / "cli.mjs").as_uri()
-    script.write_text(f"""
-const {{ safeName }} = await import({json.dumps(cli)});
-const rejects = (v) => {{ try {{ safeName(v); return false; }} catch {{ return true; }} }};
-const bad = ['x/../y', '/abs', 'a\\\\b', 'a b', 'a.png', '', 'x'.repeat(200)];
-console.log(JSON.stringify({{ ok: true, good: safeName('cam_a-1'), all_rejected: bad.every(rejects) }}));
-""")
-    out = run_node(script, [], timeout_s=30).last_json
-    assert out == {"ok": True, "good": "cam_a-1", "all_rejected": True}

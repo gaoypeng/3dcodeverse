@@ -10,6 +10,7 @@ from codeverse3d.config import Settings
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.run import RunStatus
+from codeverse3d.conventions import to_snake
 from codeverse3d.skills.materialize import MARK_BEGIN
 from codeverse3d.skills.registry import ROUTED_SKILLS
 from codeverse3d.tracks.static_object import StaticObjectTrack
@@ -23,7 +24,6 @@ from tests.orchestrator_tracks.fakes import (
     FakeRuntime,
     FakeServices,
 )
-from tests.orchestrator_tracks.test_tracks import _agent_writer
 from tests.skills.conftest import write_bundle
 
 
@@ -39,7 +39,6 @@ class RealMessageServices(FakeServices):
                     for p in parts]
         return GateReport(gate="contract", passed=not findings, findings=findings)
 
-
 class RepairOnceRuntime(FakeRuntime):
     """A real lint-shaped failure that the baseline's repair session must consume."""
 
@@ -53,29 +52,30 @@ class RepairOnceRuntime(FakeRuntime):
             return GateReport(gate="lint:threejs", passed=False, findings=[finding])
         return super().lint(ws)
 
-
 def _repairing_writer(job, ws):
-    files = _agent_writer(job, ws)
+    """Every round edits something (identical output reads as a plateau); part files come from the prompt table."""
+    files = {}
+    for line in job.prompt.splitlines():
+        if line.startswith("| ") and not line.startswith(("| part", "|---")) and line.split("|")[1].strip():
+            name = line.split("|")[1].strip()
+            files[f"src/parts/{to_snake(name)}.js"] = f"export function build{name}(THREE) {{ return new THREE.Group(); }}\n"
+    files["src/object.js"] = f"// {job.label} r{job.round}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"
     if job.kind == "baseline":
         files["src/object.js"] += "// SHADER_LINT_ERROR\n"
     return files
-
 
 @pytest.fixture(autouse=True)
 def _no_brief(monkeypatch):
     """The fake planner answers one canned plan; the optional brief call would eat it."""
     monkeypatch.setenv("C3D_PLAN_BRIEF", "off")
 
-
 @pytest.fixture
 def chair_plan():
     return _chair_plan.__wrapped__()
 
-
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(runs_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")
-
 
 @pytest.fixture
 def run(tmp_path: Path, chair_plan, settings, monkeypatch):
@@ -93,7 +93,6 @@ def run(tmp_path: Path, chair_plan, settings, monkeypatch):
     rec = track.run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.MAX_ROUNDS
     return rec, ws, agent
-
 
 def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
     rec, ws, agent = run

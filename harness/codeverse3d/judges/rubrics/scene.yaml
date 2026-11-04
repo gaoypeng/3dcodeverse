@@ -1,6 +1,5 @@
 name: scene
 version: 2
-track_hint: scene
 pass_threshold: 0.70
 description: >
   Rubric for a procedural 3D SCENE (a place) judged on its authored cameras plus a

@@ -1,8 +1,4 @@
-"""Browser-backed: a Blender hero (GLB) in the scene but in no authored frame is an ERROR.
-
-``glbCoverage`` renders each loaded GLB as a white mask against black solids (occlusion included)
-per camera; the gate reads ``camera_checks[].glb_frac``.
-"""
+"""Browser-backed: a hero GLB in the scene but in no authored frame is an ERROR (gate reads camera_checks[].glb_frac)."""
 
 from __future__ import annotations
 
@@ -21,21 +17,18 @@ pytestmark = [pytest.mark.node, needs_browser]
 
 URL = "/assets/hero_cube.glb"
 
-# the hero hangs at (10, 6, 14): on the overview camera's sightline ((26, 14, 34) → (0, 1.5, 0)) and
-# outside the pond and windmill shots' frusta; the wall stands halfway between the overview and it
+# the hero (10, 6, 14) is on the overview sightline and outside the other shots; the wall stands between
 WALL = """
   const wall = new THREE.Mesh(new THREE.BoxGeometry(30, 16, 0.5), new THREE.MeshStandardMaterial({ color: 0x888888 }));
   wall.name = 'StoneWall'; wall.position.set(18, 10, 24); wall.rotation.y = Math.atan2(16, 20); scene.add(wall);
 """
-
 
 ROOM = """
   const shell = roomShell({ center: [10, 4, 14], extents: [12, 8, 12], thickness: 0.3 });
   scene.add(shell);
 """
 
-
-# a camera NAMED for the hero, aimed 90 degrees away from it (loop 25's LanternDetail at the tower wall)
+# a camera NAMED for the hero, aimed 90 degrees away from it (loop 25's LanternDetail)
 AWAY_CAMERA = "    { name: 'HeroCubeDetail', position: [10, 8, 30], lookAt: [40, 6, 30], fov: 45 },\n"
 
 

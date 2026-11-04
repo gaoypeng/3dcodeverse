@@ -1,7 +1,7 @@
 """``3dcode render`` / ``3dcode judge`` — act on one existing run.
 
 Owns the ``render`` command (the working tree, which ends at the run's last round) with
-its round-label refusal and the graphics-track frame copy, and the ``judge`` re-judge that
+the graphics-track frame copy, and the ``judge`` re-judge that
 writes ``artifacts/judge/rNN_cli.json`` (default: the round ``addons/select`` picks).  The
 single-run VIEW (``show``, and ``status`` = ``show --section status``) is ``layout_cmd.py``'s.
 Its sibling ``cli/main.py`` owns the typer app, ``make`` / ``resume`` (spec building + track
@@ -27,7 +27,6 @@ from codeverse3d.contracts.spec import Spec
 # --------------------------------------------------------------------------- render / judge
 def render(
     slug: str,
-    round_index: Annotated[int | None, typer.Option("--round")] = None,
     mode: Annotated[
         str, typer.Option("--mode", help="shaded | wire | normals | clay | silhouette")
     ] = "shaded",
@@ -52,7 +51,7 @@ def render(
     if spec.track is Track.GRAPHICS and (width or height):  # the frames are the runtime's size: dropped silently
         raise C.CliError("--width/--height do not apply to a graphics run: its frames are rendered at the runtime's size",
                          code=2)
-    idx = _render_round_or_refuse(ws, round_index)
+    idx = max(ws.rendered_rounds(), default=0)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
     # writes into the run (a graphics render even rebuilds it): one writer per run dir
     with C.mutating(ws, what=f"3dcode render {ws.root.name}", action="render"):
@@ -214,26 +213,3 @@ def _render_graphics(ws, spec: Spec, out_dir: Path) -> None:
             },
         )
     )
-
-
-def _render_round_or_refuse(ws, round_index: int | None) -> int:
-    """Which round this render is labelled as — refusing when the label would lie.
-
-    ``render`` renders the WORKING TREE, which ends at the last round the run wrote
-    (2026-09-22: nothing restores an earlier round).  ``--round`` only chose the output
-    folder, so `3dcode render X --round 3` wrote r03-labelled images of round 4's code.
-    Rendering another round would need it checked out, which this command does not do —
-    every round's own renders are already in ``artifacts/renders/rNN/``, and
-    ``3dcode pick <slug> --round N`` packages any round with its GLB.
-    """
-    tree = max(ws.rendered_rounds(), default=0)
-    if round_index is not None and round_index != tree:
-        raise C.CliError(
-            f"cannot render round {round_index}: `render` renders the working tree, which is at "
-            f"round {tree}, and --round only labels the output folder.  Round {round_index}'s renders "
-            f"are in {ws.renders_dir(round_index)}; `3dcode pick {ws.root.name} --round {round_index}` "
-            f"packages it.",
-            code=2)
-    return tree
-
-

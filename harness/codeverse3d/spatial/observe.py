@@ -2,12 +2,11 @@
 
 * ``fmt_numbers``   – one-line ``k=v`` rendering with sane float precision.
 * ``truncate``      – head/tail truncation with a marker (never mid-line when possible).
-* ``image_budget``  – cap image lists (contact sheet kept first).
 * ``rel_path``      – workspace-relative display path (never leak host paths in text).
 * ``lint_lines`` / ``build_failure_lines`` – the one lint / BUILD FAILED report
   format shared by the ``build`` and ``gl_probe`` / ``gl_frames`` tools.
 * ``text_observation`` / ``gate_observation`` / ``render_observation`` – the
-  standard Observation builders (truncation + image budget applied once).
+  standard Observation builders (truncation applied once).
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from codeverse3d import proc
 from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet, Severity
 from codeverse3d.spatial.registry import Observation
 
-MAX_IMAGES = 6
 MAX_TEXT = 2400
 
 
@@ -70,14 +68,6 @@ def truncate(text: str, n: int = MAX_TEXT, tail_ratio: float = 0.3) -> str:
     return f"{head}\n… [{len(text) - head_n - tail_n} chars omitted] …\n{tail}"
 
 
-def image_budget(images: Sequence[str], max_n: int = MAX_IMAGES) -> list[str]:
-    """Keep at most ``max_n`` images; the first (contact sheet) always survives."""
-    imgs = [str(p) for p in images if p]
-    if len(imgs) <= max_n:
-        return imgs
-    return imgs[:max_n]
-
-
 def rel_path(path: Path | str | None, root: Path) -> str:
     """Display path relative to the workspace root (falls back to the file name)."""
     if path is None:
@@ -108,15 +98,15 @@ def text_observation(
     """Observation from text lines: joined, truncated to ``limit``, images capped.
 
     The plain-text counterpart of :func:`gate_observation` / :func:`render_observation`
-    — every tool that assembles its own report (build, gl_probe, gl_frames,
-    texture_pass, …) goes through here so truncation and the image budget are
-    applied exactly once, in one place.  ``ok=False`` is a verdict (LINT/BUILD
+    — every tool that assembles its own report (build, gl_probe, gl_frames, …)
+    goes through here so truncation and the image budget are applied exactly once, in
+    one place.  ``ok=False`` is a verdict (LINT/BUILD
     FAILED is the answer, and the text says so first); ``failed`` is only for a
     tool that could not run.
     """
     body = lines if isinstance(lines, str) else "\n".join(str(x) for x in lines)
     return Observation(ok=ok, failed=failed, text=truncate(body, limit), numbers=dict(numbers or {}),
-                       images=image_budget([str(i) for i in images]))
+                       images=[str(i) for i in images if i])
 
 
 
@@ -245,4 +235,4 @@ def render_observation(rs: RenderSet, root: Path, *, note: str = "", max_individ
         numbers["console_errors"] = len(rs.console_errors)
     return Observation(ok=bool(rs.views) and not rs.console_errors,
                        failed=not rs.views and not rs.console_errors,
-                       text=truncate("\n".join(lines)), numbers=numbers, images=image_budget(images))
+                       text=truncate("\n".join(lines)), numbers=numbers, images=[str(i) for i in images if i])

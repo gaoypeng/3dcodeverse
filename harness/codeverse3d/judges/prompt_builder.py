@@ -680,8 +680,6 @@ def brief_section(spec: Spec) -> str:
     cons = []
     if c.dimensions_m:
         cons.append("dimensions_m: " + ", ".join(f"{k}={v:g}" for k, v in c.dimensions_m.items()))
-    if c.max_triangles:
-        cons.append(f"max_triangles: {c.max_triangles}")
     if c.style:
         cons.append(f"style: {c.style}")
     if c.must_have:

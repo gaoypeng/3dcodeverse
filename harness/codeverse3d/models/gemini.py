@@ -22,7 +22,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from codeverse3d.config import Rate, get_settings
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
@@ -222,10 +222,7 @@ def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool
 
 
 def _rate() -> Any:
-    try:
-        return get_settings().rate
-    except Exception:  # pragma: no cover - settings must never break a model call
-        return Rate()
+    return get_settings().rate
 
 
 def _default_keys() -> list[str]:

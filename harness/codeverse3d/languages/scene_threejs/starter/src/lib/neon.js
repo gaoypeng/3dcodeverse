@@ -14,9 +14,7 @@
  * (0 an unlit street, 1 open daylight): from 0.35 up it stops adding
  * and paints a pale, normal-blended tube instead, so the 0.5 a composer
  * picks when handed "0 to 1" is the mode that cannot clip.
- *
- * Composes with `windows.js` (the rooms behind the facade this spills
- * onto).
+
  */
 
 import { attachDisposal, snapshotResources } from './lifecycle.js';
@@ -486,7 +484,7 @@ const SPILL_BODY = [
  * dark frame a night city is and clipping over a bright one, which is
  * what `ambient` is for. It is a `patchStandard`, so it needs a LIT
  * material (MeshStandard/MeshPhysical, not Basic), and it chains
- * happily with `patchWindowInteriors` and `patchMicroBreakup`.
+ * happily with `patchMicroBreakup`.
  *
  * The one constraint it cannot solve: nothing is occluded. Light
  * reaches the far side of a wall as readily as the near one, so keep

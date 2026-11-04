@@ -19,8 +19,6 @@ const eye = (x, z) => heightAt(x, z) + EYE;        // the brief's eye height, on
 From there every camera is the brief's: what it looks at, from where, how many. A hero's
 position comes from the zone that built it, not from a number you remember. The first
 camera in the array is measured as the establishing shot (>= 20 % of its frame content).
-`establishingShot`, `seat` and `shot` in `lib/place.js` derive a camera from an object's
-measured box and the surfaces you pass, if you want the arithmetic done for you.
 
 ## 2. When a finding fires: what to change
 

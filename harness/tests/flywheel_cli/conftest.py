@@ -1,6 +1,4 @@
-"""Shared fixtures: a synthetic run (git repo with two commits, tiny PNGs, each round's
-kept GLB under artifacts/rNN/, record.json with two judged rounds) — no models, Blender or
-node required."""
+"""Shared fixtures: a synthetic run (git repo, tiny PNGs, record.json with two judged rounds); no models needed."""
 
 from __future__ import annotations
 

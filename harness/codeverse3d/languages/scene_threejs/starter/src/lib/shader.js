@@ -234,7 +234,7 @@ export function seedVec3(s, a, b, c, k) {
 /**
  * The library's ONE azimuth/elevation -> direction rule: azimuth in degrees
  * from +X toward +Z (0 = +X, 90 = +Z), elevation in degrees above the
- * horizon.  sunRig, makeSky, the moon, establishingShot's eye and every
+ * horizon.  sunRig, makeSky, the moon and every
  * default sun use it, so an angle means the same thing to all of them.
  */
 export function sunVector(azDeg, elDeg) {
@@ -699,7 +699,7 @@ export function makeShaderMaterial(opts = {}) {
     if (!vs.includes(LOG_V)) vs = intoMainEnd(vs, LOG_V);
     // Raw sources opt out the same way: the trap does not care who
     // wrote the shader, and neither does the checker.
-    if (!fog && !/(3dcode|astra3d): no-fog/.test(fs)) {
+    if (!fog && !/3dcode: no-fog/.test(fs)) {
         fs = '// 3dcode: no-fog\n' + fs;
     }
     if (!fs.includes(LOG_PARS_F)) fs = '#include <common>\n' + LOG_PARS_F + '\n' + fs;
@@ -1144,37 +1144,6 @@ export function composeRoughness(material, key, factor, floor = 0.04) {
     material.roughness = Math.min(1, Math.max(floor, r));
     return material.roughness;
 }
-
-/** The roughness the material was AUTHORED with, before any cover. */
-export function baseRoughness(material) {
-    const store = material.userData.astraRoughness;
-    return store ? store.base : material.roughness;
-}
-
-/**
- * A roughening factor one patch cannot push past fully rough.
- *
- * Roughness only means anything up to 1, and the material may start
- * near it.
- */
-export function matteFactor(material, add) {
-    const base = baseRoughness(material);
-    return base > 0 ? Math.min(1 + add, 1 / base) : 1;
-}
-
-/**
- * Move the material's gloss toward a cover's, never past it.
- *
- * Roughness is per MATERIAL here, so a cover can only say how much of
- * the surface is no longer the material: `blend` 0 leaves it alone, 1
- * hands the whole material to the cover's own roughness.
- */
-export function towardRoughness(material, target, blend) {
-    const base = baseRoughness(material);
-    if (!(base > 0)) return 1;
-    return 1 + (target / base - 1) * unit(blend);
-}
-
 
 /**
  * Drive every astra shader under `root` from one call in `update`.

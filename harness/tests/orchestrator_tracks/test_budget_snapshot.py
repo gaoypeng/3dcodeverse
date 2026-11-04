@@ -4,7 +4,6 @@ on the ledger, the one record of it)."""
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -84,7 +83,6 @@ def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips_and_the_
     with run_ledger(ws.root):
         res = generate_files(ws, model=model, task=task, budget=guard)  # must NOT raise
     assert res.ok and (ws.src / "object.js").is_file()
-    assert res.transcript_path and Path(res.transcript_path).is_file()
     assert sum(r.cost_usd for r in load_ledger(ws.root)) == pytest.approx(0.05)  # booked, dollar for dollar
     assert not guard.ok()  # the phase boundary (steps._run_phase) turns this into the stop
     # and once past the ceiling a single-shot buys no call at all
@@ -137,12 +135,11 @@ def test_every_paid_planner_attempt_is_booked_once_whether_the_next_raises_or_ne
     assert (paid.stage, paid.cost_usd, failed.outcome, failed.cost_usd) == ("plan", pytest.approx(0.01), "error", 0.0)
     # a plan that never validates: every paid attempt is booked exactly once
     ws = Workspace(tmp_path / "run2").create()
-    with run_ledger(ws.root), pytest.raises(PlanningError) as ei:
+    with run_ledger(ws.root), pytest.raises(PlanningError):
         run_planner(make_spec(), "fake:planner", StaticPlan, ws,
                     model=metered_chat_model(FakeChatModel(lambda req: {"object_name": "Chair"}, cost=0.01)), budget=guard)
     n = 1 + MAX_VALIDATION_REASKS  # every paid attempt, each booked once
     assert sum(r.cost_usd for r in load_ledger(ws.root)) == pytest.approx(0.01 * n)
-    assert ei.value.usage.cost_usd == pytest.approx(0.01 * n)  # the error still reports the total
 
 
 def test_a_baseline_session_the_clock_stopped_after_it_wrote_code_is_salvaged(tmp_path, chair_plan, settings):

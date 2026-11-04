@@ -1,8 +1,4 @@
-# The emissive window canvas — the hand-made version
-
-`makeNightWindows` and `patchWindowInteriors` in `lib/windows.js` do this for you; what
-follows is how to build the same thing by hand when a facade needs a layout the library
-does not have.
+# The emissive window canvas
 
 One CanvasTexture per building ARCHETYPE, not per building:
 

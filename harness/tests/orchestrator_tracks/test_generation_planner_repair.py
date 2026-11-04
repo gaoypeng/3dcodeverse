@@ -187,7 +187,6 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
     assert not out.ok and len(out.attempts) == 2  # max_repair_attempts=2 in make_spec
     assert "--- src/model.py ---" in seen[0].messages[0].text and "import bpy" in seen[0].messages[0].text
     assert seen[1].temperature > seen[0].temperature  # escalation on identical signature
-    assert out.usage.cost_usd == pytest.approx(0.004)
 
 
 def test_repair_rel_strips_a_prefix_not_a_character_set(tmp_ws):

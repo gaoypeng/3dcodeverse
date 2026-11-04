@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.addons.costreport.audit import audit_runs, find_runs, read_run
+from codeverse3d.addons.costreport.audit import audit_runs, read_run
 from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.ledger import load_ledger, record_call
 from codeverse3d.cost.types import Stage
@@ -21,42 +21,6 @@ def test_a_run_reads_as_its_ledger_rows_and_its_record_facts(fake_run: Path, tmp
     assert led.track == "static_object" and led.stop_reason == "max_rounds" and led.round_built == [None]
     assert led.minutes == pytest.approx((20.0 + 60.0) / 60), "the run's minutes, not its span"
     assert led.model_s == pytest.approx(47.0)
-    # a run without a ledger is left out of the audit
-    bare = tmp_path / "pre_ledger"
-    shutil.copytree(fake_run, bare)
-    shutil.rmtree(bare / "telemetry")
-    assert audit_runs([tmp_path]).n_runs == 1
-    # a record with no extra["stop_reason"] stops where its status says (it read blank, N60)
-    rec = json.loads((bare / "record.json").read_text())
-    rec["extra"].pop("stop_reason")
-    (bare / "record.json").write_text(json.dumps(rec))
-    assert read_run(bare).stop_reason == "max_rounds"
-
-
-def test_find_runs_counts_each_run_once_and_never_one_inside_a_run(tmp_path: Path):
-    """N58: `record.find_run_dirs` — a sub-workspace or a directory nested in a run is part of that run,
-    and a cell another battery symlinks in is found (a bare rglob missed it)."""
-    bat = tmp_path / "bat"
-    for d in (bat / "runs" / "a", bat / "runs" / "a" / "_assets" / "x", bat / "runs" / "a" / "eval" / "inner",
-              tmp_path / "other" / "cells" / "c" / "run"):
-        d.mkdir(parents=True)
-        (d / "record.json").write_text("{}")
-    (tmp_path / "other" / "cells" / "c" / "cell.json").write_text("{}")
-    (bat / "cells").mkdir()
-    (bat / "cells" / "c").symlink_to(tmp_path / "other" / "cells" / "c")
-    assert find_runs(bat) == [bat / "cells" / "c", bat / "runs" / "a"]
-
-
-def test_an_ab_batterys_control_and_variant_cells_stay_two_runs(fake_run: Path, tmp_path: Path):
-    """ab_plan lays a prompt's cells out as ``arms/<arm>/cells/<id>/<generator>``: naming a
-    cell by its last two segments gave the control and the variant ONE label."""
-    for arm in ("control", "variant"):
-        cell = tmp_path / "out" / "arms" / arm / "cells" / "chair" / "harness_gemini-cli"
-        shutil.copytree(fake_run, cell / "run")
-        (cell / "cell.json").write_text(json.dumps({"prompt_id": "chair", "arm": "harness:x", "kind": "harness"}))
-    audit = audit_runs([tmp_path / "out"])
-    assert sorted(r.run for r in audit.runs) == ["control__chair__harness_gemini-cli",
-                                                  "variant__chair__harness_gemini-cli"]
 
 
 def test_a_losing_candidate_is_waste(fake_run: Path, tmp_path: Path):

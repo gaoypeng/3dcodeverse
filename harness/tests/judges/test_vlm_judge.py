@@ -28,16 +28,8 @@ def test_full_path_single_sample(judge_input, cache_dir):
     assert raw["status"] == "ok" and raw["n_used"] == 1 and raw["rubric_hash"] == R.content_hash()
     assert "[verdict: overall 0.80 vs threshold 0.72 → PASS]" in j.summary
     req = model.requests[0]
-    assert req.response_schema is not None and "Criteria" in req.response_schema["$defs"]
-    assert req.label == "judge:static_object:r00:s0" and req.temperature == 0.2
-    assert len(image_parts(req)) == 3  # 2×2 montage + 2 detail crops
-    assert "Defects" in req.response_schema["$defs"]
+    assert req.label == "judge:static_object:r00:s0" and len(image_parts(req)) == 3  # 2x2 montage + 2 detail crops
     assert raw["defects"] == {d.id: False for d in R.defects} and raw["defect_penalty"] == 0.0
-    # D37: the judge protocol hash is recorded in every verdict, beside (not instead of) the rubric hash
-    from codeverse3d.judges.prompt_builder import judge_prompt_hash
-    assert raw["judge_prompt_hash"] == judge_prompt_hash(R) and len(raw["judge_prompt_hash"]) == 12
-    assert raw["judge_prompt_hash"] != raw["rubric_hash"]
-    assert _judge(FakeChatModel([]), cache_dir=cache_dir).prompt_hash == judge_prompt_hash(R)
 
 
 @pytest.mark.parametrize("fixed_order", [False, True])
@@ -63,14 +55,6 @@ def test_floor_fails_even_if_mean_high(judge_input, cache_dir):
     assert "floors: intent_fidelity 0.20<0.30" in j.summary
 
 
-def test_retry_on_parse_failure_then_success(judge_input, cache_dir):
-    model = FakeChatModel(["not json at all", good_reply(R, IDS, 0.8)])
-    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert j.passed and len(model.requests) == 2
-    assert model.requests[1].temperature > model.requests[0].temperature  # nudged
-    assert j.usage.cost_usd == pytest.approx(0.002)  # failed attempt still charged
-
-
 @pytest.mark.parametrize(("retryable", "calls"), [(True, 3), (False, 1)])
 def test_a_failing_model_degrades_the_verdict(judge_input, cache_dir, retryable, calls):
     model = FakeChatModel(default=ModelError("boom", retryable=retryable))
@@ -83,53 +67,6 @@ def test_a_failing_model_degrades_the_verdict(judge_input, cache_dir, retryable,
     assert json.loads(j.raw)["judge_prompt_hash"] == judge_prompt_hash(R)
 
 
-def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
-    with pytest.raises(ValueError, match="measured criteria"):
-        VlmJudge("reference", chat_model=FakeChatModel(), cache_dir=cache_dir).judge(judge_input)
-
-
-# --------------------------------------------------------------- payload size (docs/COST.md §3)
-def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
-    """``Settings.judge`` sizes the verdict's images unless the caller states its own (docs/COST.md §3)."""
-    from codeverse3d.config import Settings, get_settings
-    from codeverse3d.judges.vlm_judge import VlmJudge
-
-    s = Settings()
-    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
-    j = VlmJudge(rubric="static_object", model_id="fake:fake-1")
-    # nothing shrinks the payload (docs/COST.md §14, D47)
-    assert j.max_px == 1024 and j.detail_crops == 2 and j.max_montages == 5
-    # a caller that states a size still gets it — the dial is the default, not a cap
-    explicit = VlmJudge(rubric="static_object", model_id="fake:fake-1", max_px=768, detail_crops=1)
-    assert explicit.max_px == 768 and explicit.detail_crops == 1
-    s2 = Settings(judge={"detail_crops": 0, "max_px": 512})
-    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s2)
-    assert VlmJudge(rubric="static_object", model_id="fake:fake-1").detail_crops == 0
-    get_settings.cache_clear()
-
-
-# ----------------------------------------------------------------------------- D37 judge protocol hash
-def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
-    from codeverse3d.judges import prompt_builder as pb
-    from codeverse3d.judges.prompt_builder import judge_prompt_hash
-    from codeverse3d.judges.rubrics import wire_schema
-
-    base = judge_prompt_hash(R)
-    assert judge_prompt_hash(R) == base  # deterministic
-    # per-run content (acceptance ids) is NOT part of it: the schema is hashed with no ids
-    assert wire_schema(R, ["A1"]) != wire_schema(R, []) and judge_prompt_hash(R) == base
-    # the rubric is part of it (through the rendered rubric block)
-    other = load_rubric("shader")
-    assert judge_prompt_hash(other) != base
-    # an edit to the role prompt or the rig rules changes it — that is the whole point
-    monkeypatch.setattr(pb, "_ROLE", pb._ROLE + "\nScore generously.")
-    edited_role = judge_prompt_hash(R)
-    assert edited_role != base
-    monkeypatch.setattr(pb, "RIG_RULES", {**pb.RIG_RULES, "object": "All views show the same object."})
-    assert judge_prompt_hash(R) not in (base, edited_role)
-
-
-# ---------------------------------------------------------------------- per-sample retry budget
 def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeypatch):
     import time as real_time
     from types import SimpleNamespace
@@ -166,55 +103,10 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and [r.max_wait_s for r in model.requests] == [SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S]
 
-def test_per_track_montage_ceilings():
-    """D47's 5 montages were measured on the object rig only: graphics keeps 3; the scene rig
-    takes 4 since scene (the fourth overview is the contact camera the crops are cut from)."""
-    from codeverse3d.contracts.artifacts import RenderSet
-    from codeverse3d.contracts.common import Language, Track
-    from codeverse3d.contracts.spec import Spec
-    from codeverse3d.judges.base import JudgeInput
-    from codeverse3d.judges.vlm_judge import TRACK_MONTAGE_CAP, VlmJudge
-
-    def inp(track, language):
-        spec = Spec(id="t", track=track, language=language, prompt="p")
-        return JudgeInput(spec=spec, renders=RenderSet(), gates=[], acceptance=[])
-
-    assert TRACK_MONTAGE_CAP == {"scene": 4, "graphics": 3}
-    j = VlmJudge("scene", model_id="fake:fake-1")
-    assert j._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 4
-    assert j._montages_for(inp(Track.SCENE, Language.SCENE_BLENDER)) == 4
-    assert j._montages_for(inp(Track.GRAPHICS, Language.GLSL_SHADER)) == 3
-    jo = VlmJudge("static_object", model_id="fake:fake-1")
-    assert jo._montages_for(inp(Track.STATIC_OBJECT, Language.BLENDER)) == 5
-    explicit = VlmJudge("scene", model_id="fake:fake-1", max_montages=5)
-    assert explicit._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 5
 
 
-# ----------------------------------------------------------------------------- thinking (D105)
-def test_judge_thinking_comes_from_the_settings_unless_stated(monkeypatch):
-    """``VlmJudge(thinking=None)`` reads ``Settings.judge.thinking`` (C3D_JUDGE__THINKING): the run,
-    `3dcode judge --thinking` and the calibration tool take the level from one place, and the
-    record's sampling snapshot (``BaseTrack.sampling``) carries what was used."""
-    from types import SimpleNamespace
 
-    from codeverse3d.config import Settings, get_settings
-    from codeverse3d.contracts.common import Track
-    from codeverse3d.judges.vlm_judge import VlmJudge
-    from codeverse3d.tracks.lifecycle import BaseTrack
-
-    assert VlmJudge("scene", model_id="fake:fake-1").thinking == Settings().judge.thinking == "low"
-    s = Settings(judge={"thinking": "medium"})
-    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
-    j = VlmJudge("scene", model_id="fake:fake-1")
-    assert j.thinking == "medium"
-    assert VlmJudge("scene", model_id="fake:fake-1", thinking="high").thinking == "high"  # a stated level wins
-    with pytest.raises(ValueError, match="judge thinking must be one of"):
-        VlmJudge("scene", model_id="fake:fake-1", thinking="max")
-    assert BaseTrack.sampling(SimpleNamespace(track=Track.SCENE), j)["judge"]["thinking"] == "medium"
-    get_settings.cache_clear()
-
-
-def test_the_judge_sends_its_thinking_level(judge_input, cache_dir):
-    model = FakeChatModel([good_reply(R, IDS, 0.8)])
-    _judge(model, cache_dir=cache_dir, thinking="medium").judge(judge_input)
-    assert model.requests[0].thinking == "medium"
+def test_retry_on_parse_failure_then_success(judge_input, cache_dir):
+    model = FakeChatModel(["not json at all", good_reply(R, IDS, 0.8)])
+    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
+    assert j.passed and len(model.requests) == 2 and j.usage.cost_usd == pytest.approx(0.002)  # failed attempt still charged

@@ -252,7 +252,7 @@ def check_backends(backends: Any) -> None:
     from codeverse3d.models.registry import parse_model_id
     from codeverse3d.tracks.generation import is_single_shot, single_shot_model_id
 
-    for role in ("generator", "planner", "judge", "captioner"):
+    for role in ("generator", "planner", "judge"):
         value = getattr(backends, role)
         try:
             if role != "generator":

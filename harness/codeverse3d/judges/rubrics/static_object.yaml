@@ -1,6 +1,5 @@
 name: static_object
 version: 1
-track_hint: static_object
 pass_threshold: 0.72
 description: >
   Assembly-level rubric for ONE static object (furniture, tool, vehicle, appliance,

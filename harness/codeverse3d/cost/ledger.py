@@ -129,12 +129,9 @@ def process_ledger_path() -> Path:
     """The fallback log for calls made with no run context: one file per process
     under ``<cache_dir>/cost/``.  Never inside a run directory, so it can never be
     mistaken for a run's own ledger."""
-    try:
-        from codeverse3d.config import get_settings
+    from codeverse3d.config import get_settings
 
-        base = Path(get_settings().cache_dir)
-    except Exception:  # pragma: no cover - settings must never break accounting
-        base = Path.home() / ".cache" / "codeverse3d"
+    base = Path(get_settings().cache_dir)
     stamp = time.strftime("%Y%m%d", time.localtime())
     return base / "cost" / f"p{os.getpid()}-{stamp}.jsonl"
 
@@ -286,26 +283,20 @@ def record_call(
         **extra,
     )
     (ledger if isinstance(ledger, CostLedger) else CostLedger(ledger) if ledger else default_ledger()).append(row)
-    if source != "attempt":  # an attempt row's tokens are already on its call's own row
-        book_usage(Usage(backend=row.backend, model=row.model, input_tokens=row.input_tokens,
-                         output_tokens=row.output_tokens, cached_tokens=row.cached_tokens,
-                         thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls,
-                         cost_usd=row.cost_usd, latency_ms=row.latency_ms), tallies)
+    book_usage(Usage(backend=row.backend, model=row.model, input_tokens=row.input_tokens,
+                     output_tokens=row.output_tokens, cached_tokens=row.cached_tokens,
+                     thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls,
+                     cost_usd=row.cost_usd, latency_ms=row.latency_ms), tallies)
     return row
 
 
-def load_ledger(path: str | Path, *, include_attempts: bool = False) -> list[CallCost]:
+def load_ledger(path: str | Path) -> list[CallCost]:
     """Read a ledger file, or a run directory holding one (``telemetry/cost.jsonl``).
     Bad lines are skipped with a debug log — a truncated last line never loses the
     rest of the file.
 
-    ``source="attempt"`` rows (one per round-trip, ``instrument.MeteredChatModel``)
-    are left out unless ``include_attempts=True``: their tokens are already on the
-    call's logical row, so every aggregate built on this reader (``summarise``, a run's
-    ``total_usage``, the cost audit) keeps counting each call exactly once.  This is the ONLY
-    place that filter lives — ``summarise`` used to repeat it, which made
-    ``include_attempts=True`` summarise to $0.  Paid-but-discarded round-trips are
-    ``source="extra"`` instead and always count: nothing else records them."""
+    Paid-but-discarded round-trips are ``source="extra"`` rows and always count: nothing
+    else records them."""
     p = Path(path)
     if p.is_dir():
         found = existing_ledger_path(p)
@@ -318,8 +309,6 @@ def load_ledger(path: str | Path, *, include_attempts: bool = False) -> list[Cal
             row = CallCost.model_validate_json(line)
         except Exception as e:  # pragma: no cover - defensive
             log.debug("cost ledger %s:%d unreadable: %s", p, i, e)
-            continue
-        if not include_attempts and row.source == "attempt":
             continue
         rows.append(row)
     return rows
@@ -334,7 +323,7 @@ def _key(row: CallCost, dim: str) -> str:
 
 def ledger_usage(rows: Iterable[CallCost]) -> Usage:
     """The money and tokens of ``rows`` as one ``Usage`` — how a run's ``total_usage`` is read
-    off its ledger (list price; attempt rows are already out: ``load_ledger``)."""
+    off its ledger (list price)."""
     t = summarise(rows, dimensions=()).total
     return Usage(input_tokens=t.input_tokens, output_tokens=t.output_tokens, cached_tokens=t.cached_tokens,
                  thoughts_tokens=t.thoughts_tokens, tool_calls=t.tool_calls, cost_usd=t.cost_usd,

@@ -1,6 +1,5 @@
 name: articulated
 version: 1
-track_hint: articulated_object
 pass_threshold: 0.7
 description: 'Rubric for an ARTICULATED object (cabinet with doors/drawers, laptop, folding chair, robot arm, scissors...)
   judged on the rest-pose render rig PLUS the POSE SHEET: a harness-made grid whose rows are poses (rest, then each

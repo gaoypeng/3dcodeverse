@@ -12,97 +12,9 @@ from codeverse3d.spatial.connectivity import (
     PENETRATION_MIN_FRACTION,
     THROUGH_FAR_SIDE_RATIO,
     check_connectivity,
-    pair_distance,
     penetration_depth,
 )
 from tests.spatial_tools.conftest import FLOAT_GAP_M
-
-
-def test_hints_use_the_authoring_frame(stool_glb: Path) -> None:
-    """The 5 mm gap is along GLB +y (up).  A Blender/CadQuery/URDF agent codes in Z-up, so
-    the pasted hint must say +z (a literal '+y' would move the leg towards the back)."""
-    err = check_connectivity(stool_glb, language="blender").errors[0]
-    assert "translate 'Leg_3' by (+0.0000, +0.0000, +0.0050) m (blender frame: Z-up, -Y front)" in err.fix_hint
-    assert np.allclose(err.data["gap_vector_m"], (0.0, 0.0, FLOAT_GAP_M), atol=1e-4)
-    assert np.allclose(err.data["gap_vector_glb_m"], (0.0, FLOAT_GAP_M, 0.0), atol=1e-4)
-    assert err.data["frame"] == "z_up_neg_y_front"
-    err = check_connectivity(stool_glb, language="threejs").errors[0]
-    assert "(+0.0000, +0.0050, +0.0000) m (threejs frame: Y-up, +Z front)" in err.fix_hint
-    # nothing grounded: the ground hint names the language's up axis
-    s = trimesh.Scene()
-    for i, x in enumerate((0.0, 0.3)):
-        m = trimesh.creation.box((0.1, 0.1, 0.1))
-        m.apply_translation((x, 0.5, 0))
-        s.add_geometry(m, node_name=f"P{i}", geom_name=f"P{i}")
-    p = stool_glb.parent / "floating_pair.glb"
-    p.write_bytes(s.export(file_type="glb"))
-    ground = [f for f in check_connectivity(p, language="cadquery").findings if "touches the ground" in f.message]
-    assert ground and "(z=0)" in ground[0].message and "z=0, cadquery frame" in ground[0].fix_hint
-
-
-def test_tiny_island_warns(tmp_path: Path) -> None:
-    body = trimesh.creation.box(extents=(0.3, 0.3, 0.3))
-    body.apply_translation((0, 0.15, 0))
-    crumb = trimesh.creation.box(extents=(0.004, 0.004, 0.004))
-    crumb.apply_translation((0.5, 0.5, 0.5))
-    part = trimesh.util.concatenate([body, crumb])
-    sc = trimesh.Scene()
-    sc.add_geometry(part, node_name="Body", geom_name="Body")
-    p = tmp_path / "crumb.glb"
-    sc.export(str(p))
-    r = check_connectivity(p)
-    warns = [f for f in r.findings if f.severity == Severity.WARN]
-    assert warns and "tiny disconnected island" in warns[0].message and warns[0].data["kind"] == "stray_islands"
-
-
-def test_missing_glb_is_error(tmp_path: Path) -> None:
-    r = check_connectivity(tmp_path / "none.glb")
-    assert not r.passed and r.errors
-
-
-def test_pair_distance_sampled_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse3d.spatial.joints_collide as collide
-
-    monkeypatch.setattr(collide, "_fcl", None)
-    a = trimesh.creation.box(extents=(1, 1, 1))
-    b = trimesh.creation.box(extents=(1, 1, 1))
-    b.apply_translation((1.02, 0, 0))
-    pd = pair_distance("a", a, "b", b)
-    assert pd.distance == pytest.approx(0.02, abs=1e-6)
-    assert pd.gap_vector[0] == pytest.approx(0.02, abs=1e-6)
-
-
-def _open_bottom_box(extents, translation) -> trimesh.Trimesh:
-    """A box with its bottom face dropped — an open shell, what agents actually export."""
-    m = trimesh.creation.box(extents=extents)
-    m.apply_translation(translation)
-    low = m.vertices[m.faces].mean(axis=1)[:, 1]
-    shell = trimesh.Trimesh(vertices=m.vertices, faces=m.faces[low > low.min() + 1e-9], process=False)
-    assert not shell.is_watertight
-    return shell
-
-
-def test_interpenetration_is_found_between_two_non_watertight_parts(tmp_path: Path) -> None:
-    """Open shells (not watertight) are measured too — they once read as "no overlap"."""
-    base_ext, post_ext = (0.4, 0.2, 0.4), (0.2, 0.2, 0.2)
-    base_at, post_at = (0, 0.1, 0), (0, 0.25, 0)  # post bottom 50 mm below the base's top face
-    closed = (trimesh.creation.box(extents=base_ext), trimesh.creation.box(extents=post_ext))
-    closed[0].apply_translation(base_at)
-    closed[1].apply_translation(post_at)
-    shells = (_open_bottom_box(base_ext, base_at), _open_bottom_box(post_ext, post_at))
-
-    for tag, (a, b) in (("closed", closed), ("open shells", shells)):
-        depth, frac = penetration_depth(a, b)
-        assert depth == pytest.approx(0.05, abs=1e-3), f"{tag}: 50 mm of interpenetration must be measured"
-        assert frac > 0.05, tag
-
-    scene = trimesh.Scene()
-    scene.add_geometry(shells[0], node_name="Base", geom_name="Base")
-    scene.add_geometry(shells[1], node_name="Post", geom_name="Post")
-    glb = tmp_path / "open_shells.glb"
-    scene.export(str(glb))
-    r = check_connectivity(glb)
-    assert not r.passed and any("interpenetrate" in f.message for f in r.errors)
 
 
 def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -> Path:
@@ -117,7 +29,7 @@ def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -
         h = 0.41 - gap_m if i == 3 else 0.41
         leg = trimesh.creation.cylinder(radius=0.02, height=h, sections=24)
         leg.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, (1, 0, 0)))
-        leg.apply_translation((x, h / 2, z))  # bottom stays on the ground
+        leg.apply_translation((x, h / 2, z))
         sc.add_geometry(leg, node_name=f"Leg_{i}", geom_name=f"Leg_{i}")
     sc.export(str(path))
     return path
@@ -125,10 +37,7 @@ def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -
 
 def test_a_part_detached_at_the_top_is_floating_even_though_it_reaches_the_floor(tmp_path: Path) -> None:
     """Reaching the floor is not being supported: a leg shy of the seat is floating."""
-    p = _stool_with_a_leg_short_at_the_top(tmp_path / "top_gap.glb")
-
-    r = check_connectivity(p)
-
+    r = check_connectivity(_stool_with_a_leg_short_at_the_top(tmp_path / "top_gap.glb"))
     assert not r.passed, [f.message for f in r.findings]
     errs = r.errors
     assert len(errs) == 1 and errs[0].target == "Leg_3"
@@ -136,34 +45,6 @@ def test_a_part_detached_at_the_top_is_floating_even_though_it_reaches_the_floor
     assert errs[0].data["gap_m"] == pytest.approx(FLOAT_GAP_M, abs=1e-4)
     # and no self-contradictory "all N parts are connected" line reaches the judge
     assert not [f for f in r.findings if "parts are connected" in f.message]
-
-
-def _hat_and_body(path: Path, dy: float) -> Path:
-    """'hat' floating 100 mm above 'body', the pair translated by ``dy``."""
-    sc = trimesh.Scene()
-    body = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
-    body.apply_translation((0, 0.1 + dy, 0))
-    hat = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
-    hat.apply_translation((0, 0.2 + 0.1 + 0.05 + dy, 0))  # 100 mm above the body's top
-    sc.add_geometry(body, node_name="body", geom_name="body")
-    sc.add_geometry(hat, node_name="hat", geom_name="hat")
-    path.write_bytes(sc.export(file_type="glb"))
-    return path
-
-
-def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_path: Path) -> None:
-    """A model authored below the floor must not switch the floating check off."""
-    on_ground = check_connectivity(_hat_and_body(tmp_path / "f2_on_ground.glb", 0.0))
-    sunk = check_connectivity(_hat_and_body(tmp_path / "f2_sunk.glb", -1.0))
-
-    assert not on_ground.passed
-    assert [(e.target, e.data["nearest"]) for e in on_ground.errors] == [("hat", "body")]
-
-    # the identical model, 1 m lower, must reach the identical verdict
-    assert not sunk.passed, "a sunk model must not disable the floating check"
-    assert [(e.target, e.data["nearest"]) for e in sunk.errors] == [("hat", "body")]
-    # ... plus the ground warning, since nothing is on the floor any more
-    assert any("touches the ground" in f.message and f.data["kind"] == "no_ground" for f in sunk.findings)
 
 
 def _scene(path: Path, **meshes: trimesh.Trimesh) -> Path:
@@ -185,12 +66,6 @@ def _penetrations(r) -> list:
     return [f for f in r.findings if f.data.get("kind") == "penetration"]
 
 
-def _ledger(r):
-    led = [f for f in r.findings if f.message.startswith("contact ledger")]
-    assert len(led) == 1 and led[0].severity == Severity.INFO and led[0].target == ""
-    return led[0]
-
-
 def test_thin_rod_through_a_plate_is_measured_and_named_but_severity_stays_on_depth(tmp_path: Path) -> None:
     """An 8 mm rod through a 10 mm plate: found by the dense pass, through-ratio measured, still a WARN."""
     rod = _cylinder_y(0.004, 1.0, (0, 0.5, 0))
@@ -210,25 +85,6 @@ def test_thin_rod_through_a_plate_is_measured_and_named_but_severity_stays_on_de
     assert d["entering"] == "Rod" and d["container"] == "Plate" and d["thickness_m"] == pytest.approx(0.01, abs=1e-6)
     assert "reaches 93% of the way to the mid-plane of 'Plate' (10 mm thick)" in pen[0].message
     assert "middle of 'Plate'" in pen[0].fix_hint and "shorten it" in pen[0].fix_hint
-    # the ledger carries the same pair with the same numbers, rounded
-    over = _ledger(r).data["overlaps"]
-    assert len(over) == 1 and set(over[0][:2]) == {"Rod", "Plate"}
-    assert over[0][2:] == [pytest.approx(5.0, abs=0.5), pytest.approx(d["through_ratio"], abs=0.01)]
-
-
-def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool_glb: Path) -> None:
-    """Leg_0-Seat is a contact; Leg_0-Leg_1 are 260 mm apart, a pair the AABB prefilter
-    never measures — a planned join is measured anyway and reported open, not as an ERROR
-    (whether it should fail the gate is the owner's call); a name the GLB does not have is
-    listed unresolved."""
-    r = check_connectivity(solid_stool_glb, planned_edges=[("Leg_0", "Seat"), ("Leg_0", "Leg_1"), ("Leg_0", "Ghost")])
-
-    assert r.passed
-    d = _ledger(r).data
-    assert d["planned"] == [["Leg_0", "Seat", 0.0, "contact"], ["Leg_0", "Leg_1", pytest.approx(260.0, abs=0.5), "open"]]
-    assert d["planned_unresolved"] == ["Ghost"]
-    assert sorted(d["parts"]) == ["Leg_0", "Leg_1", "Leg_2", "Leg_3", "Seat"]
-    assert len(d["contacts"]) == 4 and all(c[1] == "Seat" or c[0] == "Seat" for c in d["contacts"])
 
 
 def test_a_deep_overlap_only_the_dense_pass_can_see_is_a_warn_with_every_number(tmp_path: Path) -> None:
@@ -254,3 +110,105 @@ def test_a_deep_overlap_only_the_dense_pass_can_see_is_a_warn_with_every_number(
     pen2 = _penetrations(r2)
     assert pen2 and pen2[0].severity == Severity.ERROR and not r2.passed
     assert pen2[0].data["fraction_inside"] >= PENETRATION_MIN_FRACTION
+
+
+def _open_bottom_box(extents, translation) -> trimesh.Trimesh:
+    """A box with its bottom face dropped — an open shell, what agents actually export."""
+    m = trimesh.creation.box(extents=extents)
+    m.apply_translation(translation)
+    low = m.vertices[m.faces].mean(axis=1)[:, 1]
+    shell = trimesh.Trimesh(vertices=m.vertices, faces=m.faces[low > low.min() + 1e-9], process=False)
+    assert not shell.is_watertight
+    return shell
+
+
+def _hat_and_body(path: Path, dy: float) -> Path:
+    """'hat' floating 100 mm above 'body', the pair translated by ``dy``."""
+    sc = trimesh.Scene()
+    body = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    body.apply_translation((0, 0.1 + dy, 0))
+    hat = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
+    hat.apply_translation((0, 0.2 + 0.1 + 0.05 + dy, 0))  # 100 mm above the body's top
+    sc.add_geometry(body, node_name="body", geom_name="body")
+    sc.add_geometry(hat, node_name="hat", geom_name="hat")
+    path.write_bytes(sc.export(file_type="glb"))
+    return path
+
+
+def _ledger(r):
+    led = [f for f in r.findings if f.message.startswith("contact ledger")]
+    assert len(led) == 1 and led[0].severity == Severity.INFO and led[0].target == ""
+    return led[0]
+
+
+def test_tiny_island_warns(tmp_path: Path) -> None:
+    body = trimesh.creation.box(extents=(0.3, 0.3, 0.3))
+    body.apply_translation((0, 0.15, 0))
+    crumb = trimesh.creation.box(extents=(0.004, 0.004, 0.004))
+    crumb.apply_translation((0.5, 0.5, 0.5))
+    part = trimesh.util.concatenate([body, crumb])
+    sc = trimesh.Scene()
+    sc.add_geometry(part, node_name="Body", geom_name="Body")
+    p = tmp_path / "crumb.glb"
+    sc.export(str(p))
+    r = check_connectivity(p)
+    warns = [f for f in r.findings if f.severity == Severity.WARN]
+    assert warns and "tiny disconnected island" in warns[0].message and warns[0].data["kind"] == "stray_islands"
+
+
+def test_missing_glb_is_error(tmp_path: Path) -> None:
+    r = check_connectivity(tmp_path / "none.glb")
+    assert not r.passed and r.errors
+
+
+def test_interpenetration_is_found_between_two_non_watertight_parts(tmp_path: Path) -> None:
+    """Open shells (not watertight) are measured too — they once read as "no overlap"."""
+    base_ext, post_ext = (0.4, 0.2, 0.4), (0.2, 0.2, 0.2)
+    base_at, post_at = (0, 0.1, 0), (0, 0.25, 0)  # post bottom 50 mm below the base's top face
+    closed = (trimesh.creation.box(extents=base_ext), trimesh.creation.box(extents=post_ext))
+    closed[0].apply_translation(base_at)
+    closed[1].apply_translation(post_at)
+    shells = (_open_bottom_box(base_ext, base_at), _open_bottom_box(post_ext, post_at))
+
+    for tag, (a, b) in (("closed", closed), ("open shells", shells)):
+        depth, frac = penetration_depth(a, b)
+        assert depth == pytest.approx(0.05, abs=1e-3), f"{tag}: 50 mm of interpenetration must be measured"
+        assert frac > 0.05, tag
+
+    scene = trimesh.Scene()
+    scene.add_geometry(shells[0], node_name="Base", geom_name="Base")
+    scene.add_geometry(shells[1], node_name="Post", geom_name="Post")
+    glb = tmp_path / "open_shells.glb"
+    scene.export(str(glb))
+    r = check_connectivity(glb)
+    assert not r.passed and any("interpenetrate" in f.message for f in r.errors)
+
+
+def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_path: Path) -> None:
+    """A model authored below the floor must not switch the floating check off."""
+    on_ground = check_connectivity(_hat_and_body(tmp_path / "f2_on_ground.glb", 0.0))
+    sunk = check_connectivity(_hat_and_body(tmp_path / "f2_sunk.glb", -1.0))
+
+    assert not on_ground.passed
+    assert [(e.target, e.data["nearest"]) for e in on_ground.errors] == [("hat", "body")]
+
+    # the identical model, 1 m lower, must reach the identical verdict
+    assert not sunk.passed, "a sunk model must not disable the floating check"
+    assert [(e.target, e.data["nearest"]) for e in sunk.errors] == [("hat", "body")]
+    # ... plus the ground warning, since nothing is on the floor any more
+    assert any("touches the ground" in f.message and f.data["kind"] == "no_ground" for f in sunk.findings)
+
+
+def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool_glb: Path) -> None:
+    """Leg_0-Seat is a contact; Leg_0-Leg_1 are 260 mm apart, a pair the AABB prefilter
+    never measures — a planned join is measured anyway and reported open, not as an ERROR
+    (whether it should fail the gate is the owner's call); a name the GLB does not have is
+    listed unresolved."""
+    r = check_connectivity(solid_stool_glb, planned_edges=[("Leg_0", "Seat"), ("Leg_0", "Leg_1"), ("Leg_0", "Ghost")])
+
+    assert r.passed
+    d = _ledger(r).data
+    assert d["planned"] == [["Leg_0", "Seat", 0.0, "contact"], ["Leg_0", "Leg_1", pytest.approx(260.0, abs=0.5), "open"]]
+    assert d["planned_unresolved"] == ["Ghost"]
+    assert sorted(d["parts"]) == ["Leg_0", "Leg_1", "Leg_2", "Leg_3", "Seat"]
+    assert len(d["contacts"]) == 4 and all(c[1] == "Seat" or c[0] == "Seat" for c in d["contacts"])

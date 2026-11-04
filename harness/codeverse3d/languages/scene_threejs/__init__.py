@@ -42,7 +42,6 @@ if TYPE_CHECKING:
 
 # ===================================================================== lint
 GATE = "lint:scene_threejs"
-MAX_LINES = 800
 
 _CREATE_SCENE_RE = re.compile(r"export\s+(?:async\s+)?function\s+createScene\b|export\s+(?:const|let)\s+createScene\b|export\s*\{[^}]*\bcreateScene\b[^}]*\}")
 _BUILD_RE = re.compile(r"export\s+(?:async\s+)?function\s+build\b|export\s+(?:const|let)\s+build\b|export\s*\{[^}]*\bbuild\b[^}]*\}")
@@ -75,7 +74,7 @@ def _is_lib(path: Path, ws: Workspace) -> bool:
     They ship into every workspace (D51) and are verified by the harness's own
     suite — ``tests/scene_runtime/lib/`` — not by the workspace gate, whose job
     is to police the code the AGENT writes.  Linting them as agent code was
-    three hard ERRORs (signage.js's node-only font fallback imports
+    three hard ERRORs (a node-only font fallback importing
     ``node:module`` / ``node:fs/promises`` / ``node:url``, which the browser
     half never touches) plus twelve "large file" WARNs telling the agent to
     split files it does not own.  Syntax is still checked below: a library file
@@ -126,7 +125,6 @@ def lint(ws: Workspace) -> GateReport:
     if not scene.is_file():
         findings.append(_f(LintKind.MISSING_FILE, Severity.ERROR, "src/scene.js is missing", target="src/scene.js",
                            hint="create src/scene.js exporting createScene({THREE, renderer, loaders})"))
-    big: list[str] = []
     syntax = node_check_syntax(files)
     export_cache: ExportsCache = {}
     for path in files:
@@ -144,9 +142,6 @@ def lint(ws: Workspace) -> GateReport:
             if m:
                 line = line_of(code, m.start())
                 findings.append(_f(kind, sev, msg, target=f"{rel}:{line}", hint=hint))
-        n_lines = text.count("\n") + 1
-        if n_lines > MAX_LINES:
-            big.append(f"{rel} ({n_lines} lines)")
         if path == scene and not _CREATE_SCENE_RE.search(text):
             findings.append(_f(LintKind.LAYOUT, Severity.ERROR, "src/scene.js does not export createScene", target=rel,
                                hint="export function createScene({ THREE, renderer, loaders }) { ... return { scene, cameras, update } }"))
@@ -156,9 +151,6 @@ def lint(ws: Workspace) -> GateReport:
         if path.parent == ws.src / "assets" and not _BUILD_ANY_RE.search(text):
             findings.append(_f(LintKind.LAYOUT, Severity.WARN, "asset module exports no build<Pascal>(THREE) factory", target=rel,
                                hint="export function buildLamp(THREE) { ... return group; }"))
-    for b in big:
-        findings.append(_f(LintKind.LAYOUT, Severity.WARN, f"large file {b} > {MAX_LINES} lines", target=b.split(" ")[0],
-                           hint="a file over 800 lines is reported; how (or whether) to split it is yours"))
     return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
@@ -543,7 +535,7 @@ def _glb_preload_js(glbs: list[str], *, target: str, on_error: str, indent: str 
         "  try {",
         "    const gltf = await loaders.gltf.loadAsync(a.url);",
         "    const root = gltf.scene;",
-        "    root.animations = gltf.animations || [];   // a keyframed Blender part is a clip; .clone() keeps it (lib/place.js clipPlayer)",
+        "    root.animations = gltf.animations || [];   // a keyframed Blender part is a clip; .clone() keeps it",
         "    root.name = a.name;   // a glTF root is called 'Scene' until someone names it",
         # what every procedural asset sets on its meshes; GLTFLoader leaves both false, so a
         # hero neither cast nor received a shadow in any recorded scene (8/8 GLBs, 2026-09-07)

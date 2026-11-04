@@ -16,19 +16,3 @@ def test_unknown_and_invalid_rubric():
         rubric_from_dict(bad)
 
 
-def test_cap_rules_are_not_part_of_the_judge_prompt():
-    """D37: cap rules move ``content_hash`` but not ``judge_prompt_hash`` — they are scored in code."""
-    import yaml
-
-    from codeverse3d.judges.prompt_builder import judge_prompt_hash
-    from codeverse3d.judges.rubrics import RUBRICS_DIR, rubric_from_dict
-
-    r = load_rubric("static_object")
-    data = yaml.safe_load((RUBRICS_DIR / "static_object.yaml").read_text())
-    data["caps"] = []
-    stripped = rubric_from_dict(data)
-    assert stripped.content_hash() != r.content_hash(), "content_hash hashes what the YAML declares"
-    # …and only that: a schema default the YAML never wrote does not re-key recorded verdicts
-    assert r.content_hash() == rubric_from_dict(yaml.safe_load((RUBRICS_DIR / "static_object.yaml").read_text())).content_hash()
-    assert judge_prompt_hash(stripped) == judge_prompt_hash(r)
-    assert "interpenetration" in judge_prompt_hash.__globals__["build_system_prompt"](r), "the checklist defect IS rendered"

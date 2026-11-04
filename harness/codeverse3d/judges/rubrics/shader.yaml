@@ -1,6 +1,5 @@
 name: shader
 version: 2
-track_hint: graphics
 pass_threshold: 0.70
 description: >
   Rubric for the GRAPHICS track (Shadertoy-style fragment shader or raw OpenGL program), judged on

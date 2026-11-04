@@ -154,8 +154,7 @@
      "input_tokens": 10558,
      "output_tokens": 1868
     }
-   ],
-   "post_hoc_texture_passes": []
+   ]
   },
   "tool_med_hand_drill": {
    "status": "budget",
@@ -382,8 +381,7 @@
      "input_tokens": 10957,
      "output_tokens": 2020
     }
-   ],
-   "post_hoc_texture_passes": []
+   ]
   },
   "furn_hard_rolltop_desk": {
    "status": "passed",
@@ -513,20 +511,6 @@
      "cost_usd": 0.057404,
      "input_tokens": 10750,
      "output_tokens": 1679
-    }
-   ],
-   "post_hoc_texture_passes": [
-    {
-     "cost_usd": 0.294,
-     "shipped": false
-    },
-    {
-     "cost_usd": 0.0919,
-     "shipped": false
-    },
-    {
-     "cost_usd": 0.2703,
-     "shipped": true
     }
    ]
   }

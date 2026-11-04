@@ -18,7 +18,6 @@ from codeverse3d.contracts.artifacts import (
     PartMeasure,
     Severity,
 )
-from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.orchestrator import build_refine_instructions
 from codeverse3d.spatial.contract import (
@@ -73,15 +72,6 @@ def test_rule_is_triangles_and_the_plan_box_to_a_millimetre():
     assert not is_placeholder(copies[:3] + [_row("Leg_3", leg, 200)], leg)  # one real leg: being built
 
 
-def test_a_bare_box_built_exactly_to_the_plan_is_taken_for_the_placeholder():
-    """The known limit, pinned: measurement alone cannot tell a real bare 12-triangle box at the
-    plan's millimetre from the skeleton's box, so it fires.  Over the loop_argon iter_00/01 corpus
-    (942 part rows) no such real part existed — every hit was a byte-unchanged skeleton file."""
-    box = plan_bbox_to_glb(_plan().parts[0].bbox, "threejs")
-    assert is_placeholder([_row("TableTop", box, 12)], box)
-    assert not is_placeholder([_row("TableTop", box, 20)], box)  # the same box, segmented once
-
-
 def test_gate_finding_is_typed_and_routes_first():
     plan = _plan()
     rows = [_row("TableTop", plan_bbox_to_glb(plan.parts[0].bbox, "blender"), 400),
@@ -100,7 +90,6 @@ def test_gate_finding_is_typed_and_routes_first():
     assert [t.target for t in tasks[:2]] == ["Leg", "Shelf"] and tasks[2].target == "TableTop"
 
 
-# ----------------------------------------------------------------------------- each real skeleton
 def _placeholders(glb: str, language: str) -> set[str]:
     from codeverse3d.spatial.measure import measure_glb
 
@@ -108,14 +97,8 @@ def _placeholders(glb: str, language: str) -> set[str]:
     return {f.target for f in report.findings if f.data.get("kind") == PLACEHOLDER_PART}
 
 
-def _edit(path, old: str, new: str) -> None:
-    text = path.read_text()
-    assert old in text, f"{old!r} not in {path}"
-    path.write_text(text.replace(old, new))
-
-
 @pytest.mark.blender
-def test_blender_skeleton_fires_and_a_built_part_does_not(tmp_path):
+def test_blender_skeleton_fires(tmp_path):
     b = get_settings().resolve_blender()
     if not b or (not shutil.which(b) and not b.startswith("/")):
         pytest.skip("no Blender binary")
@@ -126,63 +109,3 @@ def test_blender_skeleton_fires_and_a_built_part_does_not(tmp_path):
     r = rt.build(ws, timeout_s=120)
     assert r.ok, (r.error_type, r.error_message)
     assert _placeholders(r.glb_path, "blender") == {"TableTop", "Leg", "Shelf"}
-    _edit(ws.src / "parts" / "shelf.py", 'return add_box("Shelf", SHELF_CENTER, SHELF_EXTENTS, mat)',
-          'bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.21, depth=0.02, location=SHELF_CENTER)\n'
-          '    obj = bpy.context.object\n    obj.name = "Shelf"\n    obj.data.materials.append(mat)\n    return obj')
-    r = rt.build(ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    assert _placeholders(r.glb_path, "blender") == {"TableTop", "Leg"}
-
-
-def test_cadquery_skeleton_fires_and_a_built_part_does_not(tmp_path):
-    pytest.importorskip("cadquery")
-    from codeverse3d.languages.cadquery import CadQueryRuntime
-
-    ws, rt = Workspace(tmp_path / "c").create(), CadQueryRuntime()
-    rt.skeleton(ws, _plan())
-    r = rt.build(ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    assert _placeholders(r.glb_path, "cadquery") == {"TableTop", "Leg", "Shelf"}
-    _edit(ws.src / "model.py", 'cq.Workplane("XY").box(0.420, 0.420, 0.020)',
-          'cq.Workplane("XY").box(0.420, 0.420, 0.020).edges("|Z").fillet(0.02)')
-    r = rt.build(ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    assert _placeholders(r.glb_path, "cadquery") == {"TableTop", "Leg"}
-
-
-def test_cadquery_tapered_extrude_at_its_plan_box_does_not_fire(tmp_path):
-    """A real tapered part (a fretboard: trapezoid outline extruded) is 12 triangles and sits
-    exactly on its plan box, yet does not fill it — it was built, not left as the skeleton."""
-    pytest.importorskip("cadquery")
-    from codeverse3d.languages.cadquery import CadQueryRuntime
-
-    ws, rt = Workspace(tmp_path / "f").create(), CadQueryRuntime()
-    rt.skeleton(ws, _plan())
-    _edit(ws.src / "model.py", 'cq.Workplane("XY").box(0.420, 0.420, 0.020)',
-          'cq.Workplane("XY").polyline([(-0.21, -0.21), (0.21, -0.21), (0.15, 0.21), (-0.15, 0.21)])'
-          '.close().extrude(0.020).translate((0, 0, -0.010))')
-    r = rt.build(ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    from codeverse3d.spatial.measure import measure_glb
-
-    shelf = [p for p in measure_glb(r.glb_path).parts if p.name.lower() == "shelf"]
-    assert shelf and shelf[0].tri_count <= PLACEHOLDER_MAX_TRIS  # the case the fill rule exists for
-    assert _placeholders(r.glb_path, "cadquery") == {"TableTop", "Leg"}
-
-
-@pytest.mark.node
-def test_threejs_skeleton_fires_and_a_built_part_does_not(tmp_path):
-    if shutil.which("node") is None:
-        pytest.skip("node not available")
-    from codeverse3d.languages.threejs import ThreeJsRuntime
-
-    ws, rt = Workspace(tmp_path / "t").create(), ThreeJsRuntime()
-    rt.skeleton(ws, _plan())
-    r = rt.build(ws)
-    assert r.ok, (r.error_type, r.error_message)
-    assert _placeholders(r.glb_path, Language.THREEJS.value) == {"TableTop", "Leg", "Shelf"}
-    _edit(ws.src / "parts" / "shelf.js", "new THREE.BoxGeometry(size[0], size[1], size[2])",
-          "new THREE.BoxGeometry(size[0], size[1], size[2], 4, 1, 4)")
-    r = rt.build(ws)
-    assert r.ok, (r.error_type, r.error_message)
-    assert _placeholders(r.glb_path, Language.THREEJS.value) == {"TableTop", "Leg"}

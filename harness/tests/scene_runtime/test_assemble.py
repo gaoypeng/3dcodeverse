@@ -6,92 +6,18 @@ import math
 
 import pytest
 
-from codeverse3d.contracts.plan import CameraPlan
 from codeverse3d.languages.scene_threejs import (
-    ZoneProbe,
     assemble,
-    cameras_from_specs,
     lint,
-    render_scene_js,
     sun_azimuth,
 )
-from tests.scene_runtime.conftest import needs_browser, needs_node
-
-BOX_A = {"min": [-10, 0, -10], "max": [10, 6, 10], "size": [20, 6, 20]}
-BOX_B = {"min": [20, 0, -5], "max": [30, 3, 5], "size": [10, 3, 10]}
-
-# what probe_scene.mjs --sun-azimuth 90 emits for the two-zone layout above
-# (camera-fit math is owned by runtime_js/lib/orbit.mjs; tested in test_orbit.py)
-SPECS = {
-    "azimuth": 90,
-    "overview": {"position": [55.0, 22.0, 0.0], "lookAt": [10.0, 3.0, 0.0], "fov": 50},
-    "zones": [
-        {"group": "__zone__harbour", "position": [14.4, 2.2, 0.0], "lookAt": [0.0, 2.6, 0.0], "fov": 50},
-        {"group": "__zone__market", "position": [32.2, 1.9, 0.0], "lookAt": [25.0, 1.55, 0.0], "fov": 50},
-    ],
-}
-
-
-def test_cameras_from_specs_sun_side_and_order():
-    probes = {
-        "harbour": ZoneProbe(name="harbour", file="src/zones/harbour.js", ok=True, bbox=BOX_A),
-        "market": ZoneProbe(name="market", file="src/zones/market.js", ok=True, bbox=BOX_B),
-        "broken": ZoneProbe(name="broken", file="src/zones/broken.js", ok=False, error="boom"),
-    }
-    cams = cameras_from_specs(SPECS, probes)
-    assert [c.name for c in cams] == ["overview", "harbour_view", "market_view"]
-    ov = cams[0]
-    assert ov.position == (55.0, 22.0, 0.0) and ov.look_at == (10.0, 3.0, 0.0)
-    assert ov.purpose.startswith("fallback:")   # a fitted camera is a fallback the plan did not name (D106)
-    hv = cams[1]
-    assert hv.position[0] > 10 and math.dist(hv.position, hv.look_at) > 10
-    assert cams[2].purpose.startswith("fallback: zone Market")
-
-
-def test_cameras_from_specs_fallback_without_zones_or_specs():
-    cams = cameras_from_specs({}, {})
-    assert len(cams) == 1 and cams[0].name == "overview" and "fallback" in cams[0].purpose
-    # measurable zones but no driver specs (e.g. probe ran without --sun-azimuth)
-    probes = {"harbour": ZoneProbe(name="harbour", file="src/zones/harbour.js", ok=True, bbox=BOX_A)}
-    cams2 = cameras_from_specs({}, probes)
-    assert len(cams2) == 1 and "fallback" in cams2[0].purpose
-
-
-def test_render_scene_js_contents():
-    cams = [CameraPlan(name="overview", position=(1, 2, 3), look_at=(0, 0, 0), fov=50)]
-    src = render_scene_js(["harbour", "fish_market"], cams, ["crane"], env_ok=True)
-    assert "import { build as buildHarbour } from './zones/harbour.js';" in src
-    assert "addZone(buildFishMarket, 'FishMarket');" in src
-    # the loader carries the URL *and* the name to stamp on the loaded root
-    assert "crane: { name: 'Crane', url: '/assets/crane.glb' }" in src
-    assert "root.name = a.name;" in src
-    assert "name: 'overview', position: [1, 2, 3]" in src
-    assert "import { buildEnv, heightAt } from './env.js';" in src
-    assert "const addZone = async (build, name) => {" in src
-    assert "const g = await build(ctx);" in src
-    assert "await addZone(buildHarbour, 'Harbour');" in src
-    assert "const env = (await buildEnv(ctx)) || {};" in src
-    src2 = render_scene_js([], cams, [], env_ok=False)
-    assert "env.js" not in src2 and "heightAt: () => 0" in src2
-    assert "assetFiles" not in src2 and "loadAsync" not in src2   # no GLB asset, no loader
-
-
-@needs_node
-def test_assemble_without_probe_writes_all_zones(starter_ws):
-    assert sun_azimuth(starter_ws) == 60.0   # the starter env's sun: the side every derived camera stands on
-    res = assemble(starter_ws, probe=False)
-    assert set(res.zones_included) == {"meadow", "pondside"}
-    assert (starter_ws.src / "scene.js").read_text().startswith("// src/scene.js — ASSEMBLED")
-    assert lint(starter_ws).passed
-    assert (starter_ws.artifacts / "assemble.json").is_file()
+from tests.scene_runtime.conftest import needs_browser
 
 
 @pytest.mark.node
 @needs_browser
 def test_assemble_probes_each_zone_excludes_the_broken_and_boots(starter_ws):
-    """One probed assembly: a throwing zone and a zone with no build are excluded with
-    their reasons, an async build() is awaited, the driver fits an overview plus one
-    camera per measured zone, and the assembled scene then boots through the probe."""
+    """One probed assembly."""
     zones = starter_ws.src / "zones"
     (zones / "broken.js").write_text("export function build(ctx) { throw new Error('kaboom'); }\n")
     (zones / "nobuild.js").write_text("export const x = 1;\n")
@@ -129,9 +55,7 @@ def test_assemble_probes_each_zone_excludes_the_broken_and_boots(starter_ws):
 @pytest.mark.node
 @needs_browser
 def test_fitted_overview_faces_the_lit_side_inside_the_plan_bounds(tmp_ws):
-    """Regressions (audit 2026-09-24 N8, N9): the assembler's fitted cameras stand on the side
-    `sunRig({azimuth})` lights — at 135° they stood exactly opposite the sun — and the overview
-    is framed inside the plan bounds like the render rig's, not around a 400 m meadow (549 m out)."""
+    """Regressions (audit 2026-09-24 N8, N9)."""
     import json
 
     from codeverse3d.languages.scene_threejs import probe_zone_modules

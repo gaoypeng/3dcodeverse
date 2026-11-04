@@ -200,10 +200,7 @@ def layout_zones(plan: ScenePlan, model: Any, *, budget: Any = None, events: Any
     (an exception or double rejection yields no layout for that zone, never a dead run)."""
     events = NULL_EVENTS if events is None else events
 
-    def _safe(zone: ZonePlan) -> ZoneLayout | None:
-        return _one_layout(zone, plan, model, budget, events)
-
-    results = fan_out(list(plan.zones), _safe, max_workers=max_workers, label="layouts",
+    results = fan_out(list(plan.zones), lambda z: _one_layout(z, plan, model, budget, events), max_workers=max_workers, label="layouts",
                       item_name=lambda z: z.name)
     out: dict[str, ZoneLayout] = {}
     for zone, r in zip(plan.zones, results, strict=True):

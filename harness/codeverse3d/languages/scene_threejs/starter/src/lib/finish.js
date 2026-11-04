@@ -11,7 +11,7 @@
  * one decision that separates them from a pale repaint. At
  * `<color_fragment>`, where both run, a patch may either tint ALBEDO
  * — capped at the light already landing on the surface — or ADD light,
- * the choice `windows.js` documents for a lit room. A lantern at dusk
+ * the choice made here. A lantern at dusk
  * and an oil sheen on a shaded cobble are both brighter than their own
  * front lighting, so neither can be albedo.
  */

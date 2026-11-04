@@ -160,8 +160,6 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     if gif:
         links.append(RunLink(label="preview.gif", rel=gif))
     frames = ("deliverable/frames", f"artifacts/renders/r{picked:02d}") if rnd is not None else ("artifacts/frames",)
-    if rnd is not None and out == ws.artifacts:
-        frames += ("artifacts/frames",)  # the one round an old run rebuilt there
     frames_rel = next((f for f in frames if any((run / f).glob("f*_t*.png")) or any((run / f).glob("frame_t*.png"))), "")
     if frames_rel:
         links.append(RunLink(label="frames/", rel=frames_rel, kind="dir"))

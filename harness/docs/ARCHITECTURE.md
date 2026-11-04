@@ -193,8 +193,6 @@ codeverse3d/
                       duck-typed `.judge(JudgeInput) -> Judgment`
   reference.py        a user `--image` against the render: proportions (does the picture agree
                       with the brief?) and the render-vs-reference mismatch diff
-  texturing/          materials.py only: the named PBR material-family table `languages/blender` reads
-                      (no texture is generated: the harness has no image-generation step)
   orchestrator.py     the round loop's LIBRARY, not the loop: the round knobs (RoundPolicy —
                       no stop knob besides max_rounds), refine-task compilation + grouping,
                       StageRunner + RunState (resume), BudgetGuard (the clock).  The loop itself is
@@ -267,12 +265,11 @@ codeverse3d/
                       The other half of the split: codeverse3d/skills/ is what an AGENT chooses
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to
                       live constants).  A file that tries to be both is the bug this prevents.
-  cli/                main.py (app wiring, make/resume/mcp + the tools/gallery
+  cli/                main.py (app wiring, make/resume/mcp + the doctor/tools/gallery
                       commands), inspect_cmd.py (render/judge on one existing run), layout_cmd.py
                       (THE single-run view: `show` = STATUS / DELIVERABLE / QUALITY EVIDENCE / COST &
                       SETTINGS; `status` = `show --section status`, which also reads a run in flight),
-                      flywheel_cmd.py, cost_cmd.py (`3dcode cost`), doctor.py
-                      (`--skills` checks the library + its discovery wiring),
+                      flywheel_cmd.py, cost_cmd.py (`3dcode cost`),
                       skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
 eval/bench/                run_bench.py + report.py (the battery launcher, `python -m bench.run_bench` / `bench.report`;
                       the report renders through codeverse3d/addons/gallery), compare_backends.py
@@ -306,7 +303,7 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
                       to disable; object renders never come through this driver.
 tests/                agents blender_cadquery core cost flywheel_cli gallery graphics
                       install judges languages models orchestrator_tracks prompts reference scene_gates
-                      scene_prompts scene_runtime skills spatial_tools texturing threejs_render urdf_joints
+                      scene_prompts scene_runtime skills spatial_tools threejs_render urdf_joints
                       (22 dirs; the count is `pytest --collect-only`'s; the bench tests are ../eval/tests)
 ```
 
@@ -314,8 +311,8 @@ tests/                agents blender_cadquery core cost flywheel_cli gallery gra
 
 One run is one directory, `runs/<slug>/`: `src/` is the code (git, one commit per round),
 `artifacts/` the last round's build plus every round's own `artifacts/rNN/`, and a pick
-writes `deliverable/` + `selection.json`.  The full tree, the three buckets and the
-back-compatibility rules are in `docs/RUN_LAYOUT.md`, its one home.
+writes `deliverable/` + `selection.json`.  The full tree and the
+three buckets are in `docs/RUN_LAYOUT.md`, their one home.
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 
@@ -631,7 +628,7 @@ captions.json, renders/}`) of the PICKED round (`addons/select`; the last built 
 when none was judged) with **quality tiers** from that round's verdict (A passed & 0 gate
 errors, B passed, C score ≥ 0.6, D else), acceptance checklists, gate summaries and
 `(code fingerprint, prompt)` dedupe (`--drop-duplicates`; side-car captions via
-`--captions-dir`); `metadata.parquet`/`.jsonl` + sqlite index carry tier, gate
+`--captions-dir`); `metadata.parquet`/`.jsonl` carry tier, gate
 errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locators.
 `flywheel pairs` emits preference pairs (round i < j by judge Δ ≥ τ) and round-level
 repair pairs (in-session trajectory mining died with the api-agent, 2026-08-28 —

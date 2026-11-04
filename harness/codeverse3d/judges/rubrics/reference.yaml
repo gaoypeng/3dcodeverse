@@ -1,6 +1,5 @@
 name: reference
 version: 1
-track_hint: reference
 pass_threshold: 0.70
 description: >
   Image-conditioned rubric: the object must match one or more REFERENCE images.  The

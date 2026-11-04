@@ -460,7 +460,7 @@ class ClaudeOneShot:
             ok = False
         # the provider's failure, by the harness's own reading of the same stream (N76): a 529 or a spent
         # usage limit drops the cell instead of scoring the arm 0 for someone else's outage
-        end = claude_end(proc, env, stream, text)
+        end = claude_end(proc, env, text)
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=usage.tool_calls, notes=notes,
                              infra_failed=not ok and (end.transient or end.quota or end.stalled),

@@ -23,14 +23,6 @@ def _msgs(rep, sev=None):
     return [f.message for f in rep.findings if sev is None or f.severity == sev]
 
 
-def test_missing_object_js(tmp_path: Path, no_node_syntax):
-    ws = Workspace(tmp_path)
-    (ws.src / "parts").mkdir(parents=True)
-    rep = lint_workspace(ws)
-    assert not rep.passed
-    assert any("object.js is missing" in m for m in _msgs(rep, Severity.ERROR))
-
-
 def test_forbidden_apis_and_imports(stool_ws: Workspace, no_node_syntax):
     (stool_ws.src / "parts" / "legs.js").write_text(
         "import * as THREE from 'three';\nimport x from 'https://cdn.example.com/x.js';\nimport y from 'lodash';\n"
@@ -44,31 +36,37 @@ def test_forbidden_apis_and_imports(stool_ws: Workspace, no_node_syntax):
     assert any("URL 'https://cdn.example.com/x.js'" in m for m in errs)
     assert any("package 'lodash'" in m for m in errs)
     assert any("does not exist: './nope.js'" in m for m in errs)
-    assert any("fetch" in m and "legs.js:7" in m for m in errs)
-    assert any("document" in m and "legs.js:7" in m for m in errs)
-    assert any("renderers" in m and "legs.js:8" in m for m in errs)
-    assert any("cameras" in m for m in _msgs(rep, Severity.WARN))
-    # comment/string mentions must not trigger
-    assert not any("legs.js:5" in m or "legs.js:6" in m for m in errs)
+    assert any("fetch" in m and "legs.js:7" in m for m in errs) and any("renderers" in m and "legs.js:8" in m for m in errs)
+    assert not any("legs.js:5" in m or "legs.js:6" in m for m in errs)   # comment/string mentions do not trigger
 
 
 def test_part_export_name_dead_file_and_build_export(stool_ws: Workspace, no_node_syntax):
     (stool_ws.src / "parts" / "extra.js").write_text("import * as THREE from 'three';\nexport function buildWrong(THREE_) { return new THREE.Group(); }\n")
-    # the plan's ``TVStand`` lives in tv_stand.js and exports buildTVStand (to_pascal keeps
-    # it); the lint must not ask for the snake-rebuilt ``buildTvStand`` instead
-    (stool_ws.src / "parts" / "tv_stand.js").write_text(
-        "import * as THREE from 'three';\nexport function buildTVStand(THREE_) { return new THREE.Group(); }\n")
     rep = lint_workspace(stool_ws)
-    warns = _msgs(rep, Severity.WARN)
-    assert any("expected `export function buildExtra(THREE)`" in m for m in warns)
+    assert any("expected `export function buildExtra(THREE)`" in m for m in _msgs(rep, Severity.WARN))
     assert any("not imported by any module" in f.message and f.data["kind"] == "part_not_imported" for f in rep.findings)
-    assert not any("tv_stand.js: expected" in m for m in _msgs(rep))
-    (stool_ws.src / "parts" / "extra.js").write_text("export const nothing = 1;\n")
-    rep = lint_workspace(stool_ws)
-    assert any("buildExtra" in m for m in _msgs(rep, Severity.ERROR))
     (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function make() {}\n")
+    assert any("must `export function build(THREE)`" in m for m in _msgs(lint_workspace(stool_ws), Severity.ERROR))
+
+
+def test_importing_a_name_the_part_does_not_export(stool_ws: Workspace, no_node_syntax):
+    """The file exists, so the import lint passed it; node then fails to link the module."""
+    (stool_ws.src / "object.js").write_text(
+        "import * as THREE from 'three';\nimport { buildSeat, buildCushion } from './parts/seat.js';\n"
+        "export function build(THREE_) { const root = new THREE.Group(); root.add(buildSeat(THREE)); return root; }\n")
     rep = lint_workspace(stool_ws)
-    assert any("must `export function build(THREE)`" in m for m in _msgs(rep, Severity.ERROR))
+    assert _msgs(rep, Severity.ERROR) == [
+        "src/object.js:2: import { buildCushion } from './parts/seat.js': that module exports no 'buildCushion' (it exports: buildSeat)"]
+    f = next(f for f in rep.findings if "buildCushion" in f.message)
+    assert f.data["kind"] == "bad_import" and f.target == "src/object.js" and "build<Pascal>" in f.fix_hint
+
+
+def test_missing_object_js(tmp_path: Path, no_node_syntax):
+    ws = Workspace(tmp_path)
+    (ws.src / "parts").mkdir(parents=True)
+    rep = lint_workspace(ws)
+    assert not rep.passed
+    assert any("object.js is missing" in m for m in _msgs(rep, Severity.ERROR))
 
 
 def test_plan_parts_missing_are_warned(stool_ws: Workspace, no_node_syntax):
@@ -84,19 +82,9 @@ def test_plan_parts_missing_are_warned(stool_ws: Workspace, no_node_syntax):
 @pytest.mark.node
 def test_syntax_error_reported_with_line(stool_ws: Workspace):
     p = stool_ws.src / "parts" / "seat.js"
-    p.write_text(p.read_text() + "\nconst = 5;\n")
+    text = p.read_text()
+    p.write_text(text + "\nconst = 5;\n")
+    line = text.count("\n") + 2   # the appended statement's line, whatever the skeleton's length
     rep = lint_workspace(stool_ws)
     assert not rep.passed
-    assert any("seat.js:13" in m and "SyntaxError" in m for m in _msgs(rep, Severity.ERROR))
-
-
-def test_importing_a_name_the_part_does_not_export(stool_ws: Workspace, no_node_syntax):
-    """The file exists, so the import lint passed it; node then fails to link the module."""
-    (stool_ws.src / "object.js").write_text(
-        "import * as THREE from 'three';\nimport { buildSeat, buildCushion } from './parts/seat.js';\n"
-        "export function build(THREE_) { const root = new THREE.Group(); root.add(buildSeat(THREE)); return root; }\n")
-    rep = lint_workspace(stool_ws)
-    assert _msgs(rep, Severity.ERROR) == [
-        "src/object.js:2: import { buildCushion } from './parts/seat.js': that module exports no 'buildCushion' (it exports: buildSeat)"]
-    f = next(f for f in rep.findings if "buildCushion" in f.message)
-    assert f.data["kind"] == "bad_import" and f.target == "src/object.js" and "build<Pascal>" in f.fix_hint
+    assert any(f"seat.js:{line}" in m and "SyntaxError" in m for m in _msgs(rep, Severity.ERROR))

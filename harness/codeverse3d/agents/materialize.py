@@ -49,14 +49,7 @@ IGNORE_LINES = (
 
 
 # --------------------------------------------------------------------------- body
-def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], ws: Workspace | None = None) -> str:
-    if not spatial_tools:
-        return (
-            "## Spatial tools\n\n"
-            "No spatial tools are available in this session. Verify your work by reading the "
-            "code carefully and keeping every dimension explicit; the harness builds, measures "
-            "and renders after you finish.\n"
-        )
+def _tool_section(agent_kind: str, mcp_command: list[str], ws: Workspace | None = None) -> str:
     from codeverse3d.spatial.registry import list_tools
 
     # the MCP server's track/language filter (mcp_server.build_context): this file is
@@ -89,7 +82,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
     )
 
 
-def _body(agent_kind: str, contract_md: str, spatial_tools: bool, mcp_command: list[str],
+def _body(agent_kind: str, contract_md: str, mcp_command: list[str],
           ws: Workspace | None = None) -> str:
     return (
         "# 3dcode workspace — rules for the coding agent\n\n"
@@ -108,7 +101,7 @@ def _body(agent_kind: str, contract_md: str, spatial_tools: bool, mcp_command: l
         "5. Keep dimensions explicit and in meters; follow the coordinate frame stated in the contract.\n"
         "6. When you are done, reply with a SHORT summary of what you changed and what you verified. "
         "Do not ask questions — there is no human in the loop; make a reasonable decision and proceed.\n\n"
-        f"{_tool_section(agent_kind, spatial_tools, mcp_command, ws)}\n"
+        f"{_tool_section(agent_kind, mcp_command, ws)}\n"
         f"## Language contract\n\n{contract_md.strip()}\n"
     )
 
@@ -144,7 +137,6 @@ def materialize_workspace(
     *,
     agent_kind: str,
     contract_md: str,
-    spatial_tools: bool,
     mcp_command: list[str] | None = None,
 ) -> None:
     """Write AGENTS.md / CLAUDE.md + the ignore file into ``ws``.
@@ -161,7 +153,7 @@ def materialize_workspace(
     written for the agent to read (D107, owner 2026-10-15: no language ships a cookbook; the
     interface facts are in the contract, the craft in the routed skills)."""
     mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
-    body = _body(agent_kind, contract_md, spatial_tools, mcp_command, ws)
+    body = _body(agent_kind, contract_md, mcp_command, ws)
     for name in BODY_FILES:
         (ws.root / name).write_text(body)
     # No MCP server is written into the workspace: every CLI gets 3dcode from a harness-owned

@@ -53,7 +53,7 @@ export function requestFailureLine(url, base, hasResponse, errorText) {
  * the scene module is imported and createScene() runs (probe_scene.mjs: the watchdog's phase, D111).
  * @returns {Promise<{page, browser, base, gpu, renderer, errors, boot, close}>}
  */
-export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, autoExposure = false, post = true, postOptions = null, glb = null, onBoot = null } = {}) {
+export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, post = true, postOptions = null, glb = null, onBoot = null } = {}) {
   wsRoot = path.resolve(wsRoot);
   // an offline scene (`glb`: its census GLB) boots the harness adapter, never a workspace module
   const sceneFile = glb || path.join(wsRoot, sceneRel);
@@ -103,7 +103,7 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     if (onBoot) onBoot();
     const boot = await page.evaluate(
       (o) => window.__c3v.boot(o),
-      { sceneUrl, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, autoExposure, post, postOptions },
+      { sceneUrl, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, post, postOptions },
     );
     const close = async () => {
       // page first, then release: a SHARED browser (connect-first reuse) must get

@@ -32,9 +32,6 @@ VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
 
 # --------------------------------------------------------------------------- context
 def spec_dict(ctx: ToolContext) -> dict[str, Any]:
-    spec = ctx.extra.get("spec")
-    if spec is not None:
-        return spec.model_dump(mode="json") if hasattr(spec, "model_dump") else dict(spec)
     return read_json_or_none(ctx.workspace.spec_path) or {}
 
 

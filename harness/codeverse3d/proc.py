@@ -113,6 +113,7 @@ def _group_alive(pgid: int) -> bool:
 #: can no longer grow the harness RSS (or the trajectory files, which record full
 #: stdout — only the model-facing SHELL_OUT_CAP existed before) without bound.
 STREAM_BUDGET_BYTES = 8 * 1024 * 1024
+TERMINATE_GRACE_S = 5.0
 
 #: longest chunk one pump read returns.  A child that emits gigabytes with no
 #: newline would otherwise accumulate the whole "line" in RAM before the stream
@@ -184,7 +185,7 @@ class ManagedProcess:
     * ``__exit__``: on ANY exception — KeyboardInterrupt above all, because
       ``start_new_session`` children never receive the terminal's Ctrl-C SIGINT —
       or with the child still running at scope exit, the whole group gets
-      SIGTERM → ``grace_s`` → SIGKILL, the pumps are drained for at most
+      SIGTERM → :data:`TERMINATE_GRACE_S` → SIGKILL, the pumps are drained for at most
       :data:`DRAIN_TIMEOUT_S`, and the child is reaped with ``wait()`` so no zombie
       is left.  A descendant that setsid'd away and still holds a pipe cannot stall
       the drain: closing the stream from this thread would block on the buffer lock
@@ -202,14 +203,11 @@ class ManagedProcess:
         stdin_text: str | None = None,
         preexec_fn: Callable[[], None] | None = None,
         on_line: Callable[[str, str], None] | None = None,
-        stream_budget: int = STREAM_BUDGET_BYTES,
-        grace_s: float = 5.0,
     ) -> None:
         self._on_line = on_line
-        self._grace_s = grace_s
         self._stop = threading.Event()  # tells an abandoned pump to quit feeding
         self._abandoned = ""  # the truncation note to append, once we know which one
-        self._sinks = {"stdout": _BoundedSink(stream_budget), "stderr": _BoundedSink(stream_budget)}
+        self._sinks = {"stdout": _BoundedSink(STREAM_BUDGET_BYTES), "stderr": _BoundedSink(STREAM_BUDGET_BYTES)}
         # started and registered under the guard: a stop between the two can neither miss
         # this group nor let a worker start a new one once the stop has begun
         with _LIVE_GUARD:
@@ -266,11 +264,6 @@ class ManagedProcess:
 
     # ------------------------------------------------------------- what the wrappers need
     @property
-    def pid(self) -> int:
-        """The child's pid — also its process-GROUP id (``start_new_session``)."""
-        return self.proc.pid
-
-    @property
     def returncode(self) -> int | None:
         return self.proc.returncode
 
@@ -303,10 +296,8 @@ class ManagedProcess:
             with contextlib.suppress(ProcessLookupError):
                 self.proc.kill()
 
-    def terminate(self, grace_s: float | None = None) -> None:
-        """SIGTERM the group, escalate to SIGKILL after ``grace_s`` (default: the
-        constructor's ``grace_s`` — the old ``watchdog.kill_process_group`` contract)."""
-        grace = self._grace_s if grace_s is None else grace_s
+    def terminate(self) -> None:
+        """SIGTERM the group, escalate to SIGKILL after :data:`TERMINATE_GRACE_S`."""
         try:
             # killpg after the leader was reaped is a microsecond pid-reuse race the
             # code has always taken; a live grandchild is the certain cost of not doing it
@@ -315,7 +306,7 @@ class ManagedProcess:
             return
         except PermissionError:  # cannot signal the group — go for the child itself
             self.proc.terminate()
-        deadline = time.monotonic() + grace
+        deadline = time.monotonic() + TERMINATE_GRACE_S
         while time.monotonic() < deadline:
             self.proc.poll()  # reap first: an unreaped zombie leader keeps the group "alive"
             if not _group_alive(self.proc.pid):
@@ -323,7 +314,7 @@ class ManagedProcess:
             time.sleep(0.02)
         self.kill()
         with contextlib.suppress(subprocess.TimeoutExpired):
-            self.proc.wait(timeout=self._grace_s)
+            self.proc.wait(timeout=TERMINATE_GRACE_S)
 
     def __enter__(self) -> ManagedProcess:
         return self
@@ -745,36 +736,17 @@ def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") ->
 # ===================================================================== fanout
 
 
-def _in_caller_context(snapshot: contextvars.Context, fn: Callable[[int], None], i: int) -> None:
-    """Run ``fn(i)`` with the values the caller's context held at fan-out time.
-
-    ``Context.run`` cannot be re-entered from several threads, so each worker
-    replays the snapshot's variables into its own (already fresh) context.
-    """
-    for var, value in snapshot.items():
-        var.set(value)
-    fn(i)
-
-
 def fan_out[T, R](
     items: Sequence[T] | Iterable[T],
     fn: Callable[[T], R],
-    max_workers: int = 8,
+    max_workers: int,
     *,
     label: str = "fanout",
     item_name: Callable[[T], str] | None = None,
-    on_done: Callable[[int, T, R | Exception, float], None] | None = None,
 ) -> list[R | Exception]:
     """Run ``fn`` over ``items`` in a thread pool; return results in input order.
 
-    Each result is the return value or the raised ``Exception``.  ``on_done``
-    (if given) is called from the worker thread with ``(index, item, result,
-    seconds)`` — keep it cheap and thread-safe (e.g. an EventLog.emit).
-
-    ``max_workers`` is a *fallback*: every caller in the harness states its own,
-    sized from the measured ceilings in ``docs/COST.md`` Part III
-    (``Settings.limits`` for the subprocess side, ``Settings.rate.max_in_flight``
-    for model calls).  8 is the largest width that is inside both knees.
+    Each result is the return value or the raised ``Exception``.
     """
     items = list(items)
     # Workers inherit the caller's context so ambient state set with contextvars
@@ -800,15 +772,13 @@ def fan_out[T, R](
         dt = time.time() - t0
         results[i] = out
         log.info("%s[%s] done in %.1fs (%s)", label, name, dt, "error" if isinstance(out, Exception) else "ok")
-        if on_done is not None:
-            on_done(i, item, out, dt)
 
     if workers == 1:
         for i in range(len(items)):
             _run(i)
     else:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=label) as pool:
-            list(pool.map(lambda i: contextvars.copy_context().run(_in_caller_context, ctx_snapshot, _run, i),
+            list(pool.map(lambda i: ctx_snapshot.copy().run(_run, i),
                           range(len(items))))
 
     n_failed = sum(1 for r in results if isinstance(r, Exception))

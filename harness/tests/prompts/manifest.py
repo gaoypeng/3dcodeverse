@@ -1,34 +1,17 @@
 """The prompt + judge-payload manifest: what every model is shown, hashed (permanent: owner, 2026-09-22).
 
-Every track runs offline through the fakes of ``tests/orchestrator_tracks/fakes.py`` in the
-scenarios of :data:`SCENARIOS`.  Everything a model would receive is captured, normalised (the
-scenario's tmp root becomes ``<TMP>``; timestamps, durations, clock-derived waits and image bytes
-are dropped) and stored in ``manifest.json`` as ``kind → {sha256, bytes}``:
-
-* ``job:<label>@rNN/{prompt,system,scope}`` — every coding-agent session (``FakeAgent.jobs``);
-* ``chat:<role>:<label>/{system,messages,sampling}`` — every chat call: the ``planner`` (brief,
-  plan, re-asks, zone layouts) and the ``model`` (single-shot generation, the scene's single-shot
-  assets, a hero's own planner);
-* ``judge:<rubric>:<renders dir>/{input,system,messages,sampling}`` — every verdict: the
-  ``JudgeInput`` the in-run judge reads (``FakeJudge.calls``) and the request the real
-  ``VlmJudge`` builds from it;
-* ``context:<workspace>/files`` — what a session reads in its workspace, as materialised
-  (AGENTS/CLAUDE.md, the ignore file);
-* ``skills:<workspace>:<kind>@rNN/routed`` — the skill bundles routed to a round;
-* ``mcp_tools:<track>/<language>`` — the MCP tool list a session is offered;
-
-and every cached stage's key under ``stage_keys``.  A code-only change leaves all of it
-byte-identical.  A change that means to alter what a model sees re-blesses it in the same commit,
-saying why::
+Every track runs offline through the fakes of ``tests/orchestrator_tracks/fakes.py`` in the scenarios of
+:data:`SCENARIOS`.  Every agent job, chat call, judge request, workspace context file, routed skill bundle
+and MCP tool list is captured, normalised (tmp root -> ``<TMP>``; timestamps, durations and image bytes
+dropped) and stored in ``manifest.json`` as ``kind -> {sha256, bytes}``, with every cached stage's key under
+``stage_keys``.  A change that means to alter what a model sees re-blesses it in the same commit::
 
     python -m tests.prompts.manifest               # compare this tree with manifest.json
     python -m tests.prompts.manifest --bless       # rewrite manifest.json from this tree
     python -m tests.prompts.manifest --dump DIR    # every payload as a file: diff two trees' dumps
 
-Not covered (the fakes cannot drive it): reference-image runs (reference and likeness judges, the
-silhouette gate), replays (``3dcode judge``),
-the budget-stop salvage (the clock is frozen), the node asset checker (a python stand-in answers)
-and each vendor CLI's own framing of a session (only agy's workspace files are built).
+Not covered (the fakes cannot drive it): reference-image runs, replays, the budget-stop salvage, the node
+asset checker and each vendor CLI's own framing of a session.
 """
 
 from __future__ import annotations
@@ -102,7 +85,7 @@ BRIEF = {"object_name": "DiningChair", "reference": "a Danish oak dining chair",
          "mechanism": "the legs carry the seat", "visible_from_outside": ["seat", "legs", "backrest"],
          "signature_features": ["tapered legs", "curved backrest"], "materials": ["seat: oiled oak"]}
 CONTEXT_FILES = ("AGENTS.md", "CLAUDE.md", ".antigravityignore")
-VOLATILE = frozenset({"duration_ms", "duration_s", "latency_ms", "max_wait_s", "timeout_s", "hard_deadline_s", "workspace", "data_b64"})
+VOLATILE = frozenset({"duration_ms", "duration_s", "latency_ms", "max_wait_s", "timeout_s", "hard_deadline_s", "workspace"})
 SHADER = ("void mainImage(out vec4 fragColor, in vec2 fragCoord) {{\n  vec2 uv = fragCoord / u_resolution.xy;\n"
           "  // {tag}\n  fragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);\n}}\n")
 PROGRAM = ("import moderngl  # {tag}\n\n\ndef setup(ctx, width, height):\n    return {{}}\n\n\n"
@@ -117,12 +100,11 @@ def isolated(root: Path) -> Iterator[None]:
     part of its prompt), caches and ledgers under ``root``, and the node asset checker answered in
     python (``_asset_check``)."""
     env, cwd = dict(os.environ), os.getcwd()
-    for k in [k for k in os.environ if k.startswith(("C3D_", "CV3D_"))]:
+    for k in [k for k in os.environ if k.startswith("C3D_")]:
         del os.environ[k]
     os.environ["C3D_CACHE_DIR"] = str(root / "cache")
     with contextlib.ExitStack() as stack:
         for target, name, value in ((config, "_USER_CONFIG", root / "absent.yaml"),
-                                    (config, "_LEGACY_USER_CONFIG", root / "absent.yaml"),
                                     (BudgetGuard, "elapsed_minutes", lambda self: 0.0),
                                     (ledger, "_fallback", ledger.CostLedger(root / "process.jsonl")),
                                     (scene_assets, "check_threejs_asset", _asset_check),
@@ -214,8 +196,8 @@ class ManifestServices(FakeServices):
     def tool_cards(self, track: str, language: str) -> str:
         return Services.tool_cards(self, track, language)
 
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, spatial_tools: bool) -> None:
-        Services.materialize(self, ws, agent_kind=agent_kind, contract_md=contract_md, spatial_tools=spatial_tools)
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str) -> None:
+        Services.materialize(self, ws, agent_kind=agent_kind, contract_md=contract_md)
         self.materialized.append(agent_kind)
         self.contexts.append((ws.root, {n: (ws.root / n).read_text() for n in CONTEXT_FILES if (ws.root / n).is_file()}))
 
@@ -497,7 +479,7 @@ def capture(rig: Rig) -> dict[str, str]:
     for job in rig.agent.jobs:
         items.append((f"job:{job.label}@r{job.round:02d}", {
             "prompt": norm(job.prompt), "system": norm(job.system_append),
-            "scope": _json(norm(job.model_dump(exclude={"prompt", "system_append", "env", "mcp_command"})))}))
+            "scope": _json(norm(job.model_dump(exclude={"prompt", "system_append", "env"})))}))
     for role, model in (("planner", rig.planner), ("model", rig.model)):
         items += [(f"chat:{role}:{req.label}", chat_payloads(req, norm)) for req in model.requests]
     for judge in rig.services.judges:

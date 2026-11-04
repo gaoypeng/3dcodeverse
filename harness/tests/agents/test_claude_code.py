@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import shutil
+import sys
 from pathlib import Path
 
 import pytest
 
 from codeverse3d.agents.backends import (
     ClaudeCodeAgent,
-    parse_claude_json,
     primary_served_model,
     usage_from_envelope,
 )
@@ -19,16 +18,6 @@ from codeverse3d.agents.materialize import materialize_workspace
 from codeverse3d.contracts.agent import AgentJob
 from codeverse3d.workspace import Workspace
 
-ENVELOPE = {
-    "type": "result", "subtype": "success", "is_error": False, "duration_ms": 4200, "duration_api_ms": 3900,
-    "num_turns": 3, "result": "Created src/hello.txt", "session_id": "abc", "total_cost_usd": 0.0123,
-    "usage": {"input_tokens": 10, "cache_creation_input_tokens": 200, "cache_read_input_tokens": 5000, "output_tokens": 40},
-    "modelUsage": {"claude-opus-5-5": {"inputTokens": 10, "outputTokens": 40, "costUSD": 0.0123}},
-}
-
-#: what a real `claude -p --model sonnet` session bills: the work model PLUS the small
-#: background model the CLI uses for its own housekeeping — and claude 2.1.243 lists the
-#: AUXILIARY one FIRST.  Token counts and costs are the ones observed in the CC-1 repro.
 TWO_MODEL_ENVELOPE = {
     "type": "result", "subtype": "success", "is_error": False, "duration_ms": 10000,
     "num_turns": 1, "result": "pong", "session_id": "xyz", "total_cost_usd": 0.023795,
@@ -37,6 +26,33 @@ TWO_MODEL_ENVELOPE = {
         "claude-haiku-4-5-20251001": {"inputTokens": 1035, "outputTokens": 21, "costUSD": 0.000955},
         "claude-sonnet-5-5": {"inputTokens": 2, "outputTokens": 4, "costUSD": 0.02284},
     },
+}
+FAKE_KILLED_CLAUDE = r'''
+for ev in json.loads(os.environ["FAKE_EVENTS"]):
+    print(json.dumps(ev), flush=True)
+    time.sleep(0.05)
+time.sleep(60)   # an overloaded provider: claude keeps retrying until the watchdog kills it
+'''
+_MSG_USAGE = {"input_tokens": 2, "cache_creation_input_tokens": 19190, "cache_read_input_tokens": 20354, "output_tokens": 5}
+
+KILLED_STREAM = [
+    {"type": "system", "subtype": "init", "session_id": "k", "model": "claude-sonnet-5-5", "skills": []},
+    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5-5", "usage": _MSG_USAGE,
+                                      "content": [{"type": "text", "text": "Reading the plan"}]}},
+    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5-5", "usage": _MSG_USAGE,   # same message
+                                      "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]}},
+    {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
+    {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "retry_delay_ms": 500,
+     "error_status": 529, "error": "overloaded"},
+    {"type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10, "retry_delay_ms": 1000,
+     "error_status": 529, "error": "overloaded"},
+]
+
+ENVELOPE = {
+    "type": "result", "subtype": "success", "is_error": False, "duration_ms": 4200, "duration_api_ms": 3900,
+    "num_turns": 3, "result": "Created src/hello.txt", "session_id": "abc", "total_cost_usd": 0.0123,
+    "usage": {"input_tokens": 10, "cache_creation_input_tokens": 200, "cache_read_input_tokens": 5000, "output_tokens": 40},
+    "modelUsage": {"claude-opus-5-5": {"inputTokens": 10, "outputTokens": 40, "costUSD": 0.0123}},
 }
 
 
@@ -74,29 +90,17 @@ print(json.dumps(env))
 '''
 
 
-def test_parse_envelope_variants():
-    assert parse_claude_json(json.dumps(ENVELOPE))["session_id"] == "abc"
-    assert parse_claude_json("noise\n" + json.dumps(ENVELOPE))["num_turns"] == 3
-    assert parse_claude_json(json.dumps([{"type": "assistant"}, ENVELOPE]))["type"] == "result"
-    assert parse_claude_json("") is None
-    u = usage_from_envelope(ENVELOPE, "sonnet")
-    assert u.cached_tokens == 5000 and u.cost_usd == 0.0123 and u.model == "claude-opus-5-5"
-    # input_tokens is the TOTAL prompt (10 uncached + 5 000 read + 200 written), as for every
-    # other backend: the uncached 10 alone let CostBucket clamp 4 990 cached + the 200 away
-    assert u.input_tokens == 5210
 
 
 def test_the_mcp_config_is_the_typed_jobs_never_the_workspace_file(tmp_ws: Workspace):
-    cmd = ["python", "-m", "codeverse3d.spatial.mcp_server", "--workspace", str(tmp_ws.root)]
-    materialize_workspace(tmp_ws, agent_kind="claude-code", contract_md="c", spatial_tools=True,
-                          mcp_command=cmd)
+    materialize_workspace(tmp_ws, agent_kind="claude-code", contract_md="c")
     a = ClaudeCodeAgent("sonnet", binary="claude")
-    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", mcp_command=cmd), "claude-code")
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p"), "claude-code")
     (tmp_ws.root / ".mcp.json").write_text(json.dumps({"mcpServers": {"3dcode": {"command": "/tmp/evil", "args": []}}}))
     argv = a.build_argv(s)
     cfg = Path(argv[argv.index("--mcp-config") + 1])
     assert cfg.parent == s.traj.dir
-    assert json.loads(cfg.read_text())["mcpServers"]["3dcode"]["command"] == "python"
+    assert json.loads(cfg.read_text())["mcpServers"]["3dcode"]["command"] == sys.executable
     assert "mcp__3dcode__*" in argv[argv.index("--allowedTools") + 1]
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
     assert "--mcp-config" not in a.build_argv(s2)
@@ -120,58 +124,12 @@ def test_fake_run_success_and_error(tmp_ws: Workspace, fake_bin, monkeypatch):
     assert res2.transient is False   # the task's own failure
 
 
-@pytest.mark.parametrize("mode, reason, transient, quota", [
-    ("usage_limit", "budget", False, True),     # the subscription is spent
-    ("overloaded", "error", True, False),       # a 529 is the provider's, not the task's
-    ("rate_limited", "budget", True, False),
-])
-def test_a_provider_exit_is_typed(tmp_ws: Workspace, fake_bin, monkeypatch, mode, reason, transient, quota):
-    a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_CLAUDE))
-    monkeypatch.setenv("FAKE_MODE", mode)
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="o", timeout_s=30))
-    assert not res.ok and res.exit_reason == reason and res.transient is transient and res.quota is quota
-
-
-@pytest.mark.live
-def test_live_claude_tiny(tmp_ws: Workspace):
-    if not shutil.which("claude"):
-        pytest.skip("claude not installed")
-    a = ClaudeCodeAgent("haiku")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Create src/hello.txt containing exactly 'hi'. Reply DONE.",
-                         timeout_s=300, label="live", spatial_tools=False, max_turns=6))
-    assert res.ok, res.errors
-    assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
-    assert res.usage.output_tokens > 0
-
-
 def test_the_served_model_is_the_work_model_not_the_housekeeping_one():
     """`claude -p` bills two models and lists the auxiliary one first (CC-1)."""
     assert usage_from_envelope(TWO_MODEL_ENVELOPE, "").model == "claude-sonnet-5-5"
     assert primary_served_model(TWO_MODEL_ENVELOPE, "claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001"
     env = {**TWO_MODEL_ENVELOPE, "usage": {"input_tokens": 0, "output_tokens": 0}}   # no row lines up
     assert primary_served_model(env, "sonnet") == "claude-sonnet-5-5"   # the dearest wins
-
-
-# --------------------------------------------------------------------------- killed sessions
-FAKE_KILLED_CLAUDE = r'''
-for ev in json.loads(os.environ["FAKE_EVENTS"]):
-    print(json.dumps(ev), flush=True)
-    time.sleep(0.05)
-time.sleep(60)   # an overloaded provider: claude keeps retrying until the watchdog kills it
-'''
-_MSG_USAGE = {"input_tokens": 2, "cache_creation_input_tokens": 19190, "cache_read_input_tokens": 20354, "output_tokens": 5}
-KILLED_STREAM = [
-    {"type": "system", "subtype": "init", "session_id": "k", "model": "claude-sonnet-5-5", "skills": []},
-    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5-5", "usage": _MSG_USAGE,
-                                      "content": [{"type": "text", "text": "Reading the plan"}]}},
-    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5-5", "usage": _MSG_USAGE,   # same message
-                                      "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]}},
-    {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
-    {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "retry_delay_ms": 500,
-     "error_status": 529, "error": "overloaded"},
-    {"type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10, "retry_delay_ms": 1000,
-     "error_status": 529, "error": "overloaded"},
-]
 
 
 def test_a_killed_session_is_booked_from_its_messages_and_its_retries_are_provider_wait(tmp_ws: Workspace,

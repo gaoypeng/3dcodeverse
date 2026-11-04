@@ -1,15 +1,7 @@
-"""D112: the scene refine prompt carries the placement evidence itself, as facts.
-
-Iteration 5, scene_threejs r1_07: the refine session read for its whole 15-minute window — 1.96 M input
-tokens, most of them five pages of the 3 772-line ``artifacts/scene_probe.json`` — hunting the rows
-behind "floating 0.05 m" in a scene its prompt calls outdoors, and was killed before its first write.
-"""
+"""D112 (iteration 5, r1_07): the refine prompt carries the placement rows itself; the session had burned 15 minutes paging scene_probe.json."""
 
 from __future__ import annotations
 
-import pytest
-
-from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.orchestrator import TaskGroup, build_refine_instructions
 from codeverse3d.spatial.scene_placement import placement_findings
@@ -17,9 +9,8 @@ from tests.orchestrator_tracks.test_env_stage_honest import LANGUAGES, _ctx
 from tests.scene_gates.test_placement import _row, _table
 
 
-@pytest.mark.parametrize("language", LANGUAGES)
-def test_the_refine_prompt_states_each_failed_row_its_gap_and_tolerance(tmp_path, settings, language: Language):
-    track, ctx = _ctx(tmp_path, settings, language)
+def test_the_refine_prompt_states_each_failed_row_its_gap_and_tolerance(tmp_path, settings):
+    track, ctx = _ctx(tmp_path, settings, LANGUAGES[0])
     ctx.tool_cards = "(tools)"
     gate = placement_findings(_table(*[_row(f"Boulder{i}", zone="FernHollow", gap=g) for i, g in enumerate((0.048, 0.046, 0.041))]),
                               indoor=True)

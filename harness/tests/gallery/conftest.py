@@ -1,8 +1,4 @@
-"""A synthetic multi-root run tree: two batteries, a good/failing/pending/corrupt run.
-
-Reuses ``tests.flywheel_cli.conftest.make_fake_run`` so the gallery is exercised
-against exactly the records the rest of the flywheel tests use.
-"""
+"""A synthetic multi-root run tree: two batteries, good/failing/pending/corrupt runs."""
 
 from __future__ import annotations
 

@@ -18,7 +18,6 @@ Safety model (see also ``gallery/urls.py``):
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import threading
 from dataclasses import dataclass, field
@@ -32,14 +31,13 @@ from codeverse3d.addons.gallery import viewer as viewer_page
 from codeverse3d.addons.gallery.compare import MAX_COMPARE, export_csv, parse_keys, render_compare
 from codeverse3d.addons.gallery.detail import render_broken_detail, render_detail
 from codeverse3d.addons.gallery.index import build_index, entry_from_record
-from codeverse3d.addons.gallery.model import FILTER_KEYS, RunEntry, match, sort_entries, summarize
+from codeverse3d.addons.gallery.model import FILTER_KEYS, RunEntry, match, sort_entries
 from codeverse3d.addons.gallery.page import render_index
 from codeverse3d.addons.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse3d.addons.gallery.urls import PathError, UrlMaker, content_type, safe_join
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-LOOPBACK = {"127.0.0.1", "::1", "localhost", "0:0:0:0:0:0:0:1"}
 STREAM_CHUNK = 256 * 1024
 #: /file/ content types a browser would EXECUTE: served with ``CSP: sandbox`` so an
 #: LLM-authored HTML/SVG artifact never runs same-origin with the gallery.  An
@@ -50,19 +48,6 @@ SANDBOXED_TYPES = frozenset({"text/html", "image/svg+xml"})
 
 class GalleryError(RuntimeError):
     """The server cannot start (bad host, port in use, no roots)."""
-
-
-def resolve_host(host: str | None, *, explicit: bool = False) -> str:
-    """Loopback unless the user explicitly asked for something else.
-
-    A default, an env var or a config file can never move the gallery off
-    127.0.0.1: only ``explicit=True`` (the ``--host`` flag was typed) does."""
-    if host is None or not host.strip():
-        return DEFAULT_HOST
-    h = host.strip()
-    if h not in LOOPBACK and not explicit:
-        raise GalleryError(f"refusing to bind {h}: pass --host {h} explicitly to leave loopback")
-    return h
 
 
 @dataclass
@@ -78,15 +63,6 @@ class Response:
     @classmethod
     def html(cls, markup: str, status: int = 200) -> Response:
         return cls(status=status, body=markup.encode("utf-8"))
-
-    @classmethod
-    def json(cls, payload: Any, status: int = 200) -> Response:
-        return cls(status=status, content_type="application/json; charset=utf-8",
-                   body=json.dumps(payload, default=str).encode("utf-8"))
-
-    @classmethod
-    def text(cls, text: str, status: int = 200) -> Response:
-        return cls(status=status, content_type="text/plain; charset=utf-8", body=text.encode("utf-8"))
 
     @classmethod
     def csv(cls, text: str, filename: str = "runs.csv") -> Response:
@@ -187,16 +163,12 @@ class GalleryApp:
                 self.index, self.urls, title=self.title, flt=self._filters(query),
                 sort=query.get("sort", "score"), view=query.get("view", "cards")))
         head, rest = parts[0], parts[1:]
-        if head == "healthz":
-            return Response.text("ok")
         if head == "compare":
             entries, urls, note = self._picked(query)
             return Response.html(render_compare(entries, urls, note=note))
         if head in ("export.csv", "export"):
             entries, _, _note = self._picked(query)
             return Response.csv(export_csv(entries or self.selected(query)))
-        if head == "api":
-            return self._api(rest, query)
         if head == "vendor":
             target = viewer_page.vendor_path("/".join(rest), self.runtime_js)
             if target is None:
@@ -265,19 +237,6 @@ class GalleryApp:
         i = keys.index(entry.key)
         return (ordered[i - 1] if i > 0 else None,
                 ordered[i + 1] if i + 1 < len(ordered) else None)
-
-    def _api(self, rest: list[str], query: dict[str, str]) -> Response:
-        self.refresh()
-        what = rest[0] if rest else "runs"
-        if what == "runs":
-            rows = self.selected(query)
-            return Response.json({"n": len(rows), "total": len(self.index.entries()),
-                                  "runs": [e.model_dump(mode="json") for e in rows]})
-        if what == "summary":
-            return Response.json(summarize(self.selected(query)).model_dump(mode="json"))
-        if what == "index":
-            return Response.json(self.index.model_dump(mode="json"))
-        raise FileNotFoundError("/api/" + "/".join(rest))
 
 
 def _js_type(path: Path) -> str:
@@ -360,11 +319,11 @@ def make_server(app: GalleryApp, host: str = DEFAULT_HOST, port: int = DEFAULT_P
         raise GalleryError(f"cannot bind {host}:{port}: {e}") from e
 
 
-def serve(roots: list[Path] | list[str], *, host: str | None = None, host_explicit: bool = False,
+def serve(roots: list[Path] | list[str], *, host: str | None = None,
           port: int = DEFAULT_PORT, reload: bool = False, open_browser: bool = False,
           title: str = "3dcode gallery", on_start: Any = None) -> None:
     """Build the index and serve it until Ctrl-C."""
-    bind = resolve_host(host, explicit=host_explicit)
+    bind = host or DEFAULT_HOST
     app = GalleryApp(roots, reload=reload, title=title)
     httpd = make_server(app, bind, port)
     url = f"http://{'127.0.0.1' if bind == '0.0.0.0' else bind}:{httpd.server_address[1]}/"  # noqa: S104

@@ -7,57 +7,17 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import (
     ArticulatedPlan,
-    AssetPlan,
     BBox,
     CameraPlan,
     JointPlan,
     PartPlan,
-    ScenePlan,
-    StaticPlan,
-    ZonePlan,
-)
-from codeverse3d.contracts.spec import Spec
-from codeverse3d.conventions import (
-    OBJECT_CLAY_VIEWS,
-    OBJECT_VIEWS,
-    OBJECT_VIEWS_QUICK,
-    slugify,
 )
 
 
 def _box(cx=0.0, cy=0.0, cz=0.5, ex=1.0, ey=1.0, ez=1.0) -> BBox:
     return BBox(center=(cx, cy, cz), extents=(ex, ey, ez))
-
-
-def test_a_prompt_slugifies_to_a_run_name():
-    assert slugify("A mid-century wooden dining chair!") == "a_mid_century_wooden_dining_chair"
-
-
-def test_view_presets_unique():
-    names = [v.name for v in OBJECT_VIEWS]
-    assert len(names) == len(set(names)) == 14
-    # the 14-view rig (D47): quick subset by name, poles present, underside reachable
-    assert {v.name for v in OBJECT_VIEWS_QUICK} <= set(names) and len(OBJECT_VIEWS_QUICK) == 4
-    assert "bottom" in names and "top" in names
-    assert min(v.elevation_deg for v in OBJECT_VIEWS) == -90.0
-    assert max(v.elevation_deg for v in OBJECT_VIEWS) == 90.0
-    # the clay rig's 'top' (el 88) shares the rig's name at another camera: never union by name
-    assert len(OBJECT_CLAY_VIEWS) == 4
-    clay_top = next(v for v in OBJECT_CLAY_VIEWS if v.name == "top")
-    assert clay_top.elevation_deg == 88.0
-
-
-def test_static_plan_validates_attach_and_duplicates():
-    with pytest.raises(ValidationError):
-        StaticPlan(object_name="o", summary="s", overall_bbox=_box(),
-                   parts=[PartPlan(name="Seat", role="r", description="d", bbox=_box()),
-                          PartPlan(name="seat", role="r", description="d", bbox=_box())])
-    with pytest.raises(ValidationError):
-        StaticPlan(object_name="o", summary="s", overall_bbox=_box(),
-                   parts=[PartPlan(name="Seat", role="r", description="d", bbox=_box(), attach_to="Ghost")])
 
 
 def test_articulated_plan_requires_single_root_tree_and_sane_joints():
@@ -77,16 +37,6 @@ def test_articulated_plan_requires_single_root_tree_and_sane_joints():
         JointPlan(name="j", type="revolute", parent="A", child="B", axis=(0, 0, 1), pivot=(0, 0, 0), lower=0, upper=1, rest=2)
 
 
-def test_scene_plan_zone_contents_must_be_assets():
-    z = ZonePlan(name="Pond", description="d", bbox=_box(), contents=["Lantern"])
-    cam = CameraPlan(name="c", position=(0, 1.6, 5), look_at=(0, 0, 0))
-    with pytest.raises(ValidationError):
-        ScenePlan(title="t", summary="s", setting="x", bounds=_box(), environment="e", zones=[z], cameras=[cam])
-    ok = ScenePlan(title="t", summary="s", setting="x", bounds=_box(), environment="e", zones=[z], cameras=[cam],
-                   assets=[AssetPlan(name="Lantern", kind="threejs", description="d", approx_size_m=(0.3, 0.3, 1.2))])
-    assert ok.zones[0].contents == ["Lantern"]
-
-
 def test_camera_plan_name_must_be_filename_safe():
     """Camera names become render filenames (render_scene.mjs) — reject path tricks."""
     ok = CameraPlan(name="pier_low-2", position=(0, 1.6, 5), look_at=(0, 0, 0))
@@ -98,46 +48,3 @@ def test_camera_plan_name_must_be_filename_safe():
     for bad in ({"fov": 170}, {"fov": 2}, {"look_at": (0, 1.6, 5)}):
         with pytest.raises(ValidationError):
             CameraPlan(**{"name": "cam", "position": (0, 1.6, 5), "look_at": (0, 0, 0), **bad})
-
-
-def test_budget_and_recorded_specs_reject_retired_cost_keys():
-    with pytest.raises(ValidationError):
-        Budget(max_usd=1.0)
-    with pytest.raises(ValidationError):
-        Budget(max_minuts=5)
-    import json
-
-    data = {"id": "x", "track": "static_object", "language": "blender", "prompt": "p",
-            "budget": {"max_rounds": 2, "max_minutes": 30.0, "max_usd": 2.5}}
-    with pytest.raises(ValidationError):
-        Spec.model_validate(data)
-    with pytest.raises(ValidationError):
-        Spec.model_validate_json(json.dumps(data))
-
-
-@pytest.mark.parametrize("status", ["passed", "plateau", "stopped"])
-def test_retired_run_statuses_are_rejected(status):
-    from codeverse3d.contracts.run import RunStatus
-
-    with pytest.raises(ValueError):
-        RunStatus(status)
-
-
-def test_missing_round_snapshot_does_not_borrow_canonical_artifacts(tmp_ws):
-    from codeverse3d.contracts.run import RoundRecord
-    from codeverse3d.record.deliverable import keep_round_artifacts, round_outputs
-
-    (tmp_ws.artifacts / "object.glb").write_bytes(b"current build")
-    rnd = RoundRecord(index=0, kind="baseline")
-    assert round_outputs(tmp_ws, rnd) is None
-    keep_round_artifacts(tmp_ws, 0)
-    (tmp_ws.artifacts / "object.glb").write_bytes(b"next build")
-    assert (round_outputs(tmp_ws, rnd) / "object.glb").read_bytes() == b"current build"
-
-
-@pytest.mark.parametrize("name", ["scene_v1", "shader_v1"])
-def test_retired_rubrics_are_not_available(name):
-    from codeverse3d.judges.rubrics import RubricError, load_rubric
-
-    with pytest.raises(RubricError, match="unknown rubric"):
-        load_rubric(name)

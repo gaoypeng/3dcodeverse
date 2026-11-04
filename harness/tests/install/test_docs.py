@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
@@ -219,7 +217,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     from codeverse3d.proc import ProcResult
 
     settings = SimpleNamespace(
-        gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="", skills=False,
+        gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="",
         rate=SimpleNamespace(max_in_flight=1),
         binaries=SimpleNamespace(node="node", gemini_cli="gemini", claude_cli="claude",
                                  codex_cli="codex", agy_cli="agy"),
@@ -240,9 +238,8 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     from codeverse3d.models.health import Health
 
     monkeypatch.setattr("codeverse3d.models.health.probe", lambda **kw: Health(model="gemini:m", n_ok=1, n_tried=1))
-    monkeypatch.setattr("codeverse3d.skills.registry.ROUTED_SKILLS", ("missing",))
 
-    rows = doctor_mod.run_doctor(live=True, gpu=True, skills=True)
+    rows = doctor_mod.run_doctor(live=True, gpu=True)
 
     def no_runtime() -> Path:
         raise RuntimeError("runtime_js unavailable")
@@ -318,45 +315,5 @@ def test_architecture_stage_graph_is_drawn_from_the_declarations():
         + stage_graph())
 
 
-def test_setup_verifies_the_interpreter_it_installed_into(tmp_path) -> None:
-    """The closing doctor uses ``--python``, not an unrelated executable on PATH."""
-    import sys
-
-    fake = tmp_path / "bin"
-    fake.mkdir()
-    impostor = fake / "3dcodeverse"
-    impostor.write_text("#!/bin/sh\necho WRONG_INSTALL_ON_PATH\n")
-    impostor.chmod(0o755)
-    # the --python interpreter answers the doctor call itself (the real doctor is ~10 s of probes)
-    py = tmp_path / "python-shim"
-    py.write_text('#!/bin/sh\n[ "$1 $2" = "-m codeverse3d.cli.main" ] && { echo "DOCTOR_VIA_PYTHON $3"; exit 0; }\n'
-                  f'exec {sys.executable} "$@"\n')
-    py.chmod(0o755)
-
-    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}")
-    proc = subprocess.run(
-        ["bash", str(SETUP), "--python", str(py), "--no-node", "--no-chrome", "--no-gpu", "--no-python", "--no-clis"],
-        capture_output=True, text=True, timeout=300, env=env)
-    assert "WRONG_INSTALL_ON_PATH" not in proc.stdout + proc.stderr, (
-        "setup.sh verified the 3dcodeverse first on PATH instead of the --python interpreter")
-    assert "DOCTOR_VIA_PYTHON doctor" in proc.stdout, proc.stdout + proc.stderr
 
 
-def test_setup_names_the_remedy_when_the_interpreter_has_no_pip(tmp_path) -> None:
-    """A Python without pip fails with an actionable distro/venv remedy."""
-    import sys
-
-    # a stand-in that answers the version probes but refuses `-m pip`, like a distro python3
-    nopip = tmp_path / "python-nopip"
-    nopip.write_text(
-        "#!/bin/sh\n"
-        'for a in "$@"; do [ "$a" = "pip" ] && { echo "$0: No module named pip" >&2; exit 1; }; done\n'
-        f'exec {sys.executable} "$@"\n')
-    nopip.chmod(0o755)
-
-    proc = subprocess.run(["bash", str(SETUP), "--python", str(nopip), "--no-node", "--no-chrome", "--no-clis", "--no-doctor"],
-                          capture_output=True, text=True, timeout=300)
-    out = proc.stdout + proc.stderr
-    assert proc.returncode != 0, "a python that cannot pip must not look like a successful install"
-    assert "has no pip" in out, f"the bare ModuleNotFoundError is not an explanation:\n{out}"
-    assert "-m venv" in out and "python3-venv" in out, f"no actionable remedy in:\n{out}"

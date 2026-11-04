@@ -16,7 +16,6 @@ class Events(list):
     def emit(self, name, **kw):
         self.append((name, kw))
 
-
 @pytest.fixture
 def ctx(tmp_path: Path, library_dir: Path, monkeypatch):
     root = tmp_path / "ws"
@@ -31,7 +30,6 @@ def ctx(tmp_path: Path, library_dir: Path, monkeypatch):
               single_shot=False, extra={}, events=Events(), prompt_hashes=hashes,
               record_prompt=lambda name, text: hashes.__setitem__(name, str(len(text))))
 
-
 def test_the_switch_off_means_no_files_no_events_no_record(ctx, monkeypatch):
     monkeypatch.setenv("C3D_SKILLS", "0")   # ON is the default since 2026-09-22; off must be said
     assert H.attach_for_round(ctx, index=0, kind="baseline") is None
@@ -39,7 +37,6 @@ def test_the_switch_off_means_no_files_no_events_no_record(ctx, monkeypatch):
     assert ctx.events == [] and ctx.extra == {}
     assert H.record_usage(ctx, index=0, kind="baseline") is None
     assert H.repair_pointers(ctx, BuildResult(ok=True, language="blender"), GateReport(gate="lint:blender", passed=True)) == ""
-
 
 def test_no_skill_failure_costs_the_round(ctx, monkeypatch):
     monkeypatch.setenv("C3D_SKILLS", "on")
@@ -60,11 +57,9 @@ def test_no_skill_failure_costs_the_round(ctx, monkeypatch):
     got = H.attach_for_round(ctx, index=2, kind="refine")
     assert got is not None and got.listed == []
 
-
 def _report(gate: str, kind: str) -> GateReport:
     return GateReport(gate=gate, passed=False, findings=[GateFinding(gate=gate, severity=Severity.ERROR, message="m",
                                                                      data={"kind": kind})])
-
 
 @pytest.mark.parametrize(("track", "language", "lint", "build_gates", "sheet"), [
     # the lint is found after the round attached its set: R9 points at the sheet

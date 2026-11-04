@@ -55,7 +55,7 @@ from codeverse3d.contracts.common import (
 from codeverse3d.cost.context import call_context
 from codeverse3d.cost.types import stage_for_label
 from codeverse3d.models import get_chat_model
-from codeverse3d.orchestrator import BudgetExceeded
+from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard
 from codeverse3d.proc import NULL_EVENTS, read_json_or_none
 from codeverse3d.workspace import C3D_DIR, Workspace
 
@@ -155,15 +155,15 @@ def _looks_like_code(text: str) -> bool:
     return bool(t) and ("\n" in t) and not t.lower().startswith(("i ", "here", "sure", "sorry"))
 
 
-def safe_relpath(path: str, allowed_roots: tuple[str, ...] = ALLOWED_ROOTS) -> str:
+def safe_relpath(path: str) -> str:
     """Validate a model-provided relative path: inside the workspace + allowed roots."""
     p = _clean_path(path)
     if not p or p.startswith("/") or ".." in Path(p).parts or re.match(r"^[A-Za-z]:", p):
         raise GenerationError(f"refusing to write outside the workspace: {path!r}")
     if p.endswith("/"):  # '=== FILE: src/parts/ ===' names a directory, not a file
         raise GenerationError(f"path {path!r} is a directory, not a file")
-    if not any(p.startswith(root) for root in allowed_roots):
-        raise GenerationError(f"path {p!r} is outside the allowed roots {allowed_roots}")
+    if not any(p.startswith(root) for root in ALLOWED_ROOTS):
+        raise GenerationError(f"path {p!r} is outside the allowed roots {ALLOWED_ROOTS}")
     return p
 
 
@@ -171,14 +171,13 @@ def write_files(
     ws: Workspace,
     files: dict[str, str],
     *,
-    allowed_roots: tuple[str, ...] = ALLOWED_ROOTS,
     only: Collection[str] | None = None,
     frozen: Collection[str] = (),
     on_skip: Callable[[str, str], None] | None = None,
 ) -> list[FileChange]:
     """Write parsed files under the workspace; returns git-style FileChange rows.
 
-    A block whose path is unsafe, outside ``allowed_roots`` (flash models love
+    A block whose path is unsafe, outside ``ALLOWED_ROOTS`` (flash models love
     to add README.md / package.json despite the format rule) or unwritable is
     SKIPPED — reported via ``on_skip`` — instead of aborting the whole write:
     the valid files were already paid for.
@@ -195,7 +194,7 @@ def write_files(
     changes: list[FileChange] = []
     for raw, content in files.items():
         try:
-            rel = safe_relpath(raw, allowed_roots)
+            rel = safe_relpath(raw)
         except GenerationError as e:
             if on_skip is not None:
                 on_skip(raw, str(e))
@@ -226,8 +225,7 @@ def write_files(
                 on_skip(raw, str(e))
             log.warning("skipping unwritable file from generator: %s: %s", rel, e)
             continue
-        changes.append(FileChange(path=rel, status="modified" if existed else "added",
-                                  lines_added=content.count("\n") + 1))
+        changes.append(FileChange(path=rel, status="modified" if existed else "added"))
     return changes
 
 SINGLE_SHOT_PREFIX = "single-shot:"
@@ -304,7 +302,6 @@ class GenerationTask(BaseModel):
     )
     max_output_tokens: int = 65_536   # the model's declared ceiling; unused tokens cost nothing
     timeout_s: int | None = None
-    write_roots: list[str] = Field(default_factory=lambda: ["src", "public"])
     edit_only: bool = Field(
         default=False,
         description="enforce files_hint as the only existing files this session may overwrite",
@@ -336,18 +333,7 @@ class GenerationResult(BaseModel):
     files_changed: list[FileChange] = Field(default_factory=list)
     commit: str = ""
     notes: str = ""
-    text: str = Field(default="", description="model/agent final text (truncated)")
-    transcript_path: str = ""
     label: str = ""
-    turns: int = Field(
-        default=0, description="turns the agent session(s) took, as the backend counts them"
-    )
-    sessions: int = Field(
-        default=0, description="agent sessions run for this task (retry / wrap-up count)"
-    )
-    turn_capped: bool = Field(
-        default=False, description="a session hit the turn budget and was wrapped up"
-    )
     transient: bool = Field(
         default=False,
         description="the last session died of a provider failure (AgentResult.transient), or the call "
@@ -420,9 +406,9 @@ def generate_files(
     *,
     model: Any,
     task: GenerationTask,
-    budget: Any | None = None,
+    budget: BudgetGuard | None = None,
     events: Any | None = None,
-    allowed_roots: tuple[str, ...] = ALLOWED_ROOTS,
+
 ) -> GenerationResult:
     """Single-shot API codegen: ChatRequest → envelope → files on disk (no commit)."""
     events = NULL_EVENTS if events is None else events
@@ -475,7 +461,6 @@ def generate_files(
 
     def _result(notes: str, changes: list[FileChange] | None = None) -> GenerationResult:
         return GenerationResult(ok=bool(changes), usage=usage, files_changed=changes or [], notes=notes,
-                                text=(resp.text or "")[:2000], transcript_path=str(traj / "response.md"),
                                 label=task.label)
 
     if _is_truncated(resp):
@@ -494,7 +479,7 @@ def generate_files(
         events.emit("generate.skipped_path", label=task.label, path=path, reason=reason[:200])
 
     only, frozen = _envelope_scope(ws, task)
-    changes = write_files(ws, files, allowed_roots=allowed_roots, only=only, frozen=frozen, on_skip=_skip)
+    changes = write_files(ws, files, only=only, frozen=frozen, on_skip=_skip)
     events.emit(
         "generate.done",
         label=task.label,
@@ -505,7 +490,7 @@ def generate_files(
     return _result(f"skipped out-of-root paths: {', '.join(skipped)}" if skipped else "", changes)
 
 
-def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False,
+def _deadline_preflight(budget: BudgetGuard | None, wait_s: float, *, soft: bool = False,
                         floor_s: float = 120.0) -> float:
     """Gate a session on the run clock: refuse to start past the HARD ceiling (a
     timed-out session that produced nothing bills nothing, so the accounting-driven
@@ -513,11 +498,8 @@ def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False
     30-minute session once ran 9 minutes past the ceiling, measured 2026-08-27)."""
     if budget is None:
         return wait_s
-    if hasattr(budget, "check"):
-        budget.check()
-    if hasattr(budget, "timeout_s"):
-        wait_s = budget.timeout_s(wait_s, floor_s=floor_s, soft=soft)
-    return wait_s
+    budget.check()
+    return budget.timeout_s(wait_s, floor_s=floor_s, soft=soft)
 
 
 _TRUNCATED_FINISH = {"max_tokens", "max_output_tokens", "length"}
@@ -533,7 +515,7 @@ def run_agent_task(
     agent: Any,
     task: GenerationTask,
     settings: Any | None = None,
-    budget: Any | None = None,
+    budget: BudgetGuard | None = None,
     events: Any | None = None,
 ) -> GenerationResult:
     """CodingAgent path.  ``ok`` = the agent changed files (envelope-vs-disk truth).
@@ -547,7 +529,6 @@ def run_agent_task(
     off mid-edit.  Every session — first attempt, silent-bail retry, wrap-up — is
     charged to ``budget`` as it ends, so nothing is lost when a later attempt raises."""
     events = NULL_EVENTS if events is None else events
-    before = ws.head()
     timeout = task.timeout_s or (settings or get_settings()).limits.agent_timeout_s
     # A task that chose its own window already clipped it the way its stage wanted
     # (scene.py: soft for env/zones/assets, hard for refine/rebuild) — re-clipping THAT
@@ -559,7 +540,7 @@ def run_agent_task(
     # Sessions sharing a workspace wait for a lock. An absolute deadline keeps that
     # wait, retry attempts and the CLI's activity grace inside the run's hard clock.
     hard_deadline = None
-    if budget is not None and hasattr(budget, "timeout_s"):
+    if budget is not None:
         # ``reserve_s`` (D112): a refine session cut by the run's own edge left its edits unbuilt and
         # unjudged (iteration 5, r1_09: the retry's camera fix was committed, never scored)
         hard_deadline = time.monotonic() + max(0.0, budget.timeout_s(float("inf"), floor_s=0, soft=False) - task.reserve_s)
@@ -576,7 +557,6 @@ def run_agent_task(
         timeout_s=timeout,
         hard_deadline_s=hard_deadline,
         spatial_tools=True,
-        write_roots=task.write_roots,
         round=task.round,
         kind=task.kind,
         language=language,
@@ -591,7 +571,7 @@ def run_agent_task(
     )
     acc = _SessionAcc(task=task, budget=budget)
     res = acc.run(agent, job)
-    changes = res.files_changed or _attributed_fallback(ws, task, before)
+    changes = res.files_changed
 
     if turn_capped(res):
         # the turns are gone, the money is not wasted: ask for a landing, not more work
@@ -607,7 +587,7 @@ def run_agent_task(
             update={"prompt": WRAPUP_PROMPT + prompt, "max_turns": DEFAULT_WRAPUP_TURNS}
         )
         res = acc.run(agent, wrap, wrapup=True, optional=True) or res
-        changes = res.files_changed or changes or _attributed_fallback(ws, task, before)
+        changes = res.files_changed or changes
 
     if (
         not changes
@@ -627,7 +607,7 @@ def run_agent_task(
             }
         )
         res = acc.run(agent, job2, optional=True) or res
-        changes = res.files_changed or _attributed_fallback(ws, task, before)
+        changes = res.files_changed
 
     notes = f"exit={res.exit_reason}" + (f"; errors={res.errors[:3]}" if res.errors else "")
     notes += ("; " + "; ".join(acc.errors)) if acc.errors else ""
@@ -650,12 +630,7 @@ def run_agent_task(
         usage=acc.usage,
         files_changed=changes,
         notes=notes,
-        text=(res.text or "")[:2000],
-        transcript_path=res.transcript_path,
         label=task.label,
-        turns=acc.turns,
-        sessions=acc.sessions,
-        turn_capped=acc.wrapped,
         transient=bool(res.transient),
         quota=bool(res.quota),
         stalled=bool(res.stalled) and not changes,
@@ -671,7 +646,7 @@ class _SessionAcc:
     ``.a2`` hole of docs/COST.md §6. The run's clock is checked before and after
     every session, including sessions whose vendor returned no usage."""
 
-    def __init__(self, *, task: GenerationTask, budget: Any | None):
+    def __init__(self, *, task: GenerationTask, budget: BudgetGuard | None):
         self.task = task
         self.budget = budget
         self.usage = Usage()
@@ -784,23 +759,6 @@ def _read_only(language: str) -> list[str]:
         return []
 
 
-def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> list[FileChange]:
-    """Change detection when the agent did not report its own ``files_changed``.
-
-    A whole-worktree diff claims sibling tasks' files under fan_out (a task that
-    wrote nothing looked ok because its neighbours wrote files); attribute the diff
-    to this task instead: inside its write roots, never harness-owned paths, and —
-    ``shared_tree`` — inside its ``files_hint`` (the session's own attribution came back
-    empty, and this fallback used to hand the env task the asset files right back, D111)."""
-    raw = ws.changed_files(before)  # Workspace serialises + retries the git index itself
-    try:
-        from codeverse3d.agents.cli_common import attribute_changes
-    except ImportError:  # pragma: no cover — agents package always ships with tracks
-        return raw
-    return attribute_changes(raw, write_roots=list(task.write_roots),
-                             only=task.files_hint if task.shared_tree else None)
-
-
 def generate(
     ws: Workspace,
     *,
@@ -809,7 +767,7 @@ def generate(
     agent: Any | None = None,
     model: Any | None = None,
     settings: Any | None = None,
-    budget: Any | None = None,
+    budget: BudgetGuard | None = None,
     events: Any | None = None,
 ) -> GenerationResult:
     """Dispatch to the single-shot or the coding-agent strategy by ``agent_id``.
@@ -826,7 +784,6 @@ def generate(
             task=task,
             budget=budget,
             events=events,
-            allowed_roots=tuple(r.rstrip("/") + "/" for r in task.write_roots),
         )
     if agent is None:
         from codeverse3d.agents import get_coding_agent

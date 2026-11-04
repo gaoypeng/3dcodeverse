@@ -9,17 +9,12 @@ import pytest
 
 from codeverse3d.skills.materialize import (
     BODY_FILES,
-    MARK_BEGIN,
-    MARK_END,
     SKILL_ROOTS,
     attach_skills,
     materialize_skills,
-    write_index,
 )
 from codeverse3d.skills.prompting import (
-    MANDATE,
     index_block,
-    index_tokens,
     inline_body,
     repair_pointers,
 )
@@ -33,7 +28,6 @@ def ws(tmp_path: Path) -> Path:
     for name in BODY_FILES:
         (root / name).write_text("# 3dcode workspace\n\n## Hard rules\n\n1. …\n")
     return root
-
 
 # --------------------------------------------------------------------------- files
 def test_bundles_and_the_read_control_land_in_both_roots_and_an_empty_route_sweeps_them(ws, library):
@@ -60,15 +54,7 @@ def test_bundles_and_the_read_control_land_in_both_roots_and_an_empty_route_swee
     for root in SKILL_ROOTS:
         assert not (ws / root / "c3d-part-contact").exists(), f"stale bundle survived in {root}"
 
-
 # --------------------------------------------------------------------------- prompt text
-def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
-    skills = [library["c3d-part-contact"], library["c3d-bbox-contract"]]
-    text = index_block(skills)
-    assert MANDATE in text
-    assert "c3d-part-contact" not in text, "the native loaders would double-index it"
-    assert index_tokens(skills) < 60
-
 
 def test_repair_pointers_and_the_inlined_body_come_from_the_gate_fired_skill(library):
     sel = select("static_object", "blender", "repair", signals={"multi_part": True},
@@ -82,16 +68,4 @@ def test_repair_pointers_and_the_inlined_body_come_from_the_gate_fired_skill(lib
     assert name == "c3d-part-contact" and "c3d-part-contact" in text
     assert inline_body(sel, max_tokens=0) == ("", "")
 
-
 # --------------------------------------------------------------------------- the section
-def test_the_index_is_written_into_every_body_file_and_is_replaceable(ws, library):
-    write_index(ws, "## Skills\n\nc3d-part-contact")
-    for name in BODY_FILES:
-        body = (ws / name).read_text()
-        assert MARK_BEGIN in body and MARK_END in body and "c3d-part-contact" in body
-        assert body.startswith("# 3dcode workspace")
-    write_index(ws, "## Skills\n\nc3d-bbox-contract")
-    body = (ws / "AGENTS.md").read_text()
-    assert body.count(MARK_BEGIN) == 1 and "c3d-part-contact" not in body and "c3d-bbox-contract" in body
-    write_index(ws, "")
-    assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()

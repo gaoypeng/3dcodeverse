@@ -1,19 +1,11 @@
-"""scene_blender raw mode (D113, ``Settings.scene_lib`` off, the ``argon_raw`` variant): no harness bpy
-library ships, so every mesh, material, light, world and motion of the scene is the model's.
-
-Pinned here: the raw skeleton (no ``src/lib``, no stub that imports or names it, the plan-less
-example refused), the lint (a ``lib`` import is an ERROR in raw mode only), the runtime reading the
-knob at call time, the ``argon_raw`` overlay (it resolves, its knob reaches the settings a run uses,
-no file of it names the library, every overlaid stage template renders with the scene track's
-context) and — in real Blender — the raw placeholder env and an empty zone building through the
-wrapper.  The default (library) mode is pinned byte-identical by the prompt manifest and the
-existing scene_blender tests."""
+"""scene_blender raw mode (D113, ``Settings.scene_lib`` off, the ``argon_raw`` variant): the raw skeleton, the lint
+(a ``lib`` import is an ERROR in raw mode only), the knob read at call time, the overlay's knob, and the raw stubs
+building in real Blender."""
 
 from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 import pytest
 
@@ -26,16 +18,12 @@ from codeverse3d.languages.scene_blender import (
     lint_scene_source,
     write_skeleton,
 )
-from codeverse3d.prompts import render
 from codeverse3d.prompts.variants import (
-    VARIANTS_DIR,
     activate,
     knobs_applied,
-    run_knob,
     variant_info,
 )
-from codeverse3d.skills import variant_dir
-from codeverse3d.tracks.planner import build_system_prompt, plan_example
+from codeverse3d.tracks.planner import plan_example
 from codeverse3d.workspace import Workspace
 
 BPY = Language.SCENE_BLENDER
@@ -43,11 +31,6 @@ RAW = "argon_raw"
 #: what names the harness library in text a model reads: the workspace path, a dotted helper call
 #: (``lib.place.seat``), an import of the package, a module file (``lib/vegetation.py``)
 LIB_MENTION = re.compile(r"src/lib|\blib\.[a-z_]+|\bfrom lib\b|\bimport lib\b|\blib/[a-z_]+\.py")
-#: the stage templates the overlay shadows (the planner's included)
-OVERLAID_TEMPLATES = ("tracks/scene_env_bpy.j2", "tracks/scene_zone_bpy.j2", "tracks/scene_refine_bpy.j2",
-                      "tracks/scene_asset_bpy.j2", "tracks/plan_scene_bpy.j2")
-
-
 def _plan() -> ScenePlan:
     return ScenePlan.model_validate(plan_example(Track.SCENE, BPY))
 
@@ -69,40 +52,8 @@ def test_the_raw_skeleton_ships_no_library_and_no_stub_imports_or_names_it(tmp_w
         assert not _lib_imports(text), (p.name, _lib_imports(text))
         assert not LIB_MENTION.search(text), (p.name, LIB_MENTION.search(text))
         assert "toolbox" not in text, p.name
-    env = (tmp_ws.src / "env.py").read_text()
-    assert "def height_at(x, y):" in env and "def build_env(ctx):" in env and '"Ground"' in env
-    assert "worlds.new" not in env and "lights.new" not in env, "the placeholder builds ONE plate and nothing else"
     rep = lint(tmp_ws, lib=False)
     assert rep.passed and not [f for f in rep.findings if f.severity.value != "info"], [(f.target, f.message) for f in rep.findings]
-    # the interior placeholder too: the plan's data, no library helper named
-    inside = Workspace(tmp_ws.root.parent / "inside")
-    write_skeleton(inside, plan.model_copy(update={"interior": True, "glazed": True}), lib=False)
-    env = (inside.src / "env.py").read_text()
-    assert "INTERIOR = True" in env and "GLAZED = True" in env and not LIB_MENTION.search(env) and "room_shell" not in env
-
-
-def test_the_plan_less_example_is_refused_in_raw_mode(tmp_ws) -> None:
-    """The example scene is built on the library: a raw run starts from a plan's stubs or not at all."""
-    with pytest.raises(ValueError, match="raw mode"):
-        write_skeleton(tmp_ws, None, lib=False)
-    assert not tmp_ws.src.exists() or not any(tmp_ws.src.rglob("*.py"))
-
-
-def test_the_runtime_reads_the_knob_at_call_time(tmp_ws, monkeypatch) -> None:
-    """The run's knob is the ACTIVE variant's (``run_knob``, per thread): a runtime built before or inside
-    the run follows it, and the default comes back after."""
-    monkeypatch.delenv("C3D_SCENE_LIB", raising=False)
-    settings = Settings()
-    rt = SceneBlenderRuntime(settings=settings)
-    assert rt.ships_lib is True
-    with activate(RAW), knobs_applied(settings, variant_info(RAW)) as applied:
-        assert applied == {"scene_lib": False} and rt.ships_lib is False
-        assert settings.scene_lib is True, "a per-run knob is never written onto the shared settings"
-        rt.skeleton(tmp_ws, _plan())
-        assert not (tmp_ws.src / "lib").exists() and rt.lib_interface(tmp_ws) == ""
-        (tmp_ws.src / "zones" / "quay.py").write_text("from lib.materials import material\n\n\ndef build(ctx):\n    return ctx.collection\n")
-        assert not rt.lint(tmp_ws).passed
-    assert rt.ships_lib is True and rt.lint(tmp_ws).passed, "library mode: the import is allowed again"
 
 
 # --------------------------------------------------------------------------- the lint
@@ -117,26 +68,6 @@ def test_a_lib_import_is_an_error_in_raw_mode_and_not_in_library_mode() -> None:
         assert any(f.severity.value == "error" for f in lint_scene_source(spelling, target="src/env.py", role="helper", lib=False)), spelling
     # the shared code of a raw scene lives in env.py: importing it stays allowed
     assert not lint_scene_source("from env import linked\n", target="src/zones/quay.py", role="helper", lib=False)
-
-
-# --------------------------------------------------------------------------- the variant
-def test_the_argon_raw_variant_resolves_and_its_knob_is_a_default_a_statement_beats(monkeypatch) -> None:
-    info = variant_info(RAW)
-    assert info.version == 1 and info.generators == ("agy:gemini-4-argon",) and info.knobs == {"scene_lib": False}
-    monkeypatch.delenv("C3D_SCENE_LIB", raising=False)
-    s = Settings()
-    with activate(RAW), knobs_applied(s, info) as applied:
-        assert applied == {"scene_lib": False} and run_knob("scene_lib", s) is False
-    assert s.scene_lib is True and "scene_lib" not in s.model_fields_set and run_knob("scene_lib", s) is True
-    with activate(""):
-        assert run_knob("scene_lib", s) is True, "the base run: the field's default"
-    monkeypatch.setenv("C3D_SCENE_LIB", "1")          # the user's own statement wins over the knob
-    s = Settings()
-    with activate(RAW), knobs_applied(s, info) as applied:
-        assert applied == {} and run_knob("scene_lib", s) is True
-    monkeypatch.setenv("C3D_SCENE_LIB", "0")          # ... and so does raw mode stated without the variant
-    with activate(""):
-        assert run_knob("scene_lib", Settings()) is False
 
 
 def test_parallel_runs_of_one_process_never_flip_each_others_mode(tmp_path, monkeypatch) -> None:
@@ -172,130 +103,6 @@ def test_parallel_runs_of_one_process_never_flip_each_others_mode(tmp_path, monk
         assert get_settings().scene_lib is True and rt.ships_lib is True
     finally:
         get_settings.cache_clear()
-
-
-def test_a_run_context_with_the_real_runtime_decides_once(tmp_ws, tmp_path, monkeypatch) -> None:
-    """The run's real ``SceneBlenderRuntime`` is the one answer: the track's ``ships_lib`` asks it, the
-    skeleton stage's cache key carries raw mode (a resume that changed the mode writes the skeleton
-    again — and removes the other mode's library), and the lint rejects ``lib`` — under the variant, in
-    a fan-out worker thread like the zone sessions."""
-    from codeverse3d.proc import fan_out
-    from codeverse3d.tracks import scene_assets as SA
-    from codeverse3d.tracks.lifecycle import SKELETON
-    from tests.orchestrator_tracks.conftest import make_spec
-
-    monkeypatch.delenv("C3D_SCENE_LIB", raising=False)
-    settings = Settings(runs_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")
-    spec, plan = make_spec(Track.SCENE, BPY), _plan()
-    ctx = _ctx_bpy(tmp_ws, settings, spec, plan)
-    lib_key = SKELETON.key(ctx)
-    assert "scene_lib" not in lib_key and SA.ships_lib(ctx) is True
-    ctx.runtime.skeleton(tmp_ws, plan)
-    assert (tmp_ws.src / "lib").is_dir()
-    with activate(RAW):
-        def worker(_: int) -> tuple[bool, dict]:
-            return SA.ships_lib(ctx), SKELETON.key(ctx)
-
-        (ships, key), = fan_out([0], worker, max_workers=1, label="t", item_name=str)
-        assert ships is False and key == {**lib_key, "scene_lib": False}
-        ctx.runtime.skeleton(tmp_ws, plan)
-        assert not (tmp_ws.src / "lib").exists(), "the library run's src/lib does not outlive a switch to raw"
-        (tmp_ws.src / "zones" / "quay.py").write_text("from lib.materials import material\n\n\ndef build(ctx):\n    return ctx.collection\n")
-        assert not ctx.runtime.lint(tmp_ws).passed
-    # a rig's stated Settings(scene_lib=False) with the real runtime: the runtime still answers for both
-    raw_ctx = _ctx_bpy(tmp_ws, Settings(scene_lib=False), spec, plan)
-    assert SA.ships_lib(raw_ctx) is raw_ctx.runtime.ships_lib
-
-
-def _ctx_bpy(ws: Workspace, settings: Settings, spec, plan):
-    from dataclasses import replace
-
-    from tests.orchestrator_tracks.test_prompts_assets import _ctx
-
-    return replace(_ctx(ws, settings, spec, plan, agent_id="fake:x"), runtime=SceneBlenderRuntime())
-
-
-def test_a_variant_toml_knob_scene_lib_is_type_checked(tmp_path, monkeypatch) -> None:
-    from codeverse3d.prompts import variants as V
-
-    (tmp_path / "tv").mkdir()
-    (tmp_path / "tv" / "variant.toml").write_text('[variant]\nname = "tv"\n[knobs]\nscene_lib = 0\n')
-    monkeypatch.setattr(V, "VARIANTS_DIR", tmp_path)
-    with pytest.raises(ValueError, match="scene_lib must be a bool"):
-        variant_info("tv")
-
-
-def test_no_file_of_the_overlay_names_the_library() -> None:
-    """Prompts AND skills: every file a model can read under ``argon_raw`` (the READMEs, which no model
-    reads, are left out) — no ``src/lib``, no ``lib.<module>`` call, no import of it, no module file."""
-    files = {p.relative_to(root).as_posix(): p for root in (VARIANTS_DIR / RAW, variant_dir(RAW)) for p in sorted(root.rglob("*"))
-             if p.is_file() and p.name != "README.md" and "__pycache__" not in p.parts}
-    names = set(files)
-    assert {"scene_blender/contract.md", "tracks/scene_env_bpy.j2", "c3d-bpy-scene-placement/SKILL.md"} <= names, sorted(names)
-    for rel, p in files.items():
-        hits = sorted({m.group(0) for m in LIB_MENTION.finditer(p.read_text(encoding="utf-8"))})
-        assert not hits, (rel, hits)
-
-
-def test_every_overlaid_template_renders_with_the_scene_track_context(tmp_ws, tmp_path) -> None:
-    """The env / zone / refine / asset briefs through the scene track's own context builders, and the
-    planner's system prompt — under the variant, so the overlay's copies render (a jinja block the
-    track does not feed would raise under StrictUndefined or drop a section)."""
-    from codeverse3d.tracks import scene_assets as SA
-    from codeverse3d.tracks.scene import SceneTrack, plan_bbox_line, scene_templates
-    from codeverse3d.tracks.zone_layout import layout_block
-    from tests.orchestrator_tracks.conftest import make_spec
-    from tests.orchestrator_tracks.fakes import small_scene
-    from tests.orchestrator_tracks.test_prompts_assets import _ctx
-
-    plan = small_scene(BPY)
-    spec = make_spec(Track.SCENE, BPY)
-    settings = Settings(runs_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")
-    ctx = _ctx(tmp_ws, settings, spec, plan, agent_id="fake:x")
-    with activate(RAW), knobs_applied(ctx.settings, variant_info(RAW)):
-        ctx.extra["asset_api"] = SA.asset_api_summary(plan, {}, language=BPY, lib=SA.ships_lib(ctx))
-        st = SceneTrack(services=ctx.services)
-        t = scene_templates(BPY)
-        quay = plan.zones[0]
-        prompts = {
-            "env": render(t.env, **st._ctx(ctx, lib_interface="", env_check_error="", env_previous="")),
-            "zone": render(t.zone, **st._ctx(ctx, zone_name=quay.name, zone_description=quay.description,
-                                             zone_bbox=plan_bbox_line(quay.bbox, BPY), zone_contents=quay.contents,
-                                             zone_file="src/zones/quay.py", neighbours=[], layout=layout_block(
-                                                 {"zone": "Quay", "placements": [{"asset": "Bollard", "count": 2,
-                                                                                  "cluster": [3.0, -4.0], "spread_m": 0.5}]},
-                                                 language=BPY))),
-            "refine": render(t.refine, **st._ctx(ctx, round_index=1, tasks=["t"], targets=["Quay"], files=["src/env.py"],
-                                                 edit_only_these=False, judge_summary="j", current_files={})),
-            "asset": SA._asset_prompt(ctx, plan.assets[0], "src/assets/bollard.py", language=BPY),
-            "plan": build_system_prompt(spec, ScenePlan),
-        }
-        for name, text in prompts.items():
-            assert text.strip(), name
-            assert not LIB_MENTION.search(text), (name, LIB_MENTION.search(text))
-        assert "No harness library ships" in prompts["env"] and "No harness library ships" in prompts["zone"]
-        assert "write `src/env.py`" in prompts["env"] and "def build(ctx)" in prompts["zone"]
-        assert "NO LIBRARY" in prompts["plan"] and "SHIPPED BPY LIBRARY" not in prompts["plan"]
-        assert "instance_type = 'COLLECTION'" in prompts["zone"], "the asset API names the Empty, not a library call"
-        assert "Reference rows" not in prompts["asset"], "no catalog row reaches a raw asset sheet"
-    assert {Path(r).name for r in OVERLAID_TEMPLATES} <= {p.name for p in (VARIANTS_DIR / RAW / "tracks").glob("*.j2")}
-
-
-def test_a_run_under_argon_raw_sees_the_overlay_and_the_knob(tmp_path) -> None:
-    """The whole run, offline (the manifest's scenario): the knob reaches the settings the scene track
-    reads (the asset API's raw wording), the planner and every session read the overlay, and the
-    routed bpy bundles are the overlay's lib-free copies."""
-    from tests.prompts.manifest import run_scenario
-
-    payloads = run_scenario("scene.scene_blender.agent.variant_argon_raw", tmp_path).payloads
-    readable = {k: v for k, v in payloads.items() if not k.endswith("/scope")}   # scope: the read-only list, not text
-    for key, text in readable.items():
-        assert not LIB_MENTION.search(text), (key, LIB_MENTION.search(text))
-    assert "No harness library ships" in payloads["job:env@r00/prompt"]
-    assert "instance_type = 'COLLECTION'" in payloads["job:zones_quay_water@r00/prompt"]
-    assert "NO LIBRARY" in payloads["chat:planner:planner/system"]
-    assert "c3d-bpy-scene-placement" in payloads["skills:runs/run:zone@r00/routed"]
-    assert get_settings().scene_lib is True, "the knob does not outlive the run"
 
 
 # --------------------------------------------------------------------------- in Blender

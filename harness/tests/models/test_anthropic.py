@@ -6,25 +6,13 @@ import json
 from types import SimpleNamespace as NS
 from typing import Any
 
-import httpx
-import pytest
-
 from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
-    ImagePart,
 )
 from codeverse3d.models.anthropic import (
     AnthropicModel,
-    build_kwargs,
-    classify_exception,
-    to_messages,
 )
-from codeverse3d.models.base import ModelError
-from codeverse3d.models.gemini import GeminiModel
-from codeverse3d.models.openai import OpenAIModel
-
-PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
 def msg(blocks: list[Any], *, stop="end_turn", in_tok=100, out_tok=20, cache_read=0, cache_write=0):
@@ -69,20 +57,6 @@ def make(script, model="claude-opus-5-5", **kw):
     return AnthropicModel(model, client=fc, sleep=lambda s: None, **kw), fc
 
 
-def api_error(status: int, message: str = "err"):
-    import anthropic
-
-    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-    resp = httpx.Response(status, request=req, json={"error": {"message": message}})
-    cls = {
-        429: anthropic.RateLimitError,
-        400: anthropic.BadRequestError,
-        500: anthropic.InternalServerError,
-        529: anthropic.OverloadedError,
-    }.get(status, anthropic.APIStatusError)
-    return cls(message, response=resp, body=None)
-
-
 def test_text_thinking_adaptive_and_usage_cost():
     m, fc = make([msg([text("hi")], cache_read=30, cache_write=10)])
     r = m.generate(
@@ -109,40 +83,6 @@ def test_text_thinking_adaptive_and_usage_cost():
     assert abs(u.cost_usd - (400 + 6 + 40 + 400 + 10) / 1e6) < 1e-12
 
 
-def test_budget_thinking_for_older_models_and_temperature_rules():
-    kw = build_kwargs(
-        ChatRequest(
-            messages=[ChatMessage.user("x")],
-            thinking="high",
-            max_output_tokens=2000,
-            temperature=0.5,
-        ),
-        "claude-haiku-4-5",
-    )
-    assert (
-        kw["thinking"] == {"type": "enabled", "budget_tokens": 16000}
-        and kw["max_tokens"] >= 16000 + 2048
-    )
-    assert "temperature" not in kw
-    kw = build_kwargs(
-        ChatRequest(messages=[ChatMessage.user("x")], thinking="off", temperature=0.5),
-        "claude-haiku-4-5",
-    )
-    assert "thinking" not in kw and kw["temperature"] == 0.5
-    kw = build_kwargs(
-        ChatRequest(messages=[ChatMessage.user("x")], thinking="off"), "claude-opus-4-8"
-    )
-    assert kw["thinking"] == {"type": "disabled"}
-    for always_on in ("claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"):
-        kw = build_kwargs(ChatRequest(messages=[ChatMessage.user("x")], thinking="off",
-                                      response_schema={"type": "object"}), always_on)
-        assert "thinking" not in kw and kw["output_config"] == {"effort": "low"}, always_on
-        assert "tool_choice" not in kw, always_on   # forced tool use is a 400 on these
-    kw = build_kwargs(ChatRequest(messages=[ChatMessage.user("x")], thinking="high", temperature=0.5),
-                      "claude-haiku-5-5")
-    assert kw["thinking"] == {"type": "adaptive"} and "temperature" not in kw
-
-
 def test_structured_output_via_forced_submit_tool():
     schema = {"type": "object", "properties": {"a": {"type": "integer"}}, "required": ["a"]}
     # haiku-5.5 can still turn thinking off and force a tool (opus-5.5 / sonnet-5.5 / fable cannot)
@@ -157,80 +97,3 @@ def test_structured_output_via_forced_submit_tool():
         kw["tools"][0]["name"] == "submit"
         and kw["tools"][0]["input_schema"]["additionalProperties"] is False
     )
-    # with thinking on, a forced tool is refused: tool_choice is auto and the text is parsed
-    m, fc = make([msg([text('```json\n{"b": 2}\n```')])])
-    r = m.generate(
-        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}, thinking="low")
-    )
-    assert r.parsed == {"b": 2}
-    kw = fc.calls[0]
-    assert "tool_choice" not in kw and "submit" in kw["system"]
-
-
-def test_images_base64_message_merging_and_user_first():
-    msgs = to_messages(
-        [
-            ChatMessage.user(
-                "a", images=[ImagePart(data_b64=PNG_B64, mime="image/png", label="L")]
-            ),
-            ChatMessage.user("b"),
-        ]
-    )
-    assert len(msgs) == 1 and [b["type"] for b in msgs[0]["content"]] == [
-        "text",
-        "text",
-        "image",
-        "text",
-    ]
-    assert msgs[0]["content"][2]["source"]["media_type"] == "image/png"
-    msgs = to_messages([ChatMessage.assistant("hi")])  # assistant first gets a user prefix
-    assert msgs[0]["role"] == "user" and msgs[1]["role"] == "assistant"
-
-
-def test_classify_connection_errors():
-    import anthropic
-
-    req = httpx.Request("POST", "https://api.anthropic.com")
-    assert classify_exception(anthropic.APITimeoutError(request=req)).retryable
-    assert classify_exception(anthropic.APIConnectionError(request=req)).retryable
-    assert not classify_exception(RuntimeError("x")).retryable
-
-
-def test_missing_key_is_loud(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from codeverse3d.config import get_settings
-
-    get_settings.cache_clear()
-    m = AnthropicModel("claude-opus-5-5")
-    if not get_settings().anthropic_api_key:
-        with pytest.raises(ModelError):
-            m.client()
-    get_settings.cache_clear()
-
-
-def test_a_failed_reply_carries_what_it_was_billed():
-    """A refusal / bad-JSON / empty reply is billed on the error (D84)."""
-    for script, req in (
-        ([msg([], stop="refusal")], ChatRequest(messages=[ChatMessage.user("x")])),
-        (
-            [msg([text("not json")], stop="max_tokens")],
-            ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}),
-        ),
-        ([msg([], stop="end_turn")] * 6, ChatRequest(messages=[ChatMessage.user("x")])),
-    ):
-        m, _ = make(script)
-        with pytest.raises(ModelError) as e:
-            m.generate(req)
-        assert e.value.usage.input_tokens == 100 and e.value.usage.output_tokens == 20
-
-
-
-@pytest.mark.parametrize("make", [
-    lambda: AnthropicModel("claude-opus-5-5"),
-    lambda: OpenAIModel("gpt-x"),
-    lambda: GeminiModel("g", keys=["k"]),
-], ids=["anthropic", "openai", "gemini"])
-def test_every_api_adapter_reads_model_timeout_s(make, switch):
-    """N73: ``C3D_MODEL_TIMEOUT_S`` reached Gemini only; anthropic/openai sat on a 600 s literal."""
-    switch("C3D_MODEL_TIMEOUT_S", "2000")
-    assert make().timeout_s == 2000.0

@@ -27,7 +27,6 @@ metadata:
 {body}
 """
 
-
 def write_bundle(root: Path, name: str, *, description: str = "", evidence: str = "measured",
                  body: str = "Rule one: prove it with `measure`.", references: dict[str, str] | None = None) -> Path:
     d = root / name
@@ -41,7 +40,6 @@ def write_bundle(root: Path, name: str, *, description: str = "", evidence: str 
         (d / "references" / rel).write_text(text)
     return d
 
-
 @pytest.fixture
 def library_dir(tmp_path: Path) -> Path:
     """A library holding every skill the route table can name, all `measured`."""
@@ -50,7 +48,6 @@ def library_dir(tmp_path: Path) -> Path:
     for name in ROUTED_SKILLS:
         write_bundle(root, name)
     return root
-
 
 @pytest.fixture
 def library(library_dir: Path) -> dict:

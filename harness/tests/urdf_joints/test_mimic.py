@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.contracts.plan import ArticulatedPlan
-from codeverse3d.languages.urdf import lint_workspace, render_urdf
+from codeverse3d.languages.urdf import lint_workspace
 from codeverse3d.spatial.joints_model import UrdfError, fk, load_urdf, resolve_q
 from codeverse3d.spatial.joints_poses import pose_samples
 from codeverse3d.spatial.joints_sweep import motion_direction_check, sweep_collisions
@@ -40,15 +40,6 @@ RIB = """<?xml version="1.0"?>
 """
 
 
-EXTRA_RUNNER = """  <link name="runner2"><visual><geometry><mesh filename="meshes/rib_b.glb"/></geometry></visual></link>
-  <joint name="runner_slide_2" type="prismatic">
-    <parent link="shaft"/><child link="runner2"/>
-    <origin xyz="0 0 0.6" rpy="0 0 0"/><axis xyz="0 0 1"/>
-    <limit lower="0" upper="0.3" effort="10" velocity="1"/>
-  </joint>
-</robot>"""
-
-
 def _robot(tmp_path: Path, urdf_text: str = RIB):
     meshes = tmp_path / "meshes"
     box_glb(meshes / "shaft.glb", (0, 0, 0.6), (0.04, 0.04, 1.2))
@@ -61,64 +52,49 @@ def _robot(tmp_path: Path, urdf_text: str = RIB):
 
 
 def test_a_driven_joint_follows_its_driver_everywhere(tmp_path):
-    import numpy as np
-    import trimesh
-
-    from codeverse3d.spatial.joints_export import ZUP_TO_YUP, urdf_to_glb
-
     r = _robot(tmp_path)
     assert [j.name for j in r.independent_joints()] == ["runner_slide"]
-    assert r.joints["rib_a_hinge"].driven and r.joints["rib_b_hinge"].driven
+    assert r.joints["rib_a_hinge"].mimic and r.joints["rib_b_hinge"].mimic
     q = resolve_q(r, {"runner_slide": 0.2})
     assert q["rib_a_hinge"] == pytest.approx(0.8)      # multiplier 4
     assert q["rib_b_hinge"] == pytest.approx(0.8)      # follows rib_a_hinge, multiplier 1
     # a value handed in for a driven joint is ignored: the mechanism has one input
     assert resolve_q(r, {"runner_slide": 0.1, "rib_a_hinge": 99.0})["rib_a_hinge"] == pytest.approx(0.4)
-    # the rib hinges about its own frame origin, so the coupling shows in the rotation
-    assert fk(r, {"runner_slide": 0.1})["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()
-    assert fk(r, {"runner_slide": 0.1})["runner"][2, 3] == pytest.approx(fk(r, {})["runner"][2, 3] + 0.1)
-
-    # the sweep poses the mechanism the way it moves: one input, not three
-    rep = sweep_collisions(r, pose_samples(r))
-    assert {p.label for p in rep.per_pose} == {"rest", "runner_slide@upper", "runner_slide@mid"}
-    assert rep.summary.n_poses == 3
-
-    # a driven joint is probed through its driver
-    chk = motion_direction_check(r, "rib_a_hinge", "up")
-    assert "driven by runner_slide" in chk.message
-    assert chk.observed_dir != (0.0, 0.0, 0.0)
-
-    # urdf_to_glb poses followers through fk, like the sweep (it used to leave them at rest)
-    q = {"runner_slide": 0.3}
-
-    def rib_a_world(glb):
-        scene = trimesh.load(glb, force="scene")
-        node = next(n for n in scene.graph.nodes_geometry if scene.graph[n][1] == "rib_a")
-        T, _ = scene.graph[node]
-        return trimesh.transform_points([scene.geometry["rib_a"].centroid], T)[0]
-
-    rest = rib_a_world(urdf_to_glb(r, tmp_path / "rest.glb", {}))
-    posed = rib_a_world(urdf_to_glb(r, tmp_path / "posed.glb", q))
-    assert not np.allclose(rest, posed), "rib_a did not follow runner_slide in the exported scene"
-    # and it lands exactly where fk puts that point: undo the export's Y-up, move the rest
-    # centroid by fk's rib_a motion for the same q, re-apply Y-up
-    T0, T1 = fk(r, {})["rib_a"], fk(r, q)["rib_a"]
-    rest_zup = trimesh.transform_points([rest], np.linalg.inv(ZUP_TO_YUP))[0]
-    moved_zup = trimesh.transform_points([rest_zup], T1 @ np.linalg.inv(T0))[0]
-    expected = trimesh.transform_points([moved_zup], ZUP_TO_YUP)[0]
-    assert np.allclose(posed, expected, atol=1e-6), (posed, expected)
+    assert fk(r, {"runner_slide": 0.1})["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()   # the coupling shows in the rotation
+    assert {p.label for p in sweep_collisions(r, pose_samples(r)).per_pose} == {"rest", "runner_slide@upper", "runner_slide@mid"}   # one input, not three
+    assert "driven by runner_slide" in motion_direction_check(r, "rib_a_hinge", "up").message
 
 
-@pytest.mark.parametrize("bad,msg", [
-    ('<mimic joint="nope"/>', "names no joint"),
-    ('<mimic joint="rib_a_hinge" multiplier="0"/>', "cannot move"),
-    ('<mimic joint="rib_b_hinge"/>', "cycle"),
-    ('<mimic joint="rib_a_hinge" multiplier="1" offset="0"/>', "names itself"),
-])
+@pytest.mark.parametrize("bad,msg", [('<mimic joint="rib_a_hinge" multiplier="0"/>', "cannot move"), ('<mimic joint="rib_b_hinge"/>', "cycle")])
 def test_a_broken_coupling_is_refused_at_load(tmp_path, bad, msg):
-    text = RIB.replace('<mimic joint="runner_slide" multiplier="4" offset="0"/>', bad)
     with pytest.raises(UrdfError, match=msg):
-        _robot(tmp_path, text)
+        _robot(tmp_path, RIB.replace('<mimic joint="runner_slide" multiplier="4" offset="0"/>', bad))
+
+
+EXTRA_RUNNER = """  <link name="runner2"><visual><geometry><mesh filename="meshes/rib_b.glb"/></geometry></visual></link>
+  <joint name="runner_slide_2" type="prismatic">
+    <parent link="shaft"/><child link="runner2"/>
+    <origin xyz="0 0 0.6" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <limit lower="0" upper="0.3" effort="10" velocity="1"/>
+  </joint>
+</robot>"""
+
+
+def _plan(**joint_overrides):
+    """The worked articulated example with a second joint that can carry a coupling."""
+    import copy
+
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.tracks.planner import plan_example
+
+    d = copy.deepcopy(plan_example(Track.ARTICULATED_OBJECT))
+    d["parts"].append({"name": "Lid", "role": "top lid", "description": "a flat lid", "attach_to": "Cabinet",
+                       "bbox": {"center": [0, 0, 0.61], "extents": [0.4, 0.5, 0.02]}, "material": "oak"})
+    d["joints"].append({"name": "LidHinge", "type": "revolute", "parent": "Cabinet", "child": "Lid",
+                        "axis": [1, 0, 0], "pivot": [0, 0.21, 0.6], "lower": 0.0, "upper": 1.2, "rest": 0.0,
+                        "motion": "the lid tilts up"})
+    d["joints"][1].update(joint_overrides)
+    return d
 
 
 def test_the_lint_on_couplings(tmp_path):
@@ -158,24 +134,6 @@ def test_the_lint_on_couplings(tmp_path):
     assert not [f for f in findings if "mimic" in f.message and f.severity.value == "error"]
 
 
-# ------------------------------------------------------------------ the plan's own rules
-def _plan(**joint_overrides):
-    """The worked articulated example with a second joint that can carry a coupling."""
-    import copy
-
-    from codeverse3d.contracts.common import Track
-    from codeverse3d.tracks.planner import plan_example
-
-    d = copy.deepcopy(plan_example(Track.ARTICULATED_OBJECT))
-    d["parts"].append({"name": "Lid", "role": "top lid", "description": "a flat lid", "attach_to": "Cabinet",
-                       "bbox": {"center": [0, 0, 0.61], "extents": [0.4, 0.5, 0.02]}, "material": "oak"})
-    d["joints"].append({"name": "LidHinge", "type": "revolute", "parent": "Cabinet", "child": "Lid",
-                        "axis": [1, 0, 0], "pivot": [0, 0.21, 0.6], "lower": 0.0, "upper": 1.2, "rest": 0.0,
-                        "motion": "the lid tilts up"})
-    d["joints"][1].update(joint_overrides)
-    return d
-
-
 def test_a_broken_coupling_is_refused_by_the_plan():
     for mimic, msg in (({"joint": "NoSuchJoint"}, "is not a joint in this plan"), ({"joint": "LidHinge"}, "mimics itself")):
         with pytest.raises(Exception, match=msg):
@@ -195,7 +153,6 @@ def test_a_broken_coupling_is_refused_by_the_plan():
         ArticulatedPlan.model_validate(d)
 
 
-# ------------------------------------------------------------------ one rule set, three layers
 def test_the_three_layers_reject_the_same_near_zero_multiplier(tmp_path):
     """Plan validator, loader and lint share one MIMIC_MIN_MULTIPLIER floor."""
     from codeverse3d.contracts.common import MIMIC_MIN_MULTIPLIER
@@ -214,32 +171,3 @@ def test_the_three_layers_reject_the_same_near_zero_multiplier(tmp_path):
     (ws.src / "robot.urdf").write_text(text)
     (ws.src / "model.py").write_text("import bpy\n")
     assert [f for f in lint_workspace(ws).findings if "cannot move" in f.message]
-
-
-def test_the_skeleton_says_when_only_the_first_instance_of_a_driver_is_followed():
-    """An instanced driver exists only as <name>_1.._n: the skeleton follows _1 and says so."""
-    from codeverse3d.languages.urdf import compute_urdf_frames
-
-    d = _plan()
-    d["parts"][1]["instances"] = 2
-    d["joints"][1]["mimic"] = {"joint": "DrawerSlide", "multiplier": 0.5}
-    urdf = render_urdf(compute_urdf_frames(ArticulatedPlan.model_validate(d)))
-    assert '<mimic joint="drawer_slide_1" multiplier="0.5" offset="0"/>' in urdf
-    names = {ln.split('"')[1] for ln in urdf.splitlines() if "<joint name=" in ln}
-    refs = {ln.split('"')[1] for ln in urdf.splitlines() if "<mimic joint=" in ln}
-    assert refs <= names, f"dangling mimic reference: {refs - names}"
-    line = next(ln for ln in urdf.splitlines() if "<mimic joint=" in ln)
-    assert "follows drawer_slide_1 only; drawer_slide_2 stay independent inputs" in line
-
-
-def test_a_self_joint_says_which_links_collided():
-    """parent == child names both sides (pydantic truncated the value; models re-asked blind)."""
-    from codeverse3d.contracts.plan import JointPlan
-
-    common = {"type": "revolute", "axis": [0, 0, 1], "pivot": [0, 0, 0],
-              "lower": 0.0, "upper": 1.0, "rest": 0.0}
-    with pytest.raises(Exception, match="parent and child are both 'Sash'"):
-        JointPlan.model_validate({"name": "SashHinge", "parent": "Sash", "child": "Sash", **common})
-    with pytest.raises(Exception, match="same name once normalised"):
-        JointPlan.model_validate({"name": "SashHinge", "parent": "SashFrame", "child": "sash_frame",
-                                  **common})

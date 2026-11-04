@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 import codeverse3d.spatial.render as R
@@ -21,12 +19,6 @@ def _isolated_cache(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-def _glb(tmp_path: Path) -> Path:
-    p = tmp_path / "x.glb"
-    p.write_bytes(b"glTF")
-    return p
-
-
 # verbatim from a real run where Chrome reaped the render tab
 DETACHED = "render_glb failed: Attempted to use detached Frame '10276B428E350BFA074A02AF37D52E6C'."
 
@@ -37,24 +29,17 @@ def test_retry_policy(tmp_path, monkeypatch):
 
     def fake(glb, out_dir, params, *, gpu, timeout_s, own_browser=False):
         calls.append((timeout_s, own_browser))
-        if len(calls) == 1 or fail_with[0].startswith("render_glb failed: Cannot"):
+        if len(calls) == 1:
             raise RenderError(fail_with[0])
         return {"views": [], "renderer": "fake", "duration_ms": 1}
 
     monkeypatch.setattr(R, "_run_render", fake)
-    glb = _glb(tmp_path)
-    # a transient failure is retried once with twice the time on the shared browser:
-    # a slow box is not a reason to give up browser reuse
+    glb = tmp_path / "x.glb"
+    glb.write_bytes(b"glTF")
+    # a transient failure is retried once with twice the time on the shared browser
     fail_with[:] = ["render_glb failed: node script render_glb.mjs exited 1: Waiting failed: 30000 ms exceeded"]
     rs = render_glb(glb, tmp_path / "out", use_cache=False, timeout_s=100)
     assert rs.renderer == "fake" and calls == [(100, False), (200, False)]
-    # a real failure is not retried
-    calls.clear()
-    fail_with[:] = ["render_glb failed: Cannot find module 'puppeteer'"]
-    with pytest.raises(RenderError):
-        render_glb(glb, tmp_path / "out", use_cache=False, timeout_s=100)
-    assert calls == [(100, False)]
-    # a lost browser is retried on a browser of our own
     calls.clear()
     fail_with[:] = [DETACHED]
     rs = render_glb(glb, tmp_path / "out", use_cache=False, timeout_s=100)

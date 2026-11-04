@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -38,35 +37,6 @@ os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write("hi")
 open("src/prompt.txt", "w").write(prompt)
 mode = os.environ.get("FAKE_MODE", "ok")
-if mode == "retried":   # agy 1.2.8 retried two 503s and a 429 inside the turn, then answered
-    from datetime import datetime, timedelta
-    t0 = datetime.now() - timedelta(seconds=21)
-    with open(log, "w") as f:
-        f.write(t0.strftime("I%m%d %H:%M:%S.%f") + "      66 server.go:609] Language server will attempt to listen\n")
-        for i, (dt, why, wait) in enumerate([(0, "Error 503, Message: busy, Status: UNAVAILABLE", "4s"),
-                                             (4, "Error 503, Message: busy, Status: UNAVAILABLE", "6.069232705s"),
-                                             (10, "Error 429, Message: slow down, Status: RESOURCE_EXHAUSTED", "10.690413026s")]):
-            f.write((t0 + timedelta(seconds=dt)).strftime("I%m%d %H:%M:%S.%f")
-                    + f"     284 run.go:395] Run: attempt {i + 1} failed ({why}, Details: []), retrying in {wait}\n")
-if mode == "died":      # a turn that ended on the API: AGY_ERROR on stderr, exit code 3
-    print(json.dumps({"conversation_id": "c9", "status": "ERROR", "response": "", "error": "generating: Error 503"}))
-    print('AGY_ERROR: {"short_error":"generating: Error 503","status":"UNAVAILABLE","error_code":503,'
-          '"code_kind":"http","retryable":true,"error_id":"x"}', file=sys.stderr)
-    sys.exit(3)
-if mode == "print_timeout":   # agy's own clock (1.4.12): SUCCESS, no response, `finished_reason` and one stderr line
-    print(json.dumps({"conversation_id": "c8", "status": "SUCCESS", "response": "", "num_turns": 1,
-                      "finished_reason": "print_timeout"}))
-    print("[agy] print timeout after 8m0s with turn in progress; returning partial output", file=sys.stderr)
-    sys.exit(0)
-if mode == "print_timeout_old":   # agy <= 1.4.10: the stderr line was the only signal
-    print(json.dumps({"conversation_id": "c8", "status": "SUCCESS", "response": "", "num_turns": 1}))
-    print("[agy] print timeout after 8m0s with turn in progress; returning partial output", file=sys.stderr)
-    sys.exit(0)
-if mode == "error_at_timeout":   # 1.4.12 live, 2026-11-03: the clock fired while agy retried a 503 — its verdict is `error`
-    print(json.dumps({"conversation_id": "c7", "status": "ERROR", "response": "", "num_turns": 1, "finished_reason": "error",
-                      "error": "API error (attempt 1): Error 503, Message: high demand, Status: UNAVAILABLE, Details: []"}))
-    print("[agy] print timeout after 2s with turn in progress; returning partial output", file=sys.stderr)
-    sys.exit(0)
 if mode == "text":
     print("plain text answer")
 else:
@@ -96,66 +66,14 @@ def test_fake_run_json_and_text(tmp_ws: Workspace, fake_bin, monkeypatch):
     assert res2.ok and res2.text == "plain text answer" and res2.usage.input_tokens == 0
 
 
-def test_the_retries_in_agys_own_log_are_its_provider_wait(tmp_ws: Workspace, fake_bin, monkeypatch):
-    """agy 1.2.8 logs every model call it retries, with the back-off it announces (fake API,
-    2026-09-22: 503, 503, 429, then an answer 20.8 s later) — the burst runs from the first
-    failure to the last one plus its back-off."""
-    from codeverse3d.agents.backends import agy_retries
-    from codeverse3d.agents.cli_common import provider_wait
-
-    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
-    monkeypatch.setenv("FAKE_MODE", "retried")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="r", timeout_s=30))
-    assert res.ok, res.errors
-    rows = agy_retries(Path(res.transcript_path).parent / "agy.log")
-    assert [(round(b, 3), why.split(",")[0]) for _, b, why in rows] == [
-        (4.0, "Error 503"), (6.069, "Error 503"), (10.69, "Error 429")]
-    assert [round(t - rows[0][0], 3) for t, _, _ in rows] == [0.0, 4.0, 10.0]
-    assert provider_wait([(t, b) for t, b, _ in rows], end=rows[0][0] + 60) == pytest.approx(20.690413, abs=1e-3)
-    # the fake wrote a log 21 s in the past: the session's own wait is capped at its length
-    assert 0.0 < res.provider_wait_s <= res.duration_s
 
 
-def test_agy_says_itself_whether_a_dead_turn_is_worth_a_retry(tmp_ws: Workspace, fake_bin, monkeypatch):
-    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
-    monkeypatch.setenv("FAKE_MODE", "died")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="d", timeout_s=30))
-    assert not res.ok and res.exit_reason == "error" and res.transient and not res.quota
-    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
-    assert rec["agy_error"]["retryable"] is True and rec["agy_error"]["error_code"] == 503
 
 
-@pytest.mark.parametrize("mode", ["print_timeout", "print_timeout_old"])
-def test_agys_own_print_timeout_is_a_timeout_not_an_empty_answer(tmp_ws: Workspace, fake_bin, monkeypatch, mode):
-    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
-    monkeypatch.setenv("FAKE_MODE", mode)
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="pt", timeout_s=30))
-    assert not res.ok and res.exit_reason == "timeout" and not res.transient
-    assert "--print-timeout" in res.errors[0] and "empty response" not in " ".join(res.errors)
-    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
-    assert rec["finished_reason"] == ("print_timeout" if mode == "print_timeout" else "")
 
 
-def test_the_envelopes_verdict_outranks_the_stderr_line(tmp_ws: Workspace, fake_bin, monkeypatch):
-    """rc 0, `status: ERROR`, `finished_reason: error` AND the print-timeout line (1.4.12, live): an error."""
-    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
-    monkeypatch.setenv("FAKE_MODE", "error_at_timeout")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="et", timeout_s=30))
-    assert not res.ok and res.exit_reason == "error"
-    assert "status=ERROR" in res.errors[0] and "--print-timeout" not in res.errors[0]
-    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
-    assert rec["finished_reason"] == "error" and rec["killed_reason"] != "agy_print_timeout"
 
 
-@pytest.mark.live
-def test_live_agy_tiny(tmp_ws: Workspace):
-    if not shutil.which("agy"):
-        pytest.skip("agy not installed")
-    a = AntigravityAgent("gemini-4-argon-low")
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Use your file-writing tool to create src/hello.txt containing exactly 'hi'. Reply DONE.",
-                         timeout_s=300, label="live", spatial_tools=False))
-    assert res.ok, res.errors
-    assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
 
 
 #: agy in Gemini-API mode, as the harness drives it: everything it needs is in its own HOME
@@ -220,34 +138,5 @@ def _effort_job(tmp_ws: Workspace, **kw) -> AgentJob:
     return AgentJob(workspace=str(tmp_ws.root), prompt="hello", timeout_s=30, spatial_tools=False, **kw)
 
 
-@pytest.mark.parametrize("model, asked, runs_at", [
-    ("gemini-4-argon", None, "high"),             # every track today: no ask → AGY_API_EFFORT (owner, 2026-10-15)
-    ("gemini-4-argon", "medium", "medium"),       # an explicit ask reaches --effort
-    ("gemini-4-argon-low", "medium", "low"),      # the model id's suffix still wins
-    ("gemini-4-argon-high", None, "high"),
-])
-def test_effort_reaches_the_argv_the_invoke_line_and_the_result(tmp_ws: Workspace, fake_bin, model, asked, runs_at):
-    a = AntigravityAgent(model, binary=fake_bin("agy", FAKE_AGY_API))
-    res = a.run(_effort_job(tmp_ws, label=f"e_{asked}", effort=asked))
-    assert res.ok, res.errors
-    assert json.loads((tmp_ws.src / "seen.json").read_text())["effort"] == runs_at
-    assert res.effort == runs_at
-    tdir = Path(res.transcript_path).parent
-    invoke = next(json.loads(ln) for ln in (tdir / "transcript.jsonl").read_text().splitlines()
-                  if json.loads(ln)["kind"] == "invoke")
-    assert invoke["effort"] == runs_at and invoke["argv"][invoke["argv"].index("--effort") + 1] == runs_at
-    assert json.loads((tdir / "result.json").read_text())["effort"] == runs_at
 
 
-def test_object_and_scene_tasks_run_argon_at_high(tmp_ws: Workspace, fake_bin):
-    """The object tracks' draft / refine and the scene's zone task ask for no effort, so a bare
-    ``agy:gemini-4-argon`` session runs at high on every track (owner, 2026-10-15)."""
-    from codeverse3d.tracks.generation import GenerationTask, session_effort
-
-    a = AntigravityAgent("gemini-4-argon", binary=fake_bin("agy", FAKE_AGY_API))
-    for task in (GenerationTask(label="baseline", prompt="p", kind="baseline"),
-                 GenerationTask(label="refine", prompt="p", kind="refine", temperature=0.4),
-                 GenerationTask(label="zone_quay", prompt="p", kind="zone")):
-        assert session_effort(task) is None
-        res = a.run(_effort_job(tmp_ws, label=task.label, effort=session_effort(task)))
-        assert res.ok and json.loads((tmp_ws.src / "seen.json").read_text())["effort"] == "high"

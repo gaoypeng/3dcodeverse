@@ -54,8 +54,7 @@ export const m = new THREE.ShaderMaterial({ fragmentShader: frag });"""
 
 
 def test_the_static_audit_rules():
-    """Every rule the shader preflight reports before (or without) a GPU compile, with its
-    severity and its file line — the finding an agent is handed."""
+    """Every rule the shader preflight reports before (or without) a GPU compile, with its severity and its file line — the finding an agent is handed."""
     got = audit_all({
         "include": (INCLUDE, {}), "out_plus": (OUT_PLUS_FRAGCOLOR, {}),
         "utime_bare": (UTIME_BARE, {}), "utime_ok": (UTIME_OK, {}),
@@ -82,16 +81,3 @@ def test_the_static_audit_rules():
     assert "no_fog" not in kinds(got["fog_unused"])
     assert "no_fog" in kinds(got["fog_used"])
     assert "no_fog" not in kinds(got["fog_opt_out"])
-
-
-def test_locate_source_line_maps_to_file_and_line():
-    files = [
-        {"file": "src/shaders/a.js", "text": "const f = `\nvoid main() {\n  float x = undefinedThing;\n}`;"},
-        {"file": "src/shaders/b.js", "text": "const g = `\nvoid main() { gl_FragColor = vec4(1.0); }`;"},
-    ]
-    body = f"""
-import {{ locateSourceLine }} from './lib/glsl_audit.mjs';
-console.log(JSON.stringify(locateSourceLine({json.dumps(files)}, 'float x = undefinedThing;')));
-"""
-    loc = run_node_json(body)
-    assert loc == {"file": "src/shaders/a.js", "line": 3, "candidates": 1}

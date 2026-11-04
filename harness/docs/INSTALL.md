@@ -87,7 +87,7 @@ Moving to another Python later is the same four-line change (`requires-python`, 
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
 | **Blender 5.2 LTS** | optional | 5.2.2 LTS (`~/.local/bin/blender-5.2`) | `blender`, `urdf_blender` and `scene_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
 | **EGL-capable GPU stack** | optional | ANGLE / D3D12 / RTX 5090 Laptop | headless Chrome falls back to **SwiftShader** and moderngl to **llvmpipe** — everything still renders, just several times slower; no correctness change |
-| C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl`, `manifold3d` ship wheels for cp310–cp313 x86_64) |
+| C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl` ships wheels for cp310–cp313 x86_64) |
 
 Disk: ~100 MB for `runtime_js/node_modules`, ~640 MB for puppeteer's Chrome,
 ~1 GB for a Blender tarball, plus whatever `runs/` and `~/.cache/codeverse3d` grow
@@ -138,7 +138,7 @@ openai.
 | `cad` | cadquery | the `cadquery` language (`--language cadquery`) |
 | `urdf` | yourdfpy, scipy | the `articulated_object` track: URDF parse/validate + joint math |
 | `graphics` | moderngl | the `graphics` track (`glsl_shader`, `opengl_python`) — headless GL rendering in `spatial/gl_render.py` |
-| `mesh` | shapely, networkx, manifold3d, matplotlib | `cross_section` (filled area / hollow ratio from shapely, the image drawn by the judge-slice renderer in matplotlib), mesh split / connectivity (networkx), joint-sweep boolean intersections (`trimesh.boolean(engine="manifold")`), judge cross-section slices on gate-ERROR rounds (`judge_slices`, D48; without the extra the judge logs a warning and sends the pre-D48 payload) |
+| `mesh` | shapely, networkx, matplotlib | `cross_section` (filled area / hollow ratio from shapely, the image drawn by the judge-slice renderer in matplotlib), mesh split / connectivity (networkx), judge cross-section slices on gate-ERROR rounds (`judge_slices`, D48; without the extra the judge logs a warning and sends the pre-D48 payload) |
 | `mcp` | mcp | `3dcode mcp` / `codeverse3d.spatial.mcp_server`, i.e. spatial tools for the `agy` (Gemini-API mode), `claude-code` and `codex` backends |
 | `flywheel` | pyarrow | `3dcode flywheel export --pack` (parquet shards). A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning. |
 | `all` | all of the above | — |
@@ -147,8 +147,7 @@ openai.
 `graphics`, `mesh`, `mcp` and `flywheel` are lazily imported: without them the
 harness installs and starts fine and only the named feature raises `ImportError`
 at the moment you use it.  `3dcodeverse doctor` lists every one of these modules
-under `python deps` and only tolerates the optional-extra modules — `manifold3d`,
-`shapely` (mesh), `yourdfpy` (urdf), `mcp`, `moderngl` (graphics), `cadquery` (cad) —
+under `python deps` and only tolerates the optional-extra modules — `shapely` (mesh), `yourdfpy` (urdf), `mcp`, `moderngl` (graphics), `cadquery` (cad) —
 as WARN, naming the extra to install; everything else missing is a FAIL.
 
 Run the offline test suite to confirm the install:
@@ -514,8 +513,8 @@ that the keys work end to end):
 | row | status | meaning | fix |
 |---|---|---|---|
 | `python` | — | interpreter running the CLI | if it is not the interpreter you installed into, your shell is picking up another `3dcodeverse` — `which -a 3dcodeverse`, reinstall with `python -m pip install -e harness` |
-| `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`, `manifold3d`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
-| `python deps` | WARN | only optional-extra modules missing (`manifold3d` / `shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
+| `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
+| `python deps` | WARN | only optional-extra modules missing (`shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
 | `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export C3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
 | `blender cycles` | WARN | Cycles sees no CUDA device | scene_blender's judged frames render on the CPU (~3.3x slower, measured) — fine without an NVIDIA GPU; on WSL2 install the vendor WSL GPU driver.  The row also names the judged-frame engine / samples / device (`C3D_RENDER__BLENDER_*`) |
 | `blender eevee` | WARN / FAIL | the EEVEE smoke frame ran on llvmpipe (software GL), or did not render | only matters with `C3D_RENDER__BLENDER_ENGINE=eevee`: the harness runs EEVEE under the Mesa d3d12 env (`spatial/gl_render.GPU_ENV`); llvmpipe here means that env found no GPU.  `--no-gpu` skips the smoke frame |
@@ -538,13 +537,6 @@ that the keys work end to end):
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `in-flight slots` | WARN | every machine-wide slot is held right now (`busy n/n`), or `max_in_flight=0` switched the cap off | busy: other harness processes are mid-call and new calls wait for a slot (docs/COST.md §23) — nothing to fix unless it stays full; a slot is held only while a call is out and a killed process frees its slots at once.  Off: unset `C3D_MAX_IN_FLIGHT` |
 | `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight and this process's 429/5xx counts |
-| `skills switch` | WARN | skills are disabled (`C3D_SKILLS=0`) | skills are on by default since 2026-09-22; unset `C3D_SKILLS` unless this is an A/B control arm |
-| `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse3d/skills/<name>/` |
-| `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
-| `skills overlay` | FAIL | one row per shipped variant (`argon: …`): its skills overlay (`codeverse3d/skills/variants/<name>/`) has an invalid bundle or a `routes.toml` that does not type-check | fix the bundle `3dcode skills validate` names as `<variant>/<bundle>`, or the `routes.toml` row it names |
-| `skills variants` | FAIL | a shipped `variant.toml` under `codeverse3d/prompts/variants/` does not parse | fix that file (`[variant] name` = its directory name, an integer `version`); until then no overlay is checked |
-| `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
-| `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
 
 ---
 
@@ -629,7 +621,7 @@ and the `# Added by Antigravity CLI installer` PATH lines in `~/.bashrc` / `~/.p
 | component | version | where |
 |---|---|---|
 | python | 3.13.9 (the one supported version — §2.1) | `~/miniconda3/bin/python` |
-| pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · manifold3d 3.5.2 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
+| pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
 | node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `~/miniconda3/bin/node` |
 | runtime_js deps | three 0.182.0 · puppeteer 24.43.1 (99 packages, 97 MB) | `harness/runtime_js/node_modules` |
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |

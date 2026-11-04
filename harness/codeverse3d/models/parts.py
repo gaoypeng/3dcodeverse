@@ -10,19 +10,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.config import Settings, get_settings
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse3d.models.base import ModelError
 
 
 def image_bytes(part: ImagePart) -> tuple[bytes, str]:
-    """Return ``(raw_bytes, mime)`` for an ``ImagePart`` (path or base64).
-    Raises ``ModelError(retryable=False)`` when the part carries no data."""
-    if part.data_b64:
-        try:
-            return base64.b64decode(part.data_b64), part.mime or "image/png"
-        except (ValueError, TypeError) as exc:
-            raise ModelError(f"ImagePart.data_b64 is not valid base64: {exc}") from exc
+    """Return ``(raw_bytes, mime)`` for an ``ImagePart``.
+    Raises ``ModelError(retryable=False)`` when the part has no readable path."""
     if part.path:
         p = Path(part.path)
         if not p.is_file():
@@ -31,7 +26,7 @@ def image_bytes(part: ImagePart) -> tuple[bytes, str]:
         if not mime or mime == "image/png" and p.suffix.lower() not in ("", ".png"):
             mime = mimetypes.guess_type(p.name)[0] or "image/png"
         return p.read_bytes(), mime
-    raise ModelError("ImagePart has neither path nor data_b64")
+    raise ModelError("ImagePart has no path")
 
 
 def image_b64(part: ImagePart) -> tuple[str, str]:
@@ -57,10 +52,7 @@ def message_blocks(msg: ChatMessage, *, text: Callable[[str], Any], image: Calla
 
 def default_timeout_s() -> float:
     """``Settings.model_timeout_s`` — the per-attempt HTTP ceiling every API adapter uses."""
-    try:
-        return float(get_settings().model_timeout_s)
-    except Exception:  # pragma: no cover - settings must never break a model call
-        return float(Settings.model_fields["model_timeout_s"].default)
+    return float(get_settings().model_timeout_s)
 
 
 class SdkModel:

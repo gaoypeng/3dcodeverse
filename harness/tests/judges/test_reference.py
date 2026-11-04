@@ -2,7 +2,7 @@ import pytest
 
 from codeverse3d.contracts.spec import ReferenceImage
 from codeverse3d.judges.rubrics import load_rubric
-from codeverse3d.judges.vlm_judge import ReferenceJudge, ReferenceJudgeError, iou_to_score
+from codeverse3d.judges.vlm_judge import ReferenceJudge, iou_to_score
 from tests.judges.conftest import FakeChatModel, draw_chair, good_reply, image_parts
 
 REF = load_rubric("reference")
@@ -32,7 +32,3 @@ def test_reference_judge_measures_silhouette_and_adds_reference_images(judge_inp
     assert "silhouette_match" not in req.response_schema["$defs"]["Criteria"]["properties"]
 
 
-def test_reference_judge_requires_reference(judge_input, cache_dir):
-    model = FakeChatModel([good_reply(REF, ["A1", "A2"], 0.8)])
-    with pytest.raises(ReferenceJudgeError):
-        ReferenceJudge("fake:fake-1", chat_model=model, silhouette_fn=lambda a, b: {"iou": 1.0}, cache_dir=cache_dir).judge(judge_input)

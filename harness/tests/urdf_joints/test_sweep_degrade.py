@@ -9,9 +9,7 @@ from codeverse3d.spatial.render import RenderError
 
 
 def test_pose_render_failure_keeps_the_measured_sweep(tmp_path, monkeypatch):
-    """art_verify architect_lamp, 2026-08-26: render_glb.mjs timed out after 330 s inside
-    render_poses with three articulated runs sharing the browser; gates() raised and the run
-    was recorded failed before its first round."""
+    """Regression: a render_glb timeout inside render_poses made gates() raise and failed the run before round 0."""
     import codeverse3d.tracks.articulated_object as art
     from codeverse3d.contracts.artifacts import GateReport
     from codeverse3d.spatial import joints_export, joints_sweep

@@ -35,7 +35,6 @@ class Overlap(BaseModel):
     a: str
     b: str
     depth_m: float = Field(description="max distance of a penetrating surface point from the other surface")
-    volume_m3: float | None = None
     approx: bool = Field(default=False, description="depth estimated on non-watertight meshes")
     rigid: bool = Field(default=False, description="only fixed joints between the links: the overlap is structural "
                                                    "(a weld), identical in every pose — judged with the rest policy")
@@ -65,13 +64,11 @@ class SweepSummary(BaseModel):
     n_links: int
     max_penetration_m: float = 0.0
     worst_pose: str = ""
-    worst_pair: tuple[str, str] | None = None
     rest_max_penetration_m: float = 0.0
     overlapping_poses: list[str] = Field(default_factory=list)
     floating_links: list[str] = Field(default_factory=list, description="floating in ANY sampled pose")
     floating_at_rest: list[str] = Field(default_factory=list)
     link_islands: dict[str, int] = Field(default_factory=dict)
-    backend: str = "fcl"
 
 
 class SweepReport(BaseModel):
@@ -104,7 +101,6 @@ def sweep_collisions(
     *,
     tol_m: float = 0.002,
     contact_gap_m: float = CONTACT_GAP_M,
-    volumes: bool = True,
     hinge_clearance_m: float = 0.01,
 ) -> SweepReport:
     """Collide every link pair in every pose.  Overlaps deeper than ``tol_m``
@@ -146,8 +142,7 @@ def sweep_collisions(
                         depth, approx = collide.penetration(ba, bb)
                         if round(depth, 4) > tol_m:  # 0.1 mm: float32 mesh coordinates carry no finer meaning
                             overlaps.append(
-                                Overlap(a=a, b=b, depth_m=round(depth, 6), approx=approx, rigid=rigid,
-                                        volume_m3=collide.intersection_volume(ba, bb) if volumes else None)
+                                Overlap(a=a, b=b, depth_m=round(depth, 6), approx=approx, rigid=rigid)
                             )
                 else:
                     dist = collide.distance(ba, bb)
@@ -180,12 +175,12 @@ def sweep_collisions(
 
 
 def _summarise(per_pose: list[PoseReport], n_links: int, islands: dict[str, int]) -> SweepSummary:
-    s = SweepSummary(n_poses=len(per_pose), n_links=n_links, link_islands=islands, backend=collide.backend_name())
+    s = SweepSummary(n_poses=len(per_pose), n_links=n_links, link_islands=islands)
     floating_any: set[str] = set()
     for pr in per_pose:
         for o in pr.overlaps:
             if o.depth_m > s.max_penetration_m:
-                s.max_penetration_m, s.worst_pose, s.worst_pair = o.depth_m, pr.label, (o.a, o.b)
+                s.max_penetration_m, s.worst_pose = o.depth_m, pr.label
             if pr.label == "rest" or o.rigid:  # structural overlaps count as rest penetration
                 s.rest_max_penetration_m = max(s.rest_max_penetration_m, o.depth_m)
         if pr.overlaps:
@@ -215,7 +210,7 @@ def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clea
                           f"shrink/move one of '{o.a}', '{o.b}' so they touch (≤ {report.tol_m*1000:.0f} mm) instead of overlapping."
                           if at_rest else
                           f"Moving joint(s) {sorted(pr.q)} drives '{o.a}' into '{o.b}'. Either move the pivot/axis in robot.urdf so the part swings/slides clear, shrink the limits, or carve the clearance in model.py."),
-                data={"kind": "penetration", "pose": pr.q, "depth_m": o.depth_m, "volume_m3": o.volume_m3},
+                data={"kind": "penetration", "pose": pr.q, "depth_m": o.depth_m},
             ))
         for f in pr.floating:
             fixed = f.joint_type == "fixed"

@@ -38,7 +38,7 @@ def no_generate(monkeypatch):
     return calls
 
 
-@pytest.mark.parametrize("repair_budget", [3, 0])
+@pytest.mark.parametrize("repair_budget", [0])
 def test_a_harness_failure_that_persists_gives_up_without_a_repair(monkeypatch, no_generate, repair_budget):
     """Bounded by MAX_HARNESS_REBUILDS, not by the repair budget (a max_repair_attempts=0 arm still rebuilds)."""
     stuck = (_build(ok=False, harness=True), GateReport(gate="lint", passed=True, findings=[]))

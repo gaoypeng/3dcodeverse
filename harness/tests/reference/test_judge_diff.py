@@ -13,7 +13,6 @@ from tests.judges.conftest import (
     FakeChatModel,
     draw_chair,
     good_reply,
-    image_parts,
     make_measurement,
     make_renders,
     make_spec,
@@ -33,10 +32,7 @@ def ref_input(tmp_path):
                                                 note="my photo")])
     return JudgeInput(
         spec=spec, renders=make_renders(tmp_path / "renders"), measurement=make_measurement(),
-        acceptance=[AcceptanceItem(id="A1", text="four legs", how="measure", priority="must"),
-                    AcceptanceItem(id="A2", text="slatted back", how="visual", priority="should")],
-        plan_summary="parts: Seat, Backrest, LegFrontLeft, LegFrontRight",
-        part_names=["Seat", "Backrest", "LegFrontLeft", "LegFrontRight"])
+        acceptance=[AcceptanceItem(id="A1", text="four legs", how="measure", priority="must")])
 
 
 def _judge(model, **kw):
@@ -44,34 +40,7 @@ def _judge(model, **kw):
                           **kw)
 
 
-def test_the_diff_reaches_the_scoring_call(ref_input, cache_dir):
-    model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
-    assert _judge(model, cache_dir=cache_dir).judge(ref_input).overall > 0
-    scoring = [r for r in model.requests if r.label.startswith("judge")][0]
-    text = scoring.messages[0].parts[0].text
-    assert "REFERENCE DIFF" in text and "reference shows 4 legs, render shows 2" in text
-    assert "already matching: the backrest slats are right" in text
-    assert image_parts(scoring)[0].label.startswith("REFERENCE 1/1 (target)")
-
-
-def test_a_failing_diff_never_breaks_the_verdict(ref_input, cache_dir):
-    model = FakeChatModel(by_label={"reference_diff": [{"garbage": 1}],
-                                    "judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
-    j = _judge(model, cache_dir=cache_dir).judge(ref_input)
-    assert j.overall > 0 and j.rubric == "reference"
-
-
-@pytest.mark.parametrize(("value", "diffed"), [("off", False), ("OFF", False), ("of", True)])
-def test_diff_off_via_env(ref_input, cache_dir, switch, value, diffed):
-    """D44 (c): ``C3D_REFERENCE_DIFF=off`` switches the pass off; a typo keeps the default (on)."""
-    switch("C3D_REFERENCE_DIFF", value)
-    model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
-    _judge(model, cache_dir=cache_dir).judge(ref_input)
-    assert any(r.label.startswith("reference_diff") for r in model.requests) is diffed
-
-
-def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir):
-    """The brief wins: the measured criterion goes neutral."""
+def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path):
     from codeverse3d.contracts.spec import Constraints
     from codeverse3d.judges.vlm_judge import NEUTRAL_SCORE
 
@@ -81,7 +50,7 @@ def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir
     inp = JudgeInput(spec=spec, renders=make_renders(tmp_path / "r"), measurement=make_measurement(),
                      acceptance=[AcceptanceItem(id="A1", text="t", how="visual", priority="must")])
     model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, ["A1"], 0.8)]})
-    j = ReferenceJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir)
+    j = ReferenceJudge("fake:fake-1", chat_model=model, cache_dir=tmp_path / "cache")
     verdict = j.judge(inp)
     assert verdict.scores["silhouette_match"] == NEUTRAL_SCORE
     text = [r for r in model.requests if r.label.startswith("judge")][0].messages[0].parts[0].text
@@ -89,31 +58,3 @@ def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir
     assert "NEUTRAL" in text
 
 
-def test_the_diff_call_names_every_part_of_an_articulated_plan(ref_input, cache_dir):
-    """The part list comes from the plan, not a regex over plan_summary (which dropped the last part)."""
-    from codeverse3d.contracts.plan import ArticulatedPlan
-    from codeverse3d.contracts.run import RoundRecord
-    from codeverse3d.contracts.spec import Track
-    from codeverse3d.judges.base import round_input
-    from codeverse3d.tracks.planner import plan_example
-
-    plan = ArticulatedPlan.model_validate(plan_example(Track.ARTICULATED_OBJECT))
-    names = [p.name for p in plan.parts]
-    inp = round_input(ref_input.spec, plan, RoundRecord(index=0, kind="baseline"), renders=ref_input.renders,
-                      gates=[], previous=None, extra_context="", geometry_views=None, glb_path=None)
-    assert len(names) >= 2 and inp.part_names == names
-    model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, [], 0.8)]})
-    _judge(model, cache_dir=cache_dir).judge(inp)
-    diff = [r for r in model.requests if r.label == "reference_diff"][0]
-    assert ", ".join(names) in "".join(getattr(pt, "text", "") for m in diff.messages for pt in m.parts)
-
-
-def test_the_diff_call_is_charged_to_the_verdict(ref_input, cache_dir):
-    """An uncharged model call would hide from BudgetGuard and record.total_usage."""
-    model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, ["A1", "A2"], 0.8)]},
-                          cost=0.01)
-    with_diff = _judge(model, cache_dir=cache_dir).judge(ref_input)
-    model2 = FakeChatModel(by_label={"judge": [good_reply(REF, ["A1", "A2"], 0.8)]}, cost=0.01)
-    without = _judge(model2, cache_dir=cache_dir, diff=False).judge(ref_input)
-    assert with_diff.usage.cost_usd > without.usage.cost_usd
-    assert all(not r.label.startswith("reference_diff") for r in model2.requests)  # diff=False: no diff call

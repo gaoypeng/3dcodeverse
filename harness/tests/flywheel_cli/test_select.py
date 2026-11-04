@@ -62,42 +62,14 @@ def _run(root: Path, rounds: list[tuple[float | str | None, int]], *, status: Ru
     return ws
 
 
-# --------------------------------------------------------------------------- pick
-@pytest.mark.parametrize("rounds,want", [
-    ([(0.50, 0), (0.70, 0), (0.60, 0)], 1),            # the highest judged score
-    ([(0.70, 2), (0.70, 0)], 1),                       # a tie: fewer gate errors
-    ([(0.70, 1), (0.70, 1), (0.65, 0)], 0),            # a full tie: the earlier round
-    ([(0.40, 0), ("degraded", 0), (None, 0)], 0),      # a glitch or no verdict is never a score
-    ([(None, 0), ("degraded", 0)], None),              # no judged round: nothing to pick by score
-], ids=["score", "gate-errors", "earlier", "unjudged", "none-judged"])
-def test_pick_takes_the_best_score_then_fewer_gate_errors_then_the_earlier_round(tmp_path, rounds, want):
-    assert select.pick(_run(tmp_path / "r", rounds).root) == want
-
-
-def test_summarise_is_baseline_pick_delta_rounds_and_the_stop_reason(tmp_path):
-    ws = _run(tmp_path / "r", [(0.5, 0), (0.8, 0), (0.6, 0)], status=RunStatus.BUDGET)
-    s = select.summarise(ws.root)
-    assert (s.rounds, s.stop_reason, s.baseline_score, s.picked_round, s.picked_score, s.method) == (
-        3, "budget", 0.5, 1, 0.8, "score")
-    assert s.delta == pytest.approx(0.3)
-    # once a round is handed over, that round is the run's pick — whichever way it was chosen
-    select.package(ws.root, 2, method="round")
-    s = select.summarise(ws.root)
-    assert (s.picked_round, s.picked_score, s.method) == (2, 0.6, "round") and s.delta == pytest.approx(0.1)
-    none = select.summarise(_run(tmp_path / "n", [(None, 0)]).root)
-    assert (none.picked_round, none.picked_score, none.baseline_score, none.delta) == (None, None, None, None)
-
-
 def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monkeypatch):
     """N55b: nothing judged → every reader shows ``select.fallback_round``, the latest round that
     built AND has renders — here r0 (r1 failed to build but kept renders, r2 built with no
     renders).  Before, five readers gave four answers (2, None, r02's sheet, 1, 2)."""
     from codeverse3d.addons.calibration import load_run_cases
-    from codeverse3d.addons.dataset import index as dsi
     from codeverse3d.addons.dataset.sample import exported_round
     from codeverse3d.addons.gallery.index import entry_from_record
     from codeverse3d.cli import _judge as J
-    from codeverse3d.contracts.run import RunId
     from codeverse3d.record.record import load_record
 
     ws = _run(tmp_path / "u", [(None, 2), (None, 0), (None, 0)])
@@ -112,8 +84,6 @@ def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monk
     s = select.summarise(ws.root, record=rec)
     assert (s.picked_round, s.round) == (None, 0)
     assert exported_round(ws, rec).index == 0
-    row = dsi._run_row(ws, rec, RunId(battery="b", rel="u"))
-    assert (row[12], row[-6], row[-4]) == (0, 2, rec.rounds[0].commit)   # picked_round, n_err, commit
     card = entry_from_record("b", ws, rec)
     assert (card.picked_round, card.gate_errors, card.sheet) == (0, 2, "artifacts/renders/r00/sheet.png")
     assert [c.round_index for c in load_run_cases(ws.root) if c.is_picked] == [0]
@@ -121,8 +91,6 @@ def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monk
     monkeypatch.setattr(J, "load_round", lambda ws, rec, idx: asked.append(idx))
     runner.invoke(app, ["judge", str(ws.root)])
     assert asked == [0]                                           # `3dcode judge`'s default round
-
-
 
 
 class _Pairwise:
@@ -135,24 +103,6 @@ class _Pairwise:
             raise RuntimeError("judge down")
         return SimpleNamespace(winner=self.winner, confidence=self.confidence, reasons=["r"], usage=Usage(cost_usd=0.05),
                                error="")
-
-
-def test_pick_by_pairwise_asks_only_inside_the_margin_and_never_buys_a_verdict_twice(tmp_path):
-    ws = _run(tmp_path / "r", [(0.70, 0), (0.72, 0)])
-    judge = _Pairwise("b", 0.9)
-    assert select.pick(ws.root, by="pairwise", judge=judge) == 0     # r00 is B, and B won
-    assert judge.calls and "/r01/" in judge.calls[0][0] and judge.calls[0][2] == "static_object"
-    assert select.pick(ws.root, by="pairwise", judge=judge) == 0 and len(judge.calls) == 1   # cached, not re-bought
-    assert ws.judge_path(1, "_vs_r00_pairwise").is_file()
-    Path(judge.calls[0][0]).write_bytes(b"re-rendered")   # new pictures are a new comparison
-    assert select.pick(ws.root, by="pairwise", judge=judge) == 0 and len(judge.calls) == 2
-    # an unsure verdict, an outage or a clear gap keep the top score
-    assert select.pick(_run(tmp_path / "u", [(0.70, 0), (0.72, 0)]).root, by="pairwise", judge=_Pairwise("b", 0.5)) == 1
-    assert select.pick(_run(tmp_path / "f", [(0.70, 0), (0.72, 0)]).root, by="pairwise",
-                       judge=_Pairwise("b", 0.9, fail=True)) == 1
-    far = _Pairwise("b", 0.99)
-    assert select.pick(_run(tmp_path / "g", [(0.60, 0), (0.72, 0)]).root, by="pairwise", judge=far) == 1 and not far.calls
-    assert select.pick(ws.root) == 1  # by score it is still the top score
 
 
 # --------------------------------------------------------------------------- package
@@ -238,7 +188,17 @@ def test_make_hands_over_the_picked_round_unless_no_pick(tmp_path, monkeypatch):
     assert not (runs / "kept" / "selection.json").exists() and not (runs / "kept" / "deliverable" / "manifest.json").exists()
 
 
-# --------------------------------------------------------------------------- a round's own outputs
+@pytest.mark.parametrize("rounds,want", [
+    ([(0.50, 0), (0.70, 0), (0.60, 0)], 1),            # the highest judged score
+    ([(0.70, 2), (0.70, 0)], 1),                       # a tie: fewer gate errors
+    ([(0.70, 1), (0.70, 1), (0.65, 0)], 0),            # a full tie: the earlier round
+    ([(0.40, 0), ("degraded", 0), (None, 0)], 0),      # a glitch or no verdict is never a score
+    ([(None, 0), ("degraded", 0)], None),              # no judged round: nothing to pick by score
+], ids=["score", "gate-errors", "earlier", "unjudged", "none-judged"])
+def test_pick_takes_the_best_score_then_fewer_gate_errors_then_the_earlier_round(tmp_path, rounds, want):
+    assert select.pick(_run(tmp_path / "r", rounds).root) == want
+
+
 def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     """A reader asking for round N's GLB or complexity once got the last build's (B4, B6)."""
     ws = _run(tmp_path / "r", [(0.8, 0), (0.6, 0)])

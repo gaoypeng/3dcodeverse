@@ -33,7 +33,6 @@ from codeverse3d.spatial.observe import (
     error_file_display,
     fmt_numbers,
     gate_observation,
-    image_budget,
     lint_lines,
     rel_path,
     render_observation,
@@ -680,6 +679,6 @@ def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observati
         f"Look at the sheet and check, in this order: {CHECKLIST}",
     ]
     lines.append(fmt_numbers({k: v for k, v in res.items() if k != "diff_png_path"}))
-    images = image_budget([str(sheet), str(diff_png), shaded.views[0].path])
+    images = [str(sheet), str(diff_png), str(shaded.views[0].path)]
     return Observation(ok=True, text="\n".join(lines),
                        numbers={"view": args.view, "reference_index": args.reference_index, **res}, images=images)

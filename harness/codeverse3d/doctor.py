@@ -1,6 +1,5 @@
 """Environment checks behind ``3dcode doctor`` — python deps, Blender, node/three/
-puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP
-and the skill library wiring.  Moved out of ``cli/`` 2026-08-28: only the typer
+puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP.  Moved out of ``cli/`` 2026-08-28: only the typer
 shim is a CLI concern (tests/install imports these checks as documentation facts).
 """
 
@@ -16,7 +15,7 @@ from codeverse3d.proc import read_json_or_none, run_subprocess, version_line
 
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
-            "scipy", "shapely", "networkx", "manifold3d", "matplotlib", "google.genai", "anthropic", "openai",
+            "scipy", "shapely", "networkx", "matplotlib", "google.genai", "anthropic", "openai",
             "yourdfpy", "mcp", "moderngl", "cadquery")
 #: modules that come from an OPTIONAL extra: missing means one track is unavailable, not a
 #: broken install, so they are a WARN naming the extra to install.  `moderngl` and `cadquery`
@@ -29,7 +28,7 @@ _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", 
 #: docs/INSTALL.md §1 documents (no extras) got `python deps FAIL 14/23` — "your install
 #: is broken" for an install that is correct — and a remedy that named four of the five
 #: extras and could not clear the row.  Verified on a 3.13 clean clone, 2026-08-24.
-_OPTIONAL_DEPS = {"manifold3d": "mesh", "shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
+_OPTIONAL_DEPS = {"shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
                   "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
                   "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
 _CLI_TIMEOUT = 25
@@ -320,68 +319,7 @@ def check_mcp() -> list[Row]:
         return [("mcp", "WARN", f"codeverse3d.spatial.mcp_server not importable ({e})")]
 
 
-def check_skills() -> list[Row]:
-    """The static half of the live CLI smoke: is the library there, valid, and reachable?
-
-    A CLI upgrade that moves its skills root ships an empty index and the run still
-    passes — the failure is invisible except as a read rate of zero a battery later.  So
-    the wiring gets a check you can run before spending money."""
-    from codeverse3d.agents.backends import ALLOWED_TOOLS
-    from codeverse3d.skills import (
-        bundle_dirs,
-        shipped_roots,
-        skills_dir,
-        validate_bundle,
-        variants_table,
-    )
-    from codeverse3d.skills.materialize import SKILL_ROOTS
-    from codeverse3d.skills.registry import ROUTED_SKILLS
-
-    on = get_settings().skills
-    rows: list[Row] = [("skills switch", "OK" if on else "WARN",
-                        "C3D_SKILLS on (the default since 2026-09-22)" if on
-                        else "C3D_SKILLS=0: no skill is attached to any session")]
-    dirs = bundle_dirs()
-    if not dirs:
-        rows.append(("skills library", "WARN", f"no bundles under {skills_dir()}"))
-    else:
-        bad = {d.name: validate_bundle(d) for d in dirs}
-        bad = {k: v for k, v in bad.items() if v}
-        rows.append(("skills library", "FAIL" if bad else "OK",
-                     f"{len(dirs)} bundles, {len(bad)} invalid" + (f": {', '.join(bad)}" if bad else "")))
-    missing = [n for n in ROUTED_SKILLS if n not in {d.name for d in dirs}]
-    if missing:
-        rows.append(("skills routing", "WARN", f"{len(missing)} routed skill(s) have no bundle: {', '.join(missing[:4])}…"))
-    # every shipped variant's overlay (D105), one `skills overlay` row each with the variant leading
-    # the detail: its bundles are routed the moment the variant is active, so they are checked like
-    # the base — an invalid one named `<variant>/<bundle>` — and so is its routes.toml, which
-    # attach_skills would otherwise reject with a logged warning
-    try:
-        overlays = [r for r in shipped_roots() if r.variant]
-    except ValueError as e:
-        overlays = []
-        rows.append(("skills variants", "FAIL", f"a shipped variant.toml does not parse: {e}"))
-    for root in overlays:
-        odirs = bundle_dirs(root.path)
-        invalid = [root.label(d.name) for d in odirs if validate_bundle(d)]
-        try:
-            table = variants_table(root.variant)
-            table_bad = False
-            table_note = ("routes.toml: no rows" if table.empty else
-                          f"routes.toml: {len(table.routes)} row(s), {len(table.boosts)} boost(s), "
-                          f"{len(table.disabled)} disabled")
-        except ValueError as e:
-            table_bad, table_note = True, f"routes.toml invalid: {e}"
-        rows.append(("skills overlay", "FAIL" if invalid or table_bad else "OK",
-                     f"{root.variant}: {len(odirs)} bundles, {len(invalid)} invalid"
-                     + (f": {', '.join(invalid)}" if invalid else "") + f"; {table_note}"))
-    rows.append(("skills discovery", "OK", "materialised into " + " + ".join(SKILL_ROOTS)))
-    rows.append(("claude-code Skill tool", "OK" if "Skill" in ALLOWED_TOOLS else "FAIL",
-                 "in --allowedTools" if "Skill" in ALLOWED_TOOLS else "missing: claude-code would deny skill activation"))
-    return rows
-
-
-def run_doctor(*, live: bool = False, gpu: bool = True, skills: bool = False) -> list[Row]:
+def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     rows: list[Row] = []
     rows += check_python_deps()
     rows += check_blender()
@@ -393,6 +331,4 @@ def run_doctor(*, live: bool = False, gpu: bool = True, skills: bool = False) ->
     rows += check_pool(live)
     rows += check_clis()
     rows += check_mcp()
-    if skills:
-        rows += check_skills()
     return rows

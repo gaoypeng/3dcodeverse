@@ -57,11 +57,6 @@ def _resolve(variant: str, rel_path: str) -> Path:
     return PROMPTS_DIR / rel_path
 
 
-def prompt_root(rel_path: str) -> Path:
-    """The file a prompt name resolves to right now (the active variant's overlay, else the base)."""
-    return _resolve(active_variant(), rel_path)
-
-
 @lru_cache(maxsize=512)
 def _load(variant: str, rel_path: str) -> str:
     p = _resolve(variant, rel_path)

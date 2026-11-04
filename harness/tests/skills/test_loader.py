@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.skills import iter_skills, load_skill
+from codeverse3d.skills import iter_skills
 from codeverse3d.skills.model import (
     BODY_MAX_LINES,
     SkillError,
@@ -36,7 +36,6 @@ def test_malformed_frontmatter_is_rejected_with_a_reason(tmp_path: Path, text: s
     with pytest.raises(SkillError, match=expect):
         parse_skill(d)
 
-
 def test_validate_reports_budget_evidence_layout_symlinks_and_the_verified_date(tmp_path: Path):
     d = write_bundle(tmp_path, "c3d-big", evidence="guesswork", body="x\n" * (BODY_MAX_LINES + 5))
     (d / "references" / "deeper").mkdir()
@@ -50,7 +49,6 @@ def test_validate_reports_budget_evidence_layout_symlinks_and_the_verified_date(
     (d / "SKILL.md").write_text("---\nname: c3d-demo\ndescription: d\nmetadata:\n  evidence: measured\n---\nbody\n")
     assert any("verified" in i for i in validate_bundle(d))
 
-
 def test_a_broken_bundle_is_skipped_not_fatal_but_strict_raises(tmp_path: Path, caplog):
     write_bundle(tmp_path, "c3d-good")
     bad = tmp_path / "c3d-bad"
@@ -62,9 +60,3 @@ def test_a_broken_bundle_is_skipped_not_fatal_but_strict_raises(tmp_path: Path, 
     with pytest.raises(SkillError):
         list(iter_skills(tmp_path, strict=True))
 
-
-def test_load_skill_by_name(tmp_path: Path):
-    write_bundle(tmp_path, "c3d-demo")
-    assert load_skill("c3d-demo", tmp_path).name == "c3d-demo"
-    with pytest.raises(SkillError, match="no skill"):
-        load_skill("c3d-missing", tmp_path)

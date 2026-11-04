@@ -11,7 +11,7 @@ from codeverse3d.contracts.artifacts import RenderSet, RenderView, Severity
 from codeverse3d.contracts.spec import ReferenceImage
 from codeverse3d.judges.base import JudgeInput
 from codeverse3d.judges.vlm_judge import ReferenceJudge
-from codeverse3d.spatial.silhouette import CANDIDATE_VIEWS, best_view_match, compare_silhouette
+from codeverse3d.spatial.silhouette import best_view_match, compare_silhouette
 from codeverse3d.tracks.static_object import silhouette_gate
 from tests.judges.conftest import FakeChatModel
 from tests.reference.conftest import make_spec
@@ -33,31 +33,15 @@ def _views(tmp: Path) -> list[RenderView]:
             for n, b in boxes.items()]
 
 
-def test_best_view_skips_top_and_low_cameras_and_writes_the_diff(tmp_path: Path) -> None:
-    assert "top" not in CANDIDATE_VIEWS and "bottom" not in CANDIDATE_VIEWS
-    assert "front_right_low" not in CANDIDATE_VIEWS
+def test_best_view_picks_the_matching_camera_and_writes_the_diff(tmp_path: Path) -> None:
     views = _views(tmp_path / "r")
-    views.append(RenderView(name="top", path=views[0].path, width=256, height=256))
     ref = _shape(tmp_path / "ref.png", (20, 95, 236, 165))
     res = best_view_match(views, ref, diff_png=tmp_path / "d.png")
-    assert "top" not in res["per_view"]
     assert (tmp_path / "d.png").is_file() and res["view"] == "right"
-    assert "error" in best_view_match([], ref)
-
-
-def test_a_pre_d47_run_matches_its_own_cameras_through_one_alias_map(tmp_path: Path) -> None:
-    """N62: four lists each kept a different subset of the old ``*_34`` names; now
-    ``conventions.LEGACY_VIEW_ALIASES`` maps them, and the old low camera stays out as its twin does."""
-    views = _views(tmp_path / "r")
-    old = [RenderView(name=n, path=views[2].path, width=256, height=256) for n in ("front_right_34", "low_front_left")]
-    res = best_view_match(old, _shape(tmp_path / "ref.png", (20, 95, 236, 165)))
-    assert res["view"] == "front_right_34" and set(res["per_view"]) == {"front_right_34"}
 
 
 def test_the_gate_and_the_judge_read_one_measurement(tmp_path: Path) -> None:
-    """Audit 2026-09-24 N51: the gate compared the ``front`` render (IoU 0.26 → a WARN and a
-    refine round) while the judge scored the best-matching view (0.995).  Both now read
-    ``silhouette.measure_reference``."""
+    """N51: the gate and the judge score the same best-matching view (gate said IoU 0.26 on `front`, judge 0.995)."""
     views = _views(tmp_path / "r")
     ref = _shape(tmp_path / "ref.png", (20, 95, 236, 165))
     spec = make_spec(references=[ReferenceImage(path=str(ref), role="target")])

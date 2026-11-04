@@ -1,6 +1,6 @@
 """Per-link collision bodies for the pose sweep (:mod:`joints_sweep`).
 
-FCL (``python-fcl``, a hard dependency) answers the boolean surface-collide and
+FCL (``python-fcl``) answers the boolean surface-collide and
 the exact separation distance on BVH models.  Penetration *depth* is measured
 deterministically on the link's **watertight islands**: a surface sample of
 body A counts as inside body B when a fixed-direction parity ray test (forward
@@ -10,28 +10,19 @@ mesh winding (agent meshes routinely come out inverted) and does not depend on
 ``Trimesh.contains`` / signed normals on the merged link mesh, which is usually
 non-watertight (touching panels share vertices) and was re-cast with *random*
 rays.  Islands that are not watertight are tested the same way but flagged
-``approx``.  When FCL is missing the same deterministic inside test doubles as
-the collision predicate (``backend == "trimesh"``).
+``approx``.
 """
 
 from __future__ import annotations
 
+import fcl as _fcl
 import numpy as np
 import trimesh
 from trimesh.ray import ray_util
 
-try:  # declared in pyproject; guarded so a broken wheel degrades to the trimesh path
-    import fcl as _fcl
-except Exception:  # pragma: no cover - depends on the environment
-    _fcl = None
-
 _MAX_SAMPLE_POINTS = 1500
 #: fixed, non-axis-aligned ray direction for parity tests (never re-cast at random)
 _RAY_DIR = np.array([0.4395064455, 0.617598629942, 0.652231566745])
-
-
-def backend_name() -> str:
-    return "fcl" if _fcl is not None else "trimesh"
 
 
 def components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]:
@@ -54,14 +45,11 @@ def components(names: list[str], edges: set[tuple[str, str]]) -> list[set[str]]:
 
 
 def fcl_collision_object(mesh: trimesh.Trimesh):
-    """``fcl.CollisionObject`` for ``mesh`` (identity transform; None when
-    python-fcl is unavailable).  Convex meshes get the cheap ``fcl.Convex``
+    """``fcl.CollisionObject`` for ``mesh`` (identity transform).  Convex meshes get the cheap ``fcl.Convex``
     (same choice trimesh's CollisionManager makes — building a BVH for a
     300k-tri convex part costs ~0.7 s); everything else gets a BVH.  Shared by
     :class:`LinkBody` and the connectivity gate so each mesh's collision
     geometry is built exactly once."""
-    if _fcl is None:
-        return None
     if mesh.is_convex:
         fs = np.concatenate((3 * np.ones((len(mesh.faces), 1), dtype=np.int64), mesh.faces), axis=1)
         return _fcl.CollisionObject(_fcl.Convex(np.asarray(mesh.vertices, dtype=float), len(fs), fs.flatten()),
@@ -127,8 +115,7 @@ class LinkBody:
     def set_pose(self, T: np.ndarray) -> None:
         self.T = T
         self.T_inv = np.linalg.inv(T)
-        if self.obj is not None:
-            self.obj.setTransform(_fcl.Transform(np.ascontiguousarray(T[:3, :3]), np.ascontiguousarray(T[:3, 3])))
+        self.obj.setTransform(_fcl.Transform(np.ascontiguousarray(T[:3, :3]), np.ascontiguousarray(T[:3, 3])))
 
     @property
     def posed(self) -> trimesh.Trimesh:
@@ -172,12 +159,10 @@ def aabb_gap(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def collide(a: LinkBody, b: LinkBody) -> bool:
-    """Surfaces intersect (FCL) — or, without FCL, a surface sample of one lies inside the other."""
-    if a.obj is not None and b.obj is not None:
-        req = _fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
-        res = _fcl.CollisionResult()
-        return int(_fcl.collide(a.obj, b.obj, req, res)) > 0
-    return contained(a, b, n=None)
+    """Surfaces intersect (FCL)."""
+    req = _fcl.CollisionRequest(num_max_contacts=1, enable_contact=False)
+    res = _fcl.CollisionResult()
+    return int(_fcl.collide(a.obj, b.obj, req, res)) > 0
 
 
 def contained(a: LinkBody, b: LinkBody, n: int | None = 24) -> bool:
@@ -193,12 +178,9 @@ def contained(a: LinkBody, b: LinkBody, n: int | None = 24) -> bool:
 
 def distance(a: LinkBody, b: LinkBody) -> float:
     """Minimum surface separation (0 when touching/overlapping)."""
-    if a.obj is not None and b.obj is not None:
-        req = _fcl.DistanceRequest()
-        res = _fcl.DistanceResult()
-        return max(0.0, float(_fcl.distance(a.obj, b.obj, req, res)))
-    d = min(float(b.surface_distance(a.points).min()), float(a.surface_distance(b.points).min()))
-    return max(0.0, d)
+    req = _fcl.DistanceRequest()
+    res = _fcl.DistanceResult()
+    return max(0.0, float(_fcl.distance(a.obj, b.obj, req, res)))
 
 
 def penetration(a: LinkBody, b: LinkBody) -> tuple[float, bool]:
@@ -206,13 +188,3 @@ def penetration(a: LinkBody, b: LinkBody) -> tuple[float, bool]:
     when an island is not watertight (the inside test is then heuristic)."""
     depth = max(b.depth_of(a.points), a.depth_of(b.points))
     return depth, not (a.watertight and b.watertight)
-
-
-def intersection_volume(a: LinkBody, b: LinkBody) -> float | None:
-    if not (a.watertight and b.watertight):
-        return None
-    try:
-        inter = trimesh.boolean.intersection([a.posed, b.posed], engine="manifold")
-        return float(abs(inter.volume)) if isinstance(inter, trimesh.Trimesh) and not inter.is_empty else 0.0
-    except Exception:
-        return None

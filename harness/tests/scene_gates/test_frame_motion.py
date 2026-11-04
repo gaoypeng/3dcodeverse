@@ -1,10 +1,4 @@
-"""Measured inter-frame motion (``spatial.frame_motion``) and its ``scene_frames`` finding.
-
-Why this exists: on the scenes_v1 battery the judge answered `nothing_moves` = true on
-four rounds whose water and foliage were in fact animating (0.7–4.7 % of pixels changed) —
-the two times reach it as tiles in different montage images.  The harness measures the
-change instead, so the numbers here are the thing the judge is told to trust.
-"""
+"""Measured inter-frame motion and its scene_frames finding (the judge misread animated scenes as `nothing_moves`)."""
 
 from __future__ import annotations
 

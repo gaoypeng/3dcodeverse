@@ -12,7 +12,7 @@
  * billboard without its structure is a floating decal.
  *
  * COST CONTRACT: `patchCurtainWall` spends NO render target. The scene
- * has exactly one (`lib/wetground.js` `makeMirrorFloor` or an ocean),
+ * has exactly one (an ocean's reflection),
  * and a facade is never what should spend it — see the patch's own JSDoc for what it does instead.
  */
 
@@ -133,8 +133,8 @@ const CW_BODY = [
   '  vec3 cwRefl = mix(uCwGround, uCwHaze,',
   '                    smoothstep(-0.30, 0.01, cwRay.y));',
   '  cwRefl = mix(cwRefl, uCwSky, smoothstep(0.0, 0.55, cwRay.y));',
-  // Glass FILTERS what is behind it — the room patchWindowInteriors put
-  // in diffuseColor — and never replaces it; the tint is a hue, so a
+  // Glass FILTERS what is behind it — the room already in
+  // diffuseColor — and never replaces it; the tint is a hue, so a
   // dark green glass does not black the interior out.
   '  float cwTm = max(max(uCwTint.r, uCwTint.g), max(uCwTint.b, 1e-3));',
   '  vec3 cwFilt = mix(vec3(1.0), uCwTint / cwTm, 0.85);',
@@ -188,8 +188,7 @@ const CW_BODY = [
  * NO RENDER TARGET, which is the constraint that shapes it. The scene
  * gets ONE whole-scene reflection pass and a facade must never be what
  * spends it: a Reflector re-renders the scene (+48 ms/frame
- * measured), and `wetground.js` `makeMirrorFloor` spends that one on
- * the ground. The other way out costs something this does not: an
+ * measured). The other way out costs something this does not: an
  * envMap material needs an equirect BAKE and hands three's IBL a
  * roughness-blurred lookup that cannot show the per-panel break-up,
  * and it does not show the room behind the glass. Here
@@ -199,13 +198,12 @@ const CW_BODY = [
  * Pair it with an `envMap` when you want that; three's IBL runs
  * underneath this untouched.
  *
- * COMPOSE, do not duplicate: apply `patchWindowInteriors` FIRST and
- * this second. It never assigns over `diffuseColor.rgb` — it FILTERS
+ * It never assigns over `diffuseColor.rgb` — it FILTERS
  * what is already there by the glass tint, dims it by what the mirror
  * takes, and adds the reflection through `totalEmissiveRadiance`. So
- * the rooms that patch shades stay visible head-on and are progressively
+ * what is behind the glass stays visible head-on and is progressively
  * replaced by sky toward grazing, which is what the eye reads as glass.
- * It chains with `patchMicroBreakup` the same way.
+ * It chains with `patchMicroBreakup`.
  *
  * @param {THREE.Material} material A lit built-in material (MeshStandard
  *   / MeshPhysical — the reflection needs `totalEmissiveRadiance`),

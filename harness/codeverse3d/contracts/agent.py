@@ -24,8 +24,6 @@ AgentEffort = Literal["low", "medium", "high"]
 class FileChange(BaseModel):
     path: str
     status: str  # added | modified | deleted
-    lines_added: int = 0
-    lines_removed: int = 0
 
 
 class AgentJob(BaseModel):
@@ -93,9 +91,6 @@ class AgentJob(BaseModel):
         "``files_hint`` and only a write to a ``files_hint`` path (or a step the CLI records, D112) is watchdog activity.  Needs a ``files_hint``; "
         "never with ``edit_only`` (a sibling's write cannot be told from an out-of-scope one, so the scope "
         "revert would undo the sibling's work)",
-    )
-    mcp_command: list[str] | None = Field(
-        default=None, description="override for the 3dcode MCP server command"
     )
 
     @model_validator(mode="after")

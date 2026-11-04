@@ -28,8 +28,6 @@
  * Which sibling do you want?
  *   `grass.js` — ankle-high ground cover, clumped, per-blade phase; the
  *     ground itself needs covering.
- *   `smalllife.js` makeReeds — waterline stand, rooted on a bed, the
- *     bend BREAKING at the surface.
  *   `flowers.js` — colour above the grass, nodding heads.
  *   here — a crop: chest-high, sown in DRILL ROWS, one shared wave.
  *
@@ -654,7 +652,7 @@ const BANNER_FRAGMENT = [
  * stalk is a bare stem with a heavy EAR that bends further than the
  * stem does; and the wave is made visible by the pale flank a laid-
  * over ear turns to the light, not by the bend alone. For ankle-high
- * ground cover use `grass.js`; at a waterline use `makeReeds`.
+ * ground cover use `grass.js`.
  *
  * @param {object} [opts]
  *   `extent` metres of the square field's side (default 30, centred on

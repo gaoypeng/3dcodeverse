@@ -534,7 +534,7 @@ class BaseTrack:
         if n is None:
             n = spec.options.candidates
         if n is None:
-            n = getattr(settings, "default_candidates", 1)
+            n = settings.default_candidates
         return max(1, int(n or 1))
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
@@ -585,7 +585,7 @@ class BaseTrack:
         kind = ctx.agent_kind
         if ctx.state.materialized_for == kind:
             return
-        self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), spatial_tools=True)
+        self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx))
         ctx.state.materialized_for = kind
         ctx.state.save(ctx.ws)
         ctx.events.emit("workspace.materialized", agent_kind=kind)

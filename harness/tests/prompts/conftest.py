@@ -26,35 +26,24 @@ STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" 
 PROMPT_FILES = sorted(p.relative_to(PROMPTS_DIR).as_posix() for p in PROMPTS_DIR.rglob("*")
                       if p.is_file() and p.suffix != ".py" and "__pycache__" not in p.parts)
 
-
 def is_template(rel: str) -> bool:
     """Rendered with a context (jinja): the ``.j2`` files and each language's ``system.md``.
     Every other file is quoted verbatim and must stay jinja-inert."""
     return rel.endswith(".j2") or (rel.endswith("/system.md") and not rel.startswith("system/"))
 
-
 _FENCE = re.compile(r"```(\w[\w-]*)\n(.*?)```", re.DOTALL)
 #: fence-tag spellings that mean the same language
 _TAG_ALIASES = {"py": "python", "javascript": "js", "mjs": "js"}
 
-
 def _tag(raw: str) -> str:
     return _TAG_ALIASES.get(raw, raw)
-
 
 def read_prompt(rel: str) -> str:
     return (PROMPTS_DIR / rel).read_text()
 
-
 def blocks(rel: str, lang: str) -> list[str]:
     """All fenced blocks tagged ``lang`` in prompt file ``rel``, in order."""
     return [body for tag, body in _FENCE.findall(read_prompt(rel)) if _tag(tag) == lang]
-
-
-def strip_imports_exports(js: str) -> str:
-    js = re.sub(r"^\s*import .*?;\s*$", "", js, flags=re.MULTILINE)
-    return re.sub(r"^export (default )?", "", js, flags=re.MULTILINE)
-
 
 def labelled_files(rel: str, tag: str = "js") -> dict[str, str]:
     """Blocks preceded by a `src/...` label line → {path: content} (contract examples)."""
@@ -64,7 +53,6 @@ def labelled_files(rel: str, tag: str = "js") -> dict[str, str]:
         if _tag(raw_tag) == tag:
             out[path] = body
     return out
-
 
 # ----------------------------------------------------------------------- runners
 def run_node_module(tmp_path: Path, code: str, timeout: int = 120) -> str:
@@ -77,7 +65,6 @@ def run_node_module(tmp_path: Path, code: str, timeout: int = 120) -> str:
     proc = run_node(mod, cwd=tmp_path, timeout_s=timeout, three_hook=True, check=False)
     assert proc.rc == 0, f"node failed:\nSTDOUT:{proc.stdout[-3000:]}\nSTDERR:{proc.stderr[-3000:]}"
     return proc.stdout
-
 
 def run_blender_script(tmp_path: Path, code: str, timeout: int = 240) -> str:
     """Run python ``code`` inside Blender headless with an emptied factory scene."""
@@ -99,15 +86,3 @@ def run_blender_script(tmp_path: Path, code: str, timeout: int = 240) -> str:
     assert "BPY_SNIPPETS_OK" in out, f"blender snippets failed (rc={proc.returncode}):\n{out[-4000:]}"
     return out
 
-
-def js_prelude(extra: str = "") -> str:
-    return (
-        "import * as THREE from 'three';\n"
-        "import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';\n"
-        "import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';\n"
-        "import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';\n"
-        "import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';\n"
-        "import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';\n"
-        "import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';\n"
-        "import { sunRig } from './lib/environment.js';\n" + extra      # the rig the starter's env.js builds
-    )

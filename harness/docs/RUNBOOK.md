@@ -40,7 +40,7 @@ one home); each setting's default and description is its `Settings` field in
 3dcode make "neon cyberpunk rain on a window with bokeh city lights" --track graphics --language glsl_shader
 3dcode make "instanced pastel cubes with bloom" --track graphics --language opengl_python
 ```
-Useful flags (`3dcode make --help`): `--generator`, `--planner`, `--judge`, `--captioner`
+Useful flags (`3dcode make --help`): `--generator`, `--planner`, `--judge`
 (backend ids, §3), `--image <png>` (repeatable; reference images → `ReferenceJudge` +
 silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the baseline — a
 run does exactly N, each built on the one before it, unless the clock or a hard failure
@@ -148,8 +148,7 @@ the picked round's judge verdict + issues + improvement plan, the measurement ta
 full render set, the cost breakdown and the code.
 
 Filters live in the query string, so a view can be curled or bookmarked:
-`curl -s 'http://127.0.0.1:8765/?track=graphics&tier=A&sort=cost'`, and
-`/api/runs?...` / `/api/summary?...` return the same selection as JSON.
+`curl -s 'http://127.0.0.1:8765/?track=graphics&tier=A&sort=cost'`.
 `--reload` re-scans on every page load, which is what you want while a bench is writing:
 a run with no `record.json` yet shows as a *pending* card and a half-written one as
 *broken*, never as a crash.  The server binds `127.0.0.1` and refuses any other address
@@ -181,7 +180,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # pairwise = the pairwise judge between the top two when within 0.03 (one
                                         # paid verdict per pair, cached); --round N = that round.
                                         # `make`/`resume` run `pick --by score` for you
-3dcode render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
+3dcode render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcode judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
 3dcode tools list [--cards] · 3dcode tools measure --workspace runs/<slug> · 3dcode tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'
@@ -197,7 +196,6 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                      # INTERFACES has the call signatures.  Training formats live
                                      # in finetune/llamafactory/, not here.
 3dcode flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
-3dcode flywheel index runs/ runs_index.sqlite
 python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```

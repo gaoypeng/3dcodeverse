@@ -17,12 +17,8 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 | Want | Call |
 | --- | --- |
 | a small flame or wax candle | `makeFire({ radius, height, seed, quality: 'high' })` · `makeCandle({ radius, height, seed, lit: true })` — `lib/fire.js`; volumetric flame, moving illumination, wick and wax. Returns a Group with `userData.update(t, dt)`; use metres (candle radius about 0.025, height 0.15). Fire is transparent: avoid intersecting glass volumes. |
-| a campfire, large fuel bed or flames through a building | `makeFireField({ emitters: [{ position: [0,0,0], radius: 0.3, height: 1, strength: 1 }], wind: [0.15,0], smoke: {height: 3, density: 0.65}, occluders: [fuel, walls], quality: 'balanced', seed })` — `lib/firefield.js`; all sources share one flame/soot integration. Wind is local metres/second. Optional borrowed opaque occluders truncate rays, including instancing/alpha cuts; custom deformation needs customDepthMaterial. No glass interleaving, skinned occluders or log-depth capture. Layout/wind are baked: rebuild to change them. Group provides update/dispose, bounds, sampleField(x,y,z,t), sampleEmber(index,t) and cost. Start with one field: each field adds a ray march over 3D textures, plus a depth pass when occluders are given. |
 | rising smoke, steam from a cup or vent | `makeSmoke({ height: 3, radius: 0.14, wind: [0.06, 0], riseSpeed: 0.7, seed, quality: 'balanced' })` · `makeSteam({ height: 0.5, radius: 0.03 })` — `lib/smoke.js`; bounded 3D density with upward advection, widening, dilution and internal light attenuation. Mesh origin is the emitter at local y=0. `userData.update(t)`, `userData.sampleDensity(x,y,z,t)` and `userData.dispose()`. Directional/point/ambient scene lights illuminate it. Keep opaque geometry outside its `userData.bounds`; intersections and overlapping transparent volumes are not depth-resolved. |
 | the OCEAN, a lake or any sizeable water body | `makeOceanSurface({ width, depth, waveHeight, wavelength, windDirection: [1, 0.2], seed })` — `lib/ocean.js`, the ocean: dispersive Gerstner waves on real displaced geometry, reflected scene, crest foam; Group with `userData.update(t, dt)` and `userData.sampleHeight(x, z, t)`. Its flat option, for calm or distant water where no wave shape reads (a pond, a far lake): `makeOcean(w, d, { sunDir })` — `lib/water.js`, a normal-mapped mirror plane. Each planar reflector re-renders the scene once per frame: keep the total inside the fps / draw budget `scene_probe` reports (one is the safe default). |
-| a curved shallow STREAM | `makeStream({ points: [[0, 0.6, -8], [2, 0.3, 0], [0, 0, 8]], width: 2, depth: 0.3, speed: 1, seed })` — `lib/stream.js`; points run upstream → downstream, decreasing Y. Refracts the opaque bed/scene through depth-varying water; flowing ripples, stone wakes and approximate caustics. `waterColor: 0x80b6a6, attenuationDistance: 3` controls volume absorption over a distance in metres. Optional `reflectionSize: 512` captures the banks; default 0, and at most ONE planar reflector per scene. Group with `userData.update(t, dt)`, `userData.sample(u, lateral, t)`. Keep terrain BELOW the bed inside the channel. |
-| a falling sheet of water over a weir | `makeWaterfall({ width: 2, height: 3, speed: 1, thickness: 0.045, foam: 0.65, seed })` — `lib/waterfall.js`; gravity accelerates and thins the sheet, with advected ripples, local aeration and impact spray. Origin is impact water level, lip is `[0,height,0]`, flow is +Z. Supply the upstream water, cliff and pool. `userData.sample(u,lateral,t)` uses u=0..1 and lateral=-0.5..0.5; `userData.impact` gives the receiving point. No collision/fluid solver; opaque-scene refraction only. |
-| thick broken ice with actual open fissures | `makeFracturedIce({ size: [8,6], thickness: 0.28, crackDensity: 0.65, frost: 0.35, seed })` — `lib/ice.js`; closed floes, bevels, internal air and local optical thickness. Nominal top is y=0. `userData.sampleHeight(x,z)` returns local top height or null in a gap. Supply an opaque lakebed/water backing: transparent volumes are not recursively refracted. |
 | dunes, wind ripples, sand grains | `makeSandTerrain({ size: [60, 60], duneHeight: 3, duneSpacing: 18, windDirection: [1, 0.3], seed })` — `lib/sand.js`; Group with `userData.sampleHeight(x, z)` and `userData.update(t, dt)`. Sample height for every prop. |
 | a close-view fractured rock or a talus field | `makeRock({ type: 'sandstone', size: [2, 1.5, 2], seed, moisture: 0.2 })` · `makeRockField` — `lib/rock.js`; types sandstone / granite / basalt; closed geometry, stratification and weathering. Rock rests at local y≈0; place using terrain height. |
 | close-view grass with folded blades and flowing wind | `makeMeadow({ size: [8, 8], height: 0.3, density: 900, heightAt, mask, seed, wind: { dir: [1, 0.3], strength: 1.2, speed: 1 } })` — `lib/meadow.js`; every effect's wind option (wind; the veils' direction and drift; the ocean's and sand's windDirection) is read by ONE reader, `readWind` in `lib/shader.js` — a number, `[x, z]`, a vector or this object — so one wind object moves meadow, grass, trees, fire, smoke and rain alike; mask(x,z) is 0..1 coverage; Group with `userData.update(t, dt)`. Set `ground: false` over an existing terrain. Fit the sun shadow frustum tightly; blades need millimetre-scale shadow texels. |
@@ -33,17 +29,12 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 | bark, and a forest at distance | `patchBark` · `makeImposters` — `lib/woodland.js` |
 | light through a canopy | `patchDappledLight` · `patchCanopyShade` — `lib/dapple.js`; goes on the surface being LIT, not on the tree |
 | flowers, drifting petals or leaves | `makeFlowers` · `makeFalling` — `lib/flowers.js` |
-| midges, butterflies, fireflies; reeds in water | `makeInsects` · `makeReeds` — `lib/smalllife.js` |
 | birds or fish in motion | `makeFlock({ count, kind, extent, height, path })` — `lib/flock.js` |
 | mist over moving water, spray where it lands | `makeWaterMist` · `makeSpray` — `lib/watermist.js` |
 | a waterline | `patchShoreWet` · `patchShoreFoam` · `patchShallowWater` — `lib/waterside.js` |
-| anything BELOW the water, rain rings, thin ice | `patchUnderwater` · `makeRainRings` · `patchThinIce` — `lib/submerged.js` |
-| the moving net of light under water | `patchCaustics(material, { level, sunDir })` — `lib/caustics.js`; goes on the surface being LIT, not on the water |
 | moss, damp near water, dried mud | `patchMoss` · `patchMoisture` · `patchCrackedMud` — `lib/damp.js` |
-| a polished or wet floor | `makeMirrorFloor(w, d)` — `lib/wetground.js`; re-renders the scene like the water bodies — use one or the other |
 | rock, cliff, ground | `patchTriplanar` · `patchSlopeSplat` — `lib/terrain_shade.js` |
 | ground and cliff geometry | `ground({ size, rand: mulberry32(seed), relief, flat })` returns `{ mesh, height }` — one terrain option (a displaced plane with a seeded heightfield and an optional flat mask; with no seeded rand it is flat); whatever the env's heightAt(x, z) returns must be its real height · `cliff({ length, height, rand })` — `lib/terrain.js`.  The brief decides the landform; a floor, terraces or a canyon are not this call. |
-| placing a camera or a prop by intent | `seat` · `establishingShot` · `faceToward` · `alongPath` · `crowdOn` — `lib/place.js` |
 | a cliff that reads as rock | `patchRockStrata` · `patchErosionStreaks` — `lib/strata.js`; bedding by world altitude, so every cliff in a scene shares one bedding plane |
 | countryside continuing beyond the content | `makeOutskirts({ inner, baseY, heightAt, shellRadius, colors, seed })` — `lib/environment.js`; seam-matched relief, field patchwork and wooded clusters — one option for a rural setting.  The requirement is that no camera sees the ground end against the sky (`world_edge_visible`) or a diorama on an empty plane (judged); how the world continues — a street that keeps going, a sea, a canyon wall, a city, fog that closes — is the brief's. |
 | a Blender hero's own keyframed motion (the GLB carries a clip) | nothing to call — the assembled scene plays every clone's clips; `clone.userData.clipOffset = 0.7` de-phases a copy |
@@ -55,22 +46,17 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 | stars, the Milky Way, aurora, heat shimmer | `makeStars` · `makeAurora` · `makeHeatShimmer` — `lib/celestial.js` |
 | fog on the ground, distance haze | `makeHeightFog` · `patchAerialPerspective` — `lib/atmosphere.js` |
 | shafts of light | `makeGodRays({ count, height, sunDir, ambient })` — `lib/godrays.js`; the default is daylight — pass `ambient` BELOW 0.35 only for a genuinely unlit interior, where the shafts switch to adding light |
-| rain sheets at distance, snowfall, motes | `makeRainVeil` · `makeSnowfall` · `makeMotes` — `lib/veils.js`; weather you see ACROSS the valley, not the drops by the lens |
-| rain, splashes, puddles | `makeRain` · `makeSplashes` · `wetten` · `makePuddle` — `lib/rain.js` |
-| snow or drifted sand lying on things | `patchSnow` · `patchSand` — `lib/accumulation.js`; one deposit rule across the whole scene is what makes weather read |
+| rain sheets at distance, snowfall, motes | `makeRainVeil` · `makeSnowfall` · `makeMotes` — `lib/veils.js`; weather you see ACROSS the valley |
 | a building, a cottage, a city block | `block` · `cottage` · `cityFabric` — `lib/building.js` |
-| lit windows at night | `makeNightWindows(mesh)` · `patchWindowInteriors` — `lib/windows.js` |
 | a glazed facade, power lines, a hoarding | `patchCurtainWall` · `makePowerLines` · `makeBillboard` — `lib/urban.js`; the facade spends no second render target |
 | a neon sign, and the light it throws | `makeNeonTube` · `patchNeonSpill` · `makeLightTrails` — `lib/neon.js`; a sign that does not light its own wall is a decal |
-| readable lettering on a sign | `makeText` (async — await ONCE at module top level, `.clone()` per copy) — `lib/signage.js` |
 | a road, a path, a worn surface | `patchRoadSurface` · `patchSeamBand` · `patchTracks` — `lib/roadway.js` |
 | foreground cobbles or rectangular stone setts with real joints | `makePaving({ size: [4,4], stoneSize: 0.24, pattern: 'cobble', joint: 0.012, thickness: 0.10, relief: 0.014, seed })` — `lib/paving.js`; merged closed bevelled stones and a recessed joint bed, two meshes and a bounded stone count. Nominal top is y=0, bottom=-thickness. `userData.sampleHeight(x,z)` returns the exact local stone/joint height; seat props using it. Use material-only cobbles for distant surfaces. |
 | a flag, a hanging banner, a wheat field | `makeFlag` · `makeBanner` · `makeWheatField` — `lib/cloth.js`; the wave TRAVELS |
 | a surface that has stood somewhere | `patchDripStains` · `patchRust` · `patchDust` — `lib/aging.js` |
 | any surface at all | `patchMicroBreakup` · `patchEdgeWear` — `lib/surface_wear.js` |
 | paper, wax, jade, petals; oil film, beetle shell | `patchTranslucency` · `patchIridescence` — `lib/finish.js` |
-| a person | `figure({ height, fem, rand })` · `sit` · `walk` · `carry` — `lib/figure.js`; a pose is one of those three calls on the figure, not an option — left alone it stands |
-| the same asset hundreds of times, in one draw call | `instanceAsset` · `scatterGrid` — `lib/instancing.js` · `mergeStatic(meshes)` — `lib/merge.js` |
+| the same asset hundreds of times, in one draw call | `mergeStatic(meshes)` — `lib/merge.js` |
 | a textured standard material without a texture file | `brick` · `granite` · `cobble` · `asphalt` · `weatheredWood` · `brushedSteel` · `fabric` · `foliage` · `soil` · `skin` · `glass` (21 in all) · `tint(mat, variant)` — `lib/materials.js` |
 | noise on the CPU (heightfields the shader must agree with) | `fbm2` · `fbm3` · `mulberry32` · `displaceY` — `lib/noise.js` |
 | your own shader, safely | `makeShaderMaterial` · `patchStandard` · `shadowLike` · `tickShaders` — `lib/shader.js` |
@@ -79,14 +65,14 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 
 ## The four rules that apply to all of them
 
-**New natural-element factories use one lifecycle.** Fire, fire field, candle, ocean, stream,
-sand, meadow, smoke, steam, waterfall, tree, shrub, cloud volume, ice and paving provide
+**New natural-element factories use one lifecycle.** Fire, candle, ocean,
+sand, meadow, smoke, steam, tree, shrub, cloud volume and paving provide
 `object.userData.update(t, dt)` (absolute seconds)
 and `object.userData.dispose()`. Store the returned objects and update each ONCE
 from the zone's `userData.update`. Their dimensions, paths and height queries are
 LOCAL coordinates; move/rotate the whole returned object to place it. Call the
 factory before positioning props that sample its surface: `userData.sampleHeight(x, z)`
-returns the surface height there, or `null` off the patch (and in an ice gap). It
+returns the surface height there, or `null` off the patch. It
 never throws, so test for `null` before seating a prop. These are realtime
 procedural effects, not fluid/combustion solvers. Read the module's JSDoc for
 options and bounds: an option left out or `null` takes its default, and an invalid
@@ -119,9 +105,9 @@ function update(t, dt) {
 and in a zone, call the effect's own hook from the group's `update`:
 
 ```js
-const rain = makeRain();
-g.add(rain);
-g.userData.update = (t, dt) => { rain.userData.update(t, dt); };
+const motes = makeMotes();
+g.add(motes);
+g.userData.update = (t, dt) => { motes.userData.update(t, dt); };
 ```
 
 Calling a missing hook throws and can stop the whole scene's animation.

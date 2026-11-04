@@ -11,8 +11,7 @@ review), then reads the result.  The harness's OWN api use is planning,
 judging, and single-shot file generation (Gemini/Anthropic/OpenAI).
 It does not implement an agent loop: the in-process `api-agent` was deleted
 2026-08-28 (owner's call — reimplementing what the vendors already ship was never
-this project's job).  Plus a data-flywheel record per run.  There is no
-image-generation step (owner, 2026-11-03: not a feature for now).
+this project's job).  Plus a data-flywheel record per run.
 
 Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
 really does, known limits), `docs/INTERFACES.md` (binding cross-package signatures as
@@ -54,7 +53,7 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 ## Environment (this machine)
 - Gemini keys: `~/.config/astra3d/gemini_keys.env` (30 keys, the owner's list of 2026-10-14: Scene1-10, Argon1-10, argon-test-1..10) → `get_settings().gemini_api_keys`
   (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/3dcodeverse/config.yaml`
-  or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read; the
+  or `./3dcodeverse.yaml`, env prefix `C3D_` (the
   grammar and examples: docs/INSTALL.md §8.3).  Every `C3D_*` switch is a `Settings` field read through `get_settings()`
   where it is used — never read the environment by hand.
 - Blender 5.2.2 LTS headless: `~/.local/bin/blender-5.2` (always `--factory-startup`; clear scene).  The judged-frame

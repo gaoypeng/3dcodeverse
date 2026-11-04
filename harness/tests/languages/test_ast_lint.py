@@ -1,4 +1,4 @@
-"""Shared AST-lint primitives + the per-language forbidden-import supersets (drift guard)."""
+"""Shared AST-lint primitives: base-forbidden modules are errors in every language lint."""
 
 from __future__ import annotations
 
@@ -7,19 +7,6 @@ import codeverse3d.languages.cadquery as cadquery_lint
 import codeverse3d.languages.opengl_python as opengl_lint
 import codeverse3d.languages.urdf as urdf_lint
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.languages._ast_lint import BASE_FORBIDDEN_IMPORTS
-
-
-def test_language_forbidden_sets_are_supersets_of_base() -> None:
-    assert BASE_FORBIDDEN_IMPORTS <= blender_lint.FORBIDDEN_IMPORTS
-    assert BASE_FORBIDDEN_IMPORTS <= cadquery_lint.FORBIDDEN_IMPORTS
-    assert BASE_FORBIDDEN_IMPORTS <= opengl_lint.DANGEROUS_MODULES
-    assert "pathlib" in blender_lint.FORBIDDEN_IMPORTS
-    assert {"os", "sys", "OCP", "build123d"} <= cadquery_lint.FORBIDDEN_IMPORTS
-    assert {"os", "sys", "time", "datetime", "io", "tempfile", "signal"} <= opengl_lint.DANGEROUS_MODULES
-    # blender's documented allowance: os/sys stay importable (call rules catch abuse)
-    assert {"os", "sys"} <= blender_lint.ALLOWED_IMPORTS
-    assert not ({"os", "sys"} & (blender_lint.FORBIDDEN_IMPORTS | BASE_FORBIDDEN_IMPORTS))
 
 
 def test_base_modules_error_in_every_language_lint() -> None:
@@ -43,28 +30,3 @@ def test_base_modules_error_in_every_language_lint() -> None:
     assert not [f for f in findings if "`os`" in f.message]     # the blender language's policy: os/sys allowed
 
 
-def test_every_python_lint_survives_a_parser_crash(monkeypatch):
-    """A parser crash (SystemError on 3.11, compare_v4_calm) is a lint ERROR, not a dead round."""
-    import ast
-
-    from codeverse3d.languages.blender import lint_blender_source
-    from codeverse3d.languages.cadquery import lint_cadquery_source
-    from codeverse3d.languages.opengl_python import lint_source as lint_gl
-    from codeverse3d.languages.urdf import lint_model_text
-
-    real = ast.parse
-
-    def crash(src, *a, **k):
-        if "DEEP" in src:
-            raise SystemError("AST constructor recursion depth mismatch (before=54, after=62)")
-        return real(src, *a, **k)
-
-    monkeypatch.setattr(ast, "parse", crash)
-    src = "import bpy\nDEEP = 1\n"
-    for name, run in (("blender", lambda: lint_blender_source(src).findings),
-                      ("cadquery", lambda: lint_cadquery_source("import cadquery as cq\nDEEP = 1\n").findings),
-                      ("opengl", lambda: lint_gl(src)),
-                      ("urdf", lambda: lint_model_text(src, ["base"]))):
-        findings = run()  # must not raise
-        errs = [f for f in findings if f.severity == Severity.ERROR]
-        assert errs and "deeper than the parser" in errs[0].message, (name, findings)

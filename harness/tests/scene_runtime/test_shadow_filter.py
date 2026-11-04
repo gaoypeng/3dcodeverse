@@ -1,9 +1,4 @@
-"""The shared renderer must compile filtered shadows on the installed Three.
-
-Checking the enum alone missed r182's removal of PCFSoftShadowMap from the
-WebGLProgram mapping: that old enum compiled BASIC without a runtime error.
-Inspect the actual linked fragment shader of a shadow-receiving material.
-"""
+"""The shared renderer must compile filtered shadows on the installed Three."""
 import json
 import subprocess
 

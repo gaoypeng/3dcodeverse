@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 
 import pytest
@@ -41,8 +42,4 @@ def blender_bin() -> str:
 
 
 def has_cadquery() -> bool:
-    try:
-        import cadquery  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    return importlib.util.find_spec("cadquery") is not None

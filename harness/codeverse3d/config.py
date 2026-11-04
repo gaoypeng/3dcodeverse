@@ -2,8 +2,7 @@
 
 Resolution order (later wins): built-in defaults < ``~/.config/3dcodeverse/config.yaml``
 < ``./3dcodeverse.yaml`` < environment variables (``C3D_*``).  Secrets are never
-written to run records.  The names before D78 (``~/.config/codeverse/config.yaml``,
-``./codeverse.yaml``, ``CV3D_*``) are still read, each under its new name.
+written to run records.
 
 Gemini keys: ``GEMINI_API_KEYS`` (csv) or ``GEMINI_API_KEY`` or the owner's
 ``~/.config/astra3d/gemini_keys.env`` file (read-only compatibility).
@@ -43,8 +42,6 @@ from codeverse3d.contracts.common import Backends
 
 _LEGACY_KEYS_FILE = Path.home() / ".config" / "astra3d" / "gemini_keys.env"
 _USER_CONFIG = Path.home() / ".config" / "3dcodeverse" / "config.yaml"
-#: the file names before D78 (2026-09-22): still read, each UNDER its new name (a new file wins per setting)
-_LEGACY_USER_CONFIG = Path.home() / ".config" / "codeverse" / "config.yaml"
 
 
 log = logging.getLogger(__name__)
@@ -343,8 +340,6 @@ class Settings(BaseSettings):
     settle: Flag = Field(default=True, description="scene driver: the boot-time auto-seat")
     camera_repair: Flag = Field(default=True, description="scene driver: move a camera out of geometry "
                                 "(zero triggers on a healthy battery; the case it exists for is fatal)")
-    auto_exposure: Flag = Field(default=False, description="scene driver: bounded scene-wide exposure "
-                                "into the healthy band")
     post: Flag = Field(default=True, description="scene pictures: the GTAO + bloom + grade post chain")
     stream: Flag = Field(default=True, description="Gemini: stream replies with inter-chunk stall "
                          "detection (a hung buffered read held the socket for the whole attempt)")
@@ -457,7 +452,7 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 def get_settings() -> Settings:
     """Build the singleton Settings (cached; call ``get_settings.cache_clear()`` in tests)."""
     data: dict = {}
-    for p in (_LEGACY_USER_CONFIG, _USER_CONFIG, Path("codeverse.yaml"), Path("3dcodeverse.yaml")):
+    for p in (_USER_CONFIG, Path("3dcodeverse.yaml")):
         data = _deep_merge(data, _load_yaml(p))
     s = Settings(**data)
     if not s.gemini_api_keys:

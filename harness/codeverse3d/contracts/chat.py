@@ -17,7 +17,6 @@ class TextPart(BaseModel):
 class ImagePart(BaseModel):
     type: Literal["image"] = "image"
     path: str | None = None
-    data_b64: str | None = None
     mime: str = "image/png"
     label: str = ""
 

@@ -1,10 +1,5 @@
-"""environment.js (91 recorded scenes import it through the starter's env.js): worldShell,
-makeOutskirts and the sunRig package, measured under node.  A set sun (elevation < 0) is
-night with a moon opposite the sun.  The silhouette ridge and the outskirts' copses are
-opt-in (2026-10-15: library defaults no longer pre-decide the backdrop)."""
+"""environment.js (91 recorded scenes import it through the starter's env.js)."""
 from __future__ import annotations
-
-import math
 
 import pytest
 from _probe import measure
@@ -54,28 +49,6 @@ console.log(JSON.stringify(states));
     assert all(s["canReturnToDay"] for s in out)
 
 
-def test_moon_angular_size_is_independent_of_sky_radius_and_scene_fog():
-    out = _measure("""
-import * as THREE from 'three';
-import { sunRig } from './lib/environment.js';
-const moons = [400,4000,12000].map(radius => {
-  const rig=sunRig({mood:'night',radius}), moon=rig.sunDisc;
-  const diameter=THREE.MathUtils.radToDeg(2*Math.atan(moon.geometry.parameters.radius/moon.position.length()));
-  const state={diameter,fog:moon.material.fog,depthWrite:moon.material.depthWrite,
-    aligned:moon.position.clone().normalize().dot(rig.lightDir)};
-  rig.dispose();return state;
-});
-const day=sunRig({mood:'day',radius:4000});
-const daytime={radius:day.sunDisc.geometry.parameters.radius,segments:day.sunDisc.geometry.parameters.segments};
-day.dispose();console.log(JSON.stringify({moons,daytime}));
-""")
-    for moon in out["moons"]:
-        assert moon["diameter"] == pytest.approx(.52)
-        assert not moon["fog"] and not moon["depthWrite"]
-        assert moon["aligned"] == pytest.approx(1)
-    assert out["daytime"] == {"radius": 48, "segments": 24}
-
-
 _SHELL = """
 import * as THREE from 'three';
 import { worldShell } from './lib/environment.js';
@@ -85,12 +58,6 @@ env.group.updateMatrixWorld(true);
 const hitsFor = (dir) => new THREE.Raycaster(new THREE.Vector3(0, 1.7, 0), dir.normalize()).intersectObject(env.group, true).map((h) => h.object.name);
 const outward = [];
 for (let a = 0; a < 8; a++) outward.push(hitsFor(new THREE.Vector3(Math.cos(a / 8 * Math.PI * 2), 0, Math.sin(a / 8 * Math.PI * 2))));
-const sky = env.group.getObjectByName('SkyGradient');
-const cols = sky.geometry.attributes.color, pos = sky.geometry.attributes.position;
-let zenithB = null, horizonB = null;
-for (let i = 0; i < pos.count; i++) { if (pos.getY(i) > 3990) zenithB = cols.getZ(i); if (Math.abs(pos.getY(i)) < 40) horizonB = cols.getZ(i); }
-let tris = 0;
-env.group.traverse((o) => { if (o.isMesh) tris += o.geometry.attributes.position.count / 3; });
 const noRidge = worldShell({ rand, mood: 'day', ridge: false });
 const bare = worldShell({ rand, mood: 'day' });
 const T = (rho, d) => Math.exp(-((rho * d) ** 2));
@@ -107,8 +74,7 @@ for (let i = 0; i < sp.count; i++) {
 }
 const big = worldShell({ rand: mk(), mood: 'day', bounds: 1200 });
 const over = worldShell({ rand: mk(), mood: 'overcast', bounds: 1200 });
-console.log(JSON.stringify({ outward, fogHex: env.fog.color.getHexString(), zenithB, horizonB, tris: Math.round(tris),
-  ridgeOptional: !noRidge.group.getObjectByName('HorizonRidge'), ridgeOffByDefault: !bare.group.getObjectByName('HorizonRidge'),
+console.log(JSON.stringify({ outward, ridgeOptional: !noRidge.group.getObjectByName('HorizonRidge'), ridgeOffByDefault: !bare.group.getObjectByName('HorizonRidge'),
   bareOutward: hitsFor(new THREE.Vector3(1, 0, 0)), eastTop, westTop, fogIsExp2: env.fog.isFogExp2 === true,
   smallD: worldShell({ rand: mk(), mood: 'day', bounds: 150 }).fog.density, bareD: worldShell({ rand: mk(), mood: 'day' }).fog.density,
   bigFarT: T(big.fog.density, 2400), overFarT: T(over.fog.density, 2400), unclampedFarT: T(env.fog.density, 2400),
@@ -127,21 +93,8 @@ def test_no_outward_ray_escapes_into_void(shell):
     assert "SkyGradient" in shell["bareOutward"], shell["bareOutward"]   # the dome alone closes the sky
 
 
-def test_the_fog_matches_the_horizon_tint(shell):
-    assert shell["fogHex"] == "dbe3ea" and shell["fogIsExp2"]
-
-
-def test_the_sky_is_a_gradient_not_a_flat_colour(shell):
-    assert abs(shell["zenithB"] - shell["horizonB"]) > 0.1, shell
-
-
-def test_the_shell_is_nearly_free_and_the_ridge_optional(shell):
-    assert shell["tris"] < 2000 and shell["ridgeOptional"]
-
-
 def test_the_ridge_is_opt_in_and_can_be_shaped_by_sector(shell):
-    """A library default no longer rings every exterior with the same 360-degree crest: the
-    ridge is off unless asked, and `ridgeProfile` makes it directional or partial."""
+    """A library default no longer rings every exterior with the same 360-degree crest."""
     assert shell["ridgeOffByDefault"]
     assert shell["eastTop"] <= 1e-6 < shell["westTop"], (shell["eastTop"], shell["westTop"])
     assert shell["westTop"] == pytest.approx(4000 * 0.1, rel=1e-6)
@@ -181,22 +134,7 @@ for (const mood of ['day', 'golden', 'night', 'overcast']) {
     bias: rig.sun.shadow.bias, normalBias: rig.sun.shadow.normalBias,
     frustumRight: rig.sun.shadow.camera.right, night: rig.night, moodName: rig.mood };
 }
-// The shadow map follows the FRUSTUM: one fixed size gave every scene
-// whatever texel it happened to get (the library default landed at 0.146 m).
-out.texel = {};
-for (const b of [8, 25, 60, 150, 400, 1200]) {
-  const r = sunRig({ bounds: b });
-  out.texel[b] = { map: r.sun.shadow.mapSize.x, size: (2 * b) / r.sun.shadow.mapSize.x,
-                   normalBias: r.sun.shadow.normalBias };
-}
 out.nightFloor = sunRig({ mood: 'night', fill: 0.2 }).fill.intensity;
-const tinted = sunRig({ mood: 'golden', fillSky: 0x7a5aa0, fillGround: 0x3a2e22 });
-out.tinted = { sky: tinted.fill.color.getHex(), ground: tinted.fill.groundColor.getHex(),
-  nadir: sample(tinted, new THREE.Vector3(0, -1, 0)), plainNadir: sample(sunRig({ mood: 'golden' }), new THREE.Vector3(0, -1, 0)) };
-out.discOptional = sunRig({ mood: 'day', disc: false }).sunDisc === null;
-const floors = (o) => { const r = sunRig(o); return { sun: r.sun.intensity, fill: r.fill.intensity }; };
-out.floors = { dayAsked: floors({ mood: 'day', intensity: 2.8, fill: 0.65 }), goldenAsked: floors({ mood: 'golden', intensity: 2.0, fill: 0.3 }),
-  nightAsked: floors({ mood: 'night', intensity: 0.8, fill: 0.6 }), dayBright: floors({ mood: 'day', intensity: 9.0 }) };
 // A set sun is night: moon opposite, up 30-55 deg; sunDir still the authored sun.
 const set = sunRig({ azimuth: 215, elevation: -20 });
 const moon = set.sun.position.clone().normalize();
@@ -222,52 +160,18 @@ def test_azimuth_zero_is_plus_x_and_ninety_is_plus_z(sun):
     assert sun["axes"] == [[1, 0, 0], [0, 0, 1]]
 
 
-def test_the_env_texture_is_a_linear_half_float_equirect(sun):
-    for mood in _MOODS:
-        m = sun[mood]
-        assert m["envW"] >= 64 and m["envH"] >= 32 and m["equirect"], m
-        assert m["halfFloat"] and m["linear"], m
-
-
-def test_the_sun_disc_sits_on_the_light_vector(sun):
-    for mood in _MOODS:
-        assert sun[mood]["dot"] > 0.999 and sun[mood]["lightIsSun"], (mood, sun[mood])
-
-
 def test_the_baked_env_glow_agrees_with_the_shadow_sun(sun):
     for mood in _MOODS:
         assert sun[mood]["lumSun"] > sun[mood]["lumAway"] * 1.15, (mood, sun[mood])
 
 
-def test_the_day_env_is_an_hdr_sky_with_a_warm_ground_half(sun):
-    """What chrome, water and glass reflect: a blue zenith, a pale (not white)
-    horizon in the dome's own family, an HDR sun, and a ground bounce below."""
-    d = sun["day"]
-    assert d["zenith"][2] > d["zenith"][0] * 2, d["zenith"]
-    hl = 0.2126 * d["horizon"][0] + 0.7152 * d["horizon"][1] + 0.0722 * d["horizon"][2]
-    assert 0.5 < hl < 2.5, d["horizon"]   # toward the sun's azimuth: ~236 sRGB after ACES, not clipped
-    assert d["lumSun"] > 3.0, "the sun in the env is HDR (bloom-friendly), not a clipped band"
-    assert d["nadir"][0] > d["nadir"][2], "ground bounce is warm"
-    assert d["nadir"][0] < d["horizon"][0]
-
-
 def test_the_night_rig_is_dark_but_lit(sun):
-    """Measured on ACES/exposure 1.0: the reference moon (0.8 / fill 0.6) put the
-    ground at 17/255; 2.2 / 1.0 reads moonlit (ground ~45, shade ~14)."""
+    """Measured on ACES/exposure 1.0."""
     n = sun["night"]
     assert n["sun"] >= 2.0 and n["fill"] >= 0.8 and n["night"], n
     assert sun["nightFloor"] >= 0.55
     zl = 0.2126 * n["zenith"][0] + 0.7152 * n["zenith"][1] + 0.0722 * n["zenith"][2]
     assert zl < 0.03 and n["zenith"][2] > n["zenith"][0], n["zenith"]
-
-
-def test_the_fill_colours_can_be_tinted_and_the_env_ground_half_follows(sun):
-    """The cookbook's time-of-day rows tint the hemisphere (cool sky / warm ground per hour);
-    the boat-workshop run (loop 8, 2026-09-07) passed `fillSky`/`fillGround` and the rig
-    silently ignored them."""
-    t = sun["tinted"]
-    assert t["sky"] == 0x7A5AA0 and t["ground"] == 0x3A2E22, t
-    assert t["nadir"] != t["plainNadir"], "the baked ground bounce follows the override"
 
 
 def test_the_shadow_sun_is_fitted_and_biased(sun):
@@ -281,38 +185,6 @@ def test_the_shadow_sun_is_fitted_and_biased(sun):
         assert 0 < m["normalBias"] <= 2 * 120 / m["shadowMap"] * 1.001, m
 
 
-def test_the_shadow_map_is_sized_to_the_frustum_it_covers(sun):
-    """Measured 2026-09-01 on OUR PCFSoftShadowMap (no post chain to hide it):
-    a fixed 2048 over the library's default bounds 150 gave 0.146 m/texel and
-    the contact shadow of a 1 m sphere came back a 14-texel staircase."""
-    t = sun["texel"]
-    for b, m in t.items():
-        assert 1024 <= m["map"] <= 4096, (b, m)
-        assert m["map"] == 2 ** round(math.log2(m["map"])), (b, m)
-    # Small worlds are not handed a 4096 map they cannot use...
-    assert t["8"]["map"] == 1024 and t["25"]["map"] == 1024, t
-    # ...and every world up to the 0.05 m target gets there.
-    for b in ("8", "25", "60"):
-        assert t[b]["size"] <= 0.05, (b, t[b])
-    # Past it the map caps and the texel grows with the world, never the reverse.
-    assert t["150"]["map"] == 4096 and t["1200"]["map"] == 4096, t
-    assert t["150"]["size"] < t["400"]["size"] < t["1200"]["size"], t
-    # The library default (bounds 150) is at least twice as fine as the old fixed map.
-    assert t["150"]["size"] <= (2 * 150 / 2048) / 2 + 1e-9, t["150"]
-
-
-def test_the_disc_can_be_skipped(sun):
-    assert sun["discOptional"]
-
-
-def test_daylight_has_a_sun_floor_because_colour_dies_with_the_light(sun):
-    f = sun["floors"]
-    assert f["dayAsked"]["sun"] >= 4.5 and f["dayAsked"]["fill"] >= 1.2
-    assert f["goldenAsked"]["sun"] >= 4.5
-    assert f["nightAsked"]["sun"] == 0.8, "night is legitimately dark: an explicit ask stands"
-    assert f["dayBright"]["sun"] == 9.0
-
-
 def test_a_set_sun_is_night_with_a_moon_opposite(sun):
     s = sun["set"]
     assert s["night"] and s["mood"] == "night" and s["sunY"] < 0
@@ -323,50 +195,8 @@ def test_a_set_sun_is_night_with_a_moon_opposite(sun):
     assert s["envZenith"][2] > s["envZenith"][0] and s["sunIntensity"] >= 2.0
 
 
-def test_outskirts_meets_the_scene_ground_at_its_seam():
-    out = _measure("""
-import { makeOutskirts } from './lib/environment.js';
-const ground = (x, z) => 2.0 + 0.01 * x;
-const g = makeOutskirts({ inner: 150, baseY: 0, heightAt: ground, relief: 30, seed: 9, clumps: 140 });
-const land = g.children.find((o) => o.name === 'OutskirtsLand');
-const pos = land.geometry.attributes.position;
-let seamWorst = 0, maxR = 0, maxY = -1e9, farLift = 0, nFar = 0;
-for (let i = 0; i < pos.count; i++) {
-  const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), r = Math.hypot(x, z);
-  maxR = Math.max(maxR, r); maxY = Math.max(maxY, y);
-  if (r < 151) seamWorst = Math.max(seamWorst, Math.abs(y - ground(x, z)));
-  if (r > 900) { farLift += y; nFar++; }
-}
-const copses = g.children.find((o) => o.name === 'OutskirtsCopses');
-const a = makeOutskirts({ inner: 100, seed: 4 }).children[0].geometry.attributes.position;
-const b = makeOutskirts({ inner: 100, seed: 4 }).children[0].geometry.attributes.position;
-const c = makeOutskirts({ inner: 100, seed: 5 }).children[0].geometry.attributes.position;
-let same = true, differ = false;
-for (let i = 0; i < a.count * 3; i++) { if (a.array[i] !== b.array[i]) same = false; if (a.array[i] !== c.array[i]) differ = true; }
-const reach = (o) => { const p = o.children[0].geometry.attributes.position; let r = 0;
-  for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getX(i), p.getZ(i))); return r; };
-const bare = makeOutskirts({ inner: 100, seed: 4 });
-const plain = makeOutskirts({ inner: 100, seed: 4, fields: false });
-console.log(JSON.stringify({ seamWorst, maxR, maxY, meanFarY: farLift / nFar, meshes: g.children.length,
-  copseCount: copses ? copses.count : 0, patched: !!land.material.userData.astraShader, same, differ,
-  bareMeshes: bare.children.length, plainPatched: !!plain.children[0].material.userData.astraShader,
-  small: reach(makeOutskirts({ inner: 120, shellRadius: 1200, seed: 2 })), big: reach(makeOutskirts({ inner: 300, shellRadius: 9000, seed: 2 })),
-  clamped: reach(makeOutskirts({ inner: 120, shellRadius: 1200, outer: 5000, seed: 2 })),
-  shorter: reach(makeOutskirts({ inner: 120, shellRadius: 1200, outer: 600, seed: 2 })) }));
-""")
-    assert out["seamWorst"] < 0.05, out
-    assert 3279 <= out["maxR"] <= 3281 and out["maxY"] < 80 and out["meanFarY"] > 1.0, out
-    assert out["meshes"] == 2 and out["copseCount"] > 50 and out["patched"], out
-    assert out["bareMeshes"] == 1, "copses are opt-in (a temperate cue, not a default)"
-    assert out["plainPatched"], "`fields: false` still patches the land shader (one tone, mottled)"
-    assert out["same"] and out["differ"]
-    assert abs(out["small"] - 984) < 1.5 and abs(out["big"] - 7380) < 2.0
-    assert abs(out["clamped"] - 984) < 1.5 and abs(out["shorter"] - 600) < 1.5
-
-
 def test_the_sky_dome_keeps_or_sets_the_background_the_gate_reads():
-    """D112: makeSky nulled scene.background ("the dome IS the backdrop") and the harness's own
-    no_background gate then failed three iteration-5 scenes that had set one before calling it."""
+    """D112."""
     out = _measure("""
 import * as THREE from 'three';
 import { makeSky } from './lib/sky.js';

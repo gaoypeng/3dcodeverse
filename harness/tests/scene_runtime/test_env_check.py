@@ -1,7 +1,4 @@
-"""D112: ``SceneThreeJsRuntime.check_env`` / ``lib_interface`` — the env module alone, checked before a
-recovered env counts as written (argon loop iteration 5: 5 of 21 recovered modules failed only at
-assembly — ``materials.js does not export 'gravel'``, ``pavingPatch is not defined`` — and one more was
-unlit)."""
+"""D112: env.js check; a good env passes, a bad import, a throw or an unlit scene says why."""
 
 from __future__ import annotations
 
@@ -51,15 +48,3 @@ def test_a_good_env_passes_and_each_broken_one_says_why(tmp_path):
         error = check_env(_ws(tmp_path / name, env))
         assert says in error, (name, error)
     assert not list((tmp_path / "good" / "run" / "src").glob("_c3v_env_probe*")), "the probe entry is deleted"
-
-
-def test_an_arrow_function_export_is_listed_with_its_parameters(tmp_path):
-    """D112 review: the material factories are ``export const asphalt = (o = {}) => …`` — listed as bare
-    names, a single-shot writer could not tell them from constants.  A parenthesised value is not a call."""
-    from codeverse3d.languages._js_lint import export_signatures
-
-    row = next(r for r in lib_interface(_ws(tmp_path, GOOD)).splitlines() if r.startswith("lib/materials.js: "))
-    assert "asphalt(o = {})" in row.split(": ", 1)[1].split(", ")
-    src = ("export const a = (x, {y = 1} = {}) => x;\nexport const b = async (p) => p;\nexport const c = q => q;\n"
-           "export let d = function named(m, n) { return m; };\nexport const K = (1 + 2) * 3;\nexport const ARR = [1, 2];\n")
-    assert export_signatures(src) == ["ARR", "K", "a(x, {y = 1} = {})", "b(p)", "c(q)", "d(m, n)"]

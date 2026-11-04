@@ -26,7 +26,7 @@ from codeverse3d.conventions import LANGUAGE_FRAME, fmt3, frame_doc, to_authorin
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import contract_sections, language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.depth import DETAIL_ADVICE, DepthBudget, depth_budget
+from codeverse3d.tracks.depth import DETAIL_ADVICE
 
 log = logging.getLogger(__name__)
 
@@ -105,8 +105,6 @@ def constraints_text(spec: Any) -> str:
         lines.append(
             "Dimensions (m): " + ", ".join(f"{k}={v:.3f}" for k, v in c.dimensions_m.items())
         )
-    if c.max_triangles:
-        lines.append(f"Max triangles: {c.max_triangles}")
     if c.style:
         lines.append(f"Style: {c.style}")
     for m in c.must_have:
@@ -171,8 +169,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "part_details": part_details(plan) if plan else "",
         "joints_table": joints_table(plan) if plan else "",
         "acceptance": acceptance_lines(plan),
-        "entry_files": ", ".join(ctx.runtime.entry_globs),
-        "n_parts": len(getattr(plan, "parts", []) or []) if plan else 0,
         "detail_advice": DETAIL_ADVICE if plan and getattr(plan, "parts", None) else "",
         "root_link": getattr(plan, "root_link", "") if plan else "",
         "reference_note": reference_note(ctx),
@@ -183,18 +179,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     }
     d.update(extra)
     return d
-
-
-# ----------------------------------------------------------------------------- depth
-def budget_for(ctx: RunContext) -> DepthBudget:
-    """This run's complexity-aware triangle + build-time budget (cached on ctx.extra)."""
-    got = ctx.extra.get("depth_budget")
-    if isinstance(got, DepthBudget):
-        return got
-    timeout = int(getattr(getattr(ctx.settings, "limits", None), "build_timeout_s", 300) or 300)
-    b = depth_budget(ctx.plan, build_timeout_s=timeout)
-    ctx.extra["depth_budget"] = b
-    return b
 
 
 def reference_images(ctx: RunContext, limit: int = 3) -> list[ImagePart]:

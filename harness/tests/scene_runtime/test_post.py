@@ -1,18 +1,4 @@
-"""The scene post chain (runtime_js/lib/browser/post.js): GTAO + selective bloom + grade.
-
-The three properties that must not regress, each pinned against a raw render of
-the SAME scene:
-
-  * the chain is colour-neutral by itself — with AO and bloom off, a post render
-    matches `--no-post` (only MSAA separates them).  This is what lets the grade
-    default to the identity and lets us attribute any shift to AO or bloom.
-  * bloom is SELECTIVE: it fires on an emissive material and does nothing at all
-    on a scene whose brightest thing is merely bright.  A global luminance
-    bright-pass (what the reference chain used) cannot tell those apart on our
-    renderer — the sky dome outshines every authored emissive — and fogged a
-    daylit frame, so the mask is the whole design and this is its guard.
-  * `scene.userData.grade` reaches the shader and is clamped.
-"""
+"""The scene post chain (runtime_js/lib/browser/post.js)."""
 
 from __future__ import annotations
 
@@ -23,7 +9,7 @@ import pytest
 from PIL import Image
 
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.spatial.render_scene import post_chain_args, run_scene_script
+from codeverse3d.spatial.render_scene import run_scene_script
 from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser, needs_node
 
@@ -66,8 +52,7 @@ def mean_lum(path: Path) -> float:
 
 
 def render(ws: Workspace, out: Path, *extra_args: str) -> Path:
-    """One authored-camera frame at t=0, straight through the driver so the test
-    can pass --post-options / --no-post (render_scene() owns neither)."""
+    """One authored-camera frame at t=0, straight through the driver so the test can pass --post-options / --no-post (render_scene() owns neither)."""
     out.mkdir(parents=True, exist_ok=True)
     run_scene_script("render_scene.mjs", [
         "--ws", str(ws.root), "--out", str(out), "--cameras", "authored",
@@ -77,28 +62,10 @@ def render(ws: Workspace, out: Path, *extra_args: str) -> Path:
     return out / "cam_t0.png"
 
 
-def test_post_chain_args_follow_the_env_switch(switch):
-    switch("C3D_POST", None)
-    assert post_chain_args() == []          # ON by default for scene pictures
-    switch("C3D_POST", "0")
-    assert post_chain_args() == ["--no-post"]
-    switch("C3D_POST", "on")
-    assert post_chain_args() == []
-
-
 @needs_node
 @needs_browser
 def test_bloom_is_selective_and_the_chain_alone_is_colour_neutral(tmp_path):
-    """An EMISSIVE box blooms; an equally bright NON-emissive box does not.
-
-    Both scenes are lit the same and the plain box is the brighter of the two in
-    the raw render — so anything that keys off frame luminance fails this test,
-    which is exactly the reference chain's failure mode.
-
-    And AO off, bloom off, grade at its defaults → the same picture as no chain.
-    Without that the grade could drift and nobody would notice: every later
-    measurement of AO or bloom is a delta against a raw render.
-    """
+    """An EMISSIVE box blooms."""
     emissive = make_ws(tmp_path, "emissive", EMISSIVE)
     plain = make_ws(tmp_path, "plain", BRIGHT)
 
@@ -116,17 +83,3 @@ def test_bloom_is_selective_and_the_chain_alone_is_colour_neutral(tmp_path):
     assert abs(mean_lum(p_post) - mean_lum(p_raw)) < 0.005, "a merely bright box must not bloom"
     chain = render(plain, tmp_path / "p_chain", "--post-options", '{"ao":0,"bloom":0}')
     assert abs(mean_lum(chain) - mean_lum(p_raw)) < 0.005, (mean_lum(p_raw), mean_lum(chain))
-
-
-@needs_node
-@needs_browser
-def test_scene_grade_hint_reaches_the_shader_and_is_clamped(tmp_path):
-    """`scene.userData.grade` is the scene's only lever on the grade; a value far
-    outside the sane range is clamped rather than obeyed or ignored."""
-    ws = make_ws(tmp_path, "graded", BRIGHT, extra="scene.userData.grade = { exposure: 99, warmth: 0.4 };")
-    out = tmp_path / "graded_out"
-    render(ws, out, "--post-options", '{"ao":0,"bloom":0}')
-    grade = read_json_or_none(out / "metrics.json")["census"]["post"]["grade"]
-    assert grade["exposure"] == 8.0        # clamped from 99
-    assert grade["warmth"] == pytest.approx(0.4)
-    assert read_json_or_none(out / "metrics.json")["census"]["post"]["grade_neutral"] is False

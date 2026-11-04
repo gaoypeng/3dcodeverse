@@ -165,7 +165,7 @@ class Penetration:
 
 class _PartCache:
     """Per-part collision geometry built once and shared across every pair: the
-    ``fcl.CollisionObject`` (None when fcl is missing), the oriented islands the
+    ``fcl.CollisionObject``, the oriented islands the
     containment test runs on, and the thickness.  Before 2026-08-30 the islands were
     re-split per pair — on a 20-part model that is ~190 splits of the same 20 meshes."""
 
@@ -200,35 +200,19 @@ def pair_distance(
     obj_a: Any = None,
     obj_b: Any = None,
 ) -> PairDistance:
-    """Exact (fcl) or sampled minimum distance between two meshes with closest points.
+    """Exact (fcl) minimum distance between two meshes with closest points.
 
     ``obj_a``/``obj_b`` accept prebuilt ``fcl.CollisionObject``\\ s (see
     :func:`codeverse3d.spatial.joints_collide.fcl_collision_object`) so a caller
     testing many pairs builds each part's BVH once instead of once per pair.
     """
-    if collide._fcl is not None:
-        try:
-            oa = obj_a if obj_a is not None else fcl_collision_object(a)
-            ob = obj_b if obj_b is not None else fcl_collision_object(b)
-            req = collide._fcl.DistanceRequest(enable_nearest_points=True)
-            res = collide._fcl.DistanceResult()
-            d = collide._fcl.distance(oa, ob, req, res)
-            pa, pb = res.nearest_points
-            return PairDistance(name_a, name_b, float(max(d, 0.0)), tuple(map(float, pa)), tuple(map(float, pb)))
-        except Exception:
-            pass  # fall through to the sampled estimate
-    rng = np.random.default_rng(_RNG_SEED)
-    best: PairDistance | None = None
-    for src, dst, flip in ((a, b, False), (b, a, True)):
-        pts = np.vstack([src.vertices, _sample(src, N_SAMPLES, rng)])
-        closest, dist, _ = trimesh.proximity.closest_point(dst, pts)
-        i = int(np.argmin(dist))
-        p_src, p_dst = tuple(map(float, pts[i])), tuple(map(float, closest[i]))
-        cand = PairDistance(name_a, name_b, float(dist[i]), *((p_dst, p_src) if flip else (p_src, p_dst)))
-        if best is None or cand.distance < best.distance:
-            best = cand
-    assert best is not None
-    return best
+    oa = obj_a if obj_a is not None else fcl_collision_object(a)
+    ob = obj_b if obj_b is not None else fcl_collision_object(b)
+    req = collide._fcl.DistanceRequest(enable_nearest_points=True)
+    res = collide._fcl.DistanceResult()
+    d = collide._fcl.distance(oa, ob, req, res)
+    pa, pb = res.nearest_points
+    return PairDistance(name_a, name_b, float(max(d, 0.0)), tuple(map(float, pa)), tuple(map(float, pb)))
 
 
 def _sample(mesh: trimesh.Trimesh, n: int, rng: np.random.Generator) -> np.ndarray:

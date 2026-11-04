@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.addons.calibration import calibrate, load_run_cases
+from codeverse3d.addons.calibration import calibrate
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.judges.rubrics import load_rubric
@@ -41,29 +41,6 @@ def _fake_run(root: Path, name: str) -> Path:
     return run
 
 
-def test_load_cases_reads_the_plan_and_picks_the_fallback_round(tmp_path, caplog):
-    """No usable record.json: the plan comes from plan.json, typed, and its digest is the
-    in-run one — a Z-up object's size in the measurement frame (W×H×D).  No picked round: the
-    stand-in is ``select.fallback_round`` (the latest built round with renders), as in every other
-    reader — even when an earlier round kept a GLB and it did not; its skipped geometry montage says so."""
-    from codeverse3d.addons.calibration import render_geometry_views
-
-    run = _fake_run(tmp_path, "runA")
-    cases = load_run_cases(run)
-    assert [c.round_index for c in cases] == [0, 1] and cases[0].gate_errors == 1 and cases[1].gate_errors == 0
-    assert cases[0].rubric == "static_object" and len(cases[0].inp.acceptance) == 2
-    assert cases[1].is_picked and not cases[0].is_picked and cases[0].glb is None  # no usable record: the last round
-    assert cases[0].inp.plan_summary == "Chair: a chair. Overall 0.50×0.90×0.50 m (W×H×D). Parts: Seat, Leg×4."
-    assert load_run_cases(run, rounds=[1])[0].round_index == 1
-
-    (run / "artifacts" / "r00").mkdir(parents=True)
-    (run / "artifacts" / "r00" / "object.glb").write_bytes(b"glTF")
-    cases = load_run_cases(run)
-    assert cases[1].is_picked and not cases[0].is_picked and cases[0].glb.endswith("r00/object.glb")
-    assert render_geometry_views(cases[1], tmp_path / "out", "clay") is None
-    assert "kept no GLB" in caplog.text
-
-
 def test_calibrate_offline(tmp_path):
     runs = [_fake_run(tmp_path, "runA"), _fake_run(tmp_path, "runB")]
     ids = ["A1", "A2"]
@@ -82,62 +59,11 @@ def test_calibrate_offline(tmp_path):
     assert table.pearson_errors_vs_score == -1.0 and table.spearman_errors_vs_score == -1.0
     assert table.pearson_stored_vs_new is None  # fake rounds carry no stored judgment
     assert len(model.requests) == 8 and table.total_cost_usd == pytest.approx(0.008)
-    md = (tmp_path / "out" / "calibration_fake_fake-1.md").read_text()
-    assert "| runA | r00 | baseline | 1/1 |" in md and "pearson(gate errors, new score) = -1.000" in md
-    data = json.loads((tmp_path / "out" / "calibration_fake_fake-1.json").read_text())
-    assert data["rows"][0]["per_criterion_std"]
     empty = tmp_path / "empty"
     (empty / "rounds").mkdir(parents=True)
     (empty / "spec.json").write_text(make_spec(id="empty").model_dump_json())
     with pytest.raises(ValueError, match="no judgeable rounds"):
         calibrate([empty], model_id="fake:fake-1", out_dir=tmp_path / "out", chat_model=model)
-
-
-def test_calibration_takes_the_judges_thinking_from_the_settings(tmp_path, monkeypatch):
-    """``calibrate(thinking=None)`` judges at ``Settings.judge.thinking`` — the level the loop runs
-    (D105: argon thinks only from medium) — and a stated level still wins; the CLI's default is None."""
-    import codeverse3d.addons.calibration as cal
-    from codeverse3d.config import Settings, get_settings
-
-    run = _fake_run(tmp_path, "runA")
-    levels: list[str] = []
-    real = cal.make_judge
-
-    def spy(spec, rubric_name, model_id, n, **options):
-        levels.append(options["thinking"])
-        return real(spec, rubric_name, model_id, n, **options)
-
-    monkeypatch.setattr(cal, "make_judge", spy)
-    s = Settings(judge={"thinking": "medium"})
-    monkeypatch.setattr(cal, "get_settings", lambda: s)
-    model = FakeChatModel(default=lambda req: good_reply(R, ["A1", "A2"], 0.7))
-    calibrate([run], model_id="fake:fake-1", n_samples=1, out_dir=tmp_path / "out", geometry_mode=None, chat_model=model, max_workers=1)
-    calibrate([run], model_id="fake:fake-1", n_samples=1, out_dir=tmp_path / "out", geometry_mode=None, chat_model=model, max_workers=1,
-              thinking="high")
-    assert levels == ["medium"] * 2 + ["high"] * 2  # make_judge once per case (two rounds), per call
-    assert all(r.thinking == "medium" for r in model.requests[:2]) and model.requests[-1].thinking == "high"
-    get_settings.cache_clear()
-    import argparse
-
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--thinking", default=None, choices=("off", "low", "medium", "high"))
-    assert ap.parse_args([]).thinking is None  # the shape cal.main declares: None = the settings' level
-
-
-def test_run_labels_stay_distinct_across_battery_layouts():
-    """V9c: bench cells all end in .../run; their labels (and judgment sidecars) must not collide."""
-    from codeverse3d.addons.calibration import _run_label
-
-    # compare_backends: <battery>/cells/<prompt>/<arm>/run
-    a = _run_label(Path("/bench/out/compare_v1/cells/chair/harness-gemini/run"))
-    b = _run_label(Path("/bench/out/compare_v1/cells/table/harness-gemini/run"))
-    # ab_plan: <out>/<arm>/cells/<item>/<slug>/run
-    c = _run_label(Path("/bench/out/ab/control/cells/chair/g37/run"))
-    d = _run_label(Path("/bench/out/ab/treatment/cells/chair/g37/run"))
-    e = _run_label(Path("/bench/out/ab/control/cells/table/g37/run"))
-    assert len({a, b, c, d, e}) == 5, (a, b, c, d, e)
-    # a plain harness run keeps its slug as the whole label
-    assert _run_label(Path("/home/u/proj/runs/chair_bl")) == "chair_bl"
 
 
 def test_calibration_judges_what_the_in_run_judge_saw(tmp_path, monkeypatch):

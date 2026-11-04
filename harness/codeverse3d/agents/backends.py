@@ -66,10 +66,6 @@ class _CliAgent:
     model: str
     binary: str
 
-    @property
-    def id(self) -> str:
-        return f"{self.kind}:{self.model}"
-
     def available(self) -> tuple[bool, str]:
         if not exists_on_path(self.binary):
             return False, f"{self.cli_label} CLI not found: {self.binary!r}"
@@ -108,16 +104,8 @@ CLAUDE_SETTINGS = {"skillOverrides": {"design": "off", "doctor": "off"}}
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:
-    """The ``type == "result"`` envelope, else the one JSON document ``--output-format
-    json`` printed.  A stream (a stream-json array, or the JSONL ``--output-format
-    stream-json`` writes) without its result event is no envelope: its last line is an
-    assistant turn of a session that never finished."""
-    env = find_json_object(stdout, lambda d: d.get("type") == "result")
-    if env is not None or stdout.lstrip().startswith("["):
-        return env
-    if sum(1 for line in stdout.splitlines() if line.lstrip().startswith("{")) > 1:
-        return None
-    return find_json_object(stdout, lambda d: True)
+    """The ``type == "result"`` envelope of a ``claude -p`` stream, else ``None``."""
+    return find_json_object(stdout, lambda d: d.get("type") == "result")
 
 
 class ClaudeStream:
@@ -125,7 +113,7 @@ class ClaudeStream:
     session made, the skill index its ``init`` event reported (the list the model was
     shown), each message's usage block (``messages``: the last copy per message id — what a
     session killed before its result event billed), the CLI's own ``api_retry`` events
-    (``retries``: ``(t, announced back-off s, HTTP status)``) and when every other event
+    (``retries``: ``(t, announced back-off s)``) and when every other event
     arrived (``progress``) — the two ``cli_common.provider_wait`` reads.
 
     Since 2026-09-22 the backend streams instead of printing one envelope: the envelope
@@ -139,7 +127,7 @@ class ClaudeStream:
         self._at: dict[str, int] = {}  # tool_use id → index in calls, for its tool_result
         self.messages: dict[str, dict[str, Any]] = {}
         self.served = ""
-        self.retries: list[tuple[float, float, int]] = []
+        self.retries: list[tuple[float, float]] = []
         self.progress: list[float] = []
 
     def feed(self, line: str) -> None:
@@ -154,7 +142,7 @@ class ClaudeStream:
             return
         if ev.get("type") == "system" and ev.get("subtype") == "api_retry":
             # {"attempt", "max_retries", "retry_delay_ms", "error_status": 529, "error": "overloaded"}
-            self.retries.append((time.time(), float(ev.get("retry_delay_ms") or 0) / 1000.0, int(ev.get("error_status") or 0)))
+            self.retries.append((time.time(), float(ev.get("retry_delay_ms") or 0) / 1000.0))
             return
         self.progress.append(time.time())
         if ev.get("type") == "system" and ev.get("subtype") == "init":
@@ -240,7 +228,7 @@ def primary_served_model(env: dict[str, Any], model: str) -> str:
     return max(served, key=lambda n: float((served[n] or {}).get("costUSD") or 0.0))
 
 
-def claude_end(proc: CompletedProc, env: dict[str, Any] | None, stream: ClaudeStream, text: str) -> SessionEnd:
+def claude_end(proc: CompletedProc, env: dict[str, Any] | None, text: str) -> SessionEnd:
     """How a ``claude -p`` process ended (``cli_common.classify_end`` with claude's evidence: its
     ``api_retry`` events, its result envelope) — the harness session and the bench one-shot alike."""
     sub = str((env or {}).get("subtype", ""))
@@ -317,7 +305,7 @@ class ClaudeCodeAgent(_CliAgent):
             turns = int((env or {}).get("num_turns") or 0)
             errors: list[str] = []
             sub = str((env or {}).get("subtype", ""))
-            end = claude_end(proc, env, stream, text)
+            end = claude_end(proc, env, text)
             if proc.timed_out:
                 errors.append(watchdog_error(proc))
             elif env is None or proc.rc != 0:
@@ -327,7 +315,7 @@ class ClaudeCodeAgent(_CliAgent):
             return finish_session(
                 s, ok=end.exit_reason == "completed", exit_reason=end.exit_reason, text=text, usage=usage,
                 tool_calls=n_calls, turns=turns, errors=errors, transient=end.transient, quota=end.quota, stalled=end.stalled,
-                provider_wait_s=provider_wait([(t, b) for t, b, _ in stream.retries], ended, stream.progress),
+                provider_wait_s=provider_wait(stream.retries, ended, stream.progress),
                 rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns, effort=get_settings().agents.claude_effort,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
                 model_usage=(env or {}).get("modelUsage", {}),

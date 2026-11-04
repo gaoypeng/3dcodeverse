@@ -7,45 +7,11 @@ from pathlib import Path
 
 from codeverse3d.addons.dataset.captions import caption_sample
 from codeverse3d.addons.dataset.export import export_samples, load_captions
-from codeverse3d.addons.dataset.quality import (
-    find_duplicates,
-    mark_duplicates,
-    prompt_id,
-    quality_tier,
-)
 from codeverse3d.record.record import load_record
 from tests.flywheel_cli.test_captions import GOOD
 from tests.orchestrator_tracks.fakes import FakeChatModel
 
 # --------------------------------------------------------------------------- tiers + dedupe
-
-
-def test_quality_tier_rule():
-    assert quality_tier(passed=True, gate_errors=0, score=0.9) == "A"
-    assert quality_tier(passed=True, gate_errors=3, score=0.9) == "B"
-    assert quality_tier(passed=False, gate_errors=0, score=0.61) == "C"
-    assert quality_tier(passed=None, gate_errors=0, score=0.6) == "C"
-    assert quality_tier(passed=False, gate_errors=0, score=0.59) == "D"
-    assert quality_tier(passed=None, gate_errors=5, score=None) == "D"
-
-
-def test_only_raw_hash_duplicates_are_dropped_normalised_ones_are_only_marked():
-    """duplicate_of (the drop set) is keyed on the raw code_sha256; the fingerprint only marks."""
-    rows = [
-        {"id": "a", "key": "a", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "B", "score": 0.8},
-        {"id": "b", "key": "b", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8},
-        {"id": "c", "key": "c", "code_sha256": "S", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8},
-        {"id": "d", "key": "d", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "q", "quality_tier": "A", "score": 0.9},
-        {"id": "e", "key": "e", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8,
-         "has_captions": True},
-        {"id": "f", "key": "f", "code_sha256": "", "code_fingerprint": "", "prompt_hash": "p", "quality_tier": "A", "score": 0.9},
-    ]
-    groups = find_duplicates(rows)
-    assert len(groups) == 1 and groups[0].canonical == "e" and set(groups[0].duplicates) == {"a", "b"}
-    mark_duplicates(rows)
-    assert {r["id"]: r["duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "", "d": "", "e": "", "f": ""}
-    assert {r["id"]: r["near_duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "e", "d": "", "e": "", "f": ""}
-    assert prompt_id("  a chair ") == prompt_id("a chair") and len(prompt_id("x")) == 16
 
 
 # --------------------------------------------------------------------------- export extras

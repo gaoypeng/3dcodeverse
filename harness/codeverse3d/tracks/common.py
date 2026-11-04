@@ -114,16 +114,12 @@ class Services:
         return _import("codeverse3d.tracks.articulated_object", "default_joint_sweep")(ws, plan, out_dir)
 
     # ---- agents' workspace materialisation + tool cards
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, spatial_tools: bool) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str) -> None:
         _import("codeverse3d.agents.materialize", "materialize_workspace")(
-            ws, agent_kind=agent_kind, contract_md=contract_md, spatial_tools=spatial_tools)
+            ws, agent_kind=agent_kind, contract_md=contract_md)
 
     def tool_cards(self, track: str, language: str) -> str:
-        try:
-            return _import("codeverse3d.spatial.registry", "tool_cards")(track=track, language=language)
-        except Exception as e:  # noqa: BLE001 — tool registry may be empty during bootstrap
-            log.warning("tool cards unavailable: %s", e)
-            return ""
+        return _import("codeverse3d.spatial.registry", "tool_cards")(track=track, language=language)
 
     # ---- scene assembly + record
     def assemble_scene(self, runtime: SceneRuntime, ws: Workspace, plan: ScenePlan) -> Any:
@@ -180,30 +176,18 @@ class RunContext:
 
 
 # ----------------------------------------------------------------------------- strategy
-def single_shot_agent_id(agent_id: str, chat_model_id: str = "") -> str:
-    """The single-shot strategy id for this run, or "" when there is no chat model.
-
-    Single-shot is ONE api call that returns the asset file — the cheap path the asset
-    stage tries before escalating to a full agent session.  It needs a chat model, and
-    the coding agent is always a vendor CLI (which exposes none), so the model comes
-    from ``chat_model_id`` — the run's planner backend, which is always an API model.
-    Until 2026-08-28 it was derived from the in-process ``api-agent`` generator id;
-    that backend is gone."""
-    if is_single_shot(agent_id):
-        return agent_id
-    # a SHAPE check only, deliberately not models.registry.parse_model_id: whether the
-    # id resolves is the SERVICES' call (tests run fake providers like "fake:planner"),
-    # and single_shot_ctx already degrades to the agent path when chat_model() raises
-    return SINGLE_SHOT_PREFIX + chat_model_id if ":" in chat_model_id else ""
-
-
 def single_shot_ctx(ctx: RunContext) -> RunContext | None:
     """A copy of ``ctx`` bound to the single-shot strategy, or None when the
     generator has no usable chat model (CLI agents, tests with fake services)."""
     cached = ctx.extra.get("_single_shot_ctx")
     if cached is not None:
         return cached or None  # False = known-unavailable
-    sid = single_shot_agent_id(ctx.agent_id, ctx.spec.backends.planner)
+    planner = ctx.spec.backends.planner
+    # Single-shot is ONE api call that returns the asset file; the coding agent is always a
+    # vendor CLI (no chat model), so the model comes from the run's planner backend.  A SHAPE
+    # check only, deliberately not models.registry.parse_model_id: whether the id resolves is the
+    # SERVICES' call (tests run fake providers like "fake:planner").
+    sid = ctx.agent_id if is_single_shot(ctx.agent_id) else (SINGLE_SHOT_PREFIX + planner if ":" in planner else "")
     sub: RunContext | None = None
     if sid:
         try:

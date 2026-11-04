@@ -253,9 +253,8 @@ log = logging.getLogger(__name__)
 
 def clean_env(keep: set[str] | frozenset[str] = frozenset()) -> dict[str, str]:
     """``os.environ`` minus secrets (the one owner of the patterns: ``proc.scrub_secrets``) but
-    for the ``keep`` names (a CLI's own auth var), plus the recursion guard — a vendor CLI's env."""
+    for the ``keep`` names (a CLI's own auth var) — a vendor CLI's env."""
     env = scrub_secrets(dict(os.environ)) | {k: v for k, v in os.environ.items() if k in keep}
-    env["C3D_AGENT_CONTEXT"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -281,7 +280,7 @@ def default_mcp_command(ws: Workspace, *, language: str = "", track: str = "", r
 
 
 def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
-    """The 3dcode MCP command for this job, from the TYPED job: ``job.mcp_command`` > default.
+    """The 3dcode MCP command for this job, from the TYPED job.
 
     It deliberately does NOT read the workspace's ``.mcp.json``.  That file lives where
     the agent works and every CLI backend runs unsandboxed inside it, so an agent that
@@ -289,15 +288,12 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
     with provider credentials in the environment, and (for codex) outside the
     ``--sandbox workspace-write`` its own shell obeys.  The command is rebuilt from the
     job every session instead; nothing on disk can redirect it (audit 2026-08-27)."""
-    if job.mcp_command:
-        return list(job.mcp_command)
     return default_mcp_command(ws, language=job.language, track=job.track, round_index=job.round)
 
 
 # --------------------------------------------------------------------------- session
 #: paths the harness owns; never attributed to an agent session even when git sees them change
-#: (`.3dcv` = `.3dcode` in a workspace made before the 2026-09-21 rename, still resumable)
-HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".3dcv", ".gemini", ".claude", ".agents", ".git")
+HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".gemini", ".claude", ".agents", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "CLAUDE.md",
                                  ".mcp.json", ".antigravityignore", ".gitignore"})
 #: gitignored control files git cannot revert (downstream trusts both blindly):
@@ -796,7 +792,7 @@ class SessionEnd:
 
 
 def classify_end(proc: CompletedProc, *, ok: bool, text: str, said: Sequence[str] = (),
-                 provider_failed: bool = False, rate_limited: bool | None = None) -> SessionEnd:
+                 provider_failed: bool = False) -> SessionEnd:
     """THE end rule for every CLI backend (N71; D83) — each backend brings only its vendor's
     evidence: ``said`` (what the CLI printed about the call that ended it) and ``provider_failed``
     (a typed vendor verdict: agy's ``AGY_ERROR.retryable``).
@@ -817,7 +813,7 @@ def classify_end(proc: CompletedProc, *, ok: bool, text: str, said: Sequence[str
     if proc.timed_out:
         return SessionEnd("timeout", stalled=proc.killed_reason == "idle" and not text.strip())
     quota = is_quota_failure(*said)
-    limited = is_rate_limited(*said) if rate_limited is None else rate_limited
+    limited = is_rate_limited(*said)
     return SessionEnd("budget" if quota or limited else "error",
                       transient=not quota and (provider_failed or is_transient_failure(*said)),
                       quota=quota, rate_limited=limited)

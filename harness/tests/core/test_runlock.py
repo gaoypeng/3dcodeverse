@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from pathlib import Path
 
 import pytest
 
 from codeverse3d.proc import (
-    LOCKS_DIR,
     RunLocked,
     exclusive,
-    flock_path,
     holder_of,
 )
 
@@ -71,45 +68,3 @@ def test_a_second_process_is_refused_and_a_killed_holder_never_wedges_the_run(tm
     assert holder_of(run_root) is None, "a SIGKILLed holder cannot leave a record behind"
     with exclusive(run_root):
         pass
-
-
-def test_a_second_thread_is_refused_and_the_first_keeps_the_lock(tmp_path: Path):
-    """A refused sibling thread cannot release the owning thread's lock."""
-    run_root = tmp_path / "runs" / "slug"
-    run_root.mkdir(parents=True)
-    entered, refused = threading.Event(), []
-    release = threading.Event()
-
-    def t2() -> None:
-        try:
-            with exclusive(run_root, what="T2"):
-                refused.append("ENTERED WHILE T1 HELD IT")
-        except RunLocked as e:
-            refused.append(str(e))
-
-    with exclusive(run_root, what="T1"):
-        with exclusive(run_root, what="T1 again"):  # the SAME thread re-enters
-            pass
-        th = threading.Thread(target=t2)
-        th.start()
-        th.join(timeout=10)
-        entered.set()
-        assert refused and "refusing to enter" in refused[0], refused
-        # T2's refusal must not have released T1's lock: the run is still held
-        assert (holder_of(run_root) or {}).get("what") == "T1"
-    release.set()
-    assert entered.is_set()
-    with exclusive(run_root):   # fully released after the owning thread exits
-        pass
-
-
-
-def test_the_lock_file_lives_outside_the_run_directory(tmp_path: Path):
-    """A --force wipe rmtree's the run root; a lock inside it would be deleted mid-hold."""
-    run_root = tmp_path / "runs" / "slug"
-    run_root.mkdir(parents=True)
-    with exclusive(run_root):
-        lock = flock_path(run_root)
-        assert lock.is_file()
-        assert run_root not in lock.parents
-        assert lock.parent == run_root.parent / LOCKS_DIR

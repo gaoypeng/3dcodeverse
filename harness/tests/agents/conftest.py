@@ -10,10 +10,7 @@ import pytest
 
 
 def write_fake_cli(path: Path, body: str) -> Path:
-    """Write an executable python script ``path`` whose main body is ``body``.
-
-    The script receives argv like the real CLI and must print to stdout.
-    """
+    """An executable python script whose main body is ``body`` (it gets argv like the real CLI)."""
     path.write_text("#!" + sys.executable + "\nimport sys, os, json, time\n" + body)
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
@@ -32,8 +29,7 @@ def fake_bin(tmp_path: Path):
 
 @pytest.fixture
 def scoped_ws(tmp_ws):
-    """A workspace with an entry file and two part files — the tree every write-scope
-    test (the CLI post-hoc restore and the single-shot envelope alike) needs."""
+    """A workspace with an entry file and two part files, for the write-scope tests."""
     (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
     (tmp_ws.src / "model.py").write_text("# entry\n")
     (tmp_ws.src / "parts" / "seat.py").write_text("# seat\n")
@@ -50,7 +46,5 @@ def _clean_agent_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fast_watchdog_poll(monkeypatch):
-    """A fake CLI exits in milliseconds; the watchdog's 1 s poll then dominated every
-    agent.run() in this directory (~13 s across the suite).  Production keeps 1 s —
-    a real vendor CLI runs for minutes and does not care."""
+    """A fake CLI exits in milliseconds; the watchdog's 1 s poll would dominate every agent.run()."""
     monkeypatch.setattr("codeverse3d.agents.cli_common.POLL_S", 0.02)

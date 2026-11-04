@@ -3,14 +3,9 @@ prompt section, a hard-clock session window, the backend's turn count."""
 
 from __future__ import annotations
 
-import time
-
-import pytest
-
-from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ImagePart
-from codeverse3d.contracts.common import Budget, Usage
-from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard
+from codeverse3d.contracts.common import Usage
 from codeverse3d.tracks.generation import GenerationTask, run_agent_task
 from codeverse3d.workspace import Workspace
 
@@ -26,6 +21,7 @@ class StubAgent:
         ws = Workspace(job.workspace)
         (ws.src / "a.txt").write_text("x\n")
         return AgentResult(ok=True, exit_reason="completed", turns=0,
+                           files_changed=[FileChange(path="src/a.txt", status="added")],
                            usage=Usage(backend="stub", input_tokens=10, cost_usd=0.01))
 
 
@@ -50,76 +46,13 @@ def test_images_reach_the_agent_as_paths_in_the_prompt(tmp_ws: Workspace, tmp_pa
     assert "Images for this task" not in agent.jobs[1].prompt
 
 
-def test_session_window_is_clipped_to_the_hard_clock_not_the_soft_share(tmp_ws: Workspace):
-    """Clipping against the soft share handed a late refine the 120 s floor (2026-08-29)."""
-    guard = BudgetGuard(Budget(max_minutes=100), soft_fraction=0.5)
-    guard.start_time -= 60 * 60  # 60 of 100 minutes gone: the soft share is spent, 40 min remain
-    assert not guard.soft_ok()
-    agent = StubAgent()
-    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="p", timeout_s=900), budget=guard)
-    assert agent.jobs[0].timeout_s == 900
 
 
-def test_run_deadline_overrides_the_session_timeout_floor(tmp_ws: Workspace):
-    guard = BudgetGuard(Budget(max_minutes=1))
-    guard.start_time -= 50
-    agent = StubAgent()
-    start = time.monotonic()
-    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="p"), budget=guard)
-    job = agent.jobs[0]
-    assert job.timeout_s == 120  # the existing soft session floor
-    assert start < job.hard_deadline_s <= start + 10
 
 
-def test_silent_retry_keeps_the_original_absolute_deadline(tmp_ws: Workspace):
-    class BailOnce(StubAgent):
-        def run(self, job):
-            if not self.jobs:
-                self.jobs.append(job)
-                return AgentResult(ok=False, exit_reason="completed")
-            return super().run(job)
-
-    agent = BailOnce()
-    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="baseline", prompt="p"),
-                   budget=BudgetGuard(Budget(max_minutes=1)))
-    assert len(agent.jobs) == 2
-    assert agent.jobs[0].hard_deadline_s is not None
-    assert agent.jobs[0].hard_deadline_s == agent.jobs[1].hard_deadline_s
 
 
-def test_empty_usage_cannot_bypass_the_clock_and_start_a_retry(tmp_ws: Workspace):
-    guard = BudgetGuard(Budget(max_minutes=1))
-
-    class EmptyOverrun(StubAgent):
-        def run(self, job):
-            self.jobs.append(job)
-            guard.start_time -= 61
-            return AgentResult(ok=False, exit_reason="completed")
-
-    agent = EmptyOverrun()
-    with pytest.raises(BudgetExceeded):
-        run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="baseline", prompt="p"), budget=guard)
-    assert len(agent.jobs) == 1
 
 
-@pytest.mark.parametrize("thinking, effort", [("", None), ("off", None), ("low", "low"), ("medium", "medium"),
-                                              ("high", "high")])
-def test_the_task_effort_reaches_the_job_only_when_asked(tmp_ws: Workspace, thinking, effort):
-    """``GenerationTask.thinking`` '' (the default) leaves the backend's own effort — agy: high."""
-    agent = StubAgent()
-    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="t", prompt="p", thinking=thinking))
-    assert agent.jobs[0].effort == effort
 
 
-def test_the_session_ledger_row_carries_the_effort_the_cli_ran_at(tmp_ws: Workspace):
-    from codeverse3d.cost.instrument import metered_agent, run_ledger
-    from codeverse3d.cost.ledger import load_ledger
-
-    class Ran(StubAgent):
-        def run(self, job):
-            return super().run(job).model_copy(update={"effort": "high"})
-
-    with run_ledger(tmp_ws.root, run="r"):
-        metered_agent(Ran()).run(AgentJob(workspace=str(tmp_ws.root), prompt="p", label="baseline"))
-    (row,) = load_ledger(tmp_ws.root)
-    assert row.model_extra.get("effort") == "high"

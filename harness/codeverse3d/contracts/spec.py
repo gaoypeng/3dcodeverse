@@ -22,7 +22,6 @@ class Constraints(BaseModel):
     dimensions_m: dict[str, float] | None = Field(
         default=None, description="e.g. {'width': 1.2, 'depth': 0.6, 'height': 0.75}"
     )
-    max_triangles: int | None = None
     style: str = ""
     must_have: list[str] = Field(default_factory=list)
     must_not: list[str] = Field(default_factory=list)

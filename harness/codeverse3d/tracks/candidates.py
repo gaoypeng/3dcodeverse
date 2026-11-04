@@ -54,7 +54,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     """Baseline round with ``ctx.policy.n_candidates`` parallel candidates; returns the r00 record."""
     n = max(1, ctx.policy.n_candidates)
     ctx.events.emit("candidates.start", round=0, n=n, parallel=min(n, ctx.settings.limits.max_parallel_agents))
-    ctx.ws.ensure_gitignore()   # legacy run dirs may predate _cand/ in the standard lines
     subs = [make_candidate_context(track, ctx, k) for k in range(n)]
 
     def _one(k: int) -> CandidateRecord:
@@ -144,7 +143,7 @@ def make_candidate_context(track: Any, ctx: RunContext, k: int) -> RunContext:
         if path.is_file():
             shutil.copyfile(path, sub_ws.root / path.name)
     if not ctx.single_shot:
-        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=track.agent_contract_md(ctx), spatial_tools=True)
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=track.agent_contract_md(ctx))
     sub_ws.commit("skeleton")
     # own event log (the run log keeps only candidate.*) and a one-sample judge for ranking
     return replace(ctx, ws=sub_ws, extra={}, events=EventLog(sub_ws.events_path),

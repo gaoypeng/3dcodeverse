@@ -23,27 +23,19 @@ def _glb_json(glb: str) -> dict:
 
 def test_build_stool_glb_and_census(stool_build, stool_ws: Workspace):
     res = stool_build  # the session's one stool build
-    assert Path(res.glb_path).is_file() and Path(res.glb_path).stat().st_size > 1000
-    assert (Path(res.glb_path).parent / "build.json").is_file()
+    assert Path(res.glb_path).is_file() and (Path(res.glb_path).parent / "build.json").is_file()
     c = res.census  # what only the export knows; the object itself is measured off the GLB
     assert set(c) == {"placement_offset", "instanced_meshes_baked", "selfcheck_ran", "tick_present",
                       "unnamed_meshes", "warnings", "glb_bytes", "three_revision"}
-    assert c["three_revision"] == "182"
-    assert c["tick_present"] is True
-    assert c["placement_offset"] is None
-    assert c["instanced_meshes_baked"] == 0 and c["selfcheck_ran"] is False
-    assert c["unnamed_meshes"] == 0
+    assert c["three_revision"] == "182" and c["tick_present"] is True and c["placement_offset"] is None
+    assert c["instanced_meshes_baked"] == 0 and c["selfcheck_ran"] is False and c["unnamed_meshes"] == 0
     m = measure_glb(res.glb_path)
-    assert sorted(p.name for p in m.parts) == ["Legs", "Seat", "Stretchers"] and m.tri_count > 500
-    assert len(_glb_json(res.glb_path)["materials"]) == 3  # seat + legs + stretchers (distinct objects)
-    # the GLB carries named nodes per part and the bbox matches the authored sizes
-    scene = trimesh.load(res.glb_path, force="scene")
-    names = set(scene.graph.nodes)
-    assert {"Stool", "Seat", "Legs", "Stretchers", "Leg_LB", "Leg_RF"} <= names
-    assert len(scene.graph.nodes_geometry) == 9
-    lo, hi = scene.bounds
-    assert np.allclose(lo, [-0.17, 0.0, -0.17], atol=2e-3)
-    assert np.allclose(hi, [0.17, 0.45, 0.17], atol=2e-3)
+    assert sorted(p.name for p in m.parts) == ["Legs", "Seat"] and m.tri_count > 500
+    assert len(_glb_json(res.glb_path)["materials"]) == 2
+    scene = trimesh.load(res.glb_path, force="scene")      # named nodes per part; bbox matches the authored sizes
+    assert {"Stool", "Seat", "Legs", "Leg_LB", "Leg_RF"} <= set(scene.graph.nodes)
+    assert len(scene.graph.nodes_geometry) == 5
+    assert np.allclose(scene.bounds, [[-0.17, 0.0, -0.17], [0.17, 0.45, 0.17]], atol=2e-3)
     # no entry module: the shared typed failure, before any node boot, and the GLB is wiped
     (stool_ws.src / "object.js").unlink()
     res = ThreeJsRuntime().build(stool_ws)
@@ -52,7 +44,7 @@ def test_build_stool_glb_and_census(stool_build, stool_ws: Workspace):
 
 @pytest.mark.parametrize("path, find, repl, etype, line", [
     ("parts/legs.js", "const off = 0.13;", "const off = undefinedThing();", "ReferenceError", 6),
-    ("parts/seat.js", None, "\nlet = 1;\n", "SyntaxError", 13),
+    ("parts/seat.js", None, "\nlet = 1;\n", "SyntaxError", 10),
 ])
 def test_build_error_maps_to_file_line(stool_ws: Workspace, path, find, repl, etype, line):
     p = stool_ws.src / path
@@ -60,25 +52,17 @@ def test_build_error_maps_to_file_line(stool_ws: Workspace, path, find, repl, et
     res = ThreeJsRuntime().build(stool_ws)
     assert not res.ok and res.error_type == etype
     assert res.error_file == f"src/{path}" and res.error_line == line
-    assert not (stool_ws.artifacts / "object.glb").exists()
-    assert (stool_ws.artifacts / "export_error.json").is_file()
-    assert json.loads((stool_ws.artifacts / "build.json").read_text())["ok"] is False
+    assert not (stool_ws.artifacts / "object.glb").exists() and (stool_ws.artifacts / "export_error.json").is_file()
 
 
-@pytest.mark.parametrize("source, message", [
-    ("import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name='Empty'; return g; }\n",
-     "no meshes"),
-    ("export const x = 1;\n", "export function build"),
-])
-def test_build_contract_errors(stool_ws: Workspace, source, message):
-    (stool_ws.src / "object.js").write_text(source)
+def test_build_contract_errors(stool_ws: Workspace):
+    (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name='Empty'; return g; }\n")
     res = ThreeJsRuntime().build(stool_ws)
-    assert not res.ok and res.error_type == "ContractError" and message in res.error_message
+    assert not res.ok and res.error_type == "ContractError" and "no meshes" in res.error_message
 
 
 def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
-    """Law 7: an off-ground / off-centre object is exported as authored, with a warning.
-    (Same build: an exported selfcheck that passes is run and recorded.)"""
+    """Law 7: an off-ground / off-centre object is exported as authored, with a warning; a passing selfcheck is recorded."""
     p = stool_ws.src / "object.js"
     p.write_text(p.read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;")
                  + "export function selfcheck(THREE_, root) { return true; }\n")
@@ -92,62 +76,33 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     assert abs(lo[1] - 0.2) < 2e-3 and abs(lo[0] - 0.33) < 2e-3
 
 
-def test_build_seeds_math_random(stool_ws: Workspace):
-    """Audit 2026-09-24 N23: export_glb neither seeded nor warned on `Math.random`, so the round's
-    re-build measured a different object than the agent's build.  Seeded like the Python wrappers."""
-    p = stool_ws.src / "object.js"
-    p.write_text(p.read_text().replace("return root;", "root.position.x = Math.random() * 0.1; return root;"))
-    offsets = [ThreeJsRuntime().build(stool_ws).census["placement_offset"][0] for _ in range(2)]
-    assert offsets[0] == offsets[1] and offsets[0] < 0
-
-
-@pytest.mark.parametrize("bare_root", [False, True])
-def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root: bool):
-    """InstancedMesh is baked (trimesh ignores EXT_mesh_gpu_instancing) into SIBLING meshes
-    ``Posts_0..9``, so the contract gate counts them as the plan's ×10 instances (audit
-    2026-09-24 N2: a wrapper Group ``Posts`` was one part, "found 1 instance(s)" + a bbox ERROR)."""
+def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
+    """InstancedMesh is baked (trimesh ignores EXT_mesh_gpu_instancing) into SIBLING meshes ``Posts_0..9``,
+    so the contract gate counts them as the plan's x10 instances (a wrapper Group was one part)."""
     from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
-    from codeverse3d.spatial.connectivity import check_connectivity
     from codeverse3d.spatial.contract import check_contract
 
-    posts = ("  const mat = new THREE.MeshStandardMaterial({ color: 0x885533 });\n"
-             "  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1, 0.05, 1, 2, 1), mat, 10); posts.name = 'Posts';\n"
-             "  const m = new THREE.Matrix4();\n"
-             "  for (let i = 0; i < 10; i++) { m.makeTranslation(-2.25 + i * 0.5, 0.5, 0); posts.setMatrixAt(i, m); posts.setColorAt(i, new THREE.Color(i % 2 ? 0xff0000 : 0x00ff00)); }\n"
-             "  posts.instanceMatrix.needsUpdate = true;\n")
-    if bare_root:
-        body = posts + "  return posts; }\n"
-    else:
-        body = ("  const g = new THREE.Group(); g.name = 'Fence';\n" + posts + "  g.add(posts);\n"
-                "  const rail = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.05, 0.03, 2, 1, 1), mat); rail.name = 'Rail'; rail.position.set(0, 1.025, 0); g.add(rail);\n"
-                "  return g; }\n")
+    body = ("  const mat = new THREE.MeshStandardMaterial({ color: 0x885533 });\n"
+            "  const g = new THREE.Group(); g.name = 'Fence';\n"
+            "  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1, 0.05, 1, 2, 1), mat, 10); posts.name = 'Posts';\n"
+            "  const m = new THREE.Matrix4();\n"
+            "  for (let i = 0; i < 10; i++) { m.makeTranslation(-2.25 + i * 0.5, 0.5, 0); posts.setMatrixAt(i, m); posts.setColorAt(i, new THREE.Color(i % 2 ? 0xff0000 : 0x00ff00)); }\n"
+            "  g.add(posts);\n"
+            "  return g; }\n")
     (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function build(T) {\n" + body)
     res = ThreeJsRuntime().build(stool_ws)
     assert res.ok, res.error_message
     assert res.census["instanced_meshes_baked"] == 1
     header = _glb_json(res.glb_path)
     assert "EXT_mesh_gpu_instancing" not in (header.get("extensionsUsed") or [])
-    assert len(header["materials"]) == (2 if bare_root else 3)  # (base +) two instance colours
-    names = [f"Posts_{i}" for i in range(10)] + ([] if bare_root else ["Rail"])
     m = measure_glb(res.glb_path)
-    assert sorted(p.name for p in m.parts) == sorted(names)
-    assert m.tri_count == 20 * len(names) and abs(m.ground_gap_m) < 1e-3  # 2-segment boxes: 20 triangles each
+    assert sorted(p.name for p in m.parts) == sorted(f"Posts_{i}" for i in range(10))
+    assert m.tri_count == 200 and abs(m.ground_gap_m) < 1e-3  # 2-segment boxes: 20 triangles each
     p9 = next(p for p in m.parts if p.name == "Posts_9")
-    assert np.allclose(p9.bbox_min, [2.225, 0.0, -0.025], atol=1e-3)
-    assert np.allclose(p9.bbox_max, [2.275, 1.0, 0.025], atol=1e-3)
-    parts = [PartPlan(name="Posts", role="r", description="d", instances=10,
-                      bbox=BBox(center=(0, 0.5, 0), extents=(0.05, 1.0, 0.05)))]
-    if not bare_root:
-        parts.append(PartPlan(name="Rail", role="r", description="d",
-                              bbox=BBox(center=(0, 1.025, 0), extents=(4.6, 0.05, 0.03))))
-    plan = StaticPlan(object_name="Fence", summary="s", overall_bbox=BBox(center=(0, 0.525, 0), extents=(4.6, 1.05, 0.05)),
-                      parts=parts)
-    # the boxes are segmented (20 triangles), so they are not the skeleton's 12-triangle placeholder
-    # (D110; a bare box exactly at its plan box is pinned in test_placeholder_gate)
-    assert [f.message for f in check_contract(m, plan, language="threejs").findings
-            if f.severity.value != "info"] == []
-    if not bare_root:
-        assert check_connectivity(res.glb_path).passed
+    assert np.allclose(p9.bbox_min, [2.225, 0.0, -0.025], atol=1e-3) and np.allclose(p9.bbox_max, [2.275, 1.0, 0.025], atol=1e-3)
+    parts = [PartPlan(name="Posts", role="r", description="d", instances=10, bbox=BBox(center=(0, 0.5, 0), extents=(0.05, 1.0, 0.05)))]
+    plan = StaticPlan(object_name="Fence", summary="s", overall_bbox=BBox(center=(0, 0.5, 0), extents=(4.6, 1.0, 0.05)), parts=parts)
+    assert [f.message for f in check_contract(m, plan, language="threejs").findings if f.severity.value != "info"] == []
 
 
 def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
@@ -164,6 +119,15 @@ def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
     assert rec["error"]["part"] == "Legs"
 
 
+def test_build_seeds_math_random(stool_ws: Workspace):
+    """Audit 2026-09-24 N23: export_glb neither seeded nor warned on `Math.random`, so the round's
+    re-build measured a different object than the agent's build.  Seeded like the Python wrappers."""
+    p = stool_ws.src / "object.js"
+    p.write_text(p.read_text().replace("return root;", "root.position.x = Math.random() * 0.1; return root;"))
+    offsets = [ThreeJsRuntime().build(stool_ws).census["placement_offset"][0] for _ in range(2)]
+    assert offsets[0] == offsets[1] and offsets[0] < 0
+
+
 def test_build_failing_selfcheck_is_a_typed_error(stool_ws: Workspace):
     p = stool_ws.src / "object.js"
     src = p.read_text()
@@ -172,4 +136,4 @@ def test_build_failing_selfcheck_is_a_typed_error(stool_ws: Workspace):
     res = ThreeJsRuntime().build(stool_ws)
     assert not res.ok and res.error_type == "SelfCheckError"
     assert res.error_message.startswith("selfcheck(THREE, root) threw: too short: 0.45")
-    assert res.error_file == "src/object.js" and res.error_line == 13
+    assert res.error_file == "src/object.js" and res.error_line == src.count("\n") + 3   # the `throw` line

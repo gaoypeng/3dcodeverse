@@ -139,7 +139,7 @@ def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA
     A run reachable through more than one path (54 of 239 under ``eval/bench/out``, where the
     batteries symlink each other's cells) is found once (``find_run_dirs``), at the path it
     physically lives at.  A row is named by its ``RunId`` (``battery``, ``run`` = the slug), the
-    key of ``index.sqlite`` and of the exported samples."""
+    key of the exported samples."""
     drops = drops if drops is not None else Counter()
     root = Path(runs_dir)
     for found in iter_runs(root, on_error=lambda p, e: drops.update([f"unreadable_record: {type(e).__name__}"])):

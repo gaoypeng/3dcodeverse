@@ -201,7 +201,7 @@ means the AGENT opened the control: counted by the report and flagged, never dro
 
 ```
 3dcode skills report eval/bench/out/<battery>    # deep-read rate per skill per backend (--json)
-3dcode doctor --skills                           # library + discovery wiring
+3dcode skills validate                           # bundles, overlays, routes
 ```
 
 Target: ≥ 60 % deep-read, counted only over sessions the control says were measurable.  **A skill
@@ -315,8 +315,7 @@ Re-read from the binaries 2026-09-22 (claude-code 2.1.280, codex 0.155.1, agy 1.
 harness's own launch path: same roots, all activate the routed bundles; agy's
 `--disable-slash-commands`, which the harness passes, only stops `/name` expansion of the prompt.
 Two things this settled that had only been argued: `Skill` was absent from `ALLOWED_TOOLS`
-(claude-code would have denied its own skill tool — added, and `3dcode doctor --skills` checks
-it); and the negative control — a bundle whose description does not match, "do not read any
+(claude-code would have denied its own skill tool — added); and the negative control — a bundle whose description does not match, "do not read any
 files, do not activate any skill" — found every CLI opening `SKILL.md` **and** `references/`,
 each only under the root it owns (claude-code both roots): the independent confirmation of the
 root mapping, and the reason `deep` cannot mean "the agent chose to go deeper" on atime alone (§1).

@@ -8,7 +8,6 @@ from codeverse3d.cost import estimate_call
 from codeverse3d.cost.guard import image_tokens, text_tokens
 
 
-# ------------------------------------------------------------------ guard
 def test_estimate_from_text_and_images():
     est = estimate_call("gemini:gemini-3.1-pro-preview", prompt="x" * 4000, n_images=4, output_tokens=2000)
     assert est.input_tokens == 1000 + image_tokens(4)

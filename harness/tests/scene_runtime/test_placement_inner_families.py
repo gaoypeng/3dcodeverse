@@ -1,11 +1,4 @@
-"""The placement row's `inner` names count FAMILIES (2026-09-07).
-
-D59 lists a row's named descendants (capped at `MAX_INNER_NAMES`) so the plan-contents check
-can see through a wrapper group.  The cap counted every distinct name, so a wrapper holding
-30 `Planter_N` before the hero clone hid the hero and the check reported it missing.  One
-slot per family (`Planter_3` / `Planter.003` → `Planter`) keeps the hero visible and the
-by-name check still matches on the plan's word.
-"""
+"""The placement row's `inner` names count FAMILIES (2026-09-07)."""
 from __future__ import annotations
 
 import pytest
@@ -47,11 +40,7 @@ console.log(JSON.stringify({{ cap: MAX_INNER_NAMES, inner: row.inner, hasHero: r
 
 @pytest.mark.parametrize("sep", ["", "_", "-"])
 def test_a_wrapper_of_scattered_instances_reports_the_instance_size(sep: str):
-    """`families`: twelve 2.2 m fence panels along a 15 m path are one row ('PicketFences');
-    the row's bbox is the run, `families.PicketFence` is the panel (loop 9 lighthouse,
-    2026-09-07: the scale check read 14.7 m against the plan's 2.4 m panel).  Numbered
-    panels (`PicketFence-3`) are one family by `conventions.split_instance` (audit
-    2026-09-24 N3: the JS copy of the rule missed the hyphen)."""
+    """`families`."""
     body = f"""
 import * as THREE from 'three';
 import {{ sceneCensus }} from '{RUNTIME_JS}/lib/host_census.mjs';

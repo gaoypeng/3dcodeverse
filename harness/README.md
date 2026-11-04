@@ -19,7 +19,7 @@ renders, judges, refines and records every run as data-flywheel material.
   a calibration harness (`addons/calibration.py`).
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/cross-backend
-  pairs, captions, sqlite index, HTML gallery.
+  pairs, captions, HTML gallery.
 * **Looking at results:** `3dcode gallery serve` — a local page over `runs/` +
   `eval/bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
   it serves the run directories too, so every link (sheet, renders, `src/`, `object.glb`
@@ -50,13 +50,12 @@ codeverse3d/
   spatial/         the measurement/render toolbox behind every gate and MCP tool
   judges/          rubric VLM judge on labelled montages, pairwise, reference/likeness
   reference.py     a user `--image` against the render: proportion check, mismatch diff
-  texturing/       the PBR material-family table (languages/blender reads it)
   cost/            append-only ledger, metering, per-block tallies, pre-call estimates
   skills/          typed skill routes + materialisation + read telemetry
   record/          what every run writes: record.json, deliverable/, telemetry
   addons/          optional tools that READ finished runs — nothing a run needs:
                    gallery (the runs browser), dataset (export, tiers, preference/repair pairs,
-                   captions, sqlite index), costreport (`3dcode cost`), calibration, skill_targets
+                   captions), costreport (`3dcode cost`), calibration, skill_targets
   cli/             the typer CLI · doctor.py  the environment checks behind `3dcode doctor`
 ../eval/bench/     the evaluation harness around the harness: run_bench, compare_backends
                    (A/B matrix), ab_plan, infra-failure classification

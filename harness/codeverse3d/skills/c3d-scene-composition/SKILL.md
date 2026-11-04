@@ -89,10 +89,7 @@ So compute the eye from the terrain and aim each camera at the subject the brief
 const y = heightAt(x, z) + EYE;   // terrain FIRST, then the eye height the brief's shot has
 ```
 
-Where a camera stands, how many there are and what each frames is the brief's. A strong
-option for the establishing shot is `establishingShot` from `lib/place.js`, which takes the
-hero object and derives distance and height from its measured box; `seat` and `shot` in
-the same module place a camera or a prop on the surfaces you pass. Whatever you use, the
+Where a camera stands, how many there are and what each frames is the brief's. The
 first camera in the array is the one measured as establishing.
 
 Two notes that save a wasted repair round:

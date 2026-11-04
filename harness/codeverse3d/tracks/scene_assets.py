@@ -183,7 +183,7 @@ def _bpy_api_line(a: AssetPlan, r: AssetResult | None, kept: str | None, size: s
     return f"- {a.name}: `ctx.assets['{snake}']` — built by the harness from `src/assets/{snake}.py` (`build_{snake}(ctx, variant=0)`), {size}{status}"
 
 
-def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, AssetResult]:
+def run_asset_stage(ctx: RunContext) -> dict[str, AssetResult]:
     """Generate every asset (parallel) and return results keyed by asset name."""
     plan: ScenePlan = ctx.plan  # type: ignore[assignment]
     cap = MAX_ASSETS if ctx.budget.soft_ok() else DEGRADED_MAX_ASSETS
@@ -198,14 +198,11 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     ctx.extra["asset_alias"] = alias
     if not assets:
         return {}
-    ctx.ws.ensure_gitignore()   # legacy run dirs may predate _assets/ in the standard lines
 
     def _one(asset: AssetPlan) -> AssetResult:
         if asset.kind == "blender_glb":
-            return build_blender_asset(ctx, asset, judge=judge_assets)
-        if asset.kind == "bpy":
-            return build_bpy_asset(ctx, asset, judge=judge_assets)
-        return build_threejs_asset(ctx, asset, judge=judge_assets)
+            return build_blender_asset(ctx, asset, judge=True)
+        return build_module_asset(ctx, asset, judge=True)
 
     workers = ctx.settings.limits.max_parallel_agents
     if any(a.kind in ("blender_glb", "bpy") for a in assets):   # both kinds check in a Blender process
@@ -255,50 +252,37 @@ def _record_spec_hashes(ctx: RunContext, results: dict[str, AssetResult], assets
     write_json_atomic(path, recorded)
 
 
-# ----------------------------------------------------------------------------- threejs asset
-def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
-    """Single-shot → deterministic check → ONE repair → (only then) an agent session."""
-    rel, pascal = ctx.runtime.asset_file(asset), to_pascal(asset.name)
-    # committed-child reuse (review-3 S2): a resume that re-enters the stage — budget
-    # stop after the commit, or a failed sibling — must not re-pay a finished asset.
-    # Deterministic node import-check only, no model call; the skeleton stub never
-    # passes it (single low-poly box), and `ran` guards the checker-unavailable path.
-    if (ctx.ws.root / rel).is_file() and _spec_hash_matches(ctx, asset):
-        chk0 = check_threejs_asset(ctx, rel, pascal, expected_size_m=asset.approx_size_m)
-        if chk0.ran and chk0.ok:
-            ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
-            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m,
-                               strategy="reused", notes="committed module reused (import check passed)")
+# ----------------------------------------------------------------------------- module asset
+def build_module_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
+    """A scene_threejs module (``build<Pascal>(THREE, {variant})``) or a scene_blender one
+    (``src/assets/<snake>.py``, ``build_<snake>(ctx, variant=0)``): committed-child reuse, then
+    single-shot → deterministic check → ONE repair → (only then) an agent session.
 
-    def check(c: RunContext) -> AssetCheck:
-        return check_threejs_asset(c, rel, pascal, expected_size_m=asset.approx_size_m)
-
-    strategy, chk, notes = _ladder(ctx, asset, rel, language=Language.SCENE_THREEJS, files=[rel], check=check,
-                                   timeout_s=asset_timeout_s(ctx, 120))
-    return _module_result(ctx, asset, rel, strategy, chk, notes, check=check, language=Language.SCENE_THREEJS, judge=judge)
-
-
-def build_bpy_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
-    """A scene_blender plan's procedural module (``src/assets/<snake>.py``, ``build_<snake>(ctx,
-    variant=0)``): the three.js module's ladder exactly — committed-child reuse, single-shot →
-    ``check_bpy_asset`` (one Blender build of this module alone) → ONE repair → the agent session.
     ``judge``: the quick-sheet judge runs only when the runtime renders a module on its own
     (``render_asset``); the scene_blender runtime has none, so the scene judge sees the asset
-    placed, like a three.js module before 2026-09-07."""
-    rel, snake = ctx.runtime.asset_file(asset), to_snake(asset.name)
+    placed."""
+    bpy = asset.kind == "bpy"
+    rel = ctx.runtime.asset_file(asset)
+    name = to_snake(asset.name) if bpy else to_pascal(asset.name)
+    check_fn = check_bpy_asset if bpy else check_threejs_asset
+    language = Language.SCENE_BLENDER if bpy else Language.SCENE_THREEJS
+    # committed-child reuse (review-3 S2): a resume that re-enters the stage — budget
+    # stop after the commit, or a failed sibling — must not re-pay a finished asset.
+    # Deterministic check only, no model call; the skeleton stub never passes it
+    # (single low-poly box), and `ran` guards the checker-unavailable path.
     if (ctx.ws.root / rel).is_file() and _spec_hash_matches(ctx, asset):
-        chk0 = check_bpy_asset(ctx, rel, snake, expected_size_m=asset.approx_size_m)
+        chk0 = check_fn(ctx, rel, name, expected_size_m=asset.approx_size_m)
         if chk0.ran and chk0.ok:
             ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
-            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m,
-                               strategy="reused", notes="committed module reused (Blender build check passed)")
+            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m, strategy="reused",
+                               notes=f"committed module reused ({'Blender build' if bpy else 'import'} check passed)")
 
     def check(c: RunContext) -> AssetCheck:
-        return check_bpy_asset(c, rel, snake, expected_size_m=asset.approx_size_m)
+        return check_fn(c, rel, name, expected_size_m=asset.approx_size_m)
 
-    strategy, chk, notes = _ladder(ctx, asset, rel, language=Language.SCENE_BLENDER, files=[rel], check=check,
+    strategy, chk, notes = _ladder(ctx, asset, rel, language=language, files=[rel], check=check,
                                    timeout_s=asset_timeout_s(ctx, 120))
-    return _module_result(ctx, asset, rel, strategy, chk, notes, check=check, language=Language.SCENE_BLENDER, judge=judge)
+    return _module_result(ctx, asset, rel, strategy, chk, notes, check=check, language=language, judge=judge)
 
 
 def _module_result(ctx: RunContext, asset: AssetPlan, rel: str, strategy: str, chk: AssetCheck | None, notes: str, *,
@@ -481,7 +465,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     if not ctx.single_shot:
         # the language contract alone, no harness_contract.md (intended, review 2 C4): the context file's hard rules
         # bound paths/imports, and its standalone-object acceptance (±1 cm bbox) contradicts the prop sheet's ±5 %
-        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, spatial_tools=True)
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text)
     files = sub.runtime.expected_files(sub.plan)
     timeout_s = asset_timeout_s(ctx, 180)
     label = f"asset_{snake}"
@@ -1153,10 +1137,10 @@ def write_dedupe_note(ws: Workspace, alias: dict[str, str]) -> None:
     write_json_atomic(ws.root / "stages" / "asset_aliases.json", {"alias": alias})
 
 
-def read_dedupe_note(ws: Workspace) -> dict[str, str] | None:
-    """The merge map the asset stage used, or None when no stage has run in this workspace."""
+def read_dedupe_note(ws: Workspace) -> dict[str, str]:
+    """The merge map the asset stage used, or ``{}`` when no stage has run in this workspace."""
     data = read_json_or_none(ws.root / "stages" / "asset_aliases.json")
-    return None if data is None else dict(data.get("alias") or {})
+    return dict((data or {}).get("alias") or {})
 
 
 def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str], *,

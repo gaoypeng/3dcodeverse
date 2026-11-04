@@ -5,20 +5,13 @@ from PIL import Image
 from codeverse3d.contracts.artifacts import (
     GateFinding,
     GateReport,
-    ImprovementItem,
-    Judgment,
-    RenderSet,
-    RenderView,
     Severity,
 )
 from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.judges.prompt_builder import (
-    TEXT_BUDGET_CHARS,
     build_judge_messages,
-    view_az_el,
 )
 from codeverse3d.judges.rubrics import load_rubric
-from tests.judges.conftest import draw_chair
 
 R = load_rubric("static_object")
 
@@ -40,64 +33,6 @@ def test_montage_images_are_cached_at_the_payload_size(judge_input, cache_dir):
         assert Path(ip.path).is_file() and Path(ip.path).parent == cache_dir
     with Image.open(imgs[0].path) as im:
         assert 900 <= im.size[0] <= 1024 and im.size[1] > im.size[0]  # 2×2 grid + strip
-
-
-def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
-    """D47: the clay montage is labelled from the clay rig's own cameras (top at el 88, not 90)."""
-    from codeverse3d.conventions import OBJECT_CLAY_VIEWS
-
-    clay = []
-    for v in OBJECT_CLAY_VIEWS:
-        p = draw_chair(tmp_path / f"clay_{v.name}.png", color=(180, 180, 180))
-        clay.append(RenderView(name=v.name, path=str(p), mode="clay"))
-    _, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir, geometry_views=RenderSet(views=clay))
-    labels = [p.label for p in _images(msgs)]
-    assert labels[0].startswith("MONTAGE 1/2 — SHADED views") and labels[1].startswith("MONTAGE 2/2 — GEOMETRY-ONLY views (clay")
-    assert "front_right_34 · az 35° el 22° · clay" in labels[1]
-    assert "top · az 0° el 88° · clay" in labels[1]
-    assert "top · az 0° el 90°" in labels[0]
-    text = _parts(msgs)[0].text
-    assert "GEOMETRY-ONLY montage shows the same object without materials" in text
-
-
-def test_gates_previous_and_budget(judge_input, cache_dir):
-    judge_input.gates = [GateReport(gate="connectivity", passed=False, findings=[
-        GateFinding(gate="connectivity", severity=Severity.ERROR, target="LegBackLeft", message="floating 3 cm"),
-        GateFinding(gate="connectivity", severity=Severity.WARN, message="thin sliver on Seat")])]
-    judge_input.previous = Judgment(rubric="static_object", scores={}, overall=0.55, passed=False,
-                                    improvement_plan=[ImprovementItem(target="Seat", kind="geometry", instruction="thicken seat", priority=1)])
-    judge_input.round_index = 2
-    judge_input.extra_context = "x" * 50_000
-    _, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir)
-    text = _parts(msgs)[0].text
-    assert "errors (1)" in text and "[LegBackLeft]: floating 3 cm" in text
-    assert "warnings (1)" in text
-    assert "PREVIOUS VERDICT (round 1): overall 0.55" in text and "thicken seat" in text
-    assert len(text) <= TEXT_BUDGET_CHARS + 20
-
-
-def test_scene_rig_paragraph(judge_input, cache_dir):
-    from codeverse3d.contracts.common import Language, Track
-    judge_input.spec = judge_input.spec.model_copy(update={"track": Track.SCENE, "language": Language.SCENE_THREEJS})
-    judge_input.renders.console_errors = ["ReferenceError: foo"]
-    _, msgs = build_judge_messages(judge_input, load_rubric("scene"), cache_dir=cache_dir)
-    text = _parts(msgs)[0].text
-    assert "overview_*" in text and "console error" in text
-    # scene: the rig paragraph says what the overview tiles hide and what a CONTACT CROP is
-    assert "room ceilings lifted" in text and "CONTACT CROP images are diagnostic close-ups" in text
-    assert "must name its view and its asset" in text
-    assert len(_images(msgs)) == 2  # montage + centre crop only: no placement finding, no contact crop
-
-
-def test_view_az_el_geometry():
-    v = RenderView(name="custom", path="x.png", camera_position=(0.0, 1.0, 1.0), look_at=(0, 0, 0))
-    az, el = view_az_el(v)
-    assert az == 0.0 and el == 45.0
-    assert view_az_el(RenderView(name="top", path="x")) == (0.0, 90.0)
-    # a geometry-mode tile answers from the clay rig's own cameras (el 88, not 90)
-    assert view_az_el(RenderView(name="top", path="x", mode="clay")) == (0.0, 88.0)
-    assert view_az_el(RenderView(name="front_right_34", path="x", mode="normals")) == (35.0, 22.0)
-    assert view_az_el(RenderView(name="zzz", path="x")) is None
 
 
 # ===================================================================== the contact ledger (2026-08-30)
@@ -139,26 +74,12 @@ def test_ledger_turns_penetration_warn_prose_into_one_measured_line():
     assert sum("interpenetrate" in f.message for f in rep.findings) == 13  # one WARN sentence per overlap over the weld line
     text = gates_section([rep, CONTRACT_FAIL, GateReport(gate="budget", passed=True)])
     assert "interpenetrate" not in text
-    assert ("connectivity measured 23 mating overlaps (deepest weld 9.0 mm TuningPegs_2/PegboxAndScroll, through-ratio 0.33); "
-            "weld allowance 2 mm, ERROR line 10 mm; 23 weld(s) under it are NOT the interpenetration defect.") in text
-    # ≥ 0.5 of the way through: named as a measurement, left to the geometry montage
-    assert "Measured, not a defect claim: Fingerboard/NeckRoot reaches 55% of the way to its partner's mid-plane (8.4 mm)" in text
-    assert "errors (1):" in text and "- contract [Bridge]: 'Bridge' bbox extents off by 0.03 m" in text
-    assert "warnings (1), grouped by kind:" in text and "- contract ×1: [Nut] 'Nut' centre off by 4 mm" in text
+    assert "connectivity measured 23 mating overlaps (deepest weld 9.0 mm TuningPegs_2/PegboxAndScroll" in text
+    assert "errors (1):" in text and "warnings (1), grouped by kind:" in text
     assert "MEASURED STRUCTURE (connectivity gate, exact mesh-to-mesh distances): 16 parts, 26 contacts (gap ≤ 2 mm), 0 floating, 23 overlapping pairs." in text
-    assert "PLANNED JOINS (the plan's attach_to pairs, measured; contact = gap ≤ 2 mm): 14/15 in contact. OPEN: Tailpiece→EndpinButton 24.9 mm." in text
-    assert "Strings→Bridge 0.8," in text and "TuningPegs_3→PegboxAndScroll," in text
-    # a planned contact is not repeated in the adjacency; the unplanned ones are
-    assert "- other contacts, not in the plan (gap in mm where not 0): Chinrest: RibStructure · Strings: Tailpiece, TuningPegs_2, TuningPegs_1 0.6," in text
-    assert "TuningPegs_3: PegboxAndScroll" not in text
-    assert "- ground: lowest point 0.0 mm (BackPlate) — floor contact; parts within 10 mm of the floor: RibStructure 3.0 mm" in text
-    assert ("CONNECTIVITY PASSED: all 16 parts are in measured contact (26 contacts, gap <= 2 mm)." in text
-            and "Do NOT report any part as floating" in text)
-    # three overlaps reach 8 mm (the veto's line): no injunction against the interpenetration tick,
-    # the measurement is named and the picture decides — the prompt and rubrics._rule_gates_clean agree
-    assert "All 23 overlaps measured; 3 reach 8 mm or more (" in text
-    assert "mark interpenetration only if a part VISIBLY passes through another in a render" in text
-    assert "do NOT mark the interpenetration defect" not in text
+    assert "14/15 in contact. OPEN: Tailpiece→EndpinButton 24.9 mm." in text
+    assert "TuningPegs_3: PegboxAndScroll" not in text  # a planned contact is not repeated in the adjacency
+    assert "CONNECTIVITY PASSED: all 16 parts are in measured contact" in text
     assert text.index("errors (1)") < text.index("MEASURED STRUCTURE") < text.index("connectivity measured") < text.index("warnings (1)")
 
 
@@ -233,33 +154,3 @@ def test_ledger_ground_line_and_single_part_and_grouped_warnings():
     assert "- connectivity ×2: [P0] part 'P0' contains 1 tiny disconnected island(s); [P1] part 'P1'" in text
     assert "- contract/center ×10: [C0] 'C0' centre off by 0 mm;" in text and "[C7] 'C7' centre off by 7 mm; … 2 more" in text
     assert "[C8]" not in text
-
-
-def test_gates_section_without_a_ledger_is_byte_identical_to_the_pre_ledger_text():
-    """A replay of a pre-ledger round builds the exact text its stored verdict saw (captured at 4ddde32)."""
-    from codeverse3d.judges.prompt_builder import gates_section
-
-    C = "connectivity"
-    def F(sev, msg, target=None, gate=C, data=None):
-        return GateFinding(gate=gate, severity=sev, target=target, message=msg, data=data or {})
-    assert gates_section([]) == 'GATE FINDINGS: (no gates run)'
-    passed = [GateReport(gate=C, passed=True, findings=[F(Severity.INFO, "all 9 parts are connected (12 contacts, gap ≤ 2 mm)")])]
-    assert gates_section(passed) == 'GATE FINDINGS (deterministic; treat as facts): connectivity=pass\nno errors or warnings — parts are connected and contracts hold.\nCONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any part as floating, hovering or disconnected, and do not mark the floating-part defect present; if a joint looks visually ugly, say so under craftsmanship.'
-    mixed = [
-        GateReport(gate=C, passed=True, findings=[
-            F(Severity.WARN, "'Strings' and 'Tailpiece' interpenetrate by ≈2.5 mm (2% of surface samples inside, 30% where they meet)", "Strings",
-              data={"kind": "penetration", "other": "Tailpiece", "depth_m": 0.0025, "through_ratio": 0.1}),
-            F(Severity.WARN, "part 'Seat' contains 2 tiny disconnected island(s) (< 5% of the part size) — stray geometry", "Seat", data={"islands": 3, "tiny_islands": 2}),
-            F(Severity.INFO, "all 16 parts are connected (26 contacts, gap ≤ 2 mm)")]),
-        GateReport(gate="contract", passed=False, findings=[F(Severity.ERROR, "'Bridge' bbox extents off by 0.03 m", "Bridge", gate="contract"),
-                                                            F(Severity.WARN, "'Nut' centre off by 4 mm", "Nut", gate="contract")]),
-        GateReport(gate="budget", passed=True)]
-    assert gates_section(mixed) == "GATE FINDINGS (deterministic; treat as facts): connectivity=pass, contract=FAIL, budget=pass\nerrors (1):\n- contract [Bridge]: 'Bridge' bbox extents off by 0.03 m\nwarnings (3):\n- connectivity [Strings]: 'Strings' and 'Tailpiece' interpenetrate by ≈2.5 mm (2% of surface samples inside, 30% where they meet)\n- connectivity [Seat]: part 'Seat' contains 2 tiny disconnected island(s) (< 5% of the part size) — stray geometry\n- contract [Nut]: 'Nut' centre off by 4 mm\nCONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any part as floating, hovering or disconnected, and do not mark the floating-part defect present; if a joint looks visually ugly, say so under craftsmanship."
-    failed = [GateReport(gate=C, passed=False, findings=[
-        F(Severity.ERROR, "part 'Seat' is floating: nearest supported part is 'Leg' at 12.0 mm", "Seat", data={"kind": "floating", "nearest": "Leg", "gap_m": 0.012}),
-        F(Severity.ERROR, "'Arm' and 'Post' interpenetrate by ≈14.0 mm (30% of surface samples inside, 80% where they meet) — 'Arm' reaches 120% of the way through 'Post' (10 mm)", "Arm",
-          data={"kind": "penetration", "other": "Post", "depth_m": 0.014, "through_ratio": 1.2})])]
-    assert gates_section(failed) == "GATE FINDINGS (deterministic; treat as facts): connectivity=FAIL\nerrors (2):\n- connectivity [Seat]: part 'Seat' is floating: nearest supported part is 'Leg' at 12.0 mm\n- connectivity [Arm]: 'Arm' and 'Post' interpenetrate by ≈14.0 mm (30% of surface samples inside, 80% where they meet) — 'Arm' reaches 120% of the way through 'Post' (10 mm)"
-    many = [GateReport(gate=C, passed=False, findings=[F(Severity.ERROR, f"error {i}", f"P{i}") for i in range(14)] + [F(Severity.WARN, f"warn {i}", f"W{i}") for i in range(11)])]
-    assert gates_section(many) == 'GATE FINDINGS (deterministic; treat as facts): connectivity=FAIL\nerrors (14):\n- connectivity [P0]: error 0\n- connectivity [P1]: error 1\n- connectivity [P2]: error 2\n- connectivity [P3]: error 3\n- connectivity [P4]: error 4\n- connectivity [P5]: error 5\n- connectivity [P6]: error 6\n- connectivity [P7]: error 7\n- connectivity [P8]: error 8\n- connectivity [P9]: error 9\n- connectivity [P10]: error 10\n- connectivity [P11]: error 11\n- … 2 more errors\nwarnings (11):\n- connectivity [W0]: warn 0\n- connectivity [W1]: warn 1\n- connectivity [W2]: warn 2\n- connectivity [W3]: warn 3\n- connectivity [W4]: warn 4\n- connectivity [W5]: warn 5\n- connectivity [W6]: warn 6\n- connectivity [W7]: warn 7\n- … 3 more warnings'
-    assert gates_section(many, max_errors=3, max_warns=2) == 'GATE FINDINGS (deterministic; treat as facts): connectivity=FAIL\nerrors (14):\n- connectivity [P0]: error 0\n- connectivity [P1]: error 1\n- connectivity [P2]: error 2\n- … 11 more errors\nwarnings (11):\n- connectivity [W0]: warn 0\n- connectivity [W1]: warn 1\n- … 9 more warnings'

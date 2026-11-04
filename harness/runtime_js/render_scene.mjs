@@ -31,7 +31,6 @@ import { fitOrbitCameras, framingBox } from './lib/orbit.mjs';
 const args = parseCli({
   'no-settle': { type: 'boolean', default: false },
   'camera-repair': { type: 'boolean', default: false },
-  'auto-exposure': { type: 'boolean', default: false },
   // post chain (GTAO + soft bloom + grade): ON for scene pictures, `--no-post` (python
   // emits it for C3D_POST=0) to render raw.  Object renders never come through here.
   'no-post': { type: 'boolean', default: false },
@@ -90,7 +89,6 @@ async function main() {
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
-      autoExposure: !!args['auto-exposure'],
       post: !args['no-post'],
       postOptions: readJsonArg(args['post-options'], 'post-options'),
     });

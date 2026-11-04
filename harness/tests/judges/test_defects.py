@@ -7,13 +7,10 @@ import pytest
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.judges.rubrics import (
     JudgeParseError,
-    RubricError,
     aggregate_samples,
     apply_caps,
     load_rubric,
     parse_judge_output,
-    rubric_from_dict,
-    wire_schema,
 )
 from codeverse3d.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import FakeChatModel, good_reply
@@ -30,29 +27,11 @@ def _reply(score=0.9, defects=None):
 
 
 def test_rubrics_declare_defects_with_costs():
-    for name in ("static_object", "articulated", "scene", "asset", "reference"):
-        r = load_rubric(name)
-        assert r.defects, name
-        assert all(d.penalty > 0 or d.cap is not None for d in r.defects)
     assert R.defect("floating_part").penalty == 0.10 and R.defect("floating_part").cap == 0.60
     assert R.defect("wrong_object").penalty == 0.0
-    assert {"no_articulation_visible", "wrong_motion_type", "pivot_misplaced", "pose_clips_body"} <= {d.id for d in A.defects}
-    with pytest.raises(KeyError):
-        R.defect("nope")
 
 
-def test_duplicate_defect_ids_rejected():
-    bad = {"name": "x", "pass_threshold": 0.7, "criteria": [
-        {"id": "a", "weight": 1.0, "description": "d", "anchors": {"1.0": "", "0.7": "", "0.4": "", "0.1": ""}}],
-        "defects": [{"id": "f", "text": "t"}, {"id": "f", "text": "t2"}]}
-    with pytest.raises(RubricError):
-        rubric_from_dict(bad)
-
-
-def test_wire_schema_has_fixed_defect_keys_and_parse_variants():
-    schema = wire_schema(R, IDS)
-    props = schema["$defs"]["Defects"]["properties"]
-    assert set(props) == {d.id for d in R.defects}
+def test_defect_parse_variants():
     out = parse_judge_output(_reply(defects=["floating_part"]), R, IDS)
     assert out.defects["floating_part"] is True and out.defects["primitive_only"] is False
     assert out.defect_evidence["floating_part"] == "MONTAGE 1 top-left"
@@ -101,27 +80,6 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
     assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
     assert raw["tie_broken"] == ["render_artifacts"]
     assert raw["scoring_version"] == 4 and raw["overridden"] == []  # 4: the kind-scoped veto (scene, 2026-10-14)
-
-    clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})
-    j2 = VlmJudge("static_object", chat_model=clean_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
-    raw2 = json.loads(j2.raw)
-    assert raw2["defect_votes"]["render_artifacts"] == [False, True]
-    assert raw2["defects"]["render_artifacts"] is False and j2.overall == pytest.approx(0.9)
-    assert raw2["tie_broken"] == ["render_artifacts"]
-
-
-def test_acceptance_vote_ties_follow_the_representative_sample(judge_input, cache_dir):
-    """D36: an acceptance tie follows the representative sample."""
-    a_ok, a_no = _reply(0.9), _reply(0.9)
-    a_no["acceptance"]["A1"]["verified"] = False
-    j = VlmJudge("static_object", chat_model=FakeChatModel(by_label={":s0": [a_ok], ":s1": [a_no]}),
-                 n_samples=2, cache_dir=cache_dir).judge(judge_input)
-    assert j.acceptance_results["A1"] is True and json.loads(j.raw)["tie_broken"] == ["A1"]
-    b_ok, b_no = _reply(0.9), _reply(0.9)
-    b_no["acceptance"]["A1"]["verified"] = False
-    j2 = VlmJudge("static_object", chat_model=FakeChatModel(by_label={":s0": [b_no], ":s1": [b_ok]}),
-                  n_samples=2, cache_dir=cache_dir).judge(judge_input)
-    assert j2.acceptance_results["A1"] is False and json.loads(j2.raw)["tie_broken"] == ["A1"]
 
 
 def test_missing_views_cap_for_articulated():

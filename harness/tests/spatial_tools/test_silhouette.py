@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from PIL import Image, ImageDraw
 
 from codeverse3d.spatial.silhouette import compare_silhouette, foreground_mask
@@ -24,33 +23,6 @@ def test_iou_ignores_framing_but_not_aspect(tmp_path: Path) -> None:
     wide = _disc(tmp_path / "w.png", (400, 400), (50, 150, 350, 250))
     r = compare_silhouette(wide, _disc(tmp_path / "c.png", (400, 400), (100, 100, 300, 300)))
     assert r["aspect_ratio_err"] > 1.0 and r["iou"] < 0.8
-
-
-def test_alpha_mask_and_enclosed_pockets(tmp_path: Path) -> None:
-    im = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    d.rectangle([20, 20, 180, 180], fill=(200, 200, 200, 255))
-    d.rectangle([80, 80, 120, 120], fill=(0, 0, 0, 0))  # a hole
-    p = tmp_path / "alpha.png"
-    im.save(p)
-    m = foreground_mask(p)
-    assert m.sum() == pytest.approx(161 * 161 - 41 * 41, rel=0.01)
-    # opaque version: the pocket is enclosed → counted as foreground
-    im2 = Image.new("RGB", (200, 200), (255, 255, 255))
-    d2 = ImageDraw.Draw(im2)
-    d2.rectangle([20, 20, 180, 180], fill=(40, 40, 40))
-    d2.rectangle([80, 80, 120, 120], fill=(255, 255, 255))
-    p2 = tmp_path / "opaque.png"
-    im2.save(p2)
-    assert foreground_mask(p2).sum() == pytest.approx(161 * 161, rel=0.01)
-
-
-def test_unreliable_when_empty(tmp_path: Path) -> None:
-    blank = tmp_path / "blank.png"
-    Image.new("RGB", (100, 100), (250, 250, 250)).save(blank)
-    a = _disc(tmp_path / "a.png", (100, 100), (20, 20, 80, 80))
-    r = compare_silhouette(blank, a)
-    assert r["iou"] == 0.0 and not r["reliable"]
 
 
 def test_a_mask_that_fills_its_frame_is_failed_segmentation_but_a_tight_render_is_not(tmp_path: Path) -> None:

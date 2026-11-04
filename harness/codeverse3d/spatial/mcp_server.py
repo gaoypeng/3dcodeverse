@@ -142,7 +142,7 @@ def observation_content(obs: Observation) -> list[Any]:
     # the slice makes the ceiling hard: truncate's "N chars omitted" marker overshoots its
     # own budget by a few characters, and this is the last bound before the vendor's prompt
     blocks: list[Any] = [types.TextContent(type="text", text=truncate(text, MAX_TEXT_CHARS)[:MAX_TEXT_CHARS])]
-    # images[0] is the contact sheet (image_budget keeps it first) and every later image is
+    # images[0] is the contact sheet (the tools list it first) and every later image is
     # a per-view repeat of it, so the budget STOPS at the first one that does not fit rather
     # than skipping it: dropping the sheet and shipping three views of the same thing would
     # be the worst of both.  Whatever is dropped is said in the text — a FAIL verdict that

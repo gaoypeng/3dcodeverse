@@ -33,7 +33,7 @@ export function mulberry32(seed) {
 
 /**
  * The 16807 (Park-Miller) stream the older effects were tuned on —
- * celestial, godrays, veils, watermist, submerged and
+ * celestial, godrays, veils, watermist and
  * `instanceVariation`. Kept because moving them to `mulberry32` would
  * move every star, shaft and drop they place; new code takes that.
  *

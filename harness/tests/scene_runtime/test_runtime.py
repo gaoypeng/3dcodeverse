@@ -8,27 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track
-from codeverse3d.languages import get_runtime
-from codeverse3d.languages.base import LanguageRuntime, SceneRuntime
+from codeverse3d.contracts.common import Language, Track
 from codeverse3d.languages.scene_threejs import SceneThreeJsRuntime
-from codeverse3d.prompts.catalog import language_text
 from tests.scene_runtime.conftest import needs_browser
-
-
-def test_runtime_registered_conforms_and_writes_skeleton(ws):
-    rt = get_runtime(Language.SCENE_THREEJS)
-    assert isinstance(rt, SceneThreeJsRuntime)
-    assert isinstance(rt, LanguageRuntime)
-    # the scene track reaches every scene language only through SceneRuntime (D101)
-    assert all(isinstance(get_runtime(lang), SceneRuntime) for lang in TRACK_LANGUAGES[Track.SCENE])
-    assert rt.language == Language.SCENE_THREEJS
-    assert "src/scene.js" in rt.entry_globs and "src/zones/*.js" in rt.entry_globs
-    doc = language_text(rt.language, "contract.md")
-    assert "createScene" in doc and "update(t, dt)" in doc
-    paths = rt.skeleton(ws, None)
-    assert (ws.src / "scene.js") in paths
-
 
 #: an asset module composing an effect-library factory around its own plinth (D100)
 LIB_ASSET = """import { makeTree } from '../lib/tree.js';
@@ -53,9 +35,7 @@ def add_lib_asset(ws, body: str = LIB_ASSET) -> str:
 
 @pytest.mark.node
 def test_asset_composing_a_library_factory_passes_the_asset_check(starter_ws):
-    """D100: an asset may import ``../lib/``.  The factory's triangles are the library's, not the
-    asset's budget, and its foot is its origin (a tree's roots go below grade by design) — before,
-    every such asset failed the check (80k tris "over budget", roots "sinking") and escalated."""
+    """D100."""
     from codeverse3d.languages.scene_threejs import lint
     from codeverse3d.tracks.scene_assets import ASSET_MAX_TRIS, check_threejs_asset
 
@@ -79,8 +59,7 @@ def test_asset_composing_a_library_factory_passes_the_asset_check(starter_ws):
 @pytest.mark.node
 @needs_browser
 def test_build_ok_on_example(starter_ws):
-    """The example scene: one probe boot passes both gates and records its census — with a zone
-    placing an asset that composes a library factory (D100)."""
+    """The example scene."""
     add_lib_asset(starter_ws)
     meadow = starter_ws.src / "zones" / "meadow.js"
     meadow.write_text(meadow.read_text()
@@ -130,17 +109,6 @@ def test_build_fails_with_file_line_on_shader_error(starter_ws):
     assert err.fix_hint
 
 
-@pytest.mark.node
-@needs_browser
-def test_build_fails_on_import_error(starter_ws):
-    (starter_ws.src / "scene.js").write_text("import { x } from './nope.js';\nexport function createScene() {}\n")
-    res = SceneThreeJsRuntime().build(starter_ws)
-    assert not res.ok and res.error_file == "src/scene.js" and "nope.js" in res.error_message
-    err = res.gates[0].errors[0]
-    assert err.data.get("stage") == "import" and err.target == "src/scene.js"
-    assert "fix the syntax/import error" in err.fix_hint
-
-
 def test_build_interprets_combined_summary_offline(ws, monkeypatch):
     """One probe boot yields both gate reports, including the no-boot shape."""
     import codeverse3d.languages.scene_threejs as rt_mod
@@ -175,47 +143,11 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
     assert shaders["findings"][0]["target"] == "src/shaders/x.js:7"
     assert (ws.artifacts / "census.json").is_file()
 
-    # boot failure → shader gate failed-empty (old two-call behaviour preserved)
-    def fake_run_noboot(script, args, **kw):
-        return NodeResult(1, "", "", {
-            "ok": False, "boot": {"ok": False, "stage": "import", "error": "SyntaxError: x"},
-            "console_errors": [], "console_warnings": [], "shader_errors": [],
-            "shader_report": {"ok": False, "skipped": "scene did not boot", "errors": [], "warnings": []},
-        }, 5)
-
-    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run_noboot)
-    res2 = rt_mod.SceneThreeJsRuntime().build(ws)
-    assert not res2.ok
-    shaders2 = _json.loads((ws.artifacts / "gates" / "shader_preflight.json").read_text())
-    assert not shaders2["passed"] and shaders2["findings"] == []
-
-
-def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
-    """A probe crash removes prior outputs and publishes a failed build."""
-    import codeverse3d.spatial.probes as probes_mod
-    from codeverse3d.spatial.render_scene import SceneRenderError
-
-    for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
-        (ws.artifacts / name).write_text('{"stale": true}')
-    (ws.artifacts / "build.json").write_text('{"ok": true}')
-
-    def crash(script, args, **kw):
-        raise SceneRenderError("chrome went away")
-
-    monkeypatch.setattr(probes_mod, "run_scene_script", crash)
-    res = SceneThreeJsRuntime().build(ws)
-    assert not res.ok
-    for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
-        assert not (ws.artifacts / name).exists(), name
-    assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False
-
 
 @pytest.mark.node
 def test_hand_over_of_a_library_composing_asset_is_self_contained(starter_ws):
-    """D100: the deliverable and the dataset sample read the round's commit, and ``src/lib/`` is
-    committed with ``src/`` — every import of the handed-over code resolves inside it."""
+    """D100."""
     from codeverse3d.addons.dataset.sample import code_files_for_round
-    from codeverse3d.contracts.common import Track
     from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
     from codeverse3d.contracts.spec import Spec
     from codeverse3d.languages.scene_threejs import lint

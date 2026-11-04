@@ -46,8 +46,7 @@ def _by_kind(report, kind):
 
 
 def test_floating_severity_by_gap_then_by_count():
-    """Settings.placement (strict since 2026-10-14): a hover past floating_error_m 0.08 m is an ERROR,
-    under it a WARN — and more than floating_error_count 2 hovers make every one an ERROR."""
+    """Strict since 2026-10-14: a hover past 0.08 m is an ERROR, under it a WARN; more than 2 hovers make all ERRORs."""
     p = get_settings().placement
     assert (p.floating_error_m, p.floating_error_count) == (0.08, 2)
     r = placement_findings(_table(_row("Lantern", gap=0.3), _row("Cup", gap=0.07, support="Table")))
@@ -67,8 +66,7 @@ def test_floating_severity_by_gap_then_by_count():
 
 
 def test_thresholds_are_read_from_settings_when_the_gate_runs(switch):
-    """An A/B child's ``C3D_PLACEMENT__*`` is what its rounds are judged by (read at call time, never
-    at import); an explicit ``thresholds=`` wins over the process settings; the summary records them."""
+    """An A/B child's C3D_PLACEMENT__* judges its rounds (read at call time); explicit thresholds= wins."""
     t = _table(_row("Lantern", gap=0.3))
     assert _by_kind(placement_findings(t), "floating")[0].severity == Severity.ERROR
     switch("C3D_PLACEMENT__FLOATING_ERROR_M", "0.5")
@@ -82,8 +80,7 @@ def test_thresholds_are_read_from_settings_when_the_gate_runs(switch):
 
 
 def test_the_probe_s_overlap_floor_is_the_default_warn_level():
-    """host_placement.mjs reports pairs past OVERLAP_MIN_FRAC and the gate WARNs past overlap_warn:
-    the two are one number, or the strict WARN band would have nothing to read (0.20 → 0.10, D105)."""
+    """The probe's OVERLAP_MIN_FRAC and the gate's overlap_warn are one number (D105)."""
     js = (runtime_js_dir() / "lib" / "host_placement.mjs").read_text(encoding="utf-8")
     assert f"export const OVERLAP_MIN_FRAC = {Placement().overlap_warn:.2f};" in js
     assert Placement().overlap_warn == 0.10 and Placement().overlap_error == 0.35
@@ -95,8 +92,7 @@ def test_the_probe_s_overlap_floor_is_the_default_warn_level():
     _row("GardenStairways", sunk=1.3, into="Terrain", h=2.0),    # slope-ok: sunk uphill by construction
 ])
 def test_the_gate_accepts_what_the_settle_leaves(row):
-    """Audit 2026-09-24 N27: the settle left these (placement_words.json + the touching rule) and the
-    gate then reported them every round.  One file now says what is seated."""
+    """Audit 2026-09-24 N27: what the settle leaves seated is not reported by the gate."""
     r = placement_findings(_table(row))
     assert [f for f in r.findings if f.severity != Severity.INFO] == []
 
@@ -110,8 +106,7 @@ def test_indoor_tolerance_is_tighter():
 
 
 def test_sunken_thresholds_height_fraction_and_name_words():
-    """sunk_m 0.10 WARN; sunk_error_m 0.20 AND sunk_error_frac 20 % of the height ERROR (the strict
-    2026-10-14 numbers; 0.30 + 25 % before); name words from placement_words.json."""
+    """Strict 2026-10-14: sunk 0.10 m WARN; 0.20 m AND 20 % of the height ERROR; name words exempt."""
     r = placement_findings(_table(
         _row("Bench", sunk=0.15, into="Terrain", h=0.9),          # WARN: > 0.10 m but under 0.20
         _row("Statue", sunk=0.35, into="Terrain", h=2.0),         # WARN: > 0.20 m but only 17 % of its height
@@ -263,21 +258,14 @@ def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
     assert scale[0].fix_hint.startswith("scale each picket_fence")
 
 
-def test_the_typed_interior_flag_wins_over_the_setting_words():
-    from codeverse3d.spatial.scene_placement import is_interior
-
-    assert is_interior({"setting": "a mountain meadow at dawn", "interior": True})
-    assert not is_interior({"setting": "a mountain meadow at dawn", "interior": False})
-    assert is_interior({"setting": "a cosy cabin interior at dusk"})          # no flag: the words decide
-    assert is_interior(_contract_plan().model_copy(update={"interior": True}))
-    assert is_interior({"setting": "a cosy cabin interior at dusk", "interior": None})   # None = no flag
-
-
 def test_an_outdoor_flag_is_not_overruled_by_indoor_sounding_words():
-    """D112, argon loop iteration 5: a zone named GiantTrunkCorridor and a luminance band "inside
-    0.42-0.62" put two outdoor plans on the 2 cm indoor tolerance."""
+    """D112 (iteration 5): indoor-sounding words in an outdoor plan must not put it on the 2 cm tolerance;
+    the typed flag wins over the setting words."""
     from codeverse3d.spatial.scene_placement import infer_indoor, is_interior
 
+    assert is_interior({"setting": "a mountain meadow at dawn", "interior": True})
+    assert is_interior({"setting": "a cosy cabin interior at dusk"}) and is_interior({"setting": "a cosy cabin interior at dusk", "interior": None})
+    assert is_interior(_contract_plan().model_copy(update={"interior": True}))
     redwoods = {"setting": "coastal redwood forest at dawn", "interior": False,
                 "environment": "fog drifts down the GiantTrunkCorridor between the trunks"}
     canyon = {"setting": "desert slot canyon at noon", "interior": False,
@@ -335,9 +323,7 @@ def test_interpenetration_bands_are_the_strict_ones():
 
 
 def test_the_layout_budget_is_a_note_not_a_gate():
-    """2026-10-15 (owner's rule): the L2 layout's prop / ground-cover counts were never the brief's, so a
-    zone under them is an INFO line (``density_note``), never the ``underdressed`` ERROR that enforced the
-    planner's dressing bands as a requirement.  The counts a brief states are acceptance items."""
+    """2026-10-15 (owner's rule): a zone under the layout's prop counts is an INFO density_note, never an ERROR."""
     layouts = {"Yard": {"placements": [{"asset": "Lantern", "count": 6}],
                         "mid_props": 20, "small_props": 40, "ground_cover": 400},
                "House": {"placements": [], "mid_props": 2}}
@@ -357,9 +343,7 @@ def test_the_layout_budget_is_a_note_not_a_gate():
 
 
 def test_world_edge_is_a_warn_note_outdoors_and_quiet_when_the_place_continues_or_indoors():
-    """Until 2026-10-15 this was the ``no_backdrop`` ERROR whose hint prescribed a silhouette ring of
-    24-40 pieces.  The measurement stands (something >= 2 m tall past 1.25x the half-extent); the finding
-    is a WARN that states the requirement, and neither its name nor its hint names a ring."""
+    """2026-10-15: the no_backdrop ERROR became a WARN stating the requirement; the hint prescribes no ring."""
     base = {"fog": {"type": "Fog"}, "background": "#aabbcc",
             "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
                                 _row("BenchB", zone="House", h=0.9))}
@@ -437,9 +421,7 @@ def test_blender_census_gets_bpy_words_in_placement_hints():
 
 # --------------------------------------------------------------------- the strict pass (2026-10-14)
 def test_free_exempt_share_is_one_finding_naming_the_tagged_assets():
-    """'free' exempts an asset from every check; w1_tearoom (argon) tagged 17 of 36.  The share of
-    tagged assets among those that would otherwise be checked is a WARN past free_exempt_warn (25 %)
-    and an ERROR past free_exempt_error (50 %), once at least two are tagged; per-language fix."""
+    """w1_tearoom tagged 17 of 36 'free': the tagged share is a WARN past 25 % and an ERROR past 50 % (min two tagged)."""
     p = get_settings().placement
     assert (p.free_exempt_warn, p.free_exempt_error) == (0.25, 0.5)
     stood = [_row(f"Bench{i}") for i in range(6)]
@@ -464,9 +446,7 @@ def test_free_exempt_share_is_one_finding_naming_the_tagged_assets():
 
 
 def test_cantilevered_rests_on_one_of_four_columns():
-    """Seated at its lowest column, hanging at the others (a crate seated by its lowest corner on a
-    slope): a WARN naming the columns and the far hang; not for slope-following names, fewer than
-    four columns, a hang within the floating tolerance, an attached asset, or an older row."""
+    """Seated at one of four columns, hanging at the others: a WARN, with the quiet cases listed below."""
     crate = _row("Crate", gap=0.0, columns=4, gap_max=0.36, resting=1, tilt=0.36)
     r = placement_findings(_table(crate))
     f = _by_kind(r, "cantilevered")
@@ -525,10 +505,7 @@ def test_the_summary_records_the_thresholds_and_the_probe_s():
 
 
 def test_a_zone_past_a_truncated_tables_cut_is_unmeasured_not_empty():
-    """D111: argon loop iteration 4, r1_01 — an envelope of 337 meshes filled the 400-row table and the
-    last zone in the scene, built and visibly present, read "placed nothing".  A table cut by its ROW CAP
-    with the zone's built group in the census gives an INFO note and no ``zone_empty`` ERROR; the zone AT
-    the cut (the last row's) gets an INFO for what may lie past it, not ``missing_content``."""
+    """D111 (iteration 4, r1_01): a row-capped table leaves the last built zone INFO-unmeasured, never zone_empty."""
     table = _table(_row("Lantern"), _row("Bench"), total=9, truncated=True)
     census = {"groups": [{"name": "Yard", "kind": "content"}, {"name": "House", "kind": "content"}], "placement": table}
     kinds = {(f.data.get("kind"), f.target, f.severity) for f in placement_gate_safe(census, plan=_contract_plan()).findings}
@@ -559,9 +536,7 @@ def test_the_zone_at_a_truncated_tables_cut_is_partly_measured():
 
 
 def test_a_floating_row_states_its_gap_to_the_millimetre_and_the_tolerance_applied():
-    """D112, iteration 5 r1_07: "floating 0.05 m" for a 0.048 m gap in a scene the prompt calls
-    outdoors (tolerance 0.05 m) read as a contradiction; the refine session paged the raw probe dump
-    for 15 minutes to resolve it and was killed before writing."""
+    """D112 (iteration 5 r1_07): "floating 0.05 m" for a 0.048 m outdoor gap read as a contradiction; state gap and tolerance."""
     rows = [_row(f"Boulder{i}", gap=g) for i, g in enumerate((0.048, 0.046, 0.041))]
     indoor = _by_kind(placement_findings(_table(*rows), indoor=True), "floating")
     assert [f.severity for f in indoor] == [Severity.ERROR] * 3

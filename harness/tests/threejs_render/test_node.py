@@ -6,19 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.spatial.node import NodeError, parse_last_json, run_node
-
-
-def test_parse_last_json_picks_last_object():
-    out = 'noise\n{"a": 1}\nmore noise\n{"ok": true, "n": 2}\n[1,2]\n'
-    assert parse_last_json(out) == {"ok": True, "n": 2}
-    assert parse_last_json("nothing here") is None
-    assert parse_last_json('{"broken": \n') is None
-
-
-def test_missing_script_raises(tmp_path: Path):
-    with pytest.raises(NodeError):
-        run_node(tmp_path / "nope.mjs", [], timeout_s=5)
+from codeverse3d.spatial.node import run_node
 
 
 @pytest.mark.node

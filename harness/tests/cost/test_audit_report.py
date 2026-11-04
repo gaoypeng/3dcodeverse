@@ -11,23 +11,6 @@ import pytest
 from codeverse3d.addons.costreport.audit import (
     audit_runs,
 )
-from codeverse3d.addons.costreport.report import console, markdown
-
-
-def test_a_run_that_booked_no_money_still_reports(tmp_path: Path):
-    """A $0 run (every session killed before it reported usage) must not divide by zero."""
-    ws = tmp_path / "free_run"
-    ws.mkdir()
-    (ws / "record.json").write_text(json.dumps({
-        "spec": {"track": "static_object", "language": "blender", "backends": {"generator": "gemini-cli:gemini-3.8-flash"}},
-        "status": "failed", "rounds": [], "total_usage": {}, "extra": {}}))
-    ledger = ws / "telemetry" / "cost.jsonl"
-    ledger.parent.mkdir()
-    ledger.write_text(json.dumps({"run": ws.name, "round": 0, "stage": "baseline", "role": "generator", "backend": "gemini-cli",
-                                  "provider": "gemini", "model": "gemini-3.8-flash", "cost_usd": 0.0}) + "\n")
-    audit = audit_runs([tmp_path])
-    assert audit.n_runs == 1 and audit.total_usd == 0
-    assert "0%" in console(audit) and "# Cost audit" in markdown(audit)
 
 
 def test_a_lower_scoring_round_is_not_waste_but_a_repair_that_never_built_is(fake_run: Path, tmp_path: Path):

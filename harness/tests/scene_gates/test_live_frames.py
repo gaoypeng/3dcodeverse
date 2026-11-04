@@ -1,8 +1,4 @@
-"""Browser-backed: render_scene → camera_checks coverage, judge subset sheet, scene_frames gate.
-
-The example starter scene must pass; a crushed-dark variant of it must raise
-``dark_frame`` ERRORs with the lighting hint.
-"""
+"""Browser-backed: render_scene → camera_checks, judge subset sheet, scene_frames gate (starter passes, dark variant fails)."""
 
 from __future__ import annotations
 
@@ -30,13 +26,10 @@ pytestmark = [pytest.mark.node, needs_browser]
 def _darken(ws: Workspace) -> None:
     env = ws.src / "env.js"
     text = env.read_text()
-    # the starter lights through lib/environment.js sunRig (2026-09-07): crush the rig's sun and
-    # fill AFTER it is built (its `fill` option is clamped UP to a readability floor) and drop
-    # the env map, which lights metals and glass on its own
+    # crush the sunRig's sun and fill AFTER it is built (its `fill` is clamped up) and drop the env map
     text = text.replace("  scene.environment = rig.envTex;",
                         "  scene.environment = null; sun.intensity = 0.05; hemi.intensity = 0.02; hemi.color.set(0x101018); hemi.groundColor.set(0x000000);")
-    # the placeholder starter's sky is its fog colour (D106: no world shell): black both out, or
-    # half the frame stays bright sky
+    # the starter's sky is its fog colour (D106): black both out
     text = text.replace("scene.fog = new THREE.Fog(0xbfc6cc,", "scene.fog = new THREE.Fog(0x000000,")
     text = text.replace("scene.background = new THREE.Color(scene.fog.color)", "scene.background = new THREE.Color(0x000000)")
     assert "0.05" in text and text.count("0x000000") >= 3
@@ -44,8 +37,7 @@ def _darken(ws: Workspace) -> None:
 
 
 def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace):
-    """Also: plan bounds guard the orbit framing — bounds that contain everything (this run) change
-    nothing; a zone that sprawls far past tight bounds is dropped in favour of the zones inside them."""
+    """Also: plan bounds guard the orbit framing (a zone sprawling past tight bounds is dropped)."""
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=640, height=360, fps_seconds=0.3,
                       bounds=BBox(center=(0, 3, 0), extents=(90.0, 10, 90.0)))
@@ -75,9 +67,7 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     assert rs.out_dir == str(out)
     assert all(v.judge is not None for v in rs.views)
     stamped = {(v.name, v.time_s) for v in rs.views if v.judge}
-    # 3 authored at t=0 + the 4 overview-rig tiles (scene: the contact camera is the fourth)
-    # + the first two authored at t=1.5; the harness's eye-level rig is a diagnostic and never
-    # reaches the judge
+    # 3 authored + 4 overview tiles at t=0, first two authored at t=1.5; the eye rig never reaches the judge
     assert len(stamped) == 9 <= JUDGE_MAX_VIEWS
     assert not any(n.startswith("eye_") for n, _ in stamped)
     assert stamped == {(v.name, v.time_s) for v in select_judge_views(rs).views}

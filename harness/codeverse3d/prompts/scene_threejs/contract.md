@@ -198,11 +198,8 @@ does not inflate the content box or the overview fit); an interior's lid meshes 
 * A sky-dome material needs `fog: false`, `side: THREE.BackSide`, `depthWrite: false` (and the
   tonemap / colorspace chunks `makeShaderMaterial` adds) or it renders black or fogged.
 * `mergeGeometries` returns `null` on mismatched attributes — check before `computeVertexNormals`.
-* `walk(fig, t)` (lib/figure.js) runs only inside `userData.update(t)`; at build time it throws
-  `time must be finite`.
 * A GLB hero is visible only if the zone clones `ctx.assets['<snake>']` (nothing loads a GLB
   itself); its pivot is at its base; `clone.userData.clipOffset = <seconds>` de-phases a copy.
-* `makeText` (lib/signage.js) is async: await it ONCE at module top level, `.clone()` per copy.
 * Water: inside any shoreline the terrain must lie below the water level or the shore z-fights.
 * A camera below the terrain under it, or inside a mesh, is a gate ERROR capped at 0.50: the
   plan's camera heights are absolute metres, so compute y from `heightAt(x, z)` (or the floor

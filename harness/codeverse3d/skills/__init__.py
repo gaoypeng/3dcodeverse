@@ -23,7 +23,7 @@ roots, :func:`library_roots`), its ``_claims/`` is consulted first
 extra typed rows — reshapes the routing table (:func:`variants_table`, parsed with ``tomllib``
 into typed records; ``registry.select`` applies it).  ``bundle_dirs`` never descends into it:
 ``variants/`` has no ``SKILL.md``, so the base listing is what it always was — ``3dcode skills
-validate`` / ``list`` and ``doctor --skills`` walk every shipped root through :func:`shipped_roots`.
+validate`` / ``list`` walk every shipped root through :func:`shipped_roots`.
 
 Public surface for the rest of the harness::
 
@@ -160,7 +160,7 @@ class ShippedRoot:
 def shipped_roots(variants: Iterable[str] | None = None) -> list[ShippedRoot]:
     """The base root, then the skills overlay of every shipped variant that has one — every directory
     a run can route a bundle from, whichever variant it activates.  ``3dcode skills validate`` /
-    ``list`` and ``doctor --skills`` walk THIS rather than :func:`bundle_dirs` alone: an overlay bundle
+    ``list`` walk THIS rather than :func:`bundle_dirs` alone: an overlay bundle
     a loop iteration wrote is routed the moment its variant is active (:func:`all_skills`), so a
     malformed one must fail validation here, not vanish from a session with a logged warning while
     the row that named it routes nothing.  ``variants`` names the ones to walk; the default is every

@@ -16,7 +16,7 @@ The pool:
   ``timeout_s``.  ``max_in_flight`` additionally caps how many calls may be out at
   once on the whole machine, and :meth:`KeyPool.release` (a ``finally`` in
   ``rotate_with_retries``) hands the slot back.  ``try_acquire()`` is the never-waiting
-  variant a hedged retry uses for its extra keys; ``session_key()`` picks a key for a
+  variant a hedged retry uses for its extra keys; ``lease_session_key()`` picks a key for a
   vendor CLI session, which makes its own calls and holds no slot.  There is no RPM /
   TPM bucket: the ledgers since the api-agent went (2026-08-29 .. 09-22, 2 080 calls)
   peaked at 3.9 % of one key's TPM and 2.6 % of its RPM, so the buckets never engaged
@@ -230,7 +230,6 @@ class KeyPool:
         slots_dir: Path | str | None = None,
         cooldown_s: float = MAX_WAIT_S,
         dead_cooldown_s: float = 3600.0,
-        min_health: float = 0.3,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         start: int = 0,
@@ -243,7 +242,6 @@ class KeyPool:
         self._sleep = sleep
         self._cooldown_s = float(cooldown_s)
         self._dead_cooldown_s = float(dead_cooldown_s)
-        self._min_health = min_health
         self._lock = threading.Lock()
         self._rr = start % len(uniq)
         self._in_flight = 0
@@ -264,10 +262,6 @@ class KeyPool:
     # ------------------------------------------------------------------ public
     def __len__(self) -> int:
         return len(self._states)
-
-    @property
-    def keys(self) -> list[str]:
-        return [s.key for s in self._states]
 
     def acquire(
         self,
@@ -322,21 +316,11 @@ class KeyPool:
         self._hold(slot)
         return key
 
-    def session_key(
-        self,
-        *,
-        exclude: set[str] | frozenset[str] | None = None,
-        timeout_s: float | None = ACQUIRE_TIMEOUT_S,
-    ) -> str:
-        """A key for a session that makes its own calls — a vendor CLI: rotation, 429
-        cooldowns and dead-key benching exactly like :meth:`acquire`, but no in-flight slot
-        and nothing to release.  A session is minutes of agent time; a machine-wide slot
-        held that long would let a few dozen sessions starve every planner and judge call
-        on the box (docs/COST.md §23)."""
-        return self._acquire_key(exclude, timeout_s)
-
     def lease_session_key(self, leases: Path | str, *, timeout_s: float | None = ACQUIRE_TIMEOUT_S) -> tuple[str, int | None]:
-        """:meth:`session_key`, one live session per key MACHINE-wide while there are keys enough.
+        """A key for a session that makes its own calls — a vendor CLI: rotation, 429 cooldowns
+        and dead-key benching like :meth:`acquire`, but no in-flight slot (a session is minutes of
+        agent time; a machine-wide slot held that long would starve every planner and judge call)
+        — and one live session per key MACHINE-wide while there are keys enough.
 
         A key's per-minute quota is what a long CLI session runs out of (live, 2026-10-13: one
         agy session, 11 M prompt tokens in 18 min, 429'd), and every parallel ``3dcode make``
@@ -500,7 +484,7 @@ class KeyPool:
             st.recover(now)
             if st.cooldown_until > now:
                 continue
-            if st.health >= self._min_health:
+            if st.health >= MIN_HEALTH:
                 self._rr = (idx + 1) % n
                 return st
             if best is None or st.health > best.health:
@@ -521,6 +505,7 @@ class KeyPool:
 #: This is the CEILING; a caller that cannot afford it passes a smaller ``max_total_s``
 #: (``ChatRequest.max_wait_s``) — audit 2026-08-26 §5.1: 66 give-up spans of 900 s, up to
 #: three in a row on one agent turn, were 30 % of a storm day's waiting.
+MIN_HEALTH = 0.3   # a key below this health is passed over while a healthier one is ready
 RETRY_DEADLINE_S = 1800.0   # owner 2026-08-27: generous time, zero timeouts (was 900)
 
 #: how many keys a retry is spread over once a call has met its first 503/529.

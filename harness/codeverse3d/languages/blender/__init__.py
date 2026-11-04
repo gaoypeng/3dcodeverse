@@ -22,8 +22,8 @@ from codeverse3d.languages._ast_lint import (
 )
 from codeverse3d.languages._common import run_wrapper_build, strip_blender_noise, ws_rel
 from codeverse3d.languages.base import RuntimeLayout
+from codeverse3d.languages.blender._pbr import family_for, pbr_for
 from codeverse3d.proc import scrub_secrets
-from codeverse3d.texturing.materials import family_for, pbr_for
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -500,7 +500,7 @@ _COLOUR_WORDS: tuple[tuple[str, tuple[float, float, float]], ...] = (
 
 def finish_for(text: str) -> tuple[tuple[float, float, float], float, float]:
     """Placeholder (rgb, roughness, metallic) so the first render is not all-grey: the material
-    family's base hint and factors from ``texturing.materials`` (THE PBR table), else a bare
+    family's base hint and factors from ``_pbr`` (THE PBR table), else a bare
     colour word at the Principled defaults, else neutral grey."""
     hit = family_for(text)
     pbr = pbr_for(hit.family) if hit else None
@@ -719,7 +719,7 @@ def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: flo
 
     ``ground_tol_m`` is the self-check's "stands on z=0" tolerance: ``conventions.GROUND_TOL_M``
     for an object (the contract gate's own line), looser for a scene hero, which
-    the scene seats anyway (`lib/place.js seat`) and whose module twin is allowed 20 mm."""
+    the scene seats anyway and whose module twin is allowed 20 mm."""
     ws.src.mkdir(parents=True, exist_ok=True)
     entry = ws.src / "model.py"
     entry.write_text(model_file_source(plan, ground_tol_m=ground_tol_m))

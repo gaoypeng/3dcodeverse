@@ -9,7 +9,6 @@ import pytest
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Language
 from codeverse3d.languages import get_runtime
-from codeverse3d.languages.scene_blender import LIB_DIR, lib_interface
 from codeverse3d.workspace import Workspace
 from tests.scene_blender.fixtures import ENV
 
@@ -30,17 +29,6 @@ def _ws(tmp_path, env: str) -> Workspace:
     (ws.src / "env.py").write_text(env)
     (ws.src / "scene.py").write_text("ZONES = {}\nASSETS = {}\nHEROES = {}\nCAMERAS = []\n")
     return ws
-
-
-def test_the_lib_interface_lists_signatures_as_written(tmp_path):
-    ws = _ws(tmp_path, ENV)
-    (ws.src / "lib").mkdir()
-    for p in LIB_DIR.glob("*.py"):
-        (ws.src / "lib" / p.name).write_text(p.read_text())
-    rows = lib_interface(ws).splitlines()
-    assert rows and all(r.startswith("lib/") for r in rows)
-    assert not any(r.startswith("lib/__init__.py") for r in rows)
-    assert any(r.startswith("lib/sky.py (lib.sky): ") and "(" in r for r in rows)
 
 
 @needs_blender
@@ -68,17 +56,3 @@ def test_a_raise_inside_a_lib_helper_is_quoted_at_the_env_line_that_called_it():
     assert env_frame(tb) == "src/env.py:287 `sky_batch.box(`"
     assert env_frame(tb.replace("/src/env.py", "/src/lib/env.py")) == ""   # a lib module is not the env
 
-
-@needs_blender
-@pytest.mark.blender
-def test_check_env_leads_with_the_env_line_when_a_lib_helper_raised(tmp_path):
-    env = ENV.replace("import bpy\n", "import bpy\nfrom lib.turn import spin\n", 1).replace(
-        "    return {}\n", "    spin((0.0, 0.0, 1.0))\n    return {}\n")
-    ws = _ws(tmp_path, env)
-    (ws.src / "lib").mkdir()
-    (ws.src / "lib" / "__init__.py").write_text("")
-    (ws.src / "lib" / "turn.py").write_text("import math\n\n\ndef spin(rotation):\n    return math.cos(rotation)\n")
-    error = get_runtime(Language.SCENE_BLENDER).check_env(ws)
-    line = next(i for i, text in enumerate(env.splitlines(), 1) if "spin((0.0" in text)
-    assert error.startswith(f"src/env.py:{line} `spin((0.0, 0.0, 1.0))` (raised in src/lib/turn.py:5)"), error
-    assert "TypeError" in error

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ScenePlan
 from codeverse3d.contracts.spec import Constraints
@@ -102,13 +100,11 @@ def test_hero_reentry_keeps_the_previous_sessions_src(tmp_ws, settings):
     assert res.ok and (tmp_ws.public / "assets" / f"{snake}.glb").is_file()   # the kept src builds again
 
 
-@pytest.mark.parametrize("kind", ["threejs", "blender_glb"])
-def test_asset_check_soft_findings_share_one_rule_set(kind):
-    chk = SA.AssetCheck(ok=True, ran=True, size_m=(0.6, 0.4, 0.3), min_y=-0.1, tris=50_000, meshes=1, materials=1)
-    limit = SA.HERO_MAX_TRIS if kind == "blender_glb" else SA.ASSET_MAX_TRIS
-    SA._soft_findings(chk, (0.6, 0.4, 0.3), max_tris=limit)
-    assert not chk.ok and any("sinks" in e for e in chk.errors)
-    assert any(f"{limit} budget" in e for e in chk.errors)
+def test_asset_check_soft_findings_share_one_rule_set():
+    for limit in (SA.HERO_MAX_TRIS, SA.ASSET_MAX_TRIS):   # hero GLB and threejs module
+        chk = SA.AssetCheck(ok=True, ran=True, size_m=(0.6, 0.4, 0.3), min_y=-0.1, tris=50_000, meshes=1, materials=1)
+        SA._soft_findings(chk, (0.6, 0.4, 0.3), max_tris=limit)
+        assert not chk.ok and any("sinks" in e for e in chk.errors) and any(f"{limit} budget" in e for e in chk.errors)
 
 
 def test_a_fix_that_judges_worse_is_undone(tmp_ws, settings):
@@ -204,15 +200,13 @@ def test_a_threejs_fix_with_only_soft_findings_is_kept_and_judged_again(tmp_ws, 
                                  errors=["measured w=20.00 m but the plan says 8.00 m — rescale"])])
     monkeypatch.setattr(SA, "check_threejs_asset", lambda *a, **k: next(checks))
     monkeypatch.setattr(SA, "_judge_wanted", lambda *a, **k: True)
-    res = SA.build_threejs_asset(ctx, asset, judge=True)
+    res = SA.build_module_asset(ctx, asset, judge=True)
     assert res.ok and res.fixed and (res.score_before, res.score) == (0.5, 0.7)
     assert (tmp_ws.root / boat).read_text() == "// asset_fishing_boat_fix\n", "the fix that imports is kept"
 
 
 def test_the_ladders_single_shot_call_waits_no_longer_than_the_asset_window(tmp_ws, settings):
-    """D108 capped a single-shot call at its task's window, but the ladder's single-shot step never passed
-    the window on: every asset and hero call ran on the 1 800 s retry ceiling — iteration 3's r1_13 waited
-    1 800 s, then 1 641 s, on one hung hero and held the asset stage to 66 minutes (2026-10-15)."""
+    """2026-10-15: the ladder's single-shot step never passed the D108 window on (r1_13 waited 1 800 s on one hung hero)."""
     from codeverse3d.models.retry import RETRY_DEADLINE_S
     from codeverse3d.tracks.generation import single_shot_wait_s
 

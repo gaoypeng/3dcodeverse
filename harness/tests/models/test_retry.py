@@ -21,13 +21,6 @@ from codeverse3d.models.retry import (
 )
 
 
-def test_backoff_grows_and_caps():
-    d = [backoff_delay(i, base_delay=1.0, max_delay=8.0, jitter=False) for i in range(1, 7)]
-    assert d == [1.0, 2.0, 4.0, 8.0, 8.0, 8.0]
-    j = backoff_delay(3, base_delay=1.0, max_delay=8.0)
-    assert 2.0 <= j <= 4.0
-
-
 # --------------------------------------------------------------------------- rotate_with_retries
 def _classify(exc: BaseException) -> ModelError:
     if isinstance(exc, ModelError):
@@ -108,46 +101,6 @@ def test_rotate_every_key_dead_raises_without_benching():
     assert pool.stats()["dead"] == 0  # the request, not the keys, is suspect
 
 
-# --------------------------------------------------------------------------- 503 storms
-@pytest.mark.parametrize(("hedge", "want_calls", "want_naps"), [(1, {9}, 7), (2, {9, 10}, 4)])
-def test_503_storm_has_its_own_patience_budget(hedge, want_calls, want_naps):
-    """A 503 storm gets a separate budget; hedging reduces its waits."""
-    lock = threading.Lock()
-    calls = {"n": 0}
-    naps: list[float] = []
-
-    def call(key):
-        with lock:
-            calls["n"] += 1
-            n = calls["n"]
-        if n <= 8:  # longer than max_attempts=3 could survive
-            raise RuntimeError("503 storm")
-        return "ok"
-
-    out = _rotate503(
-        _pool(2),
-        call,
-        max_attempts=3,
-        base_delay=0.01,
-        storm_attempts=10,
-        storm_max_delay=0.05,
-        sleep=naps.append,
-        hedge=hedge,
-    )
-    assert out == "ok" and calls["n"] in want_calls
-    # the first 503 rotates to k2 for free (no nap); k2's 503 leaves no untried key in the
-    # 2-key pool, so that one is the storm
-    assert len(naps) == want_naps and all(d <= 0.05 for d in naps)  # the cap is the cap
-
-
-def test_storm_waits_never_exceed_the_house_limit_at_production_defaults(monkeypatch):
-    monkeypatch.setattr(random, "random", lambda: 1.0)
-    naps: list[float] = []
-    with pytest.raises(ModelError):
-        _rotate503(_pool(2), _boom(), max_attempts=2, storm_attempts=12, sleep=naps.append)
-    assert naps and max(naps) == MAX_WAIT_S
-
-
 def test_one_call_cannot_retry_for_hours():
     """The wall-clock deadline bounds even a long 503 storm."""
     clock = Clock()
@@ -170,35 +123,7 @@ def test_one_call_cannot_retry_for_hours():
         )
     # bounded by the clock: the ONLY legal overshoot is the one floored attempt that was
     # already in flight when the deadline passed
-    assert clock.t <= RETRY_DEADLINE_S + SDK_TIMEOUT_FLOOR_S, (
-        f"one call burned {clock.t / 3600:.2f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min"
-    )
-    assert clock.t < 5 * 3600, "this is the 5.1-hour regression"
-
-
-def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
-    """A slow-but-succeeding call must not be killed by the retry deadline."""
-    clock = Clock()
-    calls = {"n": 0}
-
-    def call(_key):
-        calls["n"] += 1
-        clock.t += 280.0  # slow, but under the per-attempt timeout
-        if calls["n"] < 3:
-            raise RuntimeError("503 high demand")
-        return "ok"
-
-    # hedge=1: serial fake clock and call counter (see the hedge tests for the raced form)
-    out = _rotate503(
-        _pool(2),
-        call,
-        max_attempts=6,
-        storm_attempts=60,
-        sleep=clock.sleep,
-        monotonic=clock,
-        hedge=1,
-    )
-    assert out == "ok" and calls["n"] == 3
+    assert clock.t <= RETRY_DEADLINE_S + SDK_TIMEOUT_FLOOR_S, "the 5.1-hour regression"
 
 
 # --------------------------------------------------------------------------- hedging (audit 2026-08-26 §5.2)
@@ -256,40 +181,45 @@ def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wi
     assert st["5xx"] == 2 and st["in_flight"] == 0, "the loser's 503 is reported when it lands"
 
 
-def test_the_worst_error_decides_a_hedged_attempt():
-    """A nonretryable hedge error outranks a sibling 503."""
-    pool = _pool(3)
-    stats: dict = {}
+@pytest.mark.parametrize(("hedge", "want_calls", "want_naps"), [(1, {9}, 7), (2, {9, 10}, 4)])
+def test_503_storm_has_its_own_patience_budget(hedge, want_calls, want_naps):
+    """A 503 storm gets a separate budget; hedging reduces its waits."""
+    lock = threading.Lock()
+    calls = {"n": 0}
+    naps: list[float] = []
 
     def call(key):
-        if key == "k3":
-            raise ModelError("bad request", retryable=False, status=400)
-        raise ModelError("503 high demand", retryable=True, status=503)
+        with lock:
+            calls["n"] += 1
+            n = calls["n"]
+        if n <= 8:  # longer than max_attempts=3 could survive
+            raise RuntimeError("503 storm")
+        return "ok"
 
-    with pytest.raises(ModelError) as ei:
-        _rotate(pool, call, max_attempts=6, storm_attempts=10, stats=stats)
-    assert ei.value.status == 400 and stats == {"attempts": 3, "hedged": 1, "storm": 0}
-
-
-# --------------------------------------------------------------------------- deadline threading (2026-08-27)
-def test_free_429_rotation_cannot_outlive_the_deadline():
-    """Free key rotation still consumes wall-clock budget."""
-    clock = Clock()
-    pool = _pool(10, cooldown_s=0.0, clock=clock, sleep=clock.sleep)
-    calls: list[str] = []
-
-    def call(key):
-        calls.append(key)
-        raise ModelError("quota", retryable=True, status=429)
-
-    with pytest.raises(ModelError) as ei:
-        _rotate(pool, call, max_attempts=6, max_total_s=2.0, sleep=clock.sleep, monotonic=clock)
-    assert ei.value.status == 429
-    assert clock.t <= 2.5, f"free rotation outlived the deadline: {clock.t}"
-    assert len(calls) <= 5, "ten keys would all have been tried before"
+    out = _rotate503(
+        _pool(2),
+        call,
+        max_attempts=3,
+        base_delay=0.01,
+        storm_attempts=10,
+        storm_max_delay=0.05,
+        sleep=naps.append,
+        hedge=hedge,
+    )
+    assert out == "ok" and calls["n"] in want_calls
+    # the first 503 rotates to k2 for free (no nap); k2's 503 leaves no untried key in the
+    # 2-key pool, so that one is the storm
+    assert len(naps) == want_naps and all(d <= 0.05 for d in naps)  # the cap is the cap
 
 
-# --------------------------------------------------------------------------- on_attempt hook (2026-08-27)
+def test_storm_waits_never_exceed_the_house_limit_at_production_defaults(monkeypatch):
+    monkeypatch.setattr(random, "random", lambda: 1.0)
+    naps: list[float] = []
+    with pytest.raises(ModelError):
+        _rotate503(_pool(2), _boom(), max_attempts=2, storm_attempts=12, sleep=naps.append)
+    assert naps and max(naps) == MAX_WAIT_S
+
+
 def test_on_attempt_hears_every_round_trip_and_a_late_hedge_loser():
     """The attempt hook reports winners, failures, and late hedge losers."""
     pool = _pool(4)
@@ -337,3 +267,66 @@ def test_a_broken_on_attempt_hook_never_breaks_the_call():
 
     assert _rotate(pool, lambda key: "ok", on_attempt=hook) == "ok"
 
+
+def test_backoff_grows_and_caps():
+    d = [backoff_delay(i, base_delay=1.0, max_delay=8.0, jitter=False) for i in range(1, 7)]
+    assert d == [1.0, 2.0, 4.0, 8.0, 8.0, 8.0]
+    j = backoff_delay(3, base_delay=1.0, max_delay=8.0)
+    assert 2.0 <= j <= 4.0
+
+
+def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
+    """A slow-but-succeeding call must not be killed by the retry deadline."""
+    clock = Clock()
+    calls = {"n": 0}
+
+    def call(_key):
+        calls["n"] += 1
+        clock.t += 280.0  # slow, but under the per-attempt timeout
+        if calls["n"] < 3:
+            raise RuntimeError("503 high demand")
+        return "ok"
+
+    # hedge=1: serial fake clock and call counter (see the hedge tests for the raced form)
+    out = _rotate503(
+        _pool(2),
+        call,
+        max_attempts=6,
+        storm_attempts=60,
+        sleep=clock.sleep,
+        monotonic=clock,
+        hedge=1,
+    )
+    assert out == "ok" and calls["n"] == 3
+
+
+def test_the_worst_error_decides_a_hedged_attempt():
+    """A nonretryable hedge error outranks a sibling 503."""
+    pool = _pool(3)
+    stats: dict = {}
+
+    def call(key):
+        if key == "k3":
+            raise ModelError("bad request", retryable=False, status=400)
+        raise ModelError("503 high demand", retryable=True, status=503)
+
+    with pytest.raises(ModelError) as ei:
+        _rotate(pool, call, max_attempts=6, storm_attempts=10, stats=stats)
+    assert ei.value.status == 400 and stats == {"attempts": 3, "hedged": 1, "storm": 0}
+
+
+def test_free_429_rotation_cannot_outlive_the_deadline():
+    """Free key rotation still consumes wall-clock budget."""
+    clock = Clock()
+    pool = _pool(10, cooldown_s=0.0, clock=clock, sleep=clock.sleep)
+    calls: list[str] = []
+
+    def call(key):
+        calls.append(key)
+        raise ModelError("quota", retryable=True, status=429)
+
+    with pytest.raises(ModelError) as ei:
+        _rotate(pool, call, max_attempts=6, max_total_s=2.0, sleep=clock.sleep, monotonic=clock)
+    assert ei.value.status == 429
+    assert clock.t <= 2.5, f"free rotation outlived the deadline: {clock.t}"
+    assert len(calls) <= 5, "ten keys would all have been tried before"

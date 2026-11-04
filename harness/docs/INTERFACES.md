@@ -68,7 +68,6 @@ KeyPool(keys, *, max_in_flight=0, slots_dir=None, cooldown_s=3, dead_cooldown_s=
     # the slots are flock'd files every process shares (Slots(n, root): try_take / take(timeout) / give / busy)
 pool.acquire(*, exclude=None, timeout_s=120) -> key    # a slot + a key; raises immediately when every key is dead/cooling past the deadline
 pool.try_acquire(*, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
-pool.session_key(*, exclude=None, timeout_s=120) -> key   # a vendor CLI session's key: no slot, nothing to release
 pool.lease_session_key(leases_dir, *, timeout_s=120) -> (key, lease|None)   # + one live session per key machine-wide (flock); KeyPool.end_lease(lease)
 KeyPool(keys, ..., start=0)                                # shared_pool passes a random start: parallel processes spread
 pool.report(key, "ok"|"429"|"5xx"|"error"|"dead"|"skip", *, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s,
@@ -163,8 +162,7 @@ from codeverse3d.prompts.variants import VARIANTS_DIR, VariantInfo, list_variant
     # into worker threads), else get_settings().variant; variant_hash(name) = sha256[:12] over the prompt AND skills
     # overlay files (README.md excluded; "" = base); variant_block(name) -> {name, version, hash} for the record;
     # apply_variant_knobs(settings, info) sets [knobs] (skills_max / skills_only) as DEFAULTS — a stated field wins
-from codeverse3d.prompts import load_text, render, prompt_root   # every name resolves through the active variant
-prompt_root(rel) -> Path   # the file a prompt name reads from: the overlay copy when it exists, else the base
+from codeverse3d.prompts import load_text, render   # every name resolves through the active variant
 from codeverse3d.skills import library_roots, all_skills, load_skill, variants_table, parse_routes, VariantRoutes, RouteBoost, variant_dir
 library_roots(variant=None) -> [skills_dir(), <skills_dir>/variants/<v>]   # the second only when it exists
 all_skills() -> base ∪ overlay (same name shadows, new names added); all_skills(root) -> that root alone
@@ -187,9 +185,9 @@ Every run is read from its ledger alone (`addons.costreport.audit.read_run` / `r
 
 ## agents/
 ```python
-from codeverse3d.agents import get_coding_agent           # (agent_id) -> CodingAgent  .run(job) .available() .id .kind .model
+from codeverse3d.agents import get_coding_agent           # (agent_id) -> CodingAgent  .run(job) .available() .kind .model
 from codeverse3d.agents.materialize import materialize_workspace, codex_mcp_overrides
-materialize_workspace(ws, *, agent_kind, contract_md, spatial_tools, mcp_command=None) -> None
+materialize_workspace(ws, *, agent_kind, contract_md, mcp_command=None) -> None
 # Δ D107: no cookbook_text — no language ships a cookbook; the body is hard rules + tool cards + the language contract
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse3d.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
@@ -230,12 +228,12 @@ generation derives it from the remaining hard run clock before queueing; every C
 attempt clips its watchdog after acquiring the workspace lock, including retries.
 An expired job never launches a CLI. Recomputed on resume; `None` keeps standalone
 session grace. Process termination and final packaging can finish after the deadline),
-`mcp_command` (override), `files_hint` (workspace-relative files/dirs the task is
+`files_hint` (workspace-relative files/dirs the task is
 expected to touch — used to attribute `files_changed`; harness-owned paths are dropped;
 agent sessions on one workspace are serialised, so there is no sibling filter), **Δ D111**
 `shared_tree: bool` (harness writers that take no session lock — the scene asset single-shots — write
 the tree while the session runs: `files_changed` is the `files_hint` paths only
-(`cli_common.attribute_changes(files, write_roots=, only=)`, also `generation._attributed_fallback`) and the
+(`cli_common.attribute_changes(files, write_roots=, only=)`) and the
 watchdog polls only those files (`cli_common.activity_paths(s, steps=())`; **Δ D112** plus `steps`, where the CLI
 records each step it takes — agy passes its session HOME's `backends.AGY_STEP_DIRS` (brain/, conversations/) through
 `invoke(..., activity=)` for every agy session, shared_tree or not); needs a `files_hint`, never with
@@ -481,7 +479,7 @@ sweep_gate(ws) -> (GateReport "joint_sweep", Robot | None)   # THE verdict (Δ 2
     # report exactly this; the tool used to run its own sweep (fail on any overlap > 2 mm or any gap, no buried links)
 from codeverse3d.spatial.joints_collide import components   # (names, edges) -> list[set[str]]: THE union-find (connectivity + sweep)
 # joints_collide.py: deterministic penetration (oriented islands + fixed-direction parity ray test; python-fcl is a
-# core dependency, the trimesh fallback is deterministic too)
+# core dependency)
 from codeverse3d.spatial.gl_render import GlHost, GlResult, GlHostError, write_contact_sheet, write_gif
 GlHost(gpu="auto|on|off", timeout_s=240, fps=30, max_steps=240)
   .render_fragment_shader(frag_src, out_dir, *, width=1280, height=720, times=..., buffer_a_src=None, feedback=False)
@@ -615,11 +613,11 @@ from codeverse3d.tracks.articulated_object import default_motion_checks, expecte
 from codeverse3d.tracks.static_object import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
 from codeverse3d.tracks.depth import depth_budget, DepthBudget, DETAIL_ADVICE   # complexity-aware budgets
     # (Δ D110: scope_groups / PartScope / interfaces_text / scoped_generation_enabled deleted with the scoped baseline)
-depth_budget(plan, *, build_timeout_s=300) -> DepthBudget   # min/target/max triangles + max_build_s sized from
+depth_budget(plan, build_timeout_s) -> DepthBudget   # min/target/max triangles + max_build_s sized from
     # the plan's LEAF count (parts × instances × children); only budget_gate reads it — no prompt states it.
     # DETAIL_ADVICE: the numberless "spend detail inside the planned parts" bullet the generate/refine
     # templates show as {{ detail_advice }}
-from codeverse3d.tracks.prompting import base_prompt_context, reference_images, budget_for  # Δ split out of
+from codeverse3d.tracks.prompting import base_prompt_context, reference_images  # Δ split out of
     # Δ D107: select_cookbook_chapters / is_always_chapter / COOKBOOK_SYNONYMS and the graphics recipe seeding
     # (tracks/graphics.seed_recipes, cookbook_functions, the "recipes" stage, Settings.limits.seed_recipes /
     # C3D_SEED_RECIPES) are deleted with the cookbooks; base_prompt_context carries no cookbook_excerpt
@@ -656,16 +654,16 @@ tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationR
     # THE call every stage makes (env, zones, rounds, repairs, asset ladder, judged fix): generate()
     # with everything ctx knows; Δ D103 no storm fallback (D68's single-shot retry, GenerationResult.storm and
     # the asset ladder's storm-repair rung are gone): a transient death reaches the round loop's one retry
-tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_shot_ctx(ctx) -> RunContext | None
+tracks.common.single_shot_ctx(ctx) -> RunContext | None
     # moved from tracks.scene_assets 2026-09-07 (never scene-specific)
-    # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if the machine
+    # The generate.done event carries turns / sessions / turn_capped.  A turn cap is applied ONLY if the machine
     # asks: $C3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
     # DEFAULT_AGENT_MAX_TURNS (0 = leave AgentJob.max_turns at the backend's own default — a 28-turn
     # default was measured and rejected, docs/COST.md §17).  A session that hits a cap that IS set is
     # asked for a final build + summary (WRAPUP_PROMPT) instead of being killed.
     # EVERY session (attempt 1, <label>.a2 retry, <label>.wrapup) is charged as it ends.
 from codeverse3d.tracks.repair import build_with_repair   # RepairOutcome(.ok/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
-# scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset / build_bpy_asset (Δ D105) climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
+# scene assets (tracks/scene_assets.py): build_module_asset (three.js and bpy modules) / build_blender_asset (Δ D105) climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
 # languages/blender.write_blender_skeleton(ws, plan, *, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
 # Δ 2026-10-14 (D105) scene_blender first class: the scene track reaches a language through typed tables, never a suffix test
 tracks.scene.SCENE_TEMPLATES: dict[Language, SceneTemplates]   # the env / zone / refine / asset templates per scene language
@@ -677,7 +675,7 @@ tracks.planner.PLAN_TEMPLATES: dict[tuple[Track, Language | None], str]   # (tra
 tracks.planner.plan_template(track, language=None) -> str                 #   fallback; (SCENE, SCENE_BLENDER) = tracks/plan_scene_bpy.j2
 tracks.planner.plan_schema(spec, plan_model) -> dict  # the planner call's response schema: a scene's names ITS language's
 contracts.plan.scene_plan_schema(language) -> dict    #   asset kinds (bpy / blender_glb; scene_threejs's = ScenePlan.model_json_schema())
-tracks.scene_assets.build_bpy_asset(ctx, asset, *, judge) -> AssetResult   # src/assets/<snake>.py (build_<snake>(ctx, variant=0))
+tracks.scene_assets.build_module_asset(ctx, asset, *, judge) -> AssetResult   # bpy: src/assets/<snake>.py (build_<snake>(ctx, variant=0)); three.js: build<Pascal>
     # on the one ladder; no render_asset, so the scene judge sees the module placed
 tracks.scene_assets.check_bpy_asset(ctx, rel, snake, *, expected_size_m=None, timeout_s=None) -> AssetCheck   # ONE Blender
     # build of the module alone (<ws>/_assets/<snake>_check): a raise is fatal on its file:line; a runtime without Blender or
@@ -710,12 +708,6 @@ post-render gates → the build's own `BuildResult.gates` (also when the build f
 `frame_gate_from_renders`; advisory, a failure is logged not raised), graphics `gl_frames`.  Reference specs get a
 `ReferenceJudge` (rubric `reference` for static_object; `LikenessJudge` on graphics/scene —
 `vlm_judge.judge_for`) and images attached to generation prompts.
-
-## texturing/  (the PBR table only)
-```python
-from codeverse3d.texturing.materials import family_for, pbr_for, MATERIALS   # family_for(*texts) -> FamilyMatch | None; pbr_for(family) -> Pbr | None
-    # read by languages/blender; no texture is generated anywhere (the image-generation pass was removed 2026-11-03)
-```
 
 ## record/ + addons/ + cli/
 ```python
@@ -787,14 +779,12 @@ from codeverse3d.addons.gallery.index import build_index, default_roots   # THE 
                                                        # build_static(roots, out_html, *, embed=False) -> (path, n, index)
                                                        # render_static(index, *, embed=…, extra_html="") — eval/bench/report.py's page
                                                        # GalleryApp(roots, reload=False).route(path, query) -> Response  (pure, testable)
-                                                       # serve(roots, *, host=None, host_explicit=False, port=8765, reload=False)
+                                                       # serve(roots, *, host=None, port=8765, reload=False)
 from codeverse3d.addons.gallery.urls import safe_join          # (root, rel) -> Path inside root, else PathError
 from codeverse3d.addons.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
-from codeverse3d.addons.dataset.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
-                                                                   # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
 3dcodeverse make [--no-pick]|resume [--no-pick]|pick|status|show|render|judge|tools|mcp
              |cost {<slug>,show,cache,prices,estimate}
-             |flywheel {export,pairs,refine,caption,index}|gallery {serve,build}
+             |flywheel {export,pairs,refine,caption}|gallery {serve,build}
              |skills {list,show,validate,report}|doctor    # alias: 3dcode; batteries: eval/ (python -m bench.run_bench)
 ```
 

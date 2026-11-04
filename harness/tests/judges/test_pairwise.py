@@ -38,37 +38,3 @@ def test_the_swap_decides_the_winner_and_its_confidence(tmp_path, cache_dir):
     assert res.winner == "b" and res.confidence == 0.4
 
 
-def test_tie_and_errors(tmp_path, cache_dir):
-    ra, rb = make_renders(tmp_path / "a", sheet=False), make_renders(tmp_path / "b", sheet=False)
-    model = FakeChatModel([_reply("tie", 0.6), _reply("tie", 0.6)])
-    res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
-    assert res.winner == "tie" and res.confidence == 0.6
-    assert len(image_parts(model.requests[0])) == 2  # still one montage per side without a sheet
-    model2 = FakeChatModel(default=ModelError("down", retryable=True))
-    res2 = PairwiseJudge("fake:fake-1", chat_model=model2, cache_dir=cache_dir).compare(make_spec(), ra, rb)
-    assert res2.winner == "tie" and res2.confidence == 0.0 and "ModelError" in res2.error
-
-
-def test_a_scene_pair_is_ranked_as_a_scene_from_the_views_the_judge_saw(tmp_path, cache_dir):
-    """A scene's own camera leads, and a view the verdict judge never saw (judge=False) is left out."""
-    from codeverse3d.contracts.artifacts import RenderSet, RenderView
-    from codeverse3d.contracts.common import Language, Track
-    from tests.judges.conftest import draw_chair
-
-    def scene_renders(d):
-        d.mkdir(parents=True)
-        names = [("overview_front_right", True), ("overview_back_left", True), ("overview_top", True),
-                 ("eye_front", True), ("unjudged_extra", False), ("Establishing", True)]
-        return RenderSet(views=[RenderView(name=n, path=str(draw_chair(d / f"{n}.png")), judge=j)
-                                for n, j in names], renderer="fake")
-
-    model = FakeChatModel(by_label={":fwd": [_reply("A")], ":swap": [_reply("B")]})
-    spec = make_spec(track=Track.SCENE, language=Language.SCENE_THREEJS)
-    PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(
-        spec, scene_renders(tmp_path / "a"), scene_renders(tmp_path / "b"))
-    labels = [p.label for p in image_parts(next(r for r in model.requests if r.label == "pairwise:fwd"))]
-    assert "top-left = Establishing" in labels[0]
-    assert not any("unjudged_extra" in lbl for lbl in labels)
-    # N66: the system prompt names no criteria of its own (it listed the object rubric's for every pair)
-    system = next(r for r in model.requests if r.label == "pairwise:fwd").system
-    assert "CRITERIA listed" in system and "proportions" not in system

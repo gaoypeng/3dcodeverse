@@ -1,7 +1,7 @@
 /**
  * Weather seen AT DISTANCE: the veils, not the drops.
  *
- * `rain.js` gives the drops near the camera — a wrap box a few metres
+ * Drops near the camera are a wrap box a few metres
  * wide, streaks measured in centimetres. A rainy valley needs the other
  * thing entirely: the pale sheets of rain crossing the far hillside,
  * tens of metres tall, slanted with the wind, that tell you the weather

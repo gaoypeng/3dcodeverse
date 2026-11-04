@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.texturing.materials import COARSE_TO_FINE, MATERIALS, family_for, pbr_for
+from codeverse3d.languages.blender._pbr import COARSE_TO_FINE, MATERIALS, family_for, pbr_for
 
 
 def test_coarse_families_all_resolve():

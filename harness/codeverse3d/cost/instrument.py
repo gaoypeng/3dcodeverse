@@ -144,12 +144,12 @@ class MeteredChatModel(_Proxy):
     def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
                         ledger: CostLedger | None, run: str = "",
                         ctx: CallContext | None = None, tallies: tuple[Tally, ...] | None = None) -> bool:
-        """One row per round-trip.  A round-trip that was DISCARDED and still cost money
-        (a billed-but-invalid reply, a hedge loser that landed) is money nothing else
-        records, so it goes in as ``source="extra"`` and counts in every total; the rest
-        are ``source="attempt"`` forensics, excluded because the call's logical row
-        already carries their tokens.  Returns True when it billed an ``extra``."""
-        extra = bool(rec.discarded and rec.usage.cost_usd)
+        """A round-trip that was DISCARDED and still cost money (a billed-but-invalid reply, a
+        hedge loser that landed) is money nothing else records, so it goes in as
+        ``source="extra"`` and counts in every total; the others are already on the call's
+        logical row.  Returns True when it billed an ``extra``."""
+        if not (rec.discarded and rec.usage.cost_usd):
+            return False
         try:
             record_call(rec.usage, run=run, label=request.label,
                         stage=ctx.stage if ctx else None, role=ctx.role if ctx else None,
@@ -158,13 +158,13 @@ class MeteredChatModel(_Proxy):
                         model=rec.usage.model or self.model,
                         outcome="discarded" if rec.discarded else "ok",
                         latency_ms=rec.usage.latency_ms,
-                        source="extra" if extra else "attempt", key=_key_suffix(rec.key),
+                        source="extra", key=_key_suffix(rec.key),
                         call_id=call_id, attempt=rec.attempt, discarded=rec.discarded,
                         ledger=ledger, tallies=tallies)
         except Exception as e:  # pragma: no cover - accounting must never break a call
             log.debug("cost: could not record attempt %s#%d: %s", request.label, rec.attempt, e)
             return False
-        return extra
+        return True
 
 
 class _RoundTrips:

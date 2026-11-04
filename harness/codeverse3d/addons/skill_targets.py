@@ -38,7 +38,6 @@ from codeverse3d.skills.model import Skill
 #: the direction that counts as an improvement
 DOWN = "down"
 UP = "up"
-DIRECTIONS = (DOWN, UP)
 
 #: where the readout gets the number
 SRC_GATE = "gate_kinds"     #: count findings of `kinds` in the last gated round
@@ -337,16 +336,10 @@ TARGETS: tuple[Target, ...] = (
 )
 
 BY_SKILL: dict[str, Target] = {t.skill: t for t in TARGETS}
-METRICS: frozenset[str] = frozenset(t.metric for t in TARGETS)
 
 
 def target_for(skill: str) -> Target | None:
     return BY_SKILL.get(skill)
-
-
-def gate_kinds_claimed() -> frozenset[str]:
-    """Every registry kind some row counts — what test_targets checks is still live."""
-    return frozenset(k for t in TARGETS for k in t.kinds)
 
 
 # ===================================================================== claims

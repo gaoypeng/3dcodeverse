@@ -37,12 +37,11 @@ from codeverse3d.prompts import render
 from codeverse3d.spatial.contract import planned_joins
 from codeverse3d.spatial.silhouette import measure_reference
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.depth import budget_gate
+from codeverse3d.tracks.depth import budget_gate, depth_budget
 from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
-    budget_for,
     judge_digest,
     judged_sheet,
     measurement_vs_plan,
@@ -79,10 +78,9 @@ class ObjectPipeline:
             out.append(
                 ctx.services.contract(measurement, ctx.plan, BBOX_TOLERANCE_M, ctx.language.value)
             )
-        if measurement is not None and ctx.plan is not None:
             # is the object as dense as its own plan says?  Deterministic, so the judge is
             # never asked "does it look detailed enough" (tracks/depth.py).
-            out.append(budget_gate(measurement, build, budget_for(ctx)))
+            out.append(budget_gate(measurement, build, depth_budget(ctx.plan, ctx.settings.limits.build_timeout_s)))
         return out
 
     def render(

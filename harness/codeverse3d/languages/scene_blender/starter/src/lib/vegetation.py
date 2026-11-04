@@ -14,7 +14,6 @@ import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
-import bpy
 from mathutils import Vector
 
 from lib.materials import material
@@ -228,9 +227,3 @@ def tree_stand(collection: Any, batch: Any, positions: Sequence[Sequence[float]]
         tree(batch, (x, y, float(height_at(x, y))), base_h * rng_.uniform(0.8, 1.2), bark, foliage,
              seed=rng_.randrange(1_000_000), **tree_kw)
     return batch.finish(collection)
-
-
-def plant_count(obj: Any) -> int:
-    """How many instances a ``grass_patch`` host places (its modifier's evaluated instances)."""
-    dg = bpy.context.evaluated_depsgraph_get()
-    return sum(1 for inst in dg.object_instances if inst.is_instance and inst.parent is not None and inst.parent.original == obj)

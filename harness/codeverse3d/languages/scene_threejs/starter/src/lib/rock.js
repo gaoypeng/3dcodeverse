@@ -307,7 +307,7 @@ export function makeRock(opts = {}) {
 
 /** Seeded scatter; heightAt(x,z) is local to the returned group. Each rock owns
  * its geometry and material; cap count for close foreground dressing, use
- * instancing.js for distant repetitions of a few shared prototypes.
+ * InstancedMesh for distant repetitions of a few shared prototypes.
  */
 export function makeRockField(opts = {}) {
   const rand = mulberry32(option(opts.seed, 31, 'makeRockField: seed')), group = new THREE.Group();

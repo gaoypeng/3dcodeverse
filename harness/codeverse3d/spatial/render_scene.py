@@ -153,10 +153,10 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
 
 
 def probe_env_args() -> list[str]:
-    """Scene-driver flags from the ``C3D_SETTLE`` / ``C3D_CAMERA_REPAIR`` /
-    ``C3D_AUTO_EXPOSURE`` switches (``Settings``).  Every driver invocation — standalone
+    """Scene-driver flags from the ``C3D_SETTLE`` / ``C3D_CAMERA_REPAIR``
+    switches (``Settings``).  Every driver invocation — standalone
     probe, render, and the combined single-boot build — appends these, so a census is
-    always measured under the same settle / camera-repair / auto-exposure policy the
+    always measured under the same settle / camera-repair policy the
     renders use."""
     s = get_settings()
     args: list[str] = []
@@ -167,8 +167,6 @@ def probe_env_args() -> list[str]:
         # already keeps lenses out of furniture), and the one class it exists for
         # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
         args.append("--camera-repair")
-    if s.auto_exposure:   # opt-in: bounded scene-wide exposure into the healthy band
-        args.append("--auto-exposure")
     return args
 
 

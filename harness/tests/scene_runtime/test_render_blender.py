@@ -1,9 +1,4 @@
-"""scene_blender rendering (lane B, D1/D3/D8): Blender makes the pixels, the JS host measures them.
-
-Real Blender + headless Chrome on a small fixture scene (``blender_scene_fixture``), rendered at
-192x108 with 4 Cycles samples on the CPU (the GPU is shared on this box) — plus pure-python tests
-of the GPU-slot policy with a fake driver.
-"""
+"""scene_blender rendering (lane B, D1/D3/D8)."""
 
 from __future__ import annotations
 
@@ -16,8 +11,7 @@ from PIL import Image, ImageStat
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.conventions import from_authoring_frame, to_authoring_frame
-from codeverse3d.proc import ProcResult, read_json_or_none
+from codeverse3d.proc import ProcResult
 from codeverse3d.spatial import render_blender as rb
 from codeverse3d.spatial.frame_metrics import frame_findings
 from codeverse3d.spatial.render_scene import SceneRenderError, render_scene
@@ -25,7 +19,6 @@ from codeverse3d.workspace import Workspace
 from tests.scene_runtime.blender_scene_fixture import (
     blender_available,
     build_fixture,
-    build_fog_box,
     build_room_shell,
 )
 from tests.scene_runtime.conftest import needs_browser
@@ -51,14 +44,6 @@ def moving(tmp_path_factory):
         rs = rb.render_blender_scene(ws, root / "renders", width=W, height=H, samples=4)
         get_settings.cache_clear()
     return ws, rs, json.loads((root / "renders" / "metrics.json").read_text())
-
-
-@pytest.mark.parametrize("v", [(1.0, 2.0, 3.0), (-4.5, 0.25, 7.0)])
-def test_the_frame_round_trip_is_the_identity(v):
-    z_up = to_authoring_frame(v, "blender")
-    assert z_up == (v[0], -v[2], v[1])
-    assert from_authoring_frame(z_up, "blender") == pytest.approx(v)
-    assert from_authoring_frame(v, "scene_threejs") == v
 
 
 @pytest.mark.blender
@@ -166,8 +151,7 @@ def _half_png(path: Path) -> None:
 @pytest.mark.node
 @needs_browser
 def test_exposure_statistics_of_a_known_png_come_from_the_external_frame(tmp_path):
-    """Half black, half white: mean 0.5, half near-black, half blown, the modal bucket 50 % — from
-    the Blender PNG, not from the host's own (bright grey) render of the same camera."""
+    """Half black, half white."""
     ws = Workspace(tmp_path / "run").create()
     import trimesh  # a 40 m ground as the census GLB the geometry pass boots (lib/glb_scene.mjs)
 
@@ -194,28 +178,6 @@ def test_exposure_statistics_of_a_known_png_come_from_the_external_frame(tmp_pat
     assert [v["name"] for v in metrics["views"]] == ["K"]
 
 
-@pytest.mark.blender
-@needs_blender
-def test_a_held_gpu_slot_sends_a_real_render_to_the_cpu(tmp_path, monkeypatch):
-    monkeypatch.setenv("C3D_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.setenv("C3D_RENDER__BLENDER_GPU_SLOTS", "1")
-    monkeypatch.setenv("C3D_RENDER__BLENDER_GPU_WAIT_S", "0.2")
-    get_settings.cache_clear()
-    ws = build_fixture(Workspace(tmp_path / "run").create(), probe=False)
-    out = tmp_path / "out"
-    out.mkdir()
-    job = {"out": str(out), "result": str(out / rb.RESULT_NAME), "engine": "cycles", "samples": 2, "width": 64,
-           "height": 36, "times": [0.0], "authored": True, "cameras": []}
-    held = rb.gpu_slots().take(1.0)
-    try:
-        res = rb.render_frames(ws.artifacts / "scene.blend", out, job, timeout_s=120)
-    finally:
-        rb.Slots.give(held)
-    assert res["device"] == "CPU" and "busy" in res["fallback"] and len(res["frames"]) == 2
-    free = rb.render_frames(ws.artifacts / "scene.blend", out, job, timeout_s=120)
-    assert free["device"] == "GPU" or free["fallback"] == "no CUDA device"
-
-
 def _centre_rgb(path: Path) -> tuple[float, float, float]:
     """The mean colour of the middle 10 % of the frame."""
     with Image.open(path) as im:
@@ -227,12 +189,7 @@ def _centre_rgb(path: Path) -> tuple[float, float, float]:
 @pytest.mark.blender
 @needs_blender
 def test_a_no_fog_view_lifts_the_room_shells_lid_and_the_next_view_gets_it_back(tmp_path, monkeypatch):
-    """Review 2026-10-14 finding 8: the rubric tells the judge the high overviews show interiors
-    with the lid off and the bpy prompts promise the author that (``RoomShell…`` / ``Ceiling…``),
-    but only the three.js host lifted it (``scene_host.skyLayersBelow``).  The real starter
-    ``room_shell`` under a top-down camera: the ``no_fog`` view names the lid in ``hidden`` and
-    its centre is the green floor; the same camera WITHOUT ``no_fog``, rendered next, sees the
-    red lid again — the restore in the driver's ``finally``."""
+    """Review 2026-10-14 finding 8."""
     _cpu_env(monkeypatch, tmp_path / "cache")
     blend = build_room_shell(tmp_path / "room")
     out = tmp_path / "out"
@@ -255,42 +212,9 @@ def test_a_no_fog_view_lifts_the_room_shells_lid_and_the_next_view_gets_it_back(
     assert "hidden" not in rb._glb_view(res["frames"][0]), "views.json keeps the three.js schema"
 
 
-@pytest.mark.blender
-@needs_blender
-def test_a_no_fog_view_hides_a_fog_box_but_not_a_steam_puff_and_the_next_view_gets_it_back(tmp_path, monkeypatch):
-    """2026-10-15: the judge's fog-free views only unlinked the WORLD volume, while ``lib.sky.haze`` builds
-    the fog as a volume-only box — so the placement views were rendered through the haze (iteration 2's
-    milky overviews).  A red crate inside an opaque 20 m fog box: the ``no_fog`` view names the box in
-    ``fog_hidden`` (never the 1 m steam puff) and its centre is the red crate; the same camera without
-    ``no_fog``, rendered next, sees the fog again — the restore in the driver's ``finally``."""
-    _cpu_env(monkeypatch, tmp_path / "cache")
-    blend = build_fog_box(tmp_path / "fog")
-    out = tmp_path / "out"
-    out.mkdir()
-    top = {"name": "overview_top", "kind": "orbit", "position": [0.0, 0.0, 6.0], "look_at": [0.0, 0.0, 1.0], "fov": 40.0,
-           "no_fog": True, "times": [0.0]}
-    fogged = {**top, "name": "fogged", "no_fog": False}
-    job = {"out": str(out), "result": str(out / rb.RESULT_NAME), "engine": "cycles", "samples": 4, "width": 96,
-           "height": 54, "times": [0.0], "authored": False, "cameras": [top, fogged]}
-    res = rb.render_frames(blend, out, job, timeout_s=180)
-    assert res["errors"] == [] and [f["name"] for f in res["frames"]] == ["overview_top", "fogged"]
-    assert {f["name"]: f["fog_hidden"] for f in res["frames"]} == {"overview_top": ["SiteHaze"], "fogged": []}
-    clear, hazy = _centre_rgb(out / "overview_top_t0.png"), _centre_rgb(out / "fogged_t0.png")
-    assert clear[0] > max(clear[1], clear[2]) + 25, f"the fog-free view must show the red crate, got {clear}"
-    assert not hazy[0] > max(hazy[1], hazy[2]) + 25, f"the fogged view must not see the crate clearly, got {hazy}"
-
-
-def test_a_missing_blend_is_an_empty_renderset_that_says_why(tmp_path):
-    ws = Workspace(tmp_path / "run").create()
-    rs = rb.render_blender_scene(ws, tmp_path / "out")
-    assert rs.views == [] and "scene.blend" in rs.console_errors[0]
-    assert read_json_or_none(tmp_path / "out" / "metrics.json")["language"] == "scene_blender"
-
-
 # --------------------------------------------------------------------------- the slot policy (no Blender)
 class FakeDriver:
-    """Stands in for ``_run_driver``: records the device of every run, can fail / time out on the GPU,
-    and checks the slot is HELD while a GPU run is out."""
+    """Stands in for ``_run_driver``."""
 
     def __init__(self, gpu: str = "ok"):
         self.gpu = gpu
@@ -318,15 +242,6 @@ def one_slot(tmp_path, monkeypatch):
     monkeypatch.setenv("C3D_RENDER__BLENDER_GPU_WAIT_S", "0.3")
     get_settings.cache_clear()
     return tmp_path
-
-
-def test_a_free_slot_renders_on_the_gpu_and_holds_the_slot_meanwhile(one_slot, monkeypatch):
-    fake = FakeDriver()
-    monkeypatch.setattr(rb, "_run_driver", fake)
-    res = rb.render_frames(one_slot / "x.blend", one_slot, {}, timeout_s=10)
-    assert fake.devices == ["GPU"] and res["device"] == "GPU" and res["fallback"] == ""
-    assert fake.slot_free_during_gpu is False, "the one slot must be held while the GPU render runs"
-    assert rb.gpu_slots().busy() == 0, "and handed back after it"
 
 
 def test_all_slots_busy_falls_back_to_the_cpu_after_the_wait(one_slot, monkeypatch):
@@ -358,16 +273,3 @@ def test_a_timeout_is_the_scene_not_the_device_no_cpu_retry(one_slot, monkeypatc
     with pytest.raises(SceneRenderError, match="timed out"):
         rb.render_frames(one_slot / "x.blend", one_slot, {}, timeout_s=10)
     assert fake.devices == ["GPU"] and rb.gpu_slots().busy() == 0
-
-
-def test_device_cpu_never_touches_a_slot(one_slot, monkeypatch, switch):
-    switch("C3D_RENDER__BLENDER_DEVICE", "cpu")
-    fake = FakeDriver()
-    monkeypatch.setattr(rb, "_run_driver", fake)
-    held = rb.gpu_slots().take(1.0)
-    try:
-        t0 = time.monotonic()
-        res = rb.render_frames(one_slot / "x.blend", one_slot, {}, timeout_s=10)
-    finally:
-        rb.Slots.give(held)
-    assert fake.devices == ["CPU"] and res["fallback"] == "" and time.monotonic() - t0 < 0.2

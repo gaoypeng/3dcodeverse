@@ -1,11 +1,4 @@
-"""D111: the scene env stage is ``ok`` only when the env module itself was written, else it is recovered.
-
-Argon loop iteration 4 (scene_threejs, 2026-10-15): in 12 of 15 runs the env session wrote nothing,
-was credited with the asset files written beside it and its stage read ``ok``; round 0 was unlit and
-the single refine round wrote the whole environment from the skeleton.  The stage now applies the
-zone stage's own test (the file in ``files_changed`` or rewritten since the stage began) and runs
-ONE single-shot recovery before the zones — for either scene language's env file.
-"""
+"""D111 (iteration 4): the env stage is ok only when the env module was written (12 of 15 runs were credited with other files), else one single-shot recovery."""
 
 from __future__ import annotations
 
@@ -75,9 +68,8 @@ def test_a_session_credited_only_with_other_stages_files_fails_and_is_recovered(
     assert {"env.recover", "env.recovered"} <= set(_events(ctx))
 
 
-@pytest.mark.parametrize("language", LANGUAGES)
-def test_a_recovery_that_also_writes_nothing_leaves_the_stage_failed(tmp_path, settings, monkeypatch, language):
-    track, ctx = _ctx(tmp_path, settings, language)
+def test_a_recovery_that_also_writes_nothing_leaves_the_stage_failed(tmp_path, settings, monkeypatch):
+    track, ctx = _ctx(tmp_path, settings, Language.SCENE_BLENDER)
 
     def fake_generate_for(gen: Any, task: Any) -> GenerationResult:
         return GenerationResult(ok=False, label=task.label, notes="exit=timeout")
@@ -133,9 +125,8 @@ def test_a_recovery_that_fails_its_check_gets_one_repair_with_the_error_and_the_
     assert [c["ok"] for c in checked] == [False, True]
 
 
-@pytest.mark.parametrize("language", LANGUAGES)
-def test_a_recovery_that_fails_twice_leaves_the_placeholder_and_a_failed_stage(tmp_path, settings, monkeypatch, language):
-    track, ctx = _ctx(tmp_path, settings, language)
+def test_a_recovery_that_fails_twice_leaves_the_placeholder_and_a_failed_stage(tmp_path, settings, monkeypatch):
+    track, ctx = _ctx(tmp_path, settings, Language.SCENE_THREEJS)
     rel = env_file(ctx)
 
     def fake_generate_for(gen: Any, task: Any) -> GenerationResult:
@@ -151,8 +142,7 @@ def test_a_recovery_that_fails_twice_leaves_the_placeholder_and_a_failed_stage(t
 
 
 def test_the_recovery_never_commits_inside_another_sessions_window(tmp_path, settings, monkeypatch):
-    """Iteration 5, scene_blender r1_10: env.recover committed while an escalated asset session held the
-    workspace; that session's scope check then restored env.py to its own ``head_before``."""
+    """Iteration 5, r1_10: env.recover committed inside an asset session's window; its scope check then reverted env.py."""
     import threading
 
     from codeverse3d.agents.cli_common import begin_session, finish_session

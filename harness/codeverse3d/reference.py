@@ -6,8 +6,7 @@ dimension band vs the picture's outline (:func:`dimension_conflict` — when the
 disagree the BRIEF wins and the picture is a shape target only), and one vision
 call that lists concrete mismatches (:func:`compare`).  The planner, the
 generator's ``compare_reference`` tool, the silhouette gate and the judge
-(:class:`codeverse3d.judges.vlm_judge.ReferenceJudge`) all read it.  Nothing here
-generates an image: the harness has no image-generation step.
+(:class:`codeverse3d.judges.vlm_judge.ReferenceJudge`) all read it.
 """
 
 from __future__ import annotations

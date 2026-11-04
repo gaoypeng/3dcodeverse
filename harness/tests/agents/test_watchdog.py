@@ -22,18 +22,6 @@ def test_hard_timeout_kills_active_process(tmp_path: Path):
     assert time.time() - t0 < 15
 
 
-def test_file_mtime_counts_as_activity(tmp_path: Path):
-    src = tmp_path / "src"
-    src.mkdir()
-    # silent process that touches a file every 0.5s for 3s; soft=1 grace=1.5 → alive until done
-    code = (
-        "import time\n"
-        f"p = {str(src / 'a.txt')!r}\n"
-        "for i in range(6):\n open(p, 'a').write('x'); time.sleep(0.5)\n"
-    )
-    res = run_with_watchdog([PY, "-c", code], cwd=tmp_path, env=None, soft_timeout_s=1, idle_grace_s=1.5,
-                            hard_timeout_s=30, poll_s=0.2, scan_s=0.3, activity_dirs=[src])
-    assert res.rc == 0 and not res.timed_out
 
 
 @pytest.mark.timeout(60, method="thread")

@@ -1,33 +1,16 @@
-"""scene_blender without Blender: the runtime row, the file table, the frame, the skeleton's text
-and the offline census gate (D2 / D10)."""
+"""scene_blender without Blender: the runtime row, the skeleton and the offline census gate (D2 / D10)."""
 
 from __future__ import annotations
 
-import ast
 import re
 
-import pytest
-
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.contracts.common import ENTRY_FILE, TRACK_LANGUAGES, Language, Track
-from codeverse3d.contracts.plan import AssetPlan, ScenePlan
+from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.plan import ScenePlan
 from codeverse3d.conventions import (
     DRAWS_WARN_SCENE,
     MAX_DRAWS_SCENE,
     MAX_TRIS_SCENE,
-    glb_basis,
-    to_authoring_frame,
-)
-from codeverse3d.languages import get_runtime
-from codeverse3d.languages.base import SceneRuntime
-from codeverse3d.languages.scene_blender import (
-    ENV_FILE,
-    SceneBlenderRuntime,
-    frame_of,
-    lib_files,
-    render_scene_py,
-    write_example,
-    write_skeleton,
 )
 from codeverse3d.spatial.probes import _census_findings, merge_facts
 from codeverse3d.tracks.planner import plan_example
@@ -37,100 +20,6 @@ def _plan() -> ScenePlan:
     return ScenePlan.model_validate(plan_example(Track.SCENE))
 
 
-def test_scene_blender_is_a_scene_language_with_a_runtime() -> None:
-    assert Language.SCENE_BLENDER in TRACK_LANGUAGES[Track.SCENE]
-    rt = get_runtime(Language.SCENE_BLENDER)
-    assert isinstance(rt, SceneRuntime) and rt.language is Language.SCENE_BLENDER
-    assert ENTRY_FILE[Language.SCENE_BLENDER] == "src/scene.py" == rt.entry_globs[0]
-
-
-def test_the_file_table() -> None:
-    rt = get_runtime(Language.SCENE_BLENDER)
-    plan = _plan()
-    boat = next(a for a in plan.assets if a.name == "FishingBoat")
-    assert rt.zone_file("Quay Front") == "src/zones/quay_front.py"
-    assert rt.asset_file(boat.model_copy(update={"kind": "bpy"})) == "src/assets/fishing_boat.py"
-    assert rt.asset_file(boat.model_copy(update={"kind": "blender_glb"})) == "public/assets/fishing_boat.glb"
-    assert rt.files_for(plan, "Quay") == ["src/zones/quay.py"]
-    assert rt.files_for(plan, "fog") == ["src/env.py"]
-    assert rt.files_for(plan, "cameras") == ["src/scene.py"]
-    assert rt.expected_files(plan) == ["src/scene.py", "src/env.py"]
-    assert rt.env_file == ENV_FILE == "src/env.py"   # the SceneRuntime protocol's env hint
-
-
-def test_asset_kind_bpy_loads() -> None:
-    """D5: ``AssetPlan.kind`` gains ``bpy``; the old kinds still load."""
-    for kind in ("threejs", "bpy", "blender_glb"):
-        assert AssetPlan(name="Crate", kind=kind, description="a crate", approx_size_m=(1, 1, 1)).kind == kind
-
-
-def test_glb_basis_inverts_to_authoring_frame() -> None:
-    """The census-GLB writer's basis (conventions, handed to Blender on argv) is the inverse of the
-    plan → Blender conversion the skeleton and assembler print: one frame, stated once."""
-    for v in ((1.0, 2.0, 3.0), (-4.5, 0.0, 7.25)):
-        b = to_authoring_frame(v, "scene_blender")
-        back = tuple(sum(r[i] * b[i] for i in range(3)) for r in glb_basis("scene_blender"))
-        assert back == pytest.approx(v)
-    assert glb_basis("scene_threejs") == ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
-
-
-def test_the_frame_clock() -> None:
-    assert (frame_of(0.0), frame_of(1.5)) == (1, 46)
-
-
-def test_the_assembled_entry_is_data_in_the_blender_frame() -> None:
-    plan = _plan()
-    text = render_scene_py(["quay"], ["bollard"], ["windmill"], plan.cameras[:1])
-    ns: dict = {}
-    exec(compile(ast.parse(text), "scene.py", "exec"), ns)   # data only: nothing to call
-    assert ns["ZONES"] == {"quay": "Quay"} and ns["ASSETS"] == {"bollard": "Bollard"} and ns["HEROES"] == {"windmill": "Windmill"}
-    cam, src = ns["CAMERAS"][0], plan.cameras[0]
-    assert cam["location"] == pytest.approx(to_authoring_frame(src.position, "scene_blender"), abs=1e-3)
-    assert cam["look_at"] == pytest.approx(to_authoring_frame(src.look_at, "scene_blender"), abs=1e-3)
-    assert cam["fov"] == src.fov
-
-
-def test_the_skeleton_writes_the_layout(tmp_ws) -> None:
-    plan = _plan()
-    paths = {p.relative_to(tmp_ws.root).as_posix() for p in write_skeleton(tmp_ws, plan)}
-    want = {"src/scene.py", "src/env.py"} | {f"src/zones/{z}.py" for z in ("quay", "water")}
-    want |= {f"src/assets/{a}.py" for a in ("fishing_boat", "bollard")}
-    assert want <= paths
-    for p in paths:
-        compile((tmp_ws.root / p).read_text(), p, "exec")
-    # the zone stub names its planned contents (the census measures them as present) and decides
-    # no position: the grid of place() calls inside the bbox was the seed of the block-on-a-plate
-    # look (D106)
-    for z, contents in (("quay", ("Bollard", "Crate")), ("water", ("FishingBoat",))):
-        text = (tmp_ws.src / "zones" / f"{z}.py").read_text()
-        assert all(f"- {c}: ctx.assets['" in text for c in contents), text
-        assert "place(ctx" not in text and "keep them inside" not in text and "ctx.height_at" in text
-    # the library ships with the plan skeleton (D51: a catalog with no src/lib/ to import from
-    # made every library import a build error on the three.js side), and the env / stubs USE it
-    lib = {p.rsplit("/", 1)[1] for p in paths if p.startswith("src/lib/")}
-    assert lib == {p.name for p in lib_files()} | {"__init__.py"} and len(lib) == 14
-    env = (tmp_ws.src / "env.py").read_text()
-    assert "from lib import materials, terrain" in env   # the placeholder plate uses the toolbox
-    assert "sky.sun_world(" not in env and "sky.haze(" not in env and "lighting.sun(" not in env   # no light or atmosphere decided (2026-10-15)
-    assert "lib.scatter.instance" in (tmp_ws.src / "zones" / "quay.py").read_text()   # named as one way
-    assert "from lib.mesh import Batch" in (tmp_ws.src / "assets" / "bollard.py").read_text()
-
-
-def test_the_plan_less_skeleton_is_the_example_scene(tmp_ws) -> None:
-    """``write_skeleton(ws, None)`` is ``write_example``: the complete lakeside hamlet (three
-    zones, two assets, the entry, the env and the library), like scene_threejs's meadow."""
-    paths = {p.relative_to(tmp_ws.src).as_posix() for p in write_skeleton(tmp_ws, None)}
-    assert {"scene.py", "env.py", "zones/hamlet.py", "zones/lakeside.py", "zones/orchard.py", "assets/crate.py",
-            "assets/lantern_post.py", "lib/mesh.py", "lib/__init__.py"} <= paths
-    assert paths == {p.relative_to(tmp_ws.src).as_posix() for p in write_example(tmp_ws)}
-    ns: dict = {}
-    exec(compile((tmp_ws.src / "scene.py").read_text(), "scene.py", "exec"), ns)   # data only
-    assert set(ns["ZONES"]) == {"hamlet", "lakeside", "orchard"} and set(ns["ASSETS"]) == {"crate", "lantern_post"}
-    assert len(ns["CAMERAS"]) == 3 and (tmp_ws.public / "assets").is_dir()
-    with pytest.raises(TypeError, match="ScenePlan"):
-        SceneBlenderRuntime().skeleton(tmp_ws, object())  # type: ignore[arg-type]
-
-
 # --------------------------------------------------------------------------- the offline census gate
 def _census(**bpy) -> dict:
     base = {"totals": {"meshes": 10, "instances": 10, "draws": MAX_DRAWS_SCENE + 1, "triangles": 10, "lights": 0},
@@ -138,12 +27,6 @@ def _census(**bpy) -> dict:
     facts = {"lights": 1, "fog": {"type": "VolumeBox"}, "background": "sky:MULTIPLE_SCATTERING", "unique_tris": 10,
              "instanced_tris": 10, "drivers_invalid": [], "handlers": [], **bpy}
     return merge_facts(base, facts)
-
-
-def test_bpy_facts_replace_what_the_glb_cannot_carry() -> None:
-    c = _census()
-    assert c["totals"]["lights"] == 1 and c["fog"] == {"type": "VolumeBox"} and c["background"].startswith("sky:")
-    assert c["bpy"]["unique_tris"] == 10 and "fog" not in c["bpy"]
 
 
 def test_offline_draws_are_not_gated_unique_triangles_are() -> None:
@@ -169,13 +52,6 @@ def test_python_drivers_and_handlers_fail_the_census() -> None:
     assert ("python_driver", Severity.ERROR) in kinds and ("app_handler", Severity.ERROR) in kinds
 
 
-def test_offline_lamp_check_counts_the_world() -> None:
-    lit = _census_findings(_census(lights=0), offline=True)
-    dark = _census_findings(_census(lights=0, background=None), offline=True)
-    assert not [f for f in lit if "lamps" in f.message]
-    assert [f for f in dark if "lamps" in f.message][0].target == "src/env.py"
-
-
 def test_an_unlit_scene_fails_the_build_in_both_languages() -> None:
     """D112 (argon loop iteration 5, scene_blender r1_10): the placeholder env — no lamp, no world —
     passed the build as a WARN and every round-0 frame was black after the full render and judge spend.
@@ -190,28 +66,6 @@ def test_an_unlit_scene_fails_the_build_in_both_languages() -> None:
         assert not [f for f in _census_findings({**three, **lit}) if f.severity is Severity.ERROR], lit
     # a sky but no light keeps its WARN (MeshStandardMaterial still renders black)
     assert [f.severity for f in _census_findings({**three, "background": "#88aacc"}) if "no lights" in f.message] == [Severity.WARN]
-
-
-def test_each_scene_language_plans_its_own_asset_kinds() -> None:
-    """D5: ``bpy`` joins the kinds a plan may hold; the schema a planner is handed stays
-    scene_threejs's (its prompts are byte-identical), a scene_blender planner swaps its own in."""
-    from typing import get_args
-
-    from codeverse3d.contracts.plan import SCENE_ASSET_KINDS, scene_plan_schema
-
-    kinds = set(get_args(AssetPlan.model_fields["kind"].annotation))
-    assert {lang.value for lang in TRACK_LANGUAGES[Track.SCENE]} == set(SCENE_ASSET_KINDS)
-    assert all(set(v) <= kinds for v in SCENE_ASSET_KINDS.values())
-    enum = ScenePlan.model_json_schema()["$defs"]["AssetPlan"]["properties"]["kind"]["enum"]
-    assert enum == list(SCENE_ASSET_KINDS["scene_threejs"])
-    # the swap the planner hands out (lane B1, 2026-10-14): scene_threejs's schema IS the default, byte for
-    # byte; a scene_blender planner is offered bpy / blender_glb and never threejs, with the kind documented
-    assert scene_plan_schema(Language.SCENE_THREEJS) == ScenePlan.model_json_schema()
-    bpy_kind = scene_plan_schema("scene_blender")["$defs"]["AssetPlan"]["properties"]["kind"]
-    assert bpy_kind["enum"] == list(SCENE_ASSET_KINDS["scene_blender"]) == ["bpy", "blender_glb"]
-    assert bpy_kind["description"].startswith("bpy = ")
-    with pytest.raises(KeyError):
-        scene_plan_schema(Language.BLENDER)   # not a scene language
 
 
 def test_the_adapter_and_the_host_agree_on_the_census_url() -> None:

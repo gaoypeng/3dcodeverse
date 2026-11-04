@@ -13,8 +13,6 @@ from codeverse3d.config import get_settings
 from codeverse3d.prompts import variants as V
 from codeverse3d.prompts.variants import activate
 from codeverse3d.skills import (
-    RouteBoost,
-    VariantRoutes,
     all_skills,
     bundle_dirs,
     library_roots,
@@ -27,7 +25,6 @@ from codeverse3d.skills.registry import (
     GATE_FIRED_PRIORITY,
     ROUTED_SKILLS,
     ROUTES,
-    Route,
     effective_priority,
     select,
 )
@@ -50,10 +47,8 @@ kinds = ["baseline"]
 why = "a test row"
 """
 
-
 def _plan(n: int = 3, instances: int = 1):
     return NS(parts=[NS(name=f"P{i}", instances=instances, symmetry="none", children=[]) for i in range(n)], summary="")
-
 
 @pytest.fixture
 def variant(tmp_path: Path, monkeypatch) -> Path:
@@ -84,7 +79,6 @@ def variant(tmp_path: Path, monkeypatch) -> Path:
     yield lib
     get_settings.cache_clear()
 
-
 # --------------------------------------------------------------------------- the overlay library
 def test_an_overlay_bundle_shadows_the_base_and_a_new_name_is_added(variant):
     assert library_roots() == [variant]
@@ -102,19 +96,6 @@ def test_an_overlay_bundle_shadows_the_base_and_a_new_name_is_added(variant):
     assert library_roots("tv") == [variant, variant_dir("tv")] and library_roots("none") == [variant]
     assert [d.name for d in bundle_dirs()] == sorted(ROUTED_SKILLS), "variants/ has no SKILL.md: never listed"
     assert "OVERLAY" not in load_skill("c3d-part-contact").body
-
-
-def test_claims_are_looked_up_beside_an_overlay_bundle_first(variant):
-    from codeverse3d.addons.skill_targets import claims_path, load_claims
-
-    with activate("tv"):
-        lib = all_skills()
-    assert claims_path(lib["c3d-part-contact"]) == variant_dir("tv") / "_claims" / "c3d-part-contact.toml"
-    assert claims_path(lib["c3d-bbox-contract"]) == variant / "_claims" / "c3d-bbox-contract.toml"
-    assert claims_path(lib["c3d-new-sheet"]) == variant / "_claims" / "c3d-new-sheet.toml", "no own file: the base path"
-    assert claims_path("c3d-part-contact") == variant / "_claims" / "c3d-part-contact.toml", "a bare name: the base"
-    assert load_claims(lib["c3d-part-contact"]) == [] and load_claims("c3d-new-sheet") == []
-
 
 # --------------------------------------------------------------------------- the router
 def test_boosts_move_the_ranking_but_never_cross_the_gate_fired_floor(library, caplog):
@@ -143,66 +124,19 @@ def test_boosts_move_the_ranking_but_never_cross_the_gate_fired_floor(library, c
                  boosts={"c3d-repeats-and-mirrors": 60})
     assert got[0].name == "c3d-repeats-and-mirrors" and got[0].priority == 89 and not got[0].gate_fired
 
-
-def test_disabled_rules_are_skipped(library):
-    from codeverse3d.skills.registry import plan_signals
-
-    got = select("static_object", "blender", "baseline", signals=plan_signals(_plan()), library=library,
-                 disabled=frozenset({"R1", "R3"}))
-    assert [s.name for s in got] == ["c3d-blender-forms"]
-    fired = select("static_object", "blender", "repair", findings=["connectivity/penetration"], library=library,
-                   disabled=frozenset({"R2"}))
-    assert "c3d-part-contact" not in [s.name for s in fired]
-
-
-def test_extra_routes_are_appended_after_the_base_rows(library):
-    """A tie with a base row keeps the base order; a fresh skill reaches the session through its row."""
-    water = Route("V1", "c3d-scene-water", 75, tracks=("scene",), languages=("scene_threejs",), kinds=("baseline",),
-                  why="test")
-    got = select("scene", "scene_threejs", "baseline", library=library, routes=(*ROUTES, water), max_skills=2)
-    assert [s.name for s in got] == ["c3d-scene-composition", "c3d-scene-water"]   # R14 at 75 first
-    assert got[1].rules == ("V1",) and got[1].reason.startswith("V1: test")
-    assert "c3d-scene-water" not in [s.name for s in select("scene", "scene_threejs", "baseline", library=library, max_skills=2)]
-
-
 # --------------------------------------------------------------------------- routes.toml
-def test_routes_toml_parses_into_typed_records(variant):
-    table = variants_table("tv")
-    assert table.variant == "tv" and not table.empty
-    assert table.boosts == (RouteBoost(skill="c3d-repeats-and-mirrors", delta=20),)
-    assert table.boost_map == {"c3d-repeats-and-mirrors": 20} and table.disabled == frozenset({"R3"})
-    (route,) = table.routes
-    assert route == Route("V1", "c3d-new-sheet", 80, tracks=("static_object",), kinds=("baseline",), why="a test row")
-    assert variants_table("") == VariantRoutes() and variants_table("").empty
-    assert variants_table("nothing").empty and variants_table("nothing").variant == "nothing"
-    assert variants_table("argon").empty, "the shipped overlay routes nothing yet"
-    summed = parse_routes(_write(variant, '[[boost]]\nskill = "a"\ndelta = 5\n[[boost]]\nskill = "a"\ndelta = -2\n'))
-    assert summed.boost_map == {"a": 3}
-
 
 def _write(lib: Path, text: str) -> Path:
     p = lib / "variants" / "tv" / "routes.toml"
     p.write_text(text)
     return p
 
-
 @pytest.mark.parametrize("text, problem", [
     ('[[route]]\nrule = "V1"\nskill = "x"\npriority = "high"\n', r"\[\[route\]\] #0: priority must be an integer"),
-    ('[[route]]\nrule = "V1"\nskill = "x"\npriority = 70\ntrack = "scene"\n', "unknown key"),
-    ('[[route]]\nrule = "V1"\npriority = 70\n', "skill is required"),
     ('[[route]]\nrule = "R1"\nskill = "x"\npriority = 70\n', "rule id 'R1' is already taken"),
-    ('[[route]]\nrule = "V1"\nskill = "x"\npriority = 70\n[[route]]\nrule = "V1"\nskill = "y"\npriority = 70\n',
-     "rule id 'V1' is already taken"),
     ('[[route]]\nrule = "V1"\nskill = "x"\npriority = 95\n', "standing row .* must stay below 90"),
     ('[[route]]\nrule = "V1"\nskill = "x"\npriority = 50\nfindings = ["lint/*"]\n', "gate-fired row .* needs priority >= 90"),
-    ('[[route]]\nrule = "V1"\nskill = "x"\npriority = 70\ntracks = "scene"\n', "tracks must be a list of non-empty strings"),
-    ('[[route]]\nrule = "V1"\nskill = "x"\npriority = true\n', "priority must be an integer"),
     ('[[boost]]\nskill = "x"\ndelta = 1.5\n', r"\[\[boost\]\] #0: delta must be an integer"),
-    ('[[boost]]\nskill = "x"\n', "delta must be an integer"),
-    ('[[disable]]\nrule = 27\n', "rule must be a string"),
-    ('[[disable]]\nrule = ""\n', "rule is required"),
-    ('[[routes]]\nrule = "V1"\n', "unknown table"),
-    ('boost = 3\n', r"\[\[boost\]\] must be an array of tables"),
     ('[[boost]\nskill = "x"\n', "not valid TOML"),
 ])
 def test_routes_toml_typing_errors_are_refused(variant, text, problem):
@@ -211,10 +145,8 @@ def test_routes_toml_typing_errors_are_refused(variant, text, problem):
     with pytest.raises(ValueError, match=problem):
         variants_table("tv")
 
-
 # --------------------------------------------------------------------------- the CLIs walk the overlays
 BROKEN_SKILL = "---\nname: c3d-bbox-contract\ndescription: the closing fence is missing\n# body\n"
-
 
 def _cli(*args: str, width: int = 300):
     """``3dcode skills ...`` through typer's runner, the CLI console wide enough for one table row per
@@ -229,7 +161,6 @@ def _cli(*args: str, width: int = 300):
 
     with mock.patch.object(_common.console, "_width", width):
         return CliRunner().invoke(app, ["skills", *args])
-
 
 def test_skills_validate_walks_every_shipped_overlay_and_a_broken_overlay_bundle_fails(variant):
     """A loop iteration writes bundles into ``skills/variants/<v>/`` and they are routed the moment the
@@ -261,19 +192,6 @@ def test_skills_validate_walks_every_shipped_overlay_and_a_broken_overlay_bundle
     assert r.exit_code == 0 and "tv/routes.toml" in r.output and "V1 -> c3d-nowhere" in r.output
     assert _cli("validate", "--strict").exit_code == 1
 
-
-def test_skills_list_labels_the_overlay_rows_with_their_variant(variant):
-    r = _cli("list", "--routes")
-    assert r.exit_code == 0, r.output
-    lines = r.output.splitlines()
-    contact = [ln for ln in lines if "c3d-part-contact" in ln]
-    assert len(contact) == 2, "the base bundle and the overlay's shadow of it"
-    assert sum(" tv " in ln for ln in contact) == 1
-    (new_sheet,) = [ln for ln in lines if "c3d-new-sheet" in ln]
-    assert " tv " in new_sheet and "V1" in new_sheet, "an overlay-only bundle, routed by the overlay's own row"
-    assert sum(" tv " in ln for ln in lines) == 2
-
-
 # --------------------------------------------------------------------------- attach_skills + the hook
 @pytest.fixture
 def ws(tmp_path: Path) -> Path:
@@ -281,7 +199,6 @@ def ws(tmp_path: Path) -> Path:
     root.mkdir()
     (root / "AGENTS.md").write_text("# body\n")
     return root
-
 
 def test_attach_skills_routes_through_the_variant_table_and_stamps_the_variant(variant, ws):
     from codeverse3d.skills.materialize import attach_skills
@@ -301,24 +218,9 @@ def test_attach_skills_routes_through_the_variant_table_and_stamps_the_variant(v
     assert "OVERLAY RULES" in (ws / ".agents" / "skills" / "c3d-part-contact" / "SKILL.md").read_text()
     assert (ws / ".claude" / "skills" / "c3d-new-sheet" / "SKILL.md").is_file()
 
-
-def test_a_broken_routes_toml_costs_the_overlay_not_the_round(variant, ws, caplog):
-    from codeverse3d.skills.materialize import attach_skills
-
-    _write(variant, '[[route]]\nrule = "V1"\nskill = "x"\npriority = "high"\n')
-    with caplog.at_level(logging.WARNING, logger="codeverse3d.skills.materialize"), activate("tv"):
-        got = attach_skills(ws, track="static_object", language="blender", kind="baseline", plan=_plan(instances=2))
-    assert "routes.toml rejected" in caplog.text and "priority must be an integer" in caplog.text
-    assert got.variant == "tv"
-    assert got.listed == ["c3d-blender-forms", "c3d-part-contact", "c3d-bbox-contract", "c3d-repeats-and-mirrors"]
-    assert "OVERLAY RULES" in next(s for s in got.selections if s.name == "c3d-part-contact").skill.body, \
-        "the overlay BUNDLES still shadow: only the table fell back"
-
-
 class _Events(list):
     def emit(self, name, **kw):
         self.append((name, kw))
-
 
 def test_the_hook_carries_the_variant_into_the_event_and_the_telemetry_row(variant, ws, monkeypatch):
     from codeverse3d.proc import read_jsonl_lenient

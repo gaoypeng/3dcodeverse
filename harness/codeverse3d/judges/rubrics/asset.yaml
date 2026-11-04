@@ -1,6 +1,5 @@
 name: asset
 version: 1
-track_hint: asset
 pass_threshold: 0.70
 description: >
   Per-asset rubric used inside scenes: ONE asset (a building, a tree, a boat, a lamp

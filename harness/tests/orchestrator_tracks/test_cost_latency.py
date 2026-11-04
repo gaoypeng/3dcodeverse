@@ -248,10 +248,7 @@ def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote
 
 
 def test_stages_that_spend_the_clock_without_raising_still_get_a_salvaged_round(tmp_path, settings):
-    """Live 2026-09-23 (jetty_scene, $1.16): a 503 storm stretched the stages past the ceiling without
-    any of them raising (the zones degraded to single-shot and failed quietly), so the round loop's own
-    clock check stopped the run at `budget` with NO round: the salvage only ran when a stage RAISED
-    BudgetExceeded.  Here the last stage (assemble) is the one that ends past the ceiling."""
+    """Live 2026-09-23 (jetty_scene, $1.16): stages that overrun the clock without raising got NO salvaged round."""
     from tests.orchestrator_tracks.conftest import FAKE_CLOCK
 
     class SlowAssemble(FakeServices):

@@ -145,10 +145,6 @@ class ComplexityVector(BaseModel):
     )
     extra: dict[str, Any] = Field(default_factory=dict, description="descriptors that do not enter the index")
 
-    @property
-    def axes(self) -> dict[str, float]:
-        return {a: float(getattr(self, a)) for a in COMPLEXITY_WEIGHTS}
-
 
 # --------------------------------------------------------------------- silhouette
 def _raster(pts2: np.ndarray, res: int) -> np.ndarray:

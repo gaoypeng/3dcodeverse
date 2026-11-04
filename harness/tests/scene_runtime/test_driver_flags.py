@@ -1,10 +1,4 @@
-"""Every documented driver flag must PARSE.
-
-Regression: --no-settle / --camera-repair / --auto-exposure were read but never declared
-in the parseArgs whitelist, so the first battery to enable them crashed every render.
-Each driver runs with all optional flags and no workspace: it must die on OUR
-'--ws is required', never in the argument parser.
-"""
+"""Every documented driver flag must PARSE."""
 
 from __future__ import annotations
 
@@ -17,7 +11,7 @@ from tests.scene_runtime.conftest import needs_node
 
 pytestmark = [pytest.mark.node, needs_node]
 
-FLAGS = ["--no-settle", "--camera-repair", "--auto-exposure", "--no-post"]
+FLAGS = ["--no-settle", "--camera-repair", "--no-post"]
 
 
 @pytest.mark.parametrize("driver", ["render_scene.mjs", "probe_scene.mjs"])

@@ -98,7 +98,7 @@ class RunId(BaseModel):
     ``runs/<id>`` layout and catastrophically wrong for nested batteries
     (compare_backends ``cells/<id>/<arm>/run``, ab_plan
     ``arms/<arm>/cells/<id>/<slug>/run``): hundreds of distinct runs are all named
-    ``run``, so exports rmtree'd each other, the SQLite index tripped its PRIMARY KEY
+    ``run``, so exports rmtree'd each other
     and the gallery collapsed whole batteries into one entry.
 
     ``battery`` labels the scan root the run was found under; ``rel`` is the run
@@ -328,7 +328,6 @@ class RunDeliverable(BaseModel):
     entry: str = Field(default="", description="run-relative entry file of the code snapshot")
     files: list[DeliverableFile] = Field(default_factory=list)
     total_bytes: int = 0
-    skipped: dict[str, str] = Field(default_factory=dict, description="name → why it is not in deliverable/")
     generated_at: datetime | None = None
 
     def by_role(self, role: str) -> list[DeliverableFile]:

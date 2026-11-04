@@ -51,14 +51,12 @@ class SessionCache:
 
 
 def session_key(label: str) -> str:
-    """Collapse a per-call label to its session: ``api-agent:refine_legs:t7`` →
+    """Collapse a per-call label to its session: ``refine_legs:t7`` →
     ``refine_legs``, ``judge:static_object:r02:s1`` → ``judge:static_object``.
 
     A session is what shares a prompt prefix: every turn of one agent session,
     every sample of one verdict."""
     parts = [p for p in (label or "").split(":") if p]
-    if parts and parts[0] == "api-agent":   # historical ledgers only (backend deleted 2026-08-28)
-        parts = parts[1:]
     while parts and len(parts[-1]) > 1 and parts[-1][0] in "tsr" and parts[-1][1:].isdigit():
         parts = parts[:-1]
     return ":".join(parts)

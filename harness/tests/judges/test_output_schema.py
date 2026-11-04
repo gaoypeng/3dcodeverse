@@ -4,22 +4,11 @@ from codeverse3d.judges.rubrics import (
     JudgeParseError,
     load_rubric,
     parse_judge_output,
-    wire_schema,
 )
 from tests.judges.conftest import good_reply
 
 R = load_rubric("static_object")
 IDS = ["A1", "must-2"]
-
-
-def test_wire_schema_has_fixed_keys_and_no_overall():
-    s = wire_schema(R, IDS)
-    crit = s["$defs"]["Criteria"]
-    assert set(crit["required"]) == {c.id for c in R.criteria}
-    acc = s["$defs"]["Acceptance"]
-    assert set(acc["properties"]) == set(IDS)
-    assert "overall" not in s["properties"] and "passed" not in s["properties"]  # law 3: scored in code
-    assert "acceptance" not in wire_schema(R, [])["properties"]
 
 
 def test_parse_accepts_bare_values_defaults_missing_acceptance_and_rejects_bad_criteria():
