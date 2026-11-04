@@ -25,7 +25,7 @@ from codeverse3d.conventions import (
 )
 from codeverse3d.orchestrator import RefineTask, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
-from codeverse3d.spatial.contract import planned_joins
+from codeverse3d.spatial.contract import check_fixed_parts, planned_joins
 from codeverse3d.spatial.silhouette import measure_reference
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.depth import budget_gate, depth_budget
@@ -70,6 +70,9 @@ class ObjectPipeline:
             )
             # deterministic density check against the plan; the judge is never asked about detail
             out.append(budget_gate(measurement, build, depth_budget(ctx.plan, ctx.settings.limits.build_timeout_s)))
+        if measurement is not None and ctx.spec.fixed_parts:
+            # the project's fixed parts (Spec.fixed_parts) built as declared: not moved, scaled or edited
+            out.append(check_fixed_parts(measurement, ctx.spec.fixed_parts))
         return out
 
     def render(

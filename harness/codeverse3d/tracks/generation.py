@@ -446,7 +446,7 @@ def run_agent_task(
         shared_tree=task.shared_tree,
         effort=session_effort(task),
         always_writable=_always_writable(language, task),
-        read_only=_read_only(language),
+        read_only=_read_only(language, ws),
         **({"max_turns": turns_cap} if turns_cap > 0 else {}),
     )
     acc = _SessionAcc(task=task, budget=budget)
@@ -596,18 +596,20 @@ def _always_writable(language: str, task: GenerationTask) -> list[str]:
 def _envelope_scope(ws: Workspace, task: GenerationTask) -> tuple[set[str] | None, list[str]]:
     """The ``only`` set for ``write_files`` (an ``edit_only`` task's files plus the always-writable ones, else ``None``) and the frozen files."""
     language, _ = _spec_lang_track(ws)
-    frozen = _read_only(language)
+    frozen = _read_only(language, ws)
     if not task.edit_only or not task.files_hint:
         return None, frozen
     return {f for f in task.files_hint if f} | set(_always_writable(language, task)), frozen
 
 
-def _read_only(language: str) -> list[str]:
-    """The harness-owned files of the language (scene_threejs's ``src/lib/``): every session"""
+def _read_only(language: str, ws: Workspace) -> list[str]:
+    """The harness-owned files of the language (scene_threejs's ``src/lib/``) and the spec's fixed parts: every session"""
+    spec_d = read_json_or_none(ws.spec_path) or {}
+    fixed = [str(f.get("path", "")).replace("\\", "/") for f in spec_d.get("fixed_parts") or [] if f.get("path")]
     try:
-        return list(HARNESS_OWNED_SRC.get(Language(language), ()))
+        return list(HARNESS_OWNED_SRC.get(Language(language), ())) + fixed
     except ValueError:
-        return []
+        return fixed
 
 
 def generate(
