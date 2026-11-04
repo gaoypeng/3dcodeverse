@@ -28,6 +28,7 @@ from codeverse3d.spatial.render import RenderError
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for
 from codeverse3d.tracks.generation import GenerationResult, GenerationTask
+from codeverse3d.tracks.project_checks import run_project_checks
 from codeverse3d.tracks.repair import RepairOutcome, build_with_repair
 from codeverse3d.workspace import Workspace
 
@@ -189,6 +190,9 @@ def _run_round(
         with timed("gates", steps, round_index=index):
             rec.measurement = pipeline.measure(ctx, outcome.build)
             gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
+            if ctx.spec.checks and outcome.build.glb_path:  # the project's own checks (Spec.checks)
+                gates.extend(run_project_checks(ctx.spec, ctx.ws.root, Path(outcome.build.glb_path),
+                                                rec.measurement, index))
         try:
             with timed("render", steps, round_index=index):
                 rec.renders = (render or pipeline.render)(ctx, index, outcome.build, rec.measurement)

@@ -53,7 +53,13 @@ from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.common import TRACK_INFO, Backends, Budget, Language, Track  # noqa: E402
 from codeverse3d.contracts.run import RunRecord  # noqa: E402
-from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec  # noqa: E402
+from codeverse3d.contracts.spec import (  # noqa: E402
+    Constraints,
+    ProjectCheck,
+    ReferenceImage,
+    RunOptions,
+    Spec,
+)
 from codeverse3d.cost import run_ledger  # noqa: E402
 from codeverse3d.proc import exclusive, install_stop_handlers  # noqa: E402
 from codeverse3d.record.record import load_record  # noqa: E402
@@ -79,6 +85,9 @@ class BenchPrompt(BaseModel):
     references: list[str] = Field(
         default_factory=list,
         description="reference image paths (relative to the battery file); bench/refs/<id>/*.png|jpg are added automatically")
+    # left out of a dumped battery while empty, so every existing battery serialises as before
+    checks: list[ProjectCheck] = Field(default_factory=list, exclude_if=lambda v: not v,
+                                       description="project checks run every round (Spec.checks)")
 
 
 class Battery(BaseModel):
@@ -191,6 +200,7 @@ def build_spec(
         budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
         options=RunOptions(variant=variant),
+        checks=list(item.checks),
     )
 
 
