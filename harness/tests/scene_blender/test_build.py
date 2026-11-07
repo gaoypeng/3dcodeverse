@@ -73,6 +73,8 @@ def test_placement_rows_for_sunk_floating_and_free(built) -> None:
     assert rows["Crate_3"]["exempt"] == "free"          # obj["placement"] = "free" → glTF extras → userData
     assert rows["Cart_0"]["zone"] == "Yard"             # a parent mesh + child: ONE row
     assert "CartWheel_0" not in rows
+    assert res.census["fog"]["type"] == "VolumeBox"      # a volume-only cube is the fog
+    assert res.census["bpy"]["drivers_invalid"] == [] and res.census["bpy"]["handlers"] == []
     assert [r["name"] for r in rows.values() if r["name"].startswith("GrassPatch")] == ["GrassPatch"]
 
 
@@ -84,7 +86,7 @@ def _only_unlit(res) -> None:
 
 
 def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
-    """plan → skeleton → assemble → build: the starter scene fails ONE gate — the placeholder env lights
+    """plan → skeleton → assemble → build: the skeleton fails ONE gate — the placeholder env lights
     nothing (`unlit`, an ERROR since D112, so round 0's repair is handed the env) — and passes the rest;
     the plan's cameras reach the host."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
@@ -142,27 +144,3 @@ def test_a_hero_glb_is_imported_into_ctx_assets(tmp_ws) -> None:
     assert res.ok, res.stdout_tail
     row = _rows(res)["Windmill_0"]
     assert row["zone"] == "Yard" and row["supported"]   # a 4 m box centred on z = 2 stands on the ground
-
-
-
-def test_the_example_scene_builds_and_seats_every_root(tmp_ws) -> None:
-    """The plan-less starter scene (``write_example``: env, two assets, three zones in plain bpy) lints
-    clean, builds through the wrapper, seats every placed root (no floating, no burial past the 10 cm
-    WARN, nothing interpenetrating), keeps every driver simple and leaves the render settings alone."""
-    from codeverse3d.languages.scene_blender import write_example
-
-    rt = _rt()
-    write_example(tmp_ws)
-    assert rt.lint(tmp_ws).passed, [(f.target, f.message) for f in rt.lint(tmp_ws).findings]
-    res = rt.build(tmp_ws)
-    assert res.ok, res.stdout_tail
-    report = json.loads((tmp_ws.artifacts / "bpy_build.json").read_text())
-    assert report["errors"] == [] and sorted(report["zones_ok"]) == ["hamlet", "lakeside", "orchard"], report
-    assert res.census["bpy"]["drivers_invalid"] == [] and res.census["bpy"]["handlers"] == []
-    rows = _rows(res)
-    assert {"House_0", "Signpost_0", "LanternPost_2", "Crate_2", "Rock_9", "AppleTree_11", "HarvestCrate_2"} <= set(rows), sorted(rows)
-    for r in rows.values():
-        if not r["exempt"]:
-            assert r["supported"] and not r["floating"] and r["sunk_m"] <= 0.10, r
-    assert res.census["placement"]["interpenetrations"] == []
-    assert res.census["fog"] is not None and res.census["light_types"]

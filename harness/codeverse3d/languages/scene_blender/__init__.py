@@ -368,8 +368,6 @@ def lint(ws: Workspace) -> GateReport:
     return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
-# ===================================================================== starter tree
-STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 ENV_FILE = "src/env.py"
 
 
@@ -397,22 +395,6 @@ def _put(path: Path, text: str, written: list[Path]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     written.append(path)
-
-
-def write_example(ws: Workspace) -> list[Path]:
-    """Write the plan-less starter scene (``starter/src/**/*.py``) into ``ws.src``; raises when the
-    starter tree is missing (an rglob over an absent directory would silently write nothing)."""
-    if not STARTER_DIR.is_dir():
-        raise FileNotFoundError(
-            f"scene_blender starter tree missing: {STARTER_DIR} — this install has no package data "
-            f"(a non-editable install needs [tool.setuptools.package-data] to ship languages/**/starter/**/*)")
-    written: list[Path] = []
-    for src in sorted(STARTER_DIR.rglob("*.py")):
-        _put(ws.src / src.relative_to(STARTER_DIR), src.read_text(), written)
-    if not written:
-        raise FileNotFoundError(f"scene_blender starter tree at {STARTER_DIR} contains no .py files")
-    (ws.public / "assets").mkdir(parents=True, exist_ok=True)
-    return written
 
 
 # ===================================================================== skeleton
@@ -609,9 +591,9 @@ CAMERAS = [
 
 
 def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
-    """Starter files for a scene plan; without a plan the complete example scene."""
+    """Starter files for a scene plan; none without one."""
     if plan is None:
-        return write_example(ws)
+        return []
     if not isinstance(plan, ScenePlan):
         raise TypeError(f"scene_blender needs a ScenePlan, got {type(plan).__name__}")
     written: list[Path] = []

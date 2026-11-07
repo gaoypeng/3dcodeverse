@@ -31,6 +31,17 @@ def build_env(ctx):
     bm.free()
     ctx.collection.objects.link(bpy.data.objects.new("Ground", me))
     ctx.collection.objects.link(bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", "SUN")))
+    haze = bpy.data.materials.new("Haze")   # volume-only: the atmosphere (the census files it as a VolumeBox fog)
+    nodes = haze.node_tree.nodes
+    nodes.remove(nodes["Principled BSDF"])
+    vol = nodes.new("ShaderNodeVolumePrincipled")
+    haze.node_tree.links.new(vol.outputs["Volume"], nodes["Material Output"].inputs["Volume"])
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=40.0)
+    bm.to_mesh(me := bpy.data.meshes.new("AtmosphereBody"))
+    bm.free()
+    me.materials.append(haze)
+    ctx.collection.objects.link(bpy.data.objects.new("Atmosphere", me))
     return {}
 '''
 
@@ -75,6 +86,9 @@ def build(ctx):
     wheel.name = "CartWheel_0"
     wheel.parent = cart
     wheel.matrix_parent_inverse = cart.matrix_world.inverted()
+    cart.keyframe_insert("location", frame=ctx.frame(0.0))   # the Blender 5.2 slotted-action path
+    cart.location.x += 0.3
+    cart.keyframe_insert("location", frame=ctx.frame(1.5))
     return ctx.collection
 '''
 
