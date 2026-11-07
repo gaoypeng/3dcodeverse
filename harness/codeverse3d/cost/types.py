@@ -18,7 +18,6 @@ class Stage(StrEnum):
     ZONES = "zones"
     ASSEMBLE = "assemble"
     BASELINE = "baseline"
-    CANDIDATE = "candidate"
     REPAIR = "repair"
     REFINE = "refine"
     GATES = "gates"
@@ -59,8 +58,6 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("baseline", Stage.BASELINE),
     ("refine", Stage.REFINE),
     ("detail", Stage.REFINE),
-    ("candidate", Stage.CANDIDATE),
-    ("cand", Stage.CANDIDATE),
     ("zone-layout", Stage.PLAN),
     ("plan", Stage.PLAN),
     ("judge", Stage.JUDGE),
@@ -93,7 +90,7 @@ def role_for_stage(stage: Stage) -> Role:
     if stage is Stage.CAPTION:
         return Role.CAPTIONER
     if stage in (Stage.ASSETS, Stage.ENV, Stage.ZONES, Stage.ASSEMBLE, Stage.BASELINE,
-                 Stage.REFINE, Stage.REPAIR, Stage.CANDIDATE):
+                 Stage.REFINE, Stage.REPAIR):
         return Role.GENERATOR
     return Role.OTHER
 

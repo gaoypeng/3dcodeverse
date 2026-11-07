@@ -99,7 +99,7 @@ cd harness
 # executable interface example (tests/prompts/test_snippets_run.py), the craft as short optional practices in the skills (fences ≤ ~12 lines).
 3dcodeverse make "..." --variant argon      # per-model prompt/skill overlay: prompts/variants/<name>/ + skills/variants/<name>/ (D105; C3D_VARIANT, C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}')
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
-3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --no-run
+3dcodeverse make "..." --image ref.png --rounds 2 --dim height=0.45 --must "three legs" --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
 3dcodeverse pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
 3dcodeverse resume <slug> · 3dcodeverse show <slug> [--section status] (`status` = its STATUS section) · 3dcodeverse render <slug> [--mode wire] · 3dcodeverse judge <slug> [--model ... --n 3 --thinking medium]

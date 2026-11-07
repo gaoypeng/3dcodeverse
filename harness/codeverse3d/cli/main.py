@@ -30,7 +30,7 @@ from codeverse3d.cli.cost_cmd import cost_app
 from codeverse3d.cli.flywheel_cmd import flywheel_app
 from codeverse3d.cli.skills_cmd import skills_app
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.common import TRACK_INFO, TRACK_LANGUAGES, Budget, Language, Track
+from codeverse3d.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
 
 
@@ -260,14 +260,6 @@ def make(
         ),
     ] = None,
     max_minutes: Annotated[float | None, typer.Option("--max-minutes", min=0)] = None,
-    candidates: Annotated[
-        int | None,
-        typer.Option(
-            "--candidates",
-            min=1,
-            help="best-of-N baseline: N parallel candidates, keep the best (default: settings.default_candidates or 1)",
-        ),
-    ] = None,
     slug: Annotated[str | None, typer.Option("--slug")] = None,
     runs_dir: RunsDirOpt = None,
     dim: Annotated[
@@ -287,14 +279,6 @@ def make(
             "(`3dcodeverse pick <slug>` does it later)",
         ),
     ] = False,
-    seed: Annotated[
-        int,
-        typer.Option(
-            "--seed",
-            help="a run label, not a sampling seed: another value re-plans (it keys the plan cache); "
-            "the models, the coding agent, the judge and the builds (always seed 0) do not read it",
-        ),
-    ] = 0,
     force: Annotated[bool, typer.Option("--force", help="overwrite an existing run dir")] = False,
     no_run: Annotated[
         bool,
@@ -323,10 +307,6 @@ def make(
         language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
     settings = get_settings()
-    if candidates is None:
-        candidates = settings.default_candidates
-    if candidates > 1 and not TRACK_INFO[track].best_of_n:
-        raise _no_best_of_n(track)
     backends = settings.backends(generator=generator, planner=planner, judge=judge)
     C.check_backends(backends)
     # resolved once here and frozen on the spec
@@ -348,8 +328,7 @@ def make(
             budget=Budget(**{k: v for k, v in
                              {"max_rounds": rounds, "max_minutes": max_minutes}.items() if v is not None}),
             backends=backends,
-            options=RunOptions(candidates=candidates, variant=chosen.name),
-            seed=seed,
+            options=RunOptions(variant=chosen.name),
             tags=tag,
         )
     except ValueError as e:
@@ -371,7 +350,6 @@ def make(
                     "judge": f"{backends.judge} n={settings.judge.samples} "
                     f"({settings.judge.max_px}px/{settings.judge.detail_crops}crop)",
                     "rounds": spec.budget.max_rounds,
-                    "candidates": candidates,
                     "variant": chosen.label,
                 },
             )
@@ -379,25 +357,18 @@ def make(
         if no_run:
             ok(f"spec written: {ws.spec_path} (not run; `3dcodeverse resume {run_slug}` to start)")
             return
-        _run_track(spec, ws, resume=False, candidates=candidates, pick=not no_pick)
+        _run_track(spec, ws, resume=False, pick=not no_pick)
 
 
-def _no_best_of_n(track: Track) -> C.CliError:
-    return C.CliError(f"--candidates is for tracks whose baseline is one session; a {track.value} run "
-                      "writes its baseline in its pre-round stages")
-
-
-def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False,
-               pick: bool = True) -> None:
+def _run_track(spec: Spec, ws, *, resume: bool, force: bool = False, pick: bool = True) -> None:
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.proc import install_stop_handlers
     from codeverse3d.tracks import get_track
 
     install_stop_handlers()
-    options: dict = {"n_candidates": candidates} if candidates else {}
     try:
         with run_ledger(ws.root, run=ws.root.name):
-            record = get_track(spec.track, **options).run(spec, ws, resume=resume, force=force)
+            record = get_track(spec.track).run(spec, ws, resume=resume, force=force)
     except KeyboardInterrupt:
         raise C.CliError(
             f"interrupted; resume with `3dcodeverse resume {ws.root.name}`", code=130
@@ -456,9 +427,7 @@ def _finished_reason(ws, raised: dict) -> str:
     if state is None:
         return ""
     status = state.status
-    detail = f"status={status.value}" + (
-        f" stop_reason={state.stop_reason!r}" if state.stop_reason not in ("", status.value) else ""
-    )
+    detail = f"status={status.value}"
     if status is RunStatus.BUDGET:
         return "" if raised else f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
     if status is RunStatus.MAX_ROUNDS:
@@ -484,12 +453,6 @@ def _clock_spent(ws, max_minutes: float) -> str:
 def resume(
     slug: str,
     runs_dir: RunsDirOpt = None,
-    candidates: Annotated[
-        int | None,
-        typer.Option(
-            "--candidates", min=1, help="best-of-N baseline width (only matters before round 0 ran)"
-        ),
-    ] = None,
     max_minutes: Annotated[
         float | None,
         typer.Option("--max-minutes", min=0, help="raise the time cap before resuming"),
@@ -515,8 +478,6 @@ def resume(
     # the run mutex, before the spec is rewritten
     with C.mutating(ws, what=f"3dcodeverse resume {ws.root.name}"):
         spec = C.load_spec(ws)
-        if candidates and candidates > 1 and not TRACK_INFO[spec.track].best_of_n:
-            raise _no_best_of_n(spec.track)
         raised = {
             k: v
             for k, v in {"max_minutes": max_minutes, "max_rounds": rounds}.items()
@@ -537,7 +498,7 @@ def resume(
             spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
             ws.write_json(ws.spec_path, spec)
             EventLog(ws.events_path).emit("budget.raised", **raised)
-        _run_track(spec, ws, resume=True, candidates=candidates, force=force, pick=not no_pick)
+        _run_track(spec, ws, resume=True, force=force, pick=not no_pick)
 
 
 @app.command()

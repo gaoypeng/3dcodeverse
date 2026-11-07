@@ -157,7 +157,7 @@ def round_files(roots: list[Path]) -> list[Path]:
 
 
 def _acceptance_items(run_dir: Path) -> list[AcceptanceItem]:
-    """The plan's acceptance list; a candidate sub-workspace inherits its parent's plan."""
+    """The plan's acceptance list; a sub-workspace inherits its parent's plan."""
     d = run_dir
     for _ in range(4):
         plan = read_json_or_none(d / "plan.json")
@@ -264,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rubric", default="static_object", help="rubric NAME the stored verdicts must carry")
     ap.add_argument("--rubric-file", type=Path, default=None,
                     help="score with THIS yaml instead of the installed rubric of the same name (a variant under test)")
-    ap.add_argument("--kinds", default="", help="comma list of round kinds to keep (default all, incl. candidate)")
+    ap.add_argument("--kinds", default="", help="comma list of round kinds to keep (default all)")
     ap.add_argument("--out", type=Path, default=None, help="directory for replay.json + replay.md")
     ap.add_argument("--identity", action="store_true",
                     help="assert nothing moved: exit 1 on any |Δ| > 1e-9 outside rubric drift; "

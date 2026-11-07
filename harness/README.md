@@ -15,7 +15,7 @@ renders, judges, refines and records every run as data-flywheel material.
   the list is `docs/ARCHITECTURE.md` §5.
 * **Judging:** rubric VLM judge (default `gemini:gemini-4-argon`, thinking `medium`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
-  deterministic gates; pairwise, reference and likeness judges; best-of-N candidates;
+  deterministic gates; pairwise, reference and likeness judges;
   a calibration harness (`addons/calibration.py`).
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/cross-backend
@@ -28,8 +28,8 @@ renders, judges, refines and records every run as data-flywheel material.
 
 ## Architecture
 
-Every run is **spec → plan → skeleton → [scene stages] → baseline round (best-of-N
-optional) → refine rounds → finalise → record**.  The package tree:
+Every run is **spec → plan → skeleton → [scene stages] → baseline round →
+refine rounds → finalise → record**.  The package tree:
 
 ```
 codeverse3d/
@@ -40,7 +40,7 @@ codeverse3d/
   proc.py          stdlib-only subprocess/JSON/JSONL primitives, run lock, fan-out (a leaf)
   orchestrator.py  the round loop's library: stage runner + resume state, round knobs, the clock
   tracks/          the four track pipelines + the round loop, the one planner loop, generation strategies
-                   (vendor-CLI agent / single-shot), repair, best-of-N, skills hook
+                   (vendor-CLI agent / single-shot), repair, skills hook
   languages/       one merged module per language (lint → skeleton → runtime) beside its
                    data dirs: blender cadquery threejs urdf scene_threejs scene_blender glsl_shader opengl_python
   agents/          CodingAgent protocol + the vendor-CLI backends (claude-code,

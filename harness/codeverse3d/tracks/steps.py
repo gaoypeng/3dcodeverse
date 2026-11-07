@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -19,7 +19,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, StepTime
-from codeverse3d.cost.tally import Tally, tally, timed
+from codeverse3d.cost.tally import tally, timed
 from codeverse3d.judges.base import round_input
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out
@@ -44,9 +44,6 @@ class RoundPipeline(Protocol):
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         """Track-specific judge context.  Deliberately ``RunContext``-free so"""
         ...
-
-
-RenderFn = Callable[[RunContext, int, BuildResult, Measurement | None], RenderSet | None]
 
 
 class RoundFailed(RuntimeError):
@@ -134,106 +131,79 @@ def run_round(
     steps: list[StepTime] = []
     with tally() as spent:
         try:
-            return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
-                              previous=previous, findings=findings, files_hint=files_hint, extra_usage=extra_usage,
-                              extra_notes=extra_notes, steps=steps, spent=spent)
+            t0 = time.time()
+            ctx.events.emit("round.start", round=index, kind=kind, n_tasks=len(tasks))
+            rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, instructions=list(instructions),
+                              started_at=datetime.now(UTC))
+            notes: list[str] = list(extra_notes)
+
+            skills_hook.attach_for_round(ctx, index=index, kind=kind, findings=findings)
+            gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks), steps=steps)
+            notes += [f"{g.label}: {g.notes}" for g in gens if not g.ok]
+            ctx.ws.commit(f"r{index:02d} {kind}: generated")
+
+            with timed("build", steps, round_index=index):
+                outcome: RepairOutcome = build_with_repair(ctx, round_index=index, label=f"r{index:02d}_{kind}",
+                                                           files_hint=list(files_hint))
+            rec.build = outcome.build
+            gates: list[GateReport] = [outcome.lint]
+            if outcome.attempts:
+                notes.append(
+                    f"repair attempts: {len(outcome.attempts)}/{outcome.max_attempts} "
+                    f"({'fixed' if outcome.ok else 'still failing'})"
+                )
+
+            if outcome.build.ok:
+                with timed("gates", steps, round_index=index):
+                    rec.measurement = pipeline.measure(ctx, outcome.build)
+                    gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
+                    if ctx.spec.checks and outcome.build.glb_path:  # the project's own checks (Spec.checks)
+                        gates.extend(run_project_checks(ctx.spec, ctx.ws.root, Path(outcome.build.glb_path),
+                                                        rec.measurement, index))
+                try:
+                    with timed("render", steps, round_index=index):
+                        rec.renders = pipeline.render(ctx, index, outcome.build, rec.measurement)
+                except RenderError as e:
+                    rec.renders = None
+                    notes.append(f"render failed: {str(e)[:200]}")
+                    ctx.events.emit("render.failed", round=index, error=str(e)[:400])
+                post = getattr(pipeline, "post_render_gates", None)
+                if callable(post) and rec.renders is not None:
+                    with timed("gates", steps, round_index=index):
+                        gates.extend(post(ctx, index, rec.renders))
+                gates.extend(outcome.build.gates)
+                n_err = sum(len(g.errors) for g in gates)
+                ctx.events.emit("gates.done", round=index, n_gates=len(gates), n_errors=n_err,
+                                tri_count=rec.measurement.tri_count if rec.measurement else None)
+                skip = skip_judge_reason(ctx, renders=rec.renders)
+                if skip:
+                    notes.append(f"judge skipped ({skip})")
+                    ctx.events.emit("judge.skipped", round=index, reason=skip)
+                else:
+                    with timed("judge", steps, round_index=index):
+                        rec.judgment = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes)
+            else:
+                gates.extend(outcome.build.gates)
+                notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
+            rec.gates = gates
+            rec.skills = skills_hook.record_usage(ctx, index=index, kind=kind)
+            _write_gate_reports(ctx, index, gates)
+
+            rec.commit = ctx.ws.commit(f"r{index:02d} {kind}")
+            if outcome.build.ok:
+                keep_round_artifacts(ctx.ws, index)
+            rec.usage = spent.usage + (extra_usage or Usage())
+            rec.duration_s = round(time.time() - t0, 2)
+            rec.steps = steps
+            rec.notes = "; ".join(notes)
+            ctx.ws.write_json(round_record_path(ctx, index), rec)
+            ctx.events.emit("round.done", round=index, kind=kind, commit=rec.commit[:10], score=rec.score,
+                            build_ok=outcome.build.ok, duration_s=rec.duration_s, cost_usd=round(rec.usage.cost_usd, 4))
+            return rec
         except BaseException as e:
             record_aborted_round(ctx, index=index, kind=kind, usage=spent.usage,
                                  error=f"{type(e).__name__}: {e}", steps=steps)
             raise
-
-
-def _run_round(
-    ctx: RunContext,
-    *,
-    index: int,
-    kind: str,
-    tasks: Sequence[GenerationTask],
-    pipeline: RoundPipeline,
-    instructions: Sequence[str] = (),
-    previous: Judgment | None = None,
-    findings: Sequence[GateReport] = (),
-    files_hint: Sequence[str] = (),
-    extra_usage: Usage | None = None,
-    extra_notes: Sequence[str] = (),
-    render: RenderFn | None = None,
-    geometry_views: bool = True,
-    steps: list[StepTime] | None = None,
-    spent: Tally,
-) -> RoundRecord:
-    """The round's body.  ``spent`` is the tally the caller opened around it: the round's"""
-    t0 = time.time()
-    steps = [] if steps is None else steps
-    ctx.events.emit("round.start", round=index, kind=kind, n_tasks=len(tasks))
-    rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, instructions=list(instructions),
-                      started_at=datetime.now(UTC))
-    notes: list[str] = list(extra_notes)
-
-    skill_kind = "baseline" if kind == "candidate" else kind
-    skills_hook.attach_for_round(ctx, index=index, kind=skill_kind, findings=findings)
-    gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks), steps=steps)
-    notes += [f"{g.label}: {g.notes}" for g in gens if not g.ok]
-    ctx.ws.commit(f"r{index:02d} {kind}: generated")
-
-    with timed("build", steps, round_index=index):
-        outcome: RepairOutcome = build_with_repair(ctx, round_index=index, label=f"r{index:02d}_{kind}",
-                                                   files_hint=list(files_hint))
-    rec.build = outcome.build
-    gates: list[GateReport] = [outcome.lint]
-    if outcome.attempts:
-        notes.append(
-            f"repair attempts: {len(outcome.attempts)}/{outcome.max_attempts} "
-            f"({'fixed' if outcome.ok else 'still failing'})"
-        )
-
-    if outcome.build.ok:
-        with timed("gates", steps, round_index=index):
-            rec.measurement = pipeline.measure(ctx, outcome.build)
-            gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
-            if ctx.spec.checks and outcome.build.glb_path:  # the project's own checks (Spec.checks)
-                gates.extend(run_project_checks(ctx.spec, ctx.ws.root, Path(outcome.build.glb_path),
-                                                rec.measurement, index))
-        try:
-            with timed("render", steps, round_index=index):
-                rec.renders = (render or pipeline.render)(ctx, index, outcome.build, rec.measurement)
-        except RenderError as e:
-            rec.renders = None
-            notes.append(f"render failed: {str(e)[:200]}")
-            ctx.events.emit("render.failed", round=index, error=str(e)[:400])
-        post = getattr(pipeline, "post_render_gates", None)
-        if callable(post) and rec.renders is not None:
-            with timed("gates", steps, round_index=index):
-                gates.extend(post(ctx, index, rec.renders))
-        gates.extend(outcome.build.gates)
-        n_err = sum(len(g.errors) for g in gates)
-        ctx.events.emit("gates.done", round=index, n_gates=len(gates), n_errors=n_err,
-                        tri_count=rec.measurement.tri_count if rec.measurement else None)
-        skip = skip_judge_reason(ctx, renders=rec.renders)
-        if skip:
-            notes.append(f"judge skipped ({skip})")
-            ctx.events.emit("judge.skipped", round=index, reason=skip)
-        else:
-            with timed("judge", steps, round_index=index):
-                rec.judgment = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes,
-                                      geometry_views=geometry_views)
-    else:
-        gates.extend(outcome.build.gates)
-        notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
-    rec.gates = gates
-    rec.skills = skills_hook.record_usage(ctx, index=index, kind=skill_kind)
-    _write_gate_reports(ctx, index, gates)
-
-    rec.commit = ctx.ws.commit(f"r{index:02d} {kind}")
-    if outcome.build.ok:
-        keep_round_artifacts(ctx.ws, index)
-    rec.usage = spent.usage + (extra_usage or Usage())
-    rec.duration_s = round(time.time() - t0, 2)
-    rec.steps = steps
-    rec.notes = "; ".join(notes)
-    ctx.ws.write_json(round_record_path(ctx, index), rec)
-    ctx.events.emit("round.done", round=index, kind=kind, commit=rec.commit[:10], score=rec.score,
-                    build_ok=outcome.build.ok, duration_s=rec.duration_s, cost_usd=round(rec.usage.cost_usd, 4))
-    return rec
 
 
 # ----------------------------------------------------------------------------- cost of a round
@@ -251,11 +221,6 @@ def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage
     """A round that raised half-way still reports what it burned."""
     try:
         ctx.state.steps.extend(steps)
-        rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, usage=usage, steps=list(steps),
-                          notes=f"aborted: {error}")
-        path = ctx.ws.root / "rounds" / f"aborted_r{index:02d}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        ctx.ws.write_json(path, rec)
         aborted = ctx.extra.setdefault("aborted_rounds", [])
         aborted.append({"index": index, "kind": kind, "cost_usd": round(usage.cost_usd, 6), "error": error[:300]})
     except Exception as e:  # noqa: BLE001 — never mask the exception that stopped the round
@@ -263,15 +228,14 @@ def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage
 
 
 def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildResult, gates: list[GateReport],
-           rec: RoundRecord, previous: Judgment | None, notes: list[str], *,
-           geometry_views: bool = True) -> Judgment | None:
+           rec: RoundRecord, previous: Judgment | None, notes: list[str]) -> Judgment | None:
     """Judge one round; ``None`` when the verdict is unusable."""
     renders = rec.renders
     jv = getattr(pipeline, "judge_views", None)
     if callable(jv) and renders is not None:
         renders = jv(ctx, renders) or renders
     geometry = None
-    gv = getattr(pipeline, "geometry_views", None) if geometry_views else None
+    gv = getattr(pipeline, "geometry_views", None)
     if callable(gv):
         geometry = gv(ctx, index, build)
     inp = round_input(ctx.spec, ctx.plan, rec, renders=renders, gates=gates, previous=previous,

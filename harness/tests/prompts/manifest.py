@@ -162,18 +162,15 @@ def _bpy_asset_check(ctx: Any, rel: str, snake: str, *, expected_size_m: tuple[f
 
 
 class StableJudge(FakeJudge):
-    """A verdict scored by what it judges (round, candidate), never by call order: the candidates,
-    the assets and the scene stages judge from threads."""
+    """A verdict scored by what it judges (the round), never by call order: the assets and the scene
+    stages judge from threads."""
 
     def __init__(self, rubric: str, scores: tuple[float, ...], targets: tuple[str, ...]):
         super().__init__(scores=scores, targets=targets)
         self.rubric = rubric
 
     def score_for(self, inp: Any) -> float:
-        s = self.scores[min(inp.round_index, len(self.scores) - 1)]
-        parts = Path(inp.renders.views[0].path).parts if inp.renders.views else ()
-        cand = parts[parts.index("_cand") + 1] if "_cand" in parts else ""
-        return round(s + 0.05 * int(cand[1:]), 3) if cand else s
+        return self.scores[min(inp.round_index, len(self.scores) - 1)]
 
 
 class ManifestServices(FakeServices):
@@ -250,14 +247,14 @@ class Rig:
         self.settings = Settings(runs_dir=self.root / "runs", cache_dir=self.root / "cache")
         self.ws = Workspace(self.root / "runs" / "run")
 
-    def run(self, *, rounds: int, resume: bool = False, single_shot: bool = False, candidates: int | None = None) -> None:
+    def run(self, *, rounds: int, resume: bool = False, single_shot: bool = False) -> None:
         prompt, constraints = REQUESTS[self.track]
         spec = Spec(id="manifest", track=self.track, language=self.language, prompt=prompt, constraints=constraints,
                     budget=Budget(max_rounds=rounds, max_minutes=60, max_repair_attempts=2),
                     backends=Backends(planner="fake:planner", generator=SINGLE_SHOT if single_shot else AGENT, judge="fake:judge"))
         track = get_track(self.track, services=self.services, agent=None if single_shot else self.agent,
                           model=self.model if single_shot else None, planner_model=self.planner, settings=self.settings,
-                          runtime=self.runtime, n_candidates=candidates)
+                          runtime=self.runtime)
         track.run(spec, self.ws, resume=resume)
 
     # ------------------------------------------------------------------ what the fakes answer
@@ -389,7 +386,7 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
     "static_object.threejs.agent.resume": (S, Language.THREEJS, {}, _two_runs(0, 1)),
     "static_object.threejs.agent.many_parts": (S, Language.THREEJS, {"plan": machine(), "targets": ("Body", "Fitting0", "Fitting5")},
                                                lambda r: r.run(rounds=1)),
-    "static_object.blender.agent.best_of_2": (S, Language.BLENDER, {}, lambda r: r.run(rounds=1, candidates=2)),
+    "static_object.blender.agent.fresh": (S, Language.BLENDER, {}, lambda r: r.run(rounds=1)),
     "static_object.cadquery.agent.rebuild": (S, Language.CADQUERY, {"fail": REBUILD, "services_kw": {"contract_errors": 2}},
                                              lambda r: r.run(rounds=2)),
     "static_object.threejs.single_shot.repair": (S, Language.THREEJS, {"fail": frozenset({"baseline"})},
@@ -416,7 +413,6 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
     "scene.scene_blender.single_shot.fresh": (SC, Language.SCENE_BLENDER, {"plan": small_scene(Language.SCENE_BLENDER), "broken_assets": frozenset({"Bollard"})},
                                               lambda r: r.run(rounds=1, single_shot=True)),
     "graphics.glsl_shader.agent.fresh": (G, Language.GLSL_SHADER, {}, _two_runs(1, 2)),
-    "graphics.glsl_shader.agent.best_of_2": (G, Language.GLSL_SHADER, {}, lambda r: r.run(rounds=0, candidates=2)),
     "graphics.glsl_shader.agent.rebuild": (G, Language.GLSL_SHADER, {"fail": REBUILD}, lambda r: r.run(rounds=1)),
     "graphics.glsl_shader.single_shot.fresh": (G, Language.GLSL_SHADER, {}, lambda r: r.run(rounds=1, single_shot=True)),
     "graphics.opengl_python.agent.fresh": (G, Language.OPENGL_PYTHON, {}, lambda r: r.run(rounds=1)),

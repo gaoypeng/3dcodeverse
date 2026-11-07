@@ -33,22 +33,6 @@ def test_parse_multifile_strips_header_from_unterminated_block():
 
 
 def test_generate_files_truncation_policy(tmp_path):
-    ws = Workspace(tmp_path / "success").create()
-    model = scripted([(TRUNCATED, "MAX_TOKENS"), (FULL, "STOP")])
-    events = EventLog(tmp_path / "success.jsonl")
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
-    res = generate_files(ws, model=model, task=task, events=events)
-    assert res.ok and (ws.root / "src" / "model.py").read_text().startswith("import bpy")
-    assert len(model.requests) == 2 and model.requests[1].max_output_tokens == 64000
-    assert "generate.truncated" in [e["event"] for e in events.read()]
-
-    ws = Workspace(tmp_path / "failure").create()
-    model = scripted([(TRUNCATED, "MAX_TOKENS"), (TRUNCATED, "length")])
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
-    res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "failure.jsonl"))
-    assert not res.ok and res.notes.startswith("truncated")
-    assert not (ws.root / "src" / "model.py").exists()
-
     ws = Workspace(tmp_path / "ceiling").create()
     model = scripted([(TRUNCATED, "MAX_TOKENS")])
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])

@@ -365,7 +365,6 @@ limits:
 default_judge: gemini:gemini-4-argon
 judge:
   thinking: medium
-default_candidates: 1
 ```
 
 Env equivalents use the `C3D_` prefix and `__` for nesting:
@@ -375,15 +374,14 @@ export C3D_RUNS_DIR=/data/runs
 export C3D_BINARIES__BLENDER=/opt/blender/blender
 export C3D_RENDER__GPU=off
 export C3D_LIMITS__AGENT_TIMEOUT_S=900
-export C3D_DEFAULT_CANDIDATES=2
 export C3D_DEFAULT_JUDGE=gemini:gemini-4-argon
 export C3D_JUDGE__THINKING=medium
 export C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'   # per-model prompt/skill variant by exact generator id; C3D_VARIANT=argon names one for every run
 ```
 
 Every knob the harness reads is a `Settings` field (`codeverse3d/config.py`, one description
-each): `C3D_<FIELD>` at the top level, `C3D_<SECTION>__<FIELD>` nested, plus three flat
-spellings of nested knobs — `C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`, `C3D_AGENT_MAX_TURNS`.  An
+each): `C3D_<FIELD>` at the top level, `C3D_<SECTION>__<FIELD>` nested, plus two flat
+spellings of nested knobs — `C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`.  An
 on/off switch (`C3D_SKILLS`, `C3D_STREAM`, `C3D_PLAN_BRIEF`, … — every `Flag` field) takes
 on/off, 1/0, true/false or yes/no in any case; a typo warns and keeps the default, and an empty
 value is unset.  The node side also reads `C3D_RENDER_GPU` and `C3D_CACHE_DIR` itself, and one

@@ -64,14 +64,6 @@ def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None
             f"{k}={v}" for k, v in raw.items() if not isinstance(v, (dict, list)))[:300]
     if state:
         console.print(kv_table("state", state))
-    cands = read_json_or_none(ws.root / "rounds" / "candidates.json")
-    if cands is not None:
-        rows: dict[str, str] = {"n": str(cands.get("n", len(cands.get("candidates") or [])))}
-        for c in cands.get("candidates") or []:
-            score = c.get("score")
-            rows[f"{c.get('label', c.get('index'))}{' *' if c.get('index') == cands.get('selected') else ''}"] = (
-                f"score {score if score is None else round(score, 3)}  build_ok={c.get('build_ok')}")
-        console.print(kv_table("candidates (best-of-N, * = selected)", rows))
     evs = EventLog(ws.events_path).read()
     if evs:
         console.print(f"[dim]last {min(n_events, len(evs))} of {len(evs)} events:[/dim]")
@@ -212,7 +204,7 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
         u = cost.tokens
         console.print(kv_table("cost", {
             "spent": f"{fmt_usd(cost.total_usd)} (the ledger, list price)",
-            "minutes": ("-" if record.minutes is None else f"{record.minutes:.1f}")
+            "minutes": f"{record.minutes:.1f}"
                        + f" (the clock's ceiling: {cost.max_minutes:.0f} min)",
             "tokens": f"in {u.input_tokens:,} (cached {u.cached_tokens:,}) · out {u.output_tokens:,} · "
                       f"thoughts {u.thoughts_tokens:,} · {u.tool_calls} tool calls",
@@ -226,8 +218,6 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
         console.print(_roles_table(settings))
         console.print(kv_table("settings", {
             "budget": " · ".join(f"{k}={v}" for k, v in settings.budget.items()),
-            "candidates": settings.candidates or 1,
-            "seed": settings.seed,
             "rubric": f"{settings.rubric} (hash {settings.rubric_hash or '-'})",
             "prompt hashes": " · ".join(f"{k}={v}" for k, v in settings.prompt_hashes.items()) or "-",
             "tools": " · ".join(f"{k}={v}" for k, v in settings.tool_versions.items() if v and k != "platform"),

@@ -139,7 +139,7 @@ def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
         overall=judgment.get("overall"),
         issues=len(judgment.get("issues") or []),
         cost_usd=round(float((record.get("total_usage") or {}).get("cost_usd") or 0.0), 4),
-        minutes=round(rec.minutes, 2) if rec is not None and rec.minutes is not None else None,
+        minutes=round(rec.minutes, 2) if rec is not None else None,
         index=vec.index,
         band=vec.band,
     )

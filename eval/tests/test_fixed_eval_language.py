@@ -212,7 +212,7 @@ def test_the_fixed_judge_reads_the_in_run_payload_for_the_same_round(monkeypatch
     monkeypatch.setattr(FixedEvaluator, "judge_for", lambda self, spec: _Spy())
     ev.evaluate(ws, spec)
 
-    # the loop's round 0 over the same build: steps._run_round's gate order, then steps._judge
+    # the loop's round 0 over the same build: steps.run_round's gate order, then steps._judge
     ctx = SimpleNamespace(spec=spec, plan=None, ws=ws, services=Services(), settings=ev.settings, language=Language.BLENDER,
                           judge=_Spy(), events=SimpleNamespace(emit=lambda *a, **k: None))
     pipe = ObjectPipeline()

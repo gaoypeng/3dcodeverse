@@ -178,16 +178,8 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
     assert r.exit_code == 1
     assert "judge failed" in r.output + str(getattr(r, "stderr", "") or "") and "Traceback" not in r.output
 
-    # status shows candidates
-    (ws.root / "rounds").mkdir(exist_ok=True)
-    (ws.root / "rounds" / "candidates.json").write_text(json.dumps({
-        "n": 2, "selected": 1,
-        "candidates": [{"index": 0, "label": "c0", "score": 0.51, "build_ok": True},
-                       {"index": 1, "label": "c1", "score": 0.63, "build_ok": True}],
-        "pairwise": {"a": "c0", "b": "c1", "winner": "b", "confidence": 0.8}}))
     r = runner.invoke(app, ["status", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
     assert r.exit_code == 0, r.output
-    assert "candidates" in r.output and "c1" in r.output and "pairwise" not in r.output
 
 
 def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_track):
@@ -199,7 +191,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
 
     runs, run_dir = made_run()
     ws = Workspace(run_dir)
-    ws.state_path.write_text(json.dumps({"status": "no_refine_tasks", "stop_reason": "no_refine_tasks"}))
+    ws.state_path.write_text(json.dumps({"status": "no_refine_tasks"}))
     assert RunState.load(ws).status is RunStatus.NO_REFINE_TASKS
 
     entered, specs = [], []
@@ -213,7 +205,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     assert entered == [(True, True)]
 
     # every round ran: raising --rounds is how a max_rounds stop goes on (from its last round)
-    RunState(status=RunStatus.MAX_ROUNDS, stop_reason="max_rounds").save(ws)
+    RunState(status=RunStatus.MAX_ROUNDS).save(ws)
     r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
     assert r.exit_code == 1 and "status=max_rounds" in r.output
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-minutes", "90"]).exit_code == 1
@@ -221,7 +213,7 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     assert Spec.model_validate_json(ws.spec_path.read_text()).budget.max_rounds == 5
 
     # a budget stop is the documented exception: it resumes when a cap is raised
-    RunState(status=RunStatus.BUDGET, stop_reason="budget").save(ws)
+    RunState(status=RunStatus.BUDGET).save(ws)
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 1
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-minutes", "60"]).exit_code == 130
     assert Spec.model_validate_json(ws.spec_path.read_text()).budget.max_minutes == 60.0

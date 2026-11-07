@@ -6,14 +6,14 @@ import logging
 import platform
 import traceback
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import GateReport
-from codeverse3d.contracts.common import TRACK_INFO, Track
+from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse3d.contracts.spec import Spec
@@ -44,7 +44,6 @@ from codeverse3d.prompts.variants import (
     variant_block,
 )
 from codeverse3d.record.record import previous_verdict
-from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
 from codeverse3d.tracks.generation import ALLOWED_ROOTS, GenerationTask, single_shot_model_id
 from codeverse3d.tracks.planner import plan as run_planner
@@ -79,7 +78,6 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
         "constraints": spec.constraints,
         "references": spec.references,
         "planner": spec.backends.planner,
-        "seed": spec.seed,
     }
     if spec.fixed_parts:  # only when set, so every existing run's plan key stays put
         inputs["fixed_parts"] = spec.fixed_parts
@@ -197,7 +195,6 @@ class BaseTrack:
         policy: RoundPolicy | None = None,
         settings: Settings | None = None,
         planner_model: Any | None = None,
-        n_candidates: int | None = None,
     ):
         self.services = services or Services()
         self._judge = judge
@@ -207,7 +204,6 @@ class BaseTrack:
         self._policy = policy
         self._settings = settings
         self._planner_model = planner_model
-        self._n_candidates = n_candidates
 
     # ------------------------------------------------------------------ hooks
     def make_pipeline(self) -> RoundPipeline:
@@ -341,7 +337,7 @@ class BaseTrack:
                 raise SpecChanged(
                     f"spec.json for run {ws.root.name} no longer matches the spec its "
                     f"{len(journal)} recorded round(s) were built from (plan-input fingerprint "
-                    f"{stored} != {fp}: prompt/track/language/constraints/references/planner/seed). "
+                    f"{stored} != {fp}: prompt/track/language/constraints/references/planner). "
                     f"Resuming would record those rounds against the new spec. Fork a new run "
                     f"(`3dcodeverse make`), or resume with --force to archive the old rounds under "
                     f"rounds/pre_force/ and re-plan. Raising budget caps alone never trips this."
@@ -402,7 +398,6 @@ class BaseTrack:
             budget.restore(BudgetSnapshot.model_validate(snap))
         policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds,
                                              judge_samples=max(1, int(settings.judge.samples or 1)))
-        policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings))
         rubric = run_rubric(spec, self.rubric)
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,
                          services=self.services, state=state, policy=policy, track=self.track, rubric=rubric,
@@ -413,17 +408,6 @@ class BaseTrack:
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
         ctx.record_prompt("contract", ctx.contract_text)
         return ctx
-
-    def _resolve_candidates(self, spec: Spec, settings: Settings) -> int:
-        """Best-of-N width: constructor value, else ``spec.options.candidates``, else the settings default."""
-        if not TRACK_INFO[self.track].best_of_n:
-            return 1
-        n = self._n_candidates
-        if n is None:
-            n = spec.options.candidates
-        if n is None:
-            n = settings.default_candidates
-        return max(1, int(n or 1))
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
         """The main judge: the injected one, else an instance of the class ``judge_for`` picks for this track."""
@@ -523,13 +507,10 @@ class BaseTrack:
                 return _stop(RunStatus.BUDGET)
             ctx.state.save(ctx.ws)
             try:
-                if index == 0 and tasks and ctx.policy.n_candidates > 1:
-                    rec = run_best_of_n(self, ctx, tasks, pipeline, files_hint=ctx.runtime.expected_files(ctx.plan))
-                else:
-                    rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
-                                    previous=previous, findings=rounds[-1].gates if rounds else (),
-                                    files_hint=ctx.runtime.expected_files(ctx.plan),
-                                    extra_notes=self.round_extra_notes(ctx))
+                rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
+                                previous=previous, findings=rounds[-1].gates if rounds else (),
+                                files_hint=ctx.runtime.expected_files(ctx.plan),
+                                extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
                 if e.quota:
                     ctx.events.emit("round.agent_quota", round=index, detail=str(e)[:500])
@@ -613,7 +594,7 @@ class BaseTrack:
             error = error or f"finalise rebuild failed: {rebuild_err}"
         elif rebuild_ok:
             ctx.extra["finalise_rebuild_failed"] = ""
-        ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, status.value, error
+        ctx.state.status, ctx.state.error = status, error
         self._save_budget(ctx)
         rec = self._record(ctx, rounds, status, error=error)
         self.services.finalize_record(ctx.ws, rec)
@@ -634,11 +615,7 @@ class BaseTrack:
             return False
 
     def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str) -> RunRecord:
-        cands = ctx.ws.root / "rounds" / "candidates.json"
-        extra: dict[str, Any] = {"stop_reason": status.value, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
-                                 "n_candidates": ctx.policy.n_candidates,
-                                 "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
-                                 "sampling": self.sampling(ctx.judge)}
+        extra: dict[str, Any] = {"rubric": ctx.rubric, "sampling": self.sampling(ctx.judge)}
         if ctx.extra.get("finalise_rebuild_failed"):
             extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):

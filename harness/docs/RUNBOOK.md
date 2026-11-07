@@ -43,12 +43,8 @@ Useful flags (`3dcodeverse make --help`):
   refine tasks.
 * `--rounds N` — refine rounds after the baseline.  A run does exactly N, each built on the one
   before it, unless the clock or a hard failure stops it; there is no pass / plateau stop.
-* `--candidates N` — best-of-N baseline: N parallel candidates in `<ws>/_cand/`, quick-judged,
-  the highest quick score kept (fewer gate errors on a tie); multiplies baseline cost ≈ N;
-  object and graphics tracks only (a scene writes its baseline in its stages).
 * `--no-pick` — package nothing (no `deliverable/`, no `selection.json`; `3dcodeverse pick` later).
-* `--max-minutes`, `--dim height=0.45`, `--must`, `--must-not`, `--style`, `--tag`, `--seed` (a
-  label: it re-keys the plan, nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
+* `--max-minutes`, `--dim height=0.45`, `--must`, `--must-not`, `--style`, `--tag`, `--slug`, `--runs-dir`, `--force`,
   `--no-run` (workspace + spec.json only).
 * `--variant NAME` — a per-model prompt/skill overlay (`codeverse3d/prompts/variants/<name>/` +
   `codeverse3d/skills/variants/<name>/`), frozen on `spec.options.variant` so `resume` and
@@ -56,7 +52,7 @@ Useful flags (`3dcodeverse make --help`):
   generator id, else the base prompts.
 
 Expected cost/time with gemini-3.8-flash: object tracks ≈ $0.7–0.9 and 12–36 min for baseline +
-1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot ≈ $0.05 / 2 min per judged
+1 refine; graphics single-shot ≈ $0.05 / 2 min per judged
 round; scenes ≈ $2.3 and 30 min before the first judged round, then ≈ $0.36 / ~7 min per refine
 (give scenes `--max-minutes 60`).  Actual spend: `3dcodeverse cost <slug>`.
 
@@ -137,7 +133,7 @@ uses the recorded scores without calling a judge. To re-judge an old run with Ar
 pick with Argon, use `3dcodeverse pick <slug> --by pairwise --judge gemini:gemini-4-argon`.
 
 ```bash
-3dcodeverse resume <slug> [--candidates N] [--no-pick]
+3dcodeverse resume <slug> [--no-pick]
                                         # continues from run_state + stages/*.json and from the LAST round.  A
                                         # max_rounds run resumes only with a raised --rounds, a budget run with any
                                         # raised cap; an agent_quota, judge_unavailable or failed run resumes as is.

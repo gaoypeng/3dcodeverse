@@ -64,11 +64,9 @@ class ProjectCheck(BaseModel):
 class RunOptions(BaseModel):
     """Run-shape options frozen on the spec (distinct from Budget and Backends).
 
-    ``None`` / ``False`` means "not stated": the resolver falls through to its
-    ``Settings`` default (``BaseTrack._resolve_candidates``).
+    ``None`` / ``False`` means "not stated".
     """
 
-    candidates: int | None = Field(default=None, ge=1, description="best-of-N baseline candidates")
     variant: str = Field(default="", description="per-model prompt/skill variant this run was created with "
                          "(codeverse3d/prompts/variants/<name>/, D105); '' = the base prompts and skills; "
                          "frozen here so a resume and the record name the same overlay")
@@ -89,7 +87,6 @@ class Spec(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     backends: Backends = Field(default_factory=Backends)
     options: RunOptions = Field(default_factory=RunOptions)
-    seed: int = 0
     tags: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

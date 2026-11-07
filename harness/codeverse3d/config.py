@@ -125,13 +125,6 @@ class Limits(BaseModel):
     # ceiling is Rate.max_in_flight.
     max_parallel_agents: int = Field(default=12, ge=1, description="thread fan-out for agent tasks (>= 1)")
     max_parallel_builds: int = Field(default=8, ge=1, description="concurrent build subprocesses (>= 1)")
-    agent_max_turns: Count = Field(
-        default=0,
-        description="hard cap on model turns per agent session (0 = the backend's own default, "
-        "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
-        "own A/B — docs/COST.md §17 — so no profile sets one; name it here or as "
-        "C3D_AGENT_MAX_TURNS if you want one).",
-    )
 
 
 class Rate(BaseModel):
@@ -207,7 +200,6 @@ class Settings(BaseSettings):
     FLAT: ClassVar[dict[str, tuple[str, str]]] = {
         "C3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
         "C3D_RENDER_GPU": ("render", "gpu"),
-        "C3D_AGENT_MAX_TURNS": ("limits", "agent_max_turns"),
     }
 
     @classmethod
@@ -245,7 +237,6 @@ class Settings(BaseSettings):
     default_generator: str = Field(default_factory=lambda: Backends().generator)
     default_judge: str = Field(default_factory=lambda: Backends().judge)
     default_captioner: str = Field(default_factory=lambda: Backends().captioner)
-    default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
     ray_engine: Literal["numpy", "embree"] = Field(
         default="embree",
         description="ray engine of the deterministic inside tests (connectivity penetration, pose sweep): Embree via "

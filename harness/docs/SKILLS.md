@@ -98,8 +98,7 @@ Four laws, all tested:
    out the round's skills.
 
 Every gate writes a `data.kind` — lints from `contracts.artifacts.LintKind`, connectivity
-`stray_islands` / `no_ground`, motion_direction `wrong_direction` / `skipped`, render_console
-`console_error`, scene_probe `draw_calls` — so R9 answers `lint/part_not_imported`, not every
+`stray_islands` / `no_ground`, motion_direction `wrong_direction` / `skipped`, scene_probe `draw_calls` — so R9 answers `lint/part_not_imported`, not every
 lint line; INFO findings have no kind.  A bundle is added with its rows in the same commit — an
 unroutable bundle pays the index and never helps, and a test fails on both halves.
 

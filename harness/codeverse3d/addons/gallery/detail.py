@@ -267,7 +267,7 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
         _kv("total", f"${cost.total_usd:.4f}"),
 
         _kv("calls", str(cost.n_calls)),
-        _kv("minutes", "—" if rec.minutes is None else f"{rec.minutes:.1f}"),
+        _kv("minutes", f"{rec.minutes:.1f}"),
     ])
     by_model = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(cost.by_model.items(), key=lambda kv: -kv[1]))
     by_role = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(cost.by_role.items(), key=lambda kv: -kv[1]))

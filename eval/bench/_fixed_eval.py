@@ -148,7 +148,7 @@ class FixedEvaluator:
 
     def evaluate(self, ws: Workspace, spec: Spec) -> EvalOutcome:
         """build → the track's evidence (articulated: the sweep reads the built URDF, no plan, so
-        every arm is swept alike; the build's own gates last, as in ``steps._run_round``) → judge."""
+        every arm is swept alike; the build's own gates last, as in ``steps.run_round``) → judge."""
         from codeverse3d.tracks import get_track
 
         build, lint = self.build(ws, spec.language)

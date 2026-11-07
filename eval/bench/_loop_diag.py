@@ -227,7 +227,7 @@ def digest_run(run_dir: Path, row: BenchItemResult | None = None) -> RunDigest:
     d.stop_reason = stop_reason(rec)
     d.status = d.status or rec.status.value
     d.cost_usd = d.cost_usd or rec.total_usage.cost_usd
-    d.minutes = rec.minutes if rec.minutes is not None else d.minutes
+    d.minutes = rec.minutes
     cost = rec.telemetry.cost if rec.telemetry is not None else None
     if cost is not None:
         d.cost_by_stage = {s.stage: round(s.cost_usd, 6) for s in cost.by_stage}
