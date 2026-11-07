@@ -52,7 +52,6 @@ def moving(tmp_path_factory):
 @needs_browser
 def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     ws, rs, m = moving
-    out = Path(rs.out_dir)
     authored = {(v.name, v.time_s) for v in rs.views if v.name in ("Front", "Side")}
     assert authored == {("Front", 0.0), ("Front", 1.5), ("Side", 0.0), ("Side", 1.5)}
     for v in rs.views:
@@ -79,7 +78,6 @@ def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     assert rs.console_errors == [] and rs.contact_sheet and Path(rs.contact_sheet).is_file()
     judged = {(v.name, v.time_s) for v in rs.views if v.judge}
     assert ("Front", 0.0) in judged and ("overview_top", 0.0) in judged
-    assert [e["judge"] for e in json.loads((out / "views.json").read_text())].count(True) == len(judged)
 
 
 #: a three.js scene of the fixture (its GLB as an asset, the same Front camera): the schema reference

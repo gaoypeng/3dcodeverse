@@ -2,7 +2,7 @@
 
 ``render_scene`` drives ``runtime_js/render_scene.mjs``: authored cameras + a fitted orbit rig at one or more
 times, with deterministic instruments left in ``out_dir/metrics.json`` and a contact sheet of the judge subset.
-Each view carries ``judge: true|false``, stamped once from ``select_judge_views``.
+Each ``RenderView`` carries ``judge: true|false``, stamped once from ``select_judge_views``.
 """
 
 from __future__ import annotations
@@ -243,7 +243,6 @@ def render_set_from_metrics(out_dir: Path, metrics: dict[str, Any], *, width: in
     keep = {id(v) for v in chosen.views}
     for v in rs.views:
         v.judge = id(v) in keep
-    _mark_judge_views(out_dir / "views.json", rs.views)
     if sheet and views:
         labelled = [(f"{v.name} t={v.time_s:g}", Path(v.path)) for v in rs.views if v.judge]
         rs.contact_sheet = build_sheet(labelled, out_dir / "sheet.png")
@@ -292,20 +291,6 @@ def select_judge_views(rs: RenderSet, max_n: int = JUDGE_MAX_VIEWS, *, orbit_nam
     chosen = ordered[:max_n]
     keep = {id(v) for v in chosen}
     return rs.model_copy(update={"views": [v for v in views if id(v) in keep]})  # disk order
-
-
-def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
-    """Write each view's ``judge`` flag into views.json."""
-    if not views_json.is_file():
-        return
-    try:
-        entries = json.loads(views_json.read_text())
-    except (OSError, ValueError):
-        return
-    flags = {(v.name, v.time_s): bool(v.judge) for v in views}
-    for e in entries:
-        e["judge"] = flags.get((e.get("name"), e.get("time_s")), False)
-    views_json.write_text(json.dumps(entries, indent=1))
 
 
 def metrics_path_for(rs: RenderSet) -> Path | None:
