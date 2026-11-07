@@ -84,8 +84,6 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     return SettingsSnapshot(
         roles=_role_settings(record),
         budget=spec.budget.model_dump(mode="json"),
-        candidates=spec.options.candidates,
-        seed=spec.seed,
         rubric=rubric,
         rubric_hash=rubric_hash(rubric),
         prompt_hashes=dict(record.prompt_hashes),
@@ -139,7 +137,7 @@ def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
     minutes = record.minutes
     return CostSummary(
         total_usd=round(summ.total.cost_usd, 6),
-        minutes=None if minutes is None else round(minutes, 2),
+        minutes=round(minutes, 2),
         max_minutes=record.spec.budget.max_minutes,
         n_calls=summ.total.n_calls,
         tokens=record.total_usage,

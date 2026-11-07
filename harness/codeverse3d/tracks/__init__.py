@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 def get_track(track: Track | str, **options: Any) -> BaseTrack:
     """Track instance for ``track``.  ``options`` are forwarded to the track
-    constructor (e.g. ``n_candidates=2`` for a best-of-N baseline, ``policy=``)."""
+    constructor (e.g. ``policy=``)."""
     t = Track(track)
     if t is Track.STATIC_OBJECT:
         from codeverse3d.tracks.static_object import StaticObjectTrack

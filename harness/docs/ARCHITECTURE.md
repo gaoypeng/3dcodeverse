@@ -27,8 +27,7 @@ of the language — for four **tracks**:
   `single-shot:<chat-model>` (one envelope of files, no tools) handled inside
   `tracks/generation.py`.  The harness implements no agent loop of its own.
 
-Every run is: **spec → plan → skeleton → [scene stages] → baseline round (optionally best-of-N
-candidates) → `max_rounds` refine rounds → finalise → record**.  Which round to hand over is
+Every run is: **spec → plan → skeleton → [scene stages] → baseline round → `max_rounds` refine rounds → finalise → record**.  Which round to hand over is
 decided AFTER the run by the `addons/select` reader (`3dcodeverse pick`; `3dcodeverse make` calls it by
 score): it writes `deliverable/` for that round.  The record, the git history of `src/` and every
 round's kept build are the flywheel unit.
@@ -145,10 +144,9 @@ codeverse3d/
   reference.py        a user `--image` against the render: proportions and the render-vs-reference mismatch diff
   orchestrator.py     the round loop's LIBRARY, not the loop: RoundPolicy, refine-task compilation + grouping,
                       StageRunner + RunState (resume), BudgetGuard (the clock).  The loop itself is
-                      tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round; a best-of-N candidate IS
-                      steps._run_round(kind='candidate') in a _cand/c<k> sub-workspace
+                      tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round
   tracks/             __init__.py (get_track(track, **options) → a lifecycle.BaseTrack), lifecycle.py, steps.py,
-                      candidates.py (best-of-N baseline candidates and their ranking), generation.py (agent +
+                      generation.py (agent +
                       single-shot strategies + the file envelope), repair.py, planner.py (the ONE planner loop + the
                       cached EngineeringBrief, plan budgets, and the ONE owner of what differs per track when
                       planning: template, example, temperature, output floor, acceptance), prompting.py (prompt
@@ -343,7 +341,7 @@ fatal); `asset_api` — what the zones are told about the assets; `zones` — ON
 zone file; `clock` — the run stops here when the hard budget is spent, after the zones are
 recorded; `assemble` — `scene.js`, deterministic.
 
-**7.2 The round — `steps._run_round`, a fixed chain in code.**  Nothing in a round can be cached
+**7.2 The round — `steps.run_round`, a fixed chain in code.**  Nothing in a round can be cached
 (every step reads the git tree the step before it wrote).  **7.3 The round loop —
 `BaseTrack._round_loop`, a state machine in code**: each round's tasks come from the previous
 round's verdict.
@@ -352,8 +350,6 @@ round's verdict.
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
    object tracks: ONE session drafts the WHOLE object — every part file + the entry — each file written once and
    then edited; a part still the skeleton's box is a `placeholder_part` contract ERROR
-   --candidates N: N parallel baselines in <ws>/_cand/c<k>, quick 4-view judge, a crashed candidate retried once,
-   selection build_ok → quick score → fewer gate errors → the earlier candidate; the winner is copied back
 then max_rounds refine rounds, EACH built on the round before it — a FIXED count: no pass, plateau or regression stop
    refine tasks = the previous round's gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance
    ∪ its judge improvement plan (≤ 6 tasks, ≤ 6 compacted instruction lines each; a placeholder part's ERROR first)
@@ -365,7 +361,7 @@ then max_rounds refine rounds, EACH built on the round before it — a FIXED cou
    → commit src/ (the round's commit) and copy its build to artifacts/rNN/
    a round left without a verdict (judge outage / degraded) is re-judged once before the next is planned, and so
    is the LAST round before the run ends (still none → judge_unavailable)
-   a round that raises mid-way still reports what it burned (rounds/aborted_rNN.json)
+   a round that raises mid-way still reports what it burned (record.extra['aborted_rounds'])
    a round whose every task failed raises RoundFailed, TYPED: .quota → agent_quota; .transient (a provider
    failure) or .stalled (the watchdog found a session hung) → the SAME round re-runs once, baseline included;
    neither → no_change (a refine round) / the run fails (the baseline)
@@ -383,13 +379,12 @@ Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouett
 + `joint_sweep` + `motion_direction`; scene `scene_placement` (per placed asset — a direct child
 of a zone root — foot-column gap to the surface beneath, burial depth, water, contacts and 3-D
 interpenetration pairs from `runtime_js/lib/host_placement.mjs`; every other root is scenery,
-never a row, but still supports, buries, holds and clips the zone assets) + `render_console` +
-`scene_frames` (`spatial/frame_metrics.py`: dark/blown/flat frames, camera in geometry, content
+never a row, but still supports, buries, holds and clips the zone assets) + `scene_frames` (`spatial/frame_metrics.py`: dark/blown/flat frames, camera in geometry, content
 too small, `no_motion` — the first and last animation frame of one camera diffed, the per-camera
 "% of pixels changed" handed to the judge as a fact — and `unused_glb_asset`, from the geometry
 UUIDs the scene host records per loaded GLB); graphics `gl_frames`
 (NaN/black/blown/static/flicker).  A build's OWN gate reports ride `BuildResult.gates` — scene
-`scene_probe` + `shader_preflight`, graphics `gl_frames` — and `steps._run_round` appends them to
+`scene_probe` + `shader_preflight`, graphics `gl_frames` — and `steps.run_round` appends them to
 the round's gates after the track's (a failed build's too: a shader compile error is what routes
 the shader-traps skill).  `scene_probe` also holds the scene draw budget: the census's
 `totals.draws` WARNs past `conventions.DRAWS_WARN_SCENE` and fails the build past

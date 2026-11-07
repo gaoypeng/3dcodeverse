@@ -325,11 +325,11 @@ class CadQueryRuntime(RuntimeLayout):
     def entry_file(self, ws: Workspace) -> Path:
         return ws.src / "model.py"
 
-    def build_command(self, ws: Workspace, *, seed: int = 0) -> list[str]:
+    def build_command(self, ws: Workspace) -> list[str]:
         """The wrapper's own tolerance defaults are the tessellation."""
         return [
             self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
-            "--rlimit-gb", str(self._rlimit_gb), "--seed", str(seed),
+            "--rlimit-gb", str(self._rlimit_gb), "--seed", "0",
         ]
 
     # ------------------------------------------------------------------ protocol
@@ -341,9 +341,9 @@ class CadQueryRuntime(RuntimeLayout):
     def lint(self, ws: Workspace) -> GateReport:
         return lint_cadquery_file(self.entry_file(ws))
 
-    def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0) -> BuildResult:
+    def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
         return run_wrapper_build(
             ws, language=self.language, extras={"step": "object.step", "stl": "object.stl"},
-            argv=lambda: self.build_command(ws, seed=seed),
+            argv=lambda: self.build_command(ws),
             env=cadquery_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s)
 

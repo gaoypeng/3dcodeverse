@@ -10,11 +10,9 @@ from typing import Any
 
 from codeverse3d.contracts.artifacts import (
     BuildResult,
-    GateFinding,
     GateReport,
     Measurement,
     RenderSet,
-    Severity,
 )
 from codeverse3d.contracts.common import ENTRY_FILE, TRACK_INFO, Language, Track
 from codeverse3d.contracts.plan import BBox, CameraPlan, Plan, ScenePlan, ZonePlan
@@ -49,7 +47,6 @@ from codeverse3d.workspace import Workspace
 log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
-MAX_CONSOLE_ERRORS = 8
 
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
@@ -128,18 +125,13 @@ class ScenePipeline:
                                          width=r.scene_width, height=r.scene_height)
 
     def post_render_gates(self, ctx: RunContext, round_index: int, renders: RenderSet) -> list[GateReport]:
-        errs = [e for e in renders.console_errors if e.strip()]
-        findings = [GateFinding(gate="render_console", severity=Severity.ERROR, target=_guess_target(e, ctx), message=e[:300],
-                                data={"kind": "console_error"}, fix_hint="open the named module, fix the thrown error; run the build/probe tool until no console errors")
-                    for e in errs[:MAX_CONSOLE_ERRORS]]
-        out = [GateReport.of("render_console", findings)]
         try:
             # scene_frames checks from metrics.json; ERROR findings carry fix hints into the next round
-            out.append(ctx.services.frame_gate(renders))
+            return [ctx.services.frame_gate(renders)]
         except Exception as e:  # noqa: BLE001 — the frame gate is advisory instrumentation
             log.warning("scene frame gate failed: %s", e)
             ctx.events.emit("gate.frames_failed", round=round_index, error=f"{type(e).__name__}: {e}")
-        return out
+            return []
 
     def judge_views(self, ctx: RunContext, renders: RenderSet) -> RenderSet:
         """The ≤ 10 views the judge sees (authored@t0 first)."""
@@ -493,19 +485,3 @@ def zone_window_s(ctx: RunContext, n_zones: int) -> int:
     """The zone session's window."""
     left = (ctx.budget.hard_minutes - ctx.budget.elapsed_minutes()) * 60.0 - ROUND0_RESERVE_S
     return int(max(ZONE_MIN_S, min(float(ZONE_TIMEOUT_S * max(1, n_zones)), left)))
-
-
-def _guess_target(error: str, ctx: RunContext) -> str:
-    """The refine target a console error names."""
-    low = error.lower()
-    for attr in ("zones", "assets"):
-        for item in getattr(ctx.plan, attr, None) or []:
-            if to_snake(item.name) in low:
-                return item.name
-    # a browser stack frame names the bare file (`at env.js:12:3`), the wrapper the src/ path
-    env, entry = env_file(ctx).lower(), ENTRY_FILE[ctx.language].lower()
-    if env in low or env.rsplit("/", 1)[-1] in low:
-        return "env"
-    if entry in low or entry.rsplit("/", 1)[-1] in low:
-        return "composition"
-    return "overall"

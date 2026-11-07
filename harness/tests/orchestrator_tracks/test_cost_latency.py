@@ -61,7 +61,6 @@ def test_soft_budget_degrades_before_the_hard_cap_and_the_timeout_is_clipped():
     with pytest.raises(BudgetExceeded) as ei:
         g.check()
     assert "max_minutes" in ei.value.reason
-    assert set(g.summary()) == {"elapsed_min", "max_minutes"}, "the guard keeps no money"
     g.grant_grace(minutes=5.0)
     assert g.ok() and g.hard_minutes == pytest.approx(15.0)
     g.grant_grace(minutes=1.0)  # never shrinks

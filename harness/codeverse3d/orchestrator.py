@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 from codeverse3d.contracts.artifacts import PLACEHOLDER_PART, GateReport, Judgment
 from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
-from codeverse3d.contracts.run import RoundRecord, RunStatus, StepTime
+from codeverse3d.contracts.run import RunStatus, StepTime
 from codeverse3d.contracts.spec import PROJECT_GATE_PREFIX
 from codeverse3d.conventions import split_instance, to_snake
 from codeverse3d.cost.tally import timed
@@ -42,7 +42,6 @@ class RunState(BaseModel):
     steps: list[StepTime] = Field(default_factory=list, description="run-level timed steps, every session's "
                                   "(a stage, best-of-N, the part of an aborted round that ran) — the run's minutes")
     materialized_for: str = Field(default="", description="agent kind the workspace was materialised for")
-    stop_reason: str = ""
     error: str = ""
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -97,7 +96,9 @@ def _jsonable(obj: Any) -> Any:
         return str(obj)
     if isinstance(obj, dict):
         return {str(k): _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, set):
+        return sorted((_jsonable(v) for v in obj), key=str)
+    if isinstance(obj, (list, tuple)):
         return [_jsonable(v) for v in obj]
     return obj
 
@@ -397,7 +398,6 @@ class RoundPolicy:
     max_refine_tasks: int = 6
     max_instructions_per_task: int = 6  # lines handed to ONE generation task (grouped by target)
     parallel_min_tasks: int = 2  # fan out only when >= this many file-disjoint groups
-    n_candidates: int = 1  # best-of-N baseline (candidates generated in parallel, best kept)
     judge_samples: int = 1
     #: seconds of the hard clock a refine session leaves for build, gates, render and judge
     judge_reserve_s: float = 240.0
@@ -410,10 +410,6 @@ class RoundPolicy:
 
     def can_open(self, budget: BudgetGuard, *, single_shot: bool = False) -> bool:
         return budget.left_s() >= self.need_s(single_shot=single_shot)
-
-
-def gate_error_count(r: RoundRecord) -> int:
-    return sum(len(g.errors) for g in r.gates)
 
 
 # ===================================================================== budget
@@ -437,7 +433,7 @@ class BudgetGuard:
     ):
         self.budget = budget
         self.start_time = time.time() if start_time is None else start_time
-    #: ACTIVE seconds carried over from previous sessions of this run.
+        #: ACTIVE seconds carried over from previous sessions of this run.
         self._active_s: float = 0.0
         self._lock = threading.Lock()
         #: fraction of the hard ceiling the *baseline* may use (1.0 = no soft cap)
@@ -510,10 +506,6 @@ class BudgetGuard:
     def left_s(self) -> float:
         """Seconds left before the hard ceiling, never negative."""
         return max(0.0, self.hard_minutes - self.elapsed_minutes()) * 60.0
-
-    def summary(self) -> dict[str, float]:
-        """``record.extra["budget"]``: the clock at the end, beside its ceiling."""
-        return {"elapsed_min": round(self.elapsed_minutes(), 2), "max_minutes": self.budget.max_minutes}
 
 
 class BudgetSnapshot(BaseModel):

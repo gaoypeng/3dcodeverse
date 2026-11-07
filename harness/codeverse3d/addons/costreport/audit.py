@@ -31,7 +31,6 @@ class RunLedger:
     stop_reason: str = ""
     n_rounds: int = 0
     round_built: list[bool | None] = field(default_factory=list)
-    selected_candidate: str = ""
     minutes: float | None = None
     cell_score: float | None = None
     written_usd: float = 0.0
@@ -71,9 +70,6 @@ def read_run(run_dir: Path, *, name: str = "", recheck: bool = False) -> RunLedg
         led.stop_reason = stop_reason(rec)
         led.n_rounds, led.minutes = len(rec.rounds), rec.minutes
         led.round_built = [None if r.build is None else r.build.ok for r in rec.rounds]
-        cands = read_json_or_none(run_dir / "rounds" / "candidates.json") or rec.extra.get("candidates") or {}
-        if isinstance(cands, dict) and cands.get("selected") is not None:
-            led.selected_candidate = f"c{cands['selected']}"
     _rows(run_dir, led, recheck=recheck)
     return led
 
@@ -176,12 +172,6 @@ def _waste(led: RunLedger) -> list[WasteItem]:
                                detail=f"{len(repair)} repair call(s) in round(s) "
                                       f"{', '.join(f'r{i:02d}' for i in sorted({r.round for r in repair}))} "
                                       f"that still did not build"))
-    won = led.selected_candidate
-    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE and not (won and r.label.endswith(f"_{won}"))]
-    if losers:
-        names = sorted({r.label.rsplit("_", 1)[-1] for r in losers})
-        items.append(WasteItem("lost_candidate", led.run, sum(r.cost_usd for r in losers),
-                               detail=f"best-of-N: {', '.join(names)} lost to {won or '(unknown)'}"))
     if led.stop_reason in ("budget",) or led.status == "budget":
         extra = [r for r in led.rows if r.round is not None and led.n_rounds and r.round > led.n_rounds - 1]
         if extra:

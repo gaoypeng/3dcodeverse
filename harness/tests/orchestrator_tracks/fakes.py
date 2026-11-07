@@ -437,8 +437,7 @@ class FakeServices(Services):
                 vs.append(RenderView(name=f"{c.name}@{t}", path=str(p), time_s=t))
         sheet = out_dir / "sheet.png"
         _png(sheet)
-        errs = ["TypeError: boom in src/zones/pond.js"] if (ws.src / "zones" / "pond.js").is_file() and "CONSOLE_ERROR" in (ws.src / "zones" / "pond.js").read_text() else []
-        return RenderSet(views=vs, contact_sheet=str(sheet), renderer="fake", console_errors=errs, fps=60.0)
+        return RenderSet(views=vs, contact_sheet=str(sheet), renderer="fake", fps=60.0)
 
     def contact_sheet(self, images, out: Path) -> Path:
         _png(out)

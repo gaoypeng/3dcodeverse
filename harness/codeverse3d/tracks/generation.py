@@ -170,32 +170,6 @@ def write_files(
 
 SINGLE_SHOT_PREFIX = "single-shot:"
 
-DEFAULT_AGENT_MAX_TURNS = 0
-DEFAULT_WRAPUP_TURNS = 6
-
-WRAPUP_PROMPT = (
-    "You have reached the turn budget for this task, so this is your LAST session on it.\n"
-    "Do NOT start new work and do NOT begin any refactor.\n"
-    "1. Make sure every file you edited is written to disk and self-consistent.\n"
-    "2. Run the build tool ONCE. If it fails, make the smallest edit that makes it build "
-    "(or revert your last incomplete edit) and build once more.\n"
-    "3. Reply with a short summary: what you changed, what still does not match the task, "
-    "and the single next step you would take.\n\n"
-    "The task you were working on, for reference:\n"
-)
-
-
-def agent_max_turns(default: int = DEFAULT_AGENT_MAX_TURNS) -> int:
-    """The turn cap a machine asks for: ``Settings.limits.agent_max_turns`` when set, else ``default``."""
-    return get_settings().limits.agent_max_turns or max(0, int(default))
-
-
-def turn_capped(res: Any) -> bool:
-    if getattr(res, "exit_reason", "") != "budget":
-        return False
-    return any("max_turns" in str(e) for e in (getattr(res, "errors", None) or []))
-
-
 SINGLE_SHOT_THINKING = "medium"
 
 
@@ -257,7 +231,6 @@ class GenerationResult(BaseModel):
     ok: bool
     usage: Usage = Field(default_factory=Usage)
     files_changed: list[FileChange] = Field(default_factory=list)
-    commit: str = ""
     notes: str = ""
     label: str = ""
     transient: bool = Field(
@@ -345,18 +318,6 @@ def generate_files(
 
     resp = ask(req)
     usage = resp.usage
-    retry = False
-    if _is_truncated(resp):
-        grown = min(task.max_output_tokens * 2, 65_536)
-        retry = grown > int(req.max_output_tokens or 0)
-        events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=retry)
-        if retry:
-            # the retry is a second full-price call: preflight the clock again and
-            # hand it only what is left of the run (BudgetExceeded past the ceiling)
-            req = req.model_copy(update={"max_output_tokens": grown,
-                                         "max_wait_s": _deadline_preflight(budget, single_shot_wait_s(task.timeout_s, RETRY_DEADLINE_S))})
-            resp = ask(req)
-            usage = usage + resp.usage
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")
@@ -366,8 +327,7 @@ def generate_files(
                                 label=task.label)
 
     if _is_truncated(resp):
-        if retry:
-            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=False)
+        events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason))
         return _result(f"truncated: finish_reason={resp.finish_reason}")
     try:
         files = parse_multifile(resp.text or "", expected_files=task.files_hint or None)
@@ -424,7 +384,6 @@ def run_agent_task(
     hard_deadline = None
     if budget is not None:
         hard_deadline = time.monotonic() + max(0.0, budget.timeout_s(float("inf"), floor_s=0, soft=False) - task.reserve_s)
-    turns_cap = agent_max_turns()
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → the edit_only scope.
     language, track = _spec_lang_track(ws)
@@ -447,30 +406,13 @@ def run_agent_task(
         effort=session_effort(task),
         always_writable=_always_writable(language, task),
         read_only=_read_only(language, ws),
-        **({"max_turns": turns_cap} if turns_cap > 0 else {}),
     )
     acc = _SessionAcc(task=task, budget=budget)
     res = acc.run(agent, job)
     changes = res.files_changed
 
-    if turn_capped(res):
-        events.emit(
-            "generate.turn_cap",
-            label=task.label,
-            round=task.round,
-            max_turns=job.max_turns,
-            turns=acc.turns,
-            session_usd=round(acc.usage.cost_usd, 4),
-        )
-        wrap = job.model_copy(
-            update={"prompt": WRAPUP_PROMPT + prompt, "max_turns": DEFAULT_WRAPUP_TURNS}
-        )
-        res = acc.run(agent, wrap, wrapup=True, optional=True) or res
-        changes = res.files_changed or changes
-
     if (
         not changes
-        and not acc.wrapped
         and res.exit_reason not in ("timeout", "budget")
         and not (res.transient or res.quota)
     ):
@@ -488,8 +430,6 @@ def run_agent_task(
 
     notes = f"exit={res.exit_reason}" + (f"; errors={res.errors[:3]}" if res.errors else "")
     notes += ("; " + "; ".join(acc.errors)) if acc.errors else ""
-    if acc.wrapped:
-        notes += f"; turn cap {job.max_turns} reached → wrap-up session"
     events.emit(
         "generate.done",
         label=task.label,
@@ -499,7 +439,6 @@ def run_agent_task(
         exit_reason=res.exit_reason,
         turns=acc.turns,
         sessions=acc.sessions,
-        turn_capped=acc.wrapped,
         cost_usd=round(acc.usage.cost_usd, 4),
     )
     return GenerationResult(
@@ -523,18 +462,12 @@ class _SessionAcc:
         self.usage = Usage()
         self.turns = 0
         self.sessions = 0
-        self.wrapped = False
         self.errors: list[str] = []
 
-    def run(
-        self, agent: Any, job: AgentJob, *, wrapup: bool = False, optional: bool = False
-    ) -> AgentResult | None:
-        """One session.  ``optional`` sessions (wrap-up, silent-bail retry) never"""
+    def run(self, agent: Any, job: AgentJob, *, optional: bool = False) -> AgentResult | None:
+        """One session.  ``optional`` sessions (the silent-bail retry) never"""
         self.sessions += 1
-        self.wrapped = self.wrapped or wrapup
-        label = self.task.label + (
-            ".wrapup" if wrapup else (f".a{self.sessions}" if self.sessions > 1 else "")
-        )
+        label = self.task.label + (f".a{self.sessions}" if self.sessions > 1 else "")
         try:
             if self.budget is not None:
                 self.budget.check()

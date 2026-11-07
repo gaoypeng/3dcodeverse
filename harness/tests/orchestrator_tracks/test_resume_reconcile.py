@@ -148,7 +148,7 @@ def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
     ws = Workspace(tmp_path / "runs" / "r")
     rec = _track(_planner(chair_plan.model_dump(mode="json")), settings,
                  judge=BoomJudge(scores=(0.5,))).run(spec, ws)
-    assert rec.extra["stop_reason"] == "judge_unavailable"
+    assert rec.status.value == "judge_unavailable"
     r1 = rec.rounds[1]
     assert r1.judgment is None
     assert "judge failed: RuntimeError: vlm 500" in r1.notes

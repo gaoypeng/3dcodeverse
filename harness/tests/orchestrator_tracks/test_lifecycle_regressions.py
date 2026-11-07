@@ -108,7 +108,7 @@ def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_pa
     rec = track.run(spec, ws)
     assert rec.rounds[1].judgment is None and rec.rounds[1].score is None  # never 0.0
     assert rec.rounds[0].score == pytest.approx(0.65)
-    assert rec.extra["stop_reason"] == "judge_unavailable" and rec.status is RunStatus.JUDGE_UNAVAILABLE
+    assert rec.status is RunStatus.JUDGE_UNAVAILABLE
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "judge.degraded" in kinds and "judge.retry" in kinds
     assert len(judge.all_calls) == 3

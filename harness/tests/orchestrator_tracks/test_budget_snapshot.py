@@ -89,30 +89,8 @@ def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips_and_the_
     calls: list = []
     model = FakeChatModel(lambda req: calls.append(req) or "", cost=0.01)
     with pytest.raises(BudgetExceeded):
-        generate_files(ws, model=model, task=task.model_copy(update={"max_output_tokens": 1000}), budget=guard)
+        generate_files(ws, model=model, task=task, budget=guard)
     assert calls == []                                   # refused BEFORE any model call
-
-
-# --------------------------------------------------------------- ordering: fan-out siblings
-def test_a_budget_tripped_candidate_still_lets_the_sibling_be_adopted(tmp_path, chair_plan, settings):
-    spec = make_spec(max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "bo2")
-
-    def writer(job, ws_):
-        if ws_.root.name == "c0":  # <ws>/_cand/c0 trips the ceiling mid-generation
-            raise BudgetExceeded("elapsed 9.99 min exceeds max_minutes 5.00")
-        return {"src/object.js": f"// {job.label} in {ws_.root.name}\n"
-                                 "export function build(THREE) { return new THREE.Group(); }\n"}
-
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
-                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=2)
-    rec = track.run(spec, ws)
-    assert rec.status is RunStatus.MAX_ROUNDS
-    assert len(rec.rounds) == 1 and "best-of-2: selected c1" in rec.rounds[0].notes
-    assert "c1" in (ws.src / "object.js").read_text()  # the sibling's code was adopted
-    cands = json.loads((ws.root / "rounds" / "candidates.json").read_text())
-    assert cands["selected"] == 1 and "BudgetExceeded" in cands["candidates"][0]["notes"]
 
 
 # --------------------------------------------------------------- ordering: planner attempts
@@ -152,7 +130,7 @@ def test_a_baseline_session_the_clock_stopped_after_it_wrote_code_is_salvaged(tm
     ws = Workspace(tmp_path / "runs" / "neon")
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
                               planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=1)
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(make_spec(max_rounds=0), ws)
     assert rec.status is RunStatus.BUDGET
     assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6) and "salvaged" in rec.rounds[0].notes

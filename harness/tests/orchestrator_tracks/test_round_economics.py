@@ -12,10 +12,8 @@ from codeverse3d.cost.ledger import load_ledger
 from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import (
-    DEFAULT_WRAPUP_TURNS,
     GenerationTask,
     run_agent_task,
-    turn_capped,
 )
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
@@ -31,7 +29,7 @@ from tests.orchestrator_tracks.fakes import (
 
 # ----------------------------------------------------------------------------- turn budget
 class _TurnAgent:
-    """Burns turns; reports 'max_turns (N) reached' when it runs out."""
+    """Completes its first session without writing; writes from session ``writes_on``."""
 
     kind = "fake"
     model = "gemini:gemini-3.8-flash"
@@ -49,32 +47,8 @@ class _TurnAgent:
             (ws.src).mkdir(parents=True, exist_ok=True)
             (ws.src / "object.js").write_text(f"// session {len(self.jobs)}\n")
             wrote = [{"path": "src/object.js", "status": "modified"}]
-        exhausted = len(self.jobs) == 1
-        return AgentResult(ok=bool(wrote), exit_reason="budget" if exhausted else "completed",
-                           files_changed=wrote, errors=[f"max_turns ({job.max_turns}) reached"] if exhausted else [],
+        return AgentResult(ok=bool(wrote), exit_reason="completed", files_changed=wrote,
                            usage=Usage(backend="api-agent", cost_usd=self.cost, input_tokens=1000))
-
-
-def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_ws, monkeypatch):
-    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "28")
-    events = EventLog(tmp_ws.events_path)
-    agent = _TurnAgent(writes_on=2)          # session 1 burns its turns and writes nothing
-    with run_ledger(tmp_ws.root):
-        res = run_agent_task(tmp_ws, agent=MeteredAgent(agent),
-                             task=GenerationTask(label="refine", prompt="do the work", round=1, kind="refine"),
-                             budget=_guard(), events=events)
-    assert len(agent.jobs) == 2 and turn_capped(_result_of(agent, 0)) and agent.jobs[0].max_turns == 28
-    wrap = agent.jobs[1]
-    assert wrap.max_turns == DEFAULT_WRAPUP_TURNS and "LAST session" in wrap.prompt and "do the work" in wrap.prompt
-    assert res.ok
-    # both sessions are paid for and each is a ledger row of its own
-    assert res.usage.cost_usd == pytest.approx(0.4)
-    rows = load_ledger(tmp_ws.root)
-    assert len(rows) == 2 and all(r.stage == "refine" and r.cost_usd == pytest.approx(0.2) for r in rows)
-    kinds = [e["event"] for e in events.read()]
-    assert "generate.turn_cap" in kinds
-    done = next(e for e in events.read() if e["event"] == "generate.done")
-    assert done["turn_capped"] is True and done["sessions"] == 2
 
 
 def test_a_crashing_second_session_never_erases_what_the_first_one_spent(tmp_ws):
@@ -92,10 +66,6 @@ def test_a_crashing_second_session_never_erases_what_the_first_one_spent(tmp_ws)
     assert len(agent.jobs) == 2 and not res.ok and "503 storm" in res.notes
     (row,) = load_ledger(tmp_ws.root)  # the first session's row stands
     assert res.usage.cost_usd == pytest.approx(0.2) and row.cost_usd == pytest.approx(0.2) and row.round == 2
-
-
-def _result_of(agent, i):
-    return AgentResult(ok=False, exit_reason="budget", errors=[f"max_turns ({agent.jobs[i].max_turns}) reached"])
 
 
 def _guard():
@@ -169,7 +139,7 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
                               runtime=FakeRuntime(Language.THREEJS), policy=RoundPolicy(max_rounds=3))
     rec = track.run(spec, ws)
     assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
-    assert rec.extra["stop_reason"] == "max_rounds" and rec.status is RunStatus.MAX_ROUNDS
+    assert rec.status is RunStatus.MAX_ROUNDS
     # every round's cost is the ledger rows it booked — the injected agent and planner are
     # metered like the ones services hand out, and the fake judge bills a row per verdict as a
     # real one's model does — and the run's total is its ledger's, the planner included, with

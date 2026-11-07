@@ -154,7 +154,7 @@ class StepTime(BaseModel):
 
     Parallel work is ONE step, so no second is counted twice."""
 
-    step: str = Field(description="plan | skeleton | assets+env+layouts | zones | assemble | candidates"
+    step: str = Field(description="plan | skeleton | assets+env+layouts | zones | assemble"
                                   " | generate | build | gates | render | judge")
     round: int | None = Field(default=None, description="the round the step belongs to; None = a run-level stage")
     wall_s: float = 0.0
@@ -217,8 +217,6 @@ class SettingsSnapshot(BaseModel):
     schema_version: int = 1
     roles: list[RoleSettings] = Field(default_factory=list)
     budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_minutes / max_repair_attempts")
-    candidates: int | None = Field(default=None, description="best-of-N baseline width, resolved")
-    seed: int = 0
     rubric: str = ""
     rubric_hash: str = Field(default="", description="content hash of the judge rubric YAML")
     prompt_hashes: dict[str, str] = Field(default_factory=dict, description="contract / generate / refine / repair / skill:<name> / judge …")

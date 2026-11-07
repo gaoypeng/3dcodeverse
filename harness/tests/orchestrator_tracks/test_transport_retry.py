@@ -113,7 +113,7 @@ def test_a_vendor_usage_limit_stops_the_run_as_agent_quota_not_no_change(tmp_pat
     agent = after_baseline(QUOTA_WALL)
     ws = Workspace(tmp_path / "runs" / "quota")
     rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.AGENT_QUOTA and rec.extra["stop_reason"] == "agent_quota"
+    assert rec.status is RunStatus.AGENT_QUOTA
     assert [r.score for r in rec.rounds] == pytest.approx([0.55])  # the baseline is still recorded
     evs = _events(ws)
     assert "round.agent_quota" in evs and "round.transport_retry" not in evs and "round.no_change" not in evs
@@ -228,21 +228,6 @@ def test_a_split_round_is_stalled_only_when_every_session_hung():
     assert RoundFailed.of([hung, storm], "x").stalled            # every session died without working
     assert not RoundFailed.of([hung, worked], "x").stalled
     assert not RoundFailed.of([worked], "x").stalled
-
-
-def test_hung_best_of_n_candidates_get_the_round_loops_retry(tmp_path, chair_plan, settings):
-    """``--candidates 2``: every candidate's session hangs.  The round's failure must carry ``stalled``
-    like a single-candidate round's does, so round 0 gets its one retry before the run fails."""
-    agent = FakeAgent(lambda job, ws: HUNG)
-    ws = Workspace(tmp_path / "runs" / "hung_n")
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=agent,
-                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=2)
-    with pytest.raises(RoundFailed) as err:
-        track.run(make_spec(max_rounds=1), ws)
-    assert err.value.stalled
-    retries = [e for e in EventLog(ws.events_path).read() if e["event"] == "round.transport_retry"]
-    assert len(retries) == 1 and retries[0]["stalled"] is True
 
 
 def test_a_single_shot_refine_needs_only_the_judge_reserve(tmp_path, chair_plan, settings):

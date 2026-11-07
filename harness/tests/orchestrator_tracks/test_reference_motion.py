@@ -1,4 +1,4 @@
-"""Best-of-N candidates, reference images, motion checks, instruction compaction."""
+"""Reference images, motion checks, instruction compaction."""
 
 from __future__ import annotations
 
@@ -14,9 +14,7 @@ from codeverse3d.orchestrator import (
     build_refine_instructions,
     compact_instructions,
 )
-from codeverse3d.proc import EventLog
 from codeverse3d.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
-from codeverse3d.tracks.candidates import CandidateRecord, rank_candidates
 from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
@@ -32,9 +30,9 @@ from tests.orchestrator_tracks.fakes import (
 
 
 # ----------------------------------------------------------------------------- pure logic
-def test_round_policy_candidates_and_compaction():
+def test_round_policy_and_compaction():
     pol = RoundPolicy()
-    assert pol.n_candidates == 1 and pol.parallel_min_tasks == 2
+    assert pol.parallel_min_tasks == 2
     tasks = [RefineTask(target=f"BackLeg_{i}", kind="gate:connectivity", instruction=f"leg {i} floats", priority=0, source="gate") for i in range(4)]
     tasks += [RefineTask(target="Seat", kind="geometry", instruction="thicker", priority=2)]
     tasks += [RefineTask(target=f"Spindle_{i}", kind="gate:contract", instruction="off", priority=0, source="gate") for i in range(3)]
@@ -56,18 +54,6 @@ def test_build_refine_instructions_extra_and_instance_targets(chair_plan):
     assert [t.target for t in tasks] == ["BackLeg_1", "overall"] and tasks[1].kind == "reference"
 
 
-def test_rank_candidates():
-    """Built > higher quick score > fewer gate errors > earlier — the one in-loop choice left."""
-    recs = [CandidateRecord(index=0, label="c0", build_ok=True, score=0.62, gate_errors=2),
-            CandidateRecord(index=1, label="c1", build_ok=True, score=0.62, gate_errors=0),
-            CandidateRecord(index=2, label="c2", build_ok=False),
-            CandidateRecord(index=3, label="c3", build_ok=True, score=0.70, gate_errors=5)]
-    assert rank_candidates(recs) == [3, 1, 0, 2]
-    tie = [CandidateRecord(index=0, label="c0", build_ok=True, score=0.6),
-           CandidateRecord(index=1, label="c1", build_ok=True, score=0.6)]
-    assert rank_candidates(tie) == [0, 1]
-
-
 def test_expected_direction():
     cases = [
         ("drawer pulls out towards -Y", "-y"), ("lid opens upward", "up"), ("door swings to the left", "left"),
@@ -76,30 +62,6 @@ def test_expected_direction():
         ("", None), ("handle turns", None), ("does not move up", None), ("lower drawer pulls out", "front"),
     ]
     assert [expected_direction(text) for text, _ in cases] == [expected for _, expected in cases]
-
-
-# ----------------------------------------------------------------------------- best-of-N track run
-class _CandidateJudge(FakeJudge):
-    """Scores by which candidate workspace the renders come from; the main round gets 0.6."""
-
-    def __init__(self, by_candidate: dict[str, float]):
-        super().__init__(scores=(0.6,))
-        self.by_candidate = by_candidate
-
-    def judge(self, inp):
-        path = inp.renders.views[0].path if inp.renders.views else ""
-        for key, score in self.by_candidate.items():
-            if f"/_cand/{key}/" in path:
-                self.scores = [score]
-                self.calls = []
-                return super().judge(inp)
-        self.scores, self.calls = [0.6], []
-        return super().judge(inp)
-
-
-def _writer_by_candidate(job, ws):
-    tag = ws.root.parent.name + "/" + ws.root.name if ws.root.parent.name == "_cand" else "main"
-    return {"src/model.py": f"import bpy  # {job.label} in {tag}\n"}
 
 
 # ----------------------------------------------------------------------------- reference images
@@ -146,27 +108,6 @@ def test_articulated_motion_direction_gate_feeds_refine_and_judge(tmp_path, sett
     assert any(i.startswith("[gate/gate:motion_direction] DrawerSlide") and "negate the axis" in i for i in rec.rounds[1].instructions)
     assert "Motion direction (harness FK check): 1 WRONG" in judge.calls[0].extra_context
     assert any(v.name == "pose_DrawerSlide_upper" for v in rec.rounds[0].renders.views)
-
-
-def test_a_crashed_candidate_is_recorded_failed_and_never_retried_on_its_own(tmp_path, chair_plan, settings):
-    spec = make_spec(language=Language.BLENDER, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "retry")
-    seen: dict[str, int] = {}
-
-    def writer(job, ws_):
-        seen[job.label] = seen.get(job.label, 0) + 1
-        if job.label == "baseline_c0":
-            raise RuntimeError("503 high demand")
-        return _writer_by_candidate(job, ws_)
-
-    judge = _CandidateJudge({"c0": 0.75, "c1": 0.55})
-    track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
-    rec = track.run(spec, ws)
-    assert seen == {"baseline_c0": 1, "baseline_c1": 1}  # one session per candidate: no candidate-level retry
-    kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert "candidate.failed" in kinds and "candidate.retry" not in kinds
-    assert "best-of-2: selected c1" in rec.rounds[0].notes and "_cand/c1" in (ws.src / "model.py").read_text()
 
 
 def test_default_motion_checks_on_real_urdf(tmp_path):
@@ -225,33 +166,3 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
 
     plan.joints[0].motion = "rotates"  # ambiguous → no gate
     assert default_motion_checks(robot(tmp_path / "none", 1), plan) is None
-
-
-def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
-    """A GLB candidate goes through the reduced quick rig, never pipeline.render."""
-    from types import SimpleNamespace
-
-    from codeverse3d.tracks.candidates import OBJECT_VIEWS_QUICK, QUICK_PX, quick_render
-
-    seen = {}
-
-    class _Services:
-        def render_object(self, glb, out_dir, *, views, width, height):
-            seen.update(glb=glb, views=views, width=width, height=height)
-            return SimpleNamespace(views=[])
-
-    class _WS:
-        def renders_dir(self, i): return tmp_path
-
-    class _Ctx:
-        ws = _WS()
-        services = _Services()
-        extra = {"pose_views": ["pose-view"]}  # what ArticulatedPipeline.gates() parked for render()
-
-    class _Pipeline:
-        def render(self, *a, **k):  # must not be reached
-            raise AssertionError("an object candidate must not use pipeline.render")
-
-    got = quick_render(_Ctx(), 0, SimpleNamespace(glb_path="/x/object.glb"), "M", pipeline=_Pipeline())
-    assert got.views == ["pose-view"]  # the quick rig still carries the articulated pose views to the judge
-    assert seen["views"] == OBJECT_VIEWS_QUICK and seen["width"] == QUICK_PX

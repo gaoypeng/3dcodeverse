@@ -735,13 +735,13 @@ class BlenderRuntime(RuntimeLayout):
         return ws.root / ENTRY_REL
 
     def build_command(
-        self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,
+        self, ws: Workspace, *, stl: bool = True, blend: bool = False,
     ) -> list[str]:
         cmd = [
             self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
             "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
             "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb),
-            "--seed", str(seed),
+            "--seed", "0",
         ]
         if stl:
             cmd.append("--stl")
@@ -760,10 +760,9 @@ class BlenderRuntime(RuntimeLayout):
 
     def build(
         self, ws: Workspace, *, timeout_s: int | None = None, stl: bool = True, blend: bool = False,
-        seed: int = 0,
     ) -> BuildResult:
         return run_wrapper_build(
             ws, language=self.language, extras={"stl": "object.stl", "blend": "object.blend"},
-            argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed),
+            argv=lambda: self.build_command(ws, stl=stl, blend=blend),
             env=blender_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s, output_filter=strip_blender_noise)
 
