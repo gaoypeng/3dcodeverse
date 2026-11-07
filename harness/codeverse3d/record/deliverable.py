@@ -10,7 +10,6 @@ import hashlib
 import json
 import logging
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
@@ -57,13 +56,11 @@ class _Writer:
     def __init__(self, ws: Workspace):
         self.ws = ws
         self.files: list[DeliverableFile] = []
-        self.total = 0
 
     def add_bytes(self, rel: str, data: bytes, role: str) -> None:
         dest = self.ws.deliverable / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
-        self.total += len(data)
         self.files.append(DeliverableFile(path=f"deliverable/{rel}", role=role, bytes=len(data), sha256=hashlib.sha256(data).hexdigest()))
 
     def add_file(self, src: Path, rel: str, role: str) -> None:
@@ -71,13 +68,13 @@ class _Writer:
             self.add_bytes(rel, src.read_bytes(), role)
 
 
-def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
+def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> dict[str, bytes]:
     """``src/**`` (+ ``public/**``) at the round's commit; the working tree only when no round is named."""
     if rnd is None:
-        return git_history.read_working_tree(ws), "working_tree"
+        return git_history.read_working_tree(ws)
     if not (rnd.commit and ws.has_commit(rnd.commit)):
         raise git_history.GitReadError(f"round {rnd.index}: commit {rnd.commit[:10] or '(none)'} is not in {ws.root}")
-    return git_history.read_tree_at(ws, rnd.commit), "commit"
+    return git_history.read_tree_at(ws, rnd.commit)
 
 
 def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
@@ -120,24 +117,15 @@ def _copy_captions(ws: Workspace, record: RunRecord, w: _Writer) -> None:
                                             indent=2, ensure_ascii=False).encode(), "captions")
 
 
-def _stable_timestamp(previous: RunDeliverable | None, current: RunDeliverable) -> datetime:
-    """Keep the old timestamp when the content is byte-identical."""
-    if previous is None or previous.generated_at is None:
-        return current.generated_at or datetime.now(UTC)
-    same = {(f.path, f.sha256) for f in previous.files} == {(f.path, f.sha256) for f in current.files}
-    return previous.generated_at if same else (current.generated_at or datetime.now(UTC))
-
-
 def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None, *, clean: bool = True) -> RunDeliverable:
     """(Re)build ``<run>/deliverable/`` for round ``round_index`` and return the manifest (idempotent)."""
     rnd = next((r for r in record.rounds if r.index == round_index), None)
-    previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None
     out = round_outputs(ws, rnd)
     if clean and ws.deliverable.exists():
         shutil.rmtree(ws.deliverable)
     ws.ensure_layout()
     w = _Writer(ws)
-    files, code_source = _code_tree(ws, rnd)
+    files = _code_tree(ws, rnd)
     for rel, data in sorted(files.items()):
         w.add_bytes(rel, data, "code" if rel.startswith("src/") else "bundle")
     _copy_artifacts(ws, record, rnd, out, w)
@@ -145,12 +133,10 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     _copy_captions(ws, record, w)
     entry = ENTRY_FILE.get(record.spec.language, "")
     manifest = RunDeliverable(
-        round=(rnd.index if rnd is not None else None), commit=(rnd.commit if rnd is not None else ""), code_source=code_source,
+        round=(rnd.index if rnd is not None else None), commit=(rnd.commit if rnd is not None else ""),
         entry=f"deliverable/{entry}" if entry in files else "",
-        files=sorted(w.files, key=lambda f: f.path), total_bytes=w.total,
-        generated_at=datetime.now(UTC),
+        files=sorted(w.files, key=lambda f: f.path),
     )
-    manifest.generated_at = _stable_timestamp(previous, manifest)
     write_json_atomic(ws.deliverable_manifest_path, manifest.model_dump(mode="json"))
     return manifest
 

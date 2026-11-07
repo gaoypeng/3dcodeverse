@@ -63,7 +63,7 @@ def probe_reads(ws_root: Path, materialized: SkillsMaterialized) -> SkillsUsage:
         # reading a reference means the bundle was reached, whatever SKILL.md's atime says
         surfaced = surfaced or deep
         reads.append(SkillRead(
-            name=name, surfaced=surfaced, deep=deep, deep_measurable=bool(refs),
+            name=name, surfaced=surfaced, deep=deep,
             body_tokens=sel.skill.body_tokens, reason=sel.reason,
         ))
     return SkillsUsage(

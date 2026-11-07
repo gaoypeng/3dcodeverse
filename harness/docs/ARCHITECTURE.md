@@ -202,7 +202,7 @@ tests/                one directory per package area (the count is `pytest --col
 
 One run is one directory, `runs/<slug>/`: `src/` is the code (git, one commit per round),
 `artifacts/` the last round's build plus every round's own `artifacts/rNN/`, and a pick writes
-`deliverable/` + `selection.json`; `telemetry/` holds the cost ledger and settings
+`deliverable/` + `selection.json`; `telemetry/` holds the cost ledger
 (`workspace.py` names the buckets; `3dcodeverse show <slug>` walks a run).
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)

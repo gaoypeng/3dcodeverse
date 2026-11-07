@@ -137,8 +137,6 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
         links.append(RunLink(label="frames/", rel=frames_rel, kind="dir"))
     if (run / "public" / "assets").is_dir():
         links.append(RunLink(label="assets/", rel="public/assets", kind="dir"))
-    if (run / "telemetry" / "cost.json").is_file():
-        links.append(RunLink(label="cost.json", rel="telemetry/cost.json"))
     return links
 
 

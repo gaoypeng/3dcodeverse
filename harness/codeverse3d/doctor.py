@@ -21,13 +21,12 @@ _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", 
 _OPTIONAL_DEPS = {"shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
                   "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
                   "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
-_CLI_TIMEOUT = 25
 
 
-def _ver(cmd: list[str], timeout: int = _CLI_TIMEOUT) -> tuple[bool, str]:
+def _ver(cmd: list[str]) -> tuple[bool, str]:
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
         return False, "not found"
-    rc, first = version_line(cmd, timeout=timeout)
+    rc, first = version_line(cmd)
     if rc is None:
         return False, first
     return rc == 0, first[:100] or f"exit {rc}"
@@ -59,7 +58,7 @@ def check_blender() -> list[Row]:
     if not b:
         return [("blender", "FAIL", f"C3D_BINARIES__BLENDER={s.binaries.blender} is not an executable"
                  if s.binaries.blender else "no binary (set C3D_BINARIES__BLENDER or put blender-5.2 on PATH)")]
-    okk, v = _ver([b, "--version"], timeout=60)
+    okk, v = _ver([b, "--version"])
     m = re.search(r"Blender (\d+)\.(\d+)", v)
     if okk and m and (int(m[1]), int(m[2])) < BLENDER_MIN:
         return [("blender", "FAIL", f"{v} @ {b} — too old, need >= {'.'.join(map(str, BLENDER_MIN))}")]
@@ -233,21 +232,6 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
              f"{'GPU' if res.get('gpu') else 'CPU/software'}: {renderer[:120]}")]
 
 
-def check_pool(live: bool) -> list[Row]:
-    from codeverse3d.models.gemini import shared_pool
-
-    s = get_settings()
-    if not live or not s.gemini_api_keys:
-        return []
-    st = shared_pool(list(s.gemini_api_keys)).stats()
-    return [(
-        "gemini pool", "WARN" if st["n_dead"] else "OK",
-        f"{st['n_keys']} keys · in-flight {st['in_flight']} (peak {st['peak_in_flight']}) · "
-        f"{st['acquired']} acquired, {st['ok']} ok, {st['429']} x429, {st['5xx']} x5xx, "
-        f"{st['n_dead']} dead, {st['n_cooling']} cooling (this process)",
-    )]
-
-
 def check_keys(live: bool) -> list[Row]:
     s = get_settings()
     n = len(s.gemini_api_keys)
@@ -281,10 +265,6 @@ def check_clis() -> list[Row]:
         rows.append((name, "OK" if okk else "WARN", v if okk else f"{v} (backend {name} unavailable)"))
     okk, v = _ver(["git", "--version"])
     rows.append(("git", "OK" if okk else "FAIL", v))
-    n = len(s.gemini_api_keys)
-    rows.append(("agy gemini keys", "OK" if n else "FAIL",
-                 f"{n}-key pool (Gemini-API mode, 3dcode MCP, priced)" if n
-                 else "no Gemini keys: agy runs on API keys only, so the default generator cannot run"))
     return rows
 
 
@@ -309,7 +289,6 @@ def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     if gpu:
         rows += check_gpu_probe()
     rows += check_keys(live)
-    rows += check_pool(live)
     rows += check_clis()
     rows += check_mcp()
     return rows

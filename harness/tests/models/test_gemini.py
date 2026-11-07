@@ -87,19 +87,18 @@ THROTTLED = genai_errors.APIError(
         "error": {
             "message": "quota",
             "status": "RESOURCE_EXHAUSTED",
-            "details": [{"retryDelay": "7s"}],
         }
     },
 )
 
 
-def test_429_rotates_keys_and_honours_retry_delay():
+def test_429_rotates_keys_and_cools_the_throttled_ones():
     m, log, pool = make_model([THROTTLED, THROTTLED, text_response("third time lucky")])
     assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "third time lucky"
     assert [e["key"] for e in log] == ["k1", "k2", "k3"]
     st = pool.stats()
-    assert st["429"] == 2 and st["ok"] == 1 and st["n_cooling"] == 2
-    assert 0 < {k["key"]: k["cooldown_s"] for k in st["keys"]}["…k1"] <= 7.0
+    assert st["429"] == 2 and st["ok"] == 1
+    assert [pool.acquire() for _ in range(3)] == ["k3"] * 3, "k1 and k2 are cooling"
 
 
 def test_text_usage_cost_and_raw():
@@ -124,7 +123,7 @@ def test_api_key_invalid_400_is_treated_as_dead_key():
     m, log, pool = make_model([bad, text_response("ok")], keys=("k1", "k2"))
     assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "ok"
     assert [event["key"] for event in log] == ["k1", "k2"]
-    assert pool.stats()["dead"] == 1
+    assert [pool.acquire() for _ in range(3)] == ["k2"] * 3, "the dead key is benched"
     assert failure_outcome(classify_exception(bad)) == "dead"
     assert failure_outcome(classify_exception(SUSPENDED)) == "dead"
     assert failure_outcome(classify_exception(THROTTLED)) == "429"
@@ -145,7 +144,6 @@ def test_thinking_rejected_falls_back_without_thinking_config():
     r = m.generate(ChatRequest(messages=[ChatMessage.user("x")], thinking="high"))
     assert r.text == "ok"
     assert log[0]["config"].thinking_config is not None and log[1]["config"].thinking_config is None
-    assert any("thinking" in w for w in r.raw["warnings"])
 
 
 def test_a_charged_but_invalid_reply_carries_its_usage_on_the_error():
@@ -155,7 +153,8 @@ def test_a_charged_but_invalid_reply_carries_its_usage_on_the_error():
         m.generate(
             ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
         )
-    assert ei.value.usage.input_tokens == 100 and ei.value.usage.output_tokens == 20
+    # every billed attempt, not just the last: 6 replies of 100 in / 20 out
+    assert ei.value.usage.input_tokens == 600 and ei.value.usage.output_tokens == 120
     assert ei.value.usage.cost_usd > 0
 
 

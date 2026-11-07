@@ -1,5 +1,5 @@
-"""Run telemetry: ``telemetry/settings.json`` (how the run was configured) and ``cost.json``
-(summary of the ledger rows), mirrored into ``record.telemetry``.  Builders degrade to what could be read."""
+"""Run telemetry, stored in ``record.telemetry``: how the run was configured (the settings snapshot)
+and a summary of the ledger rows.  Builders degrade to what could be read."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from codeverse3d.contracts.run import (
 )
 from codeverse3d.cost.ledger import load_ledger, summarise
 from codeverse3d.cost.types import STAGE_ORDER, CallCost
-from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.record.record import effective_score, rubric_of
 from codeverse3d.workspace import Workspace
 
@@ -77,7 +76,6 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     rubric = rubric_of(record)
     s = get_settings()
     render = s.render.model_dump(mode="json")
-    limits = s.limits.model_dump(mode="json")
     keys = len(s.gemini_api_keys)
     env = dict(record.environment)
     return SettingsSnapshot(
@@ -92,7 +90,6 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
         key_pool_size=keys,
         price_table_version=price_table_version(),
         render=render,
-        limits=limits,
     )
 
 
@@ -133,34 +130,7 @@ def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
     )
 
 
-# --------------------------------------------------------------------------- io
-def build_telemetry(ws: Workspace, record: RunRecord, *, write: bool = True) -> RunTelemetry:
-    """Compute (and by default persist) ``telemetry/`` for one run."""
-    rows = ledger_rows(ws)
-    tele = RunTelemetry(
-        settings=settings_snapshot(record),
-        cost=cost_summary(record, rows),
-    )
-    if write:
-        ws.ensure_layout()
-        write_json_atomic(ws.settings_path, tele.settings.model_dump(mode="json") if tele.settings else {})
-        write_json_atomic(ws.cost_path, tele.cost.model_dump(mode="json") if tele.cost else {})
-    return tele
-
-
-def load_telemetry(ws: Workspace, record: RunRecord | None = None) -> RunTelemetry | None:
-    """``record.telemetry`` when present, else the files under ``telemetry/``, else None."""
-    if record is not None and record.telemetry is not None:
-        return record.telemetry
-    cost = read_json_or_none(ws.cost_path)
-    settings = read_json_or_none(ws.settings_path)
-    if cost is None and settings is None:
-        return None
-    try:
-        return RunTelemetry(
-            settings=SettingsSnapshot.model_validate(settings) if settings else None,
-            cost=CostSummary.model_validate(cost) if cost else None,
-        )
-    except Exception as e:
-        log.warning("unreadable telemetry in %s: %s", ws.root, e)
-        return None
+# --------------------------------------------------------------------------- build
+def build_telemetry(ws: Workspace, record: RunRecord) -> RunTelemetry:
+    """Compute the settings snapshot and the cost summary of one run (``record.telemetry``)."""
+    return RunTelemetry(settings=settings_snapshot(record), cost=cost_summary(record, ledger_rows(ws)))

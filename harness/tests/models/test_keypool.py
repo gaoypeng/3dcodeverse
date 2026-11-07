@@ -29,13 +29,8 @@ def test_dead_key_is_benched_for_an_hour_and_all_dead_raises_at_once():
     # passive health recovery must not bring it back: it stays benched for an hour
     clock.t += 1800
     assert [pool.acquire() for _ in range(6)] == ["ok"] * 6
-    st = pool.stats()
-    assert st["n_dead"] == 1 and st["dead"] == 1
-    by = {k["key"]: k for k in st["keys"]}
-    assert by["…dead"]["dead"] == 1 and by["…dead"]["cooldown_s"] > 0
     clock.t += 1801
     assert "dead" in [pool.acquire() for _ in range(3)]  # re-probed once the bench ends
-    assert pool.stats()["n_dead"] == 0
     # every key dead: raise at once instead of waiting out the timeout
     pool, clock = make(keys=("a", "b"), dead_cooldown_s=3600)
     pool.report("a", "dead")
@@ -44,24 +39,6 @@ def test_dead_key_is_benched_for_an_hour_and_all_dead_raises_at_once():
     with pytest.raises(KeyPoolExhausted):
         pool.acquire(timeout_s=120)
     assert clock.t == t0  # no pointless 120 s wait: availability only moves later
-
-
-def test_try_acquire_never_waits_for_a_key_or_a_slot(tmp_path):
-    """The extra keys of a hedged retry (``rotate_with_retries(hedge=...)``) come from
-    ``try_acquire``: a key that is usable right now, else None — never a wait."""
-    never = lambda s: (_ for _ in ()).throw(AssertionError(f"try_acquire slept {s}s"))  # noqa: E731
-    pool = KeyPool(["k1", "k2"], max_in_flight=2, slots_dir=tmp_path, cooldown_s=30, sleep=never)
-    a = pool.try_acquire()
-    assert a == "k1" and pool.stats()["in_flight"] == 1
-    assert pool.try_acquire(exclude={a}) == "k2"
-    assert pool.try_acquire() is None, "both max_in_flight slots are held"
-    pool.release()
-    pool.release()
-    assert pool.stats()["in_flight"] == 0
-    pool.report("k1", "429")
-    pool.report("k2", "429")
-    assert pool.try_acquire() is None, "every key is cooling down: no wait, no key"
-    assert pool.stats()["in_flight"] == 0, "a refused try_acquire holds nothing"
 
 
 def test_a_session_lease_keeps_one_session_per_key_across_pools_until_keys_run_out(tmp_path):

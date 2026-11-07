@@ -30,10 +30,6 @@ from codeverse3d.proc import (
 )
 from codeverse3d.workspace import Workspace
 
-#: per-session transcript caps; the unabridged (bounded) stream still lands in stdout.json
-LINE_BUDGET_BYTES = 64 * 1024 * 1024
-LINE_BUDGET_ROWS = 200_000
-
 
 class Trajectory:
 
@@ -41,9 +37,6 @@ class Trajectory:
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._budget = threading.Lock()  # guards the counters below, never nested in _lock
-        self._rows = self._bytes = 0
-        self._spent = False
 
     # ------------------------------------------------------------------ paths
     @property
@@ -70,19 +63,8 @@ class Trajectory:
         return p
 
     def append(self, kind: str, **data: Any) -> None:
-        """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``, until the
-        session's byte/row budget trips — then one marker row and nothing more."""
-        rec: dict[str, Any] = {"t": round(time.time(), 3), "kind": kind, **data}
-        with self._budget:
-            if self._spent:
-                return
-            self._rows += 1
-            self._bytes += len(json.dumps(rec, ensure_ascii=False, default=str))
-            self._spent = self._rows > LINE_BUDGET_ROWS or self._bytes > LINE_BUDGET_BYTES
-            if self._spent:
-                rec = {"t": rec["t"], "kind": "line_budget_exhausted",
-                       "rows": self._rows - 1, "bytes": self._bytes}
-        append_jsonl_line(self.transcript_path, rec, self._lock)
+        """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``."""
+        append_jsonl_line(self.transcript_path, {"t": round(time.time(), 3), "kind": kind, **data}, self._lock)
 
     def write_result(self, result: BaseModel, **extra: Any) -> None:
         write_json_atomic(self.result_path, result.model_dump(mode="json") | extra)
@@ -311,9 +293,8 @@ class Session:
 
 
 # --------------------------------------------------------------------------- serialisation
-#: agent kinds whose sessions are EXCLUSIVE per workspace (every kind): scope is checked post-session,
-#: and a late session's ``pre:`` commit (``git add -A``) would absorb a sibling's in-flight writes.
-EXCLUSIVE_KINDS = frozenset({"claude-code", "codex", "agy"})
+# Sessions are EXCLUSIVE per workspace: scope is checked post-session, and a late session's
+# ``pre:`` commit (``git add -A``) would absorb a sibling's in-flight writes.
 
 _WS_SESSION_LOCKS: dict[str, threading.RLock] = {}
 _WS_SESSION_LOCKS_GUARD = threading.Lock()
@@ -354,7 +335,7 @@ def _session_label(ws: Workspace, label: str, round_index: int) -> tuple[str, in
 
 def begin_session(job: AgentJob, kind: str) -> Session:
     """Create the trajectory dir, write prompt.md and snapshot src/ (``pre:<label>``), taking the
-    per-workspace lock first for :data:`EXCLUSIVE_KINDS`."""
+    per-workspace lock first."""
     ws = Workspace(job.workspace)
     if not ws.root.is_dir():
         raise FileNotFoundError(f"workspace does not exist: {ws.root}")
@@ -365,14 +346,12 @@ def begin_session(job: AgentJob, kind: str) -> Session:
     traj = Trajectory(ws.trajectory_dir(label, round_index))
     traj.write_prompt(job.prompt, job.system_append)
     hints = _clean(job.files_hint)
-    lock = _session_lock(ws) if kind in EXCLUSIVE_KINDS else None
-    if lock is not None:
-        lock.acquire()
+    lock = _session_lock(ws)
+    lock.acquire()
     try:
         head_before = ws.commit(f"pre:{label}")
     except BaseException:
-        if lock is not None:
-            lock.release()
+        lock.release()
         raise
     control = {n: ((ws.root / n).read_bytes() if (ws.root / n).is_file() else None)
                for n in UNTRACKED_CONTROL_FILES}
@@ -516,7 +495,7 @@ def invoke(
     """Run one CLI agent process under the watchdog and record it in the trajectory.
 
     The prompt goes to the CLI on STDIN for every backend (never argv or a file the agent must
-    read).  Output lines go into the transcript; ``src/`` + ``public/`` (a ``shared_tree`` job's own
+    read).  The raw streams land in ``stdout_name`` and ``stderr.log``; ``src/`` + ``public/`` (a ``shared_tree`` job's own
     files) plus ``activity`` are the activity dirs.  ``stdout_name`` names the capture;
     ``on_stdout`` / ``on_stderr`` also receive each line; ``invoke_extra`` lands in the ``invoke`` row.
     """
@@ -530,7 +509,6 @@ def invoke(
                   soft_timeout_s=soft, hard_timeout_s=hard, started=hard > 0, **invoke_extra)
 
     def on_line(stream: str, line: str) -> None:
-        s.traj.append("line", stream=stream, text=line[:4000])
         observer = on_stdout if stream == "stdout" else on_stderr
         if observer is not None:
             observer(line)

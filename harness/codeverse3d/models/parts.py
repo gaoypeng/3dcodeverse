@@ -146,26 +146,51 @@ def attempt_timeout_s(deadline: float, ceiling: float) -> float:
     return min(ceiling, max(SDK_TIMEOUT_FLOOR_S, deadline - time.monotonic()))
 
 
+class FailedBills:
+    """What the failed attempts of ONE logical call were billed for (``ModelError.usage``): it joins
+    the call's single ledger row, on success and on a final failure alike."""
+
+    def __init__(self) -> None:
+        self.usage = Usage()
+
+    def track[T](self, attempt: Callable[..., T]) -> Callable[..., T]:
+        """``attempt`` that remembers the usage of every ``ModelError`` it raises."""
+        def run(*args: Any) -> T:
+            try:
+                return attempt(*args)
+            except ModelError as e:
+                if e.usage is not None:
+                    self.usage = self.usage + e.usage
+                raise
+        return run
+
+    @property
+    def billed(self) -> bool:
+        return bool(self.usage.input_tokens or self.usage.output_tokens)
+
+    def join(self, resp: Any) -> Any:
+        """``resp`` with the failed attempts' usage added."""
+        return resp.model_copy(update={"usage": resp.usage + self.usage}) if self.billed else resp
+
+    def charge(self, err: ModelError) -> None:
+        """A finally-raised error carries ALL the usage billed (its own attempt included)."""
+        if self.billed:
+            err.usage = self.usage
+
+
 def retry_one_key(attempt: Any, *, label: str, classify: Any, attempts: int, sleep: Any,
                   max_wait_s: float | None = None) -> Any:
-    """The SDK adapters' retry loop: ``rotate_with_retries`` over a one-key pool, no cooldown,
-    storm patience or hedge, inside the request's ``max_wait_s`` deadline."""
+    """The SDK adapters' retry loop: ``rotate_with_retries`` over a one-key pool, no cooldown or
+    storm patience, inside the request's ``max_wait_s`` deadline."""
     from codeverse3d.models.retry import KeyPool, rotate_with_retries
 
-    billed = Usage()  # what failed attempts were billed for (ModelError.usage): joins the winner's row
-
-    def once() -> Any:
-        nonlocal billed
-        try:
-            return attempt()
-        except ModelError as e:
-            if e.usage is not None:
-                billed = billed + e.usage
-            raise
-
-    resp = rotate_with_retries(KeyPool([label], cooldown_s=0.0), lambda _key: once(), classify=classify,
-                               max_attempts=attempts, max_total_s=retry_budget_s(max_wait_s),
-                               storm_attempts=0, hedge=1, sleep=sleep, label=label)
-    if billed.input_tokens or billed.output_tokens:
-        resp = resp.model_copy(update={"usage": resp.usage + billed})
-    return resp
+    bills = FailedBills()
+    try:
+        resp = rotate_with_retries(KeyPool([label], cooldown_s=0.0), lambda _key: bills.track(attempt)(),
+                                   classify=classify, max_attempts=attempts,
+                                   max_total_s=retry_budget_s(max_wait_s), storm_attempts=0,
+                                   sleep=sleep, label=label)
+    except ModelError as e:
+        bills.charge(e)
+        raise
+    return bills.join(resp)

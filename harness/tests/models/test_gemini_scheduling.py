@@ -1,4 +1,4 @@
-"""GeminiModel's side of the key pool: slots, the shared pool, the retry budget, the hedge.
+"""GeminiModel's side of the key pool: slots, the shared pool, the retry budget.
 
 Offline: the provider is a fake client, the pool is real, and nothing sleeps.
 """
@@ -19,15 +19,15 @@ def api_error(code: int, msg: str = "boom") -> genai_errors.APIError:
 
 
 def test_a_recovered_call_reports_its_attempts_and_a_failed_call_carries_its_count():
-    hedged, log, _ = make_model(
+    rotated, log, _ = make_model(
         [api_error(503), api_error(503), text_response("recovered")],
         pool=KeyPool(["k1", "k2", "k3"], cooldown_s=0.0),
         max_attempts=3,
     )
-    recovered = hedged.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    recovered = rotated.generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert recovered.text == "recovered" and len(log) == 3
     assert recovered.raw["attempts"] == 3
-    assert recovered.raw["key"] in ("…k2", "…k3")
+    assert recovered.raw["key"] == "…k3"
 
     m2, _log2, _ = make_model(
         [api_error(503, "high demand")] * 2, keys=("k1",), max_attempts=1, storm_attempts=0

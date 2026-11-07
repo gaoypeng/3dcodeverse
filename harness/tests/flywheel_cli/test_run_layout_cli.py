@@ -12,11 +12,10 @@ from codeverse3d.addons import select
 from codeverse3d.cli.main import app
 from codeverse3d.cost.types import STAGE_ORDER
 from codeverse3d.record.deliverable import build_deliverable, load_deliverable
-from codeverse3d.record.record import load_record, package_run
+from codeverse3d.record.record import package_run
 from codeverse3d.record.telemetry import (
     build_telemetry,
     ledger_rows,
-    load_telemetry,
 )
 
 runner = CliRunner()
@@ -25,7 +24,7 @@ runner = CliRunner()
 # --------------------------------------------------------------------------- packaging
 def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run):
     ws, rec = fake_run
-    assert load_telemetry(ws, rec) is None and load_deliverable(ws) is None
+    assert rec.telemetry is None and load_deliverable(ws) is None
     # Cross the old hard-link fast-path threshold before packaging.
     (ws.artifacts / "object.glb").write_bytes(b"glTF" + b"\0" * (300 * 1024))
     package_run(ws, rec)
@@ -35,23 +34,16 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert d is not None
     roles = {f.role for f in d.files}
     assert {"code", "model", "sheet"} <= roles and "manifest" not in roles   # it cannot carry its own hash
-    assert load_deliverable(ws) == d and d.total_bytes == sum(f.bytes for f in d.files)
+    assert load_deliverable(ws) == d
     assert d.round == 1 and d.entry == "deliverable/src/model.py"
     assert (ws.deliverable / "src" / "model.py").read_text().startswith("# round 1")
-    cost = json.loads(ws.cost_path.read_text())
-    assert cost["total_usd"] == rec.total_usage.cost_usd
-    assert cost["by_round"]
-    settings = json.loads(ws.settings_path.read_text())
-    assert {r["role"] for r in settings["roles"]} == {"planner", "generator", "judge", "captioner"}
+    cost, settings = rec.telemetry.cost, rec.telemetry.settings
+    assert cost.total_usd == rec.total_usage.cost_usd and cost.by_round
+    assert {r.role for r in settings.roles} == {"planner", "generator", "judge", "captioner"}
 
     # Rebuilding unchanged content is byte-for-byte stable.
     second = build_deliverable(ws, rec, 1)
-    assert d.generated_at == second.generated_at  # unchanged content → no diff
     assert [(f.path, f.sha256) for f in d.files] == [(f.path, f.sha256) for f in second.files]
-
-    # Package metadata can be recovered from files even before the caller saves rec.
-    bare = load_record(ws).model_copy(update={"telemetry": None})
-    assert load_telemetry(ws, bare) is not None and load_deliverable(ws) is not None
 
     # Delivered assets are copies: editing a hand-over cannot mutate evidence.
     delivered = ws.deliverable / "object.glb"
@@ -98,7 +90,7 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     ledger = ws.root / "telemetry" / "cost.jsonl"
     ledger.unlink()
     assert ledger_rows(ws) == []  # a run with no ledger has no rows (nothing is reconstructed)
-    tele = build_telemetry(ws, rec, write=False)
+    tele = build_telemetry(ws, rec)
     assert tele.cost is not None and tele.cost.n_calls == 0 and tele.settings is not None
     ledger.write_text(json.dumps({"stage": "plan", "role": "planner", "label": "plan", "cost_usd": 0.5,
                                   "model": "gemini-3.8-flash", "n_calls": 1}) + "\n")
@@ -108,5 +100,5 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     assert not (ws.telemetry / "usage.jsonl").exists(), "one ledger, one name"
     # a degraded verdict is unscored in the per-round cost table, never a 0.0
     rec.rounds[1].judgment = rec.rounds[1].judgment.model_copy(update={"summary": "judge_error: outage"})
-    by_round = build_telemetry(ws, rec, write=False).cost.by_round
+    by_round = build_telemetry(ws, rec).cost.by_round
     assert [r["score"] for r in by_round] == [rec.rounds[0].judgment.overall, None]

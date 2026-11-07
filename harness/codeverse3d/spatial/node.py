@@ -143,7 +143,7 @@ def parse_node_version(text: str) -> tuple[int, int, int] | None:
 @lru_cache(maxsize=8)
 def node_version(node_bin: str) -> tuple[int, int, int] | None:
     """``node --version`` for ``node_bin``, or None when it cannot be asked (cached)."""
-    rc, line = version_line([node_bin, "--version"], timeout=20)
+    rc, line = version_line([node_bin, "--version"])
     return parse_node_version(line) if rc == 0 else None
 
 

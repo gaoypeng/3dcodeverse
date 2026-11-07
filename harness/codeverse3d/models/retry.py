@@ -2,7 +2,7 @@
 
 ``KeyPool``: multi-key pool with 429 cooldown, dead-key benching, health scores and a
 machine-wide ``max_in_flight`` ceiling (``Slots``, flock'd lock files).  ``rotate_with_retries``:
-the one retry loop (pool, hedging, ``RETRY_DEADLINE_S``); SDK adapters run it over a one-key pool.
+the one retry loop (pool, ``RETRY_DEADLINE_S``); SDK adapters run it over a one-key pool.
 Every wait clips to ``MAX_WAIT_S``.  ``report`` outcomes: ok | 429 | 5xx | error | dead | skip
 (``skip`` = a content failure the key did not cause).  Thread-safe; ``clock`` / ``sleep`` injectable.
 """
@@ -16,10 +16,8 @@ import os
 import random
 import threading
 import time
-from collections.abc import Callable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from collections.abc import Callable
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -82,8 +80,6 @@ class _KeyState:
     n_429: int = 0
     n_5xx: int = 0
     n_error: int = 0
-    n_dead: int = 0
-    n_acquired: int = 0
     health_ts: float = 0.0
 
     def recover(self, now: float, rate: float = 0.01) -> None:
@@ -191,7 +187,6 @@ class KeyPool:
         self._lock = threading.Lock()
         self._rr = start % len(uniq)
         self._in_flight = 0
-        self._peak_in_flight = 0
         # machine-wide ceiling on concurrent model calls; 0 = unlimited
         self._max_in_flight = int(max_in_flight or 0)
         if self._max_in_flight and slots_dir is None:
@@ -232,23 +227,6 @@ class KeyPool:
         self._hold(slot)
         return key
 
-    def try_acquire(self, *, exclude: set[str] | frozenset[str] | None = None) -> str | None:
-        """:meth:`acquire` that never waits: a key usable now, else ``None``.  Used for hedge
-        partners; a returned key holds a slot and must be :meth:`release`-d."""
-        slot = None
-        if self.slots is not None and (slot := self.slots.try_take()) is None:
-            return None
-        try:
-            key = self._acquire_key(exclude, 0.0)
-        except BaseException as exc:
-            if slot is not None:
-                Slots.give(slot)
-            if isinstance(exc, KeyPoolExhausted):
-                return None
-            raise
-        self._hold(slot)
-        return key
-
     def lease_session_key(self, leases: Path | str, *, timeout_s: float | None = ACQUIRE_TIMEOUT_S) -> tuple[str, int | None]:
         """A key for a vendor-CLI session: rotation, cooldowns and benching like :meth:`acquire`
         but no in-flight slot, and one live session per key machine-wide while keys suffice
@@ -270,8 +248,6 @@ class KeyPool:
             except BlockingIOError:
                 os.close(fd)
                 busy.add(key)
-                with self._lock:
-                    self._by_key[key].n_acquired -= 1   # passed over, not handed out
                 continue
             return key, fd
 
@@ -283,7 +259,6 @@ class KeyPool:
     def _hold(self, slot: int | None) -> None:
         with self._lock:
             self._in_flight += 1
-            self._peak_in_flight = max(self._peak_in_flight, self._in_flight)
             if slot is not None:
                 self._held.append(slot)
 
@@ -294,7 +269,6 @@ class KeyPool:
                 now = self._clock()
                 chosen = self._pick(now, exclude or ())
                 if chosen is not None:
-                    chosen.n_acquired += 1
                     return chosen.key
                 soonest = min(
                     (max(now, s.cooldown_until) for s in self._states if s.key not in (exclude or ())),
@@ -322,8 +296,8 @@ class KeyPool:
         if slot is not None:
             Slots.give(slot)
 
-    def report(self, key: str, outcome: Outcome, *, retry_after_s: float | None = None) -> None:
-        """Feed back a call's result (``retry_after_s``: a 429's delay, clipped to ``MAX_WAIT_S``)."""
+    def report(self, key: str, outcome: Outcome) -> None:
+        """Feed back a call's result."""
         with self._lock:
             st = self._by_key.get(key)
             if st is None:
@@ -336,16 +310,14 @@ class KeyPool:
             elif outcome == "429":
                 st.n_429 += 1
                 st.health *= 0.5
-                cool = retry_after_s if retry_after_s and retry_after_s > 0 else self._cooldown_s
-                # rotate to another key rather than sit out the provider's delay
-                cool = min(cool, MAX_WAIT_S)
+                # rotate to another key rather than sit out a long delay
+                cool = min(self._cooldown_s, MAX_WAIT_S)
                 st.cooldown_until = max(st.cooldown_until, now + cool)
             elif outcome == "5xx":
                 st.n_5xx += 1
                 st.health *= 0.8
             elif outcome == "dead":
                 # key-scoped failure: bench until the long cooldown passes
-                st.n_dead += 1
                 st.health = 0.0
                 st.dead_until = max(st.dead_until, now + self._dead_cooldown_s)
                 st.cooldown_until = max(st.cooldown_until, st.dead_until)
@@ -353,37 +325,14 @@ class KeyPool:
                 st.n_error += 1
                 st.health *= 0.9
 
-    def stats(self) -> dict[str, Any]:
-        """Counters per key (keys redacted to their last 4 chars)."""
+    def stats(self) -> dict[str, int]:
+        """The reported outcomes summed over the keys (what the concurrency probe reads)."""
         with self._lock:
-            now = self._clock()
-            per_key = [
-                {
-                    "key": f"…{s.key[-4:]}",
-                    "health": round(s.health, 3),
-                    "cooldown_s": round(max(0.0, s.cooldown_until - now), 1),
-                    "acquired": s.n_acquired,
-                    "ok": s.n_ok,
-                    "429": s.n_429,
-                    "5xx": s.n_5xx,
-                    "error": s.n_error,
-                    "dead": s.n_dead,
-                }
-                for s in self._states
-            ]
             return {
-                "n_keys": len(self._states),
-                "n_cooling": sum(1 for s in self._states if s.cooldown_until > now),
-                "n_dead": sum(1 for s in self._states if s.dead_until > now),
-                "in_flight": self._in_flight,
-                "peak_in_flight": self._peak_in_flight,
-                "acquired": sum(s.n_acquired for s in self._states),
                 "ok": sum(s.n_ok for s in self._states),
                 "429": sum(s.n_429 for s in self._states),
                 "5xx": sum(s.n_5xx for s in self._states),
                 "error": sum(s.n_error for s in self._states),
-                "dead": sum(s.n_dead for s in self._states),
-                "keys": per_key,
             }
 
     # ----------------------------------------------------------------- private
@@ -415,9 +364,6 @@ class KeyPool:
 MIN_HEALTH = 0.3
 RETRY_DEADLINE_S = 1800.0   # ceiling of one logical call, retries included
 
-#: keys a retry is raced on once a call has met its first 503/529
-DEFAULT_HEDGE = 2
-
 if TYPE_CHECKING:  # pragma: no cover
     from codeverse3d.models.base import ModelError
 
@@ -428,10 +374,6 @@ def cause_for(err: BaseException, exc: BaseException | None) -> BaseException | 
     """The cause to raise ``err`` from, ``None`` when it would be ``err`` itself (a
     self-cause chain recurses forever in naive walkers)."""
     return None if exc is err else exc
-
-#: per-round-trip hook of :func:`rotate_with_retries`: ``(try, attempt_no, discarded)``; fired once per round-trip
-OnAttempt = Callable[["_Try", int, bool], None]
-
 
 def backoff_delay(
     attempt: int, *, base_delay: float, max_delay: float, jitter: bool = True
@@ -456,14 +398,11 @@ def rotate_with_retries[T](
     storm_attempts: int = 60,
     storm_max_delay: float = MAX_WAIT_S,
     max_total_s: float = RETRY_DEADLINE_S,
-    hedge: int = DEFAULT_HEDGE,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
     on_free_retry: Callable[[ModelError], bool] | None = None,
-    retry_after: Callable[[BaseException], float | None] | None = None,
     label: str = "model",
     stats: dict[str, Any] | None = None,
-    on_attempt: OnAttempt | None = None,
 ) -> T:
     """Run ``call(key)`` against a rotating :class:`KeyPool` until it succeeds.
 
@@ -477,19 +416,11 @@ def rotate_with_retries[T](
       non-retryable raise at once.
     * everything is bounded by ``max_total_s``.
 
-    Hedging (``hedge``; 1 disables): from the first 503/529 on, each attempt runs on up to
-    ``hedge`` distinct keys at once and the first success wins.  Extra keys come from
-    ``try_acquire`` (never waited for); losers finish on their own and report to the pool and
-    ``on_attempt``.  When all fail, the worst error decides the branch (``_severity``).
-
-    ``stats`` receives ``attempts``, ``hedged`` and ``storm`` counts.  ``on_attempt`` hears
-    every round-trip once (exceptions from it are swallowed).
+    ``stats`` receives the ``attempts`` and ``storm`` counts.
     """
     failed_keys: set[str] = set()  # keys that 429'd / 503'd or looked dead during this call
     dead_keys: set[str] = set()
-    counts = {"attempts": 0, "hedged": 0, "storm": 0}
-    finished: list[tuple[int, _Try]] = []  # (attempt_no, try): the on_attempt flush buffer
-    winner: _Try | None = None
+    counts = {"attempts": 0, "storm": 0}
 
     def bench() -> None:
         # bench dead-looking keys once another key got past the auth layer
@@ -498,8 +429,8 @@ def rotate_with_retries[T](
         dead_keys.clear()
 
     def run_one(key: str) -> _Try:
-        """One round-trip on ``key``: report to the pool and release the slot.  Touches none of
-        this call's state (it may run in a hedge thread)."""
+        """One round-trip on ``key``: report to the pool and release the slot."""
+        counts["attempts"] += 1
         try:
             try:
                 result = call(key)
@@ -507,50 +438,17 @@ def rotate_with_retries[T](
                 err = classify(exc)
                 outcome = outcome_of(err)
                 # a dead-looking key is benched later, by bench()
-                pool.report(key, "error" if outcome == "dead" else outcome,
-                            retry_after_s=retry_after(exc) if (outcome == "429" and retry_after) else None)
+                pool.report(key, "error" if outcome == "dead" else outcome)
                 return _Try(key, None, err, exc, outcome)
             pool.report(key, "ok")
             return _Try(key, result, None, None, "ok")
         finally:
             pool.release()
 
-    def run_attempt(keys: Sequence[str]) -> list[_Try]:
-        """Issue ``call`` on every key; return tries completed up to the first success."""
-        first_no = counts["attempts"] + 1
-        counts["attempts"] += len(keys)
-        if len(keys) == 1:
-            t = run_one(keys[0])
-            finished.append((first_no, t))
-            return [t]
-        counts["hedged"] += 1
-        executor = ThreadPoolExecutor(max_workers=len(keys), thread_name_prefix=f"hedge {label}")
-        futures = [executor.submit(run_one, k) for k in keys]
-        nos = {id(f): first_no + i for i, f in enumerate(futures)}
-        executor.shutdown(wait=False)  # no new work; the threads end with their round-trips
-        done: list[_Try] = []
-        consumed_futs: set[int] = set()
-        for fut in as_completed(futures):
-            consumed_futs.add(id(fut))
-            t = fut.result()
-            finished.append((nos[id(fut)], t))
-            done.append(t)
-            if t.err is None:
-                for other in futures:
-                    if id(other) not in consumed_futs:
-                        # fires once, at once if the sibling already landed
-                        other.add_done_callback(
-                            partial(_discard_loser, on_attempt=on_attempt,
-                                    attempt_no=nos[id(other)])
-                        )
-                break
-        return done
-
     last_err: ModelError | None = None
     last_exc: BaseException | None = None
     attempt = 0
     storm = 0
-    hedging = False  # flips on the first 503/529; every later attempt is hedged
     deadline = monotonic() + max_total_s if max_total_s > 0 else float("inf")
 
     def out_of_time() -> bool:
@@ -564,9 +462,6 @@ def rotate_with_retries[T](
         log.warning("%s giving up after %.0f s of retrying (%s)", label, max_total_s, err)
         return err
 
-    def is_storm(err: ModelError) -> bool:
-        return bool(err.retryable and err.status in (503, 529))
-
     try:
         while attempt < max_attempts:
             if out_of_time() and last_err is not None:
@@ -577,44 +472,30 @@ def rotate_with_retries[T](
             exclude = dead_keys | (failed_keys if len(failed_keys) < len(pool) else set())
             budget_left = None if deadline == float("inf") else max(0.0, deadline - monotonic())
             try:
-                keys = [pool.acquire(
+                key = pool.acquire(
                     exclude=exclude,
                     timeout_s=ACQUIRE_TIMEOUT_S if budget_left is None
                     else min(ACQUIRE_TIMEOUT_S, budget_left),
-                )]
+                )
             except KeyPoolExhausted as exc:
                 raise classify(exc) from exc
-            while hedging and len(keys) < max(1, hedge):
-                extra = pool.try_acquire(exclude=exclude | set(keys))
-                if extra is None:
-                    break  # no fresh key / slot right now: never wait for a hedge partner
-                keys.append(extra)
-            tries = run_attempt(keys)
-            free = False
-            for t in tries:
-                if t.err is None:
-                    continue
-                if on_free_retry is not None and on_free_retry(t.err):
-                    free = True
-                elif t.outcome == "dead":
-                    dead_keys.add(t.key)
-                    failed_keys.add(t.key)
-                if is_storm(t.err) and hedge > 1:
-                    hedging = True
-            won = next((t for t in tries if t.err is None), None)
-            if won is not None:
-                winner = won
+            t = run_one(key)
+            if t.err is None:
                 bench()
-                return won.result
-            worst = min(tries, key=_severity)
-            err, exc, key = worst.err, worst.exc, worst.key
-            assert err is not None
+                return t.result
+            err, exc = t.err, t.exc
             last_err = err
             last_exc = exc
+            free = False
+            if on_free_retry is not None and on_free_retry(err):
+                free = True
+            elif t.outcome == "dead":
+                dead_keys.add(key)
+                failed_keys.add(key)
             if free:
                 attempt -= 1
                 continue
-            if worst.outcome == "dead":
+            if t.outcome == "dead":
                 if len(dead_keys) < len(pool):
                     if out_of_time():
                         raise gave_up(err) from cause_for(err, exc)
@@ -622,14 +503,13 @@ def rotate_with_retries[T](
                     attempt -= 1
                     continue
                 raise err from cause_for(err, exc)  # every key failed the same way: not the keys' fault
-            if is_storm(err) and storm < storm_attempts and not out_of_time():
-                failed_keys.update(t.key for t in tries)
+            if err.retryable and err.status in (503, 529) and storm < storm_attempts and not out_of_time():
+                failed_keys.add(key)
                 if len(failed_keys) < len(pool):
                     # a 503 is per key: while an untried key remains rotation is free
                     attempt -= 1
-                    log.warning("%s key …%s 503 (%s); rotating to a fresh key (%d/%d tried%s)",
-                                label, key[-4:], err, len(failed_keys), len(pool),
-                                f", hedging x{hedge}" if hedging else "")
+                    log.warning("%s key …%s 503 (%s); rotating to a fresh key (%d/%d tried)",
+                                label, key[-4:], err, len(failed_keys), len(pool))
                     continue
                 # capacity storm: every key said 503, so wait (own budget, not max_attempts)
                 storm += 1
@@ -642,8 +522,8 @@ def rotate_with_retries[T](
                 sleep(delay)
                 attempt -= 1
                 continue
-            if worst.outcome == "429":
-                failed_keys.update(t.key for t in tries if t.outcome == "429")
+            if t.outcome == "429":
+                failed_keys.add(key)
                 if len(failed_keys) < len(pool):
                     if out_of_time():
                         raise gave_up(err) from cause_for(err, exc)
@@ -674,13 +554,6 @@ def rotate_with_retries[T](
     finally:
         if stats is not None:
             stats.update(counts)
-        if on_attempt is not None:
-            # flush completed round-trips; a loser still in flight reports via _discard_loser
-            for no, t in finished:
-                try:
-                    on_attempt(t, no, t is not winner)
-                except Exception as hook_exc:  # noqa: BLE001 - accounting is best-effort
-                    log.debug("on_attempt hook failed for round-trip %d: %s", no, hook_exc)
 
 
 @dataclass(frozen=True)
@@ -692,33 +565,3 @@ class _Try:
     err: ModelError | None
     exc: BaseException | None
     outcome: str
-
-
-def _severity(t: _Try) -> int:
-    """Rank a failed try: non-retryable 0 < retryable 1 < 429 2 < dead key 3 < 503/529 4."""
-    err = t.err
-    assert err is not None
-    if t.outcome == "dead":
-        return 3
-    if err.retryable and err.status in (503, 529):
-        return 4
-    if not err.retryable:
-        return 0
-    return 2 if t.outcome == "429" else 1
-
-
-def _discard_loser(
-    fut: Future[_Try], on_attempt: OnAttempt | None = None, attempt_no: int = 0
-) -> None:
-    """A hedge sibling that finished after the winner: handed to ``on_attempt`` as discarded."""
-    try:
-        t = fut.result()
-    except BaseException as exc:  # noqa: BLE001 - a crashed loser must not crash the caller
-        log.debug("hedge loser crashed: %s", exc)
-        return
-    if on_attempt is not None:
-        try:
-            on_attempt(t, attempt_no, True)
-        except Exception as hook_exc:  # noqa: BLE001 - accounting is best-effort
-            log.debug("on_attempt hook failed for hedge loser: %s", hook_exc)
-    log.debug("hedge loser …%s finished (%s); discarded", t.key[-4:], t.outcome)

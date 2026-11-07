@@ -8,12 +8,11 @@ process-wide fallback.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
-from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.types import Role, Stage, role_for_stage, stage_for_label
 
 
@@ -166,44 +165,5 @@ def attribute(explicit: CallContext | None = None, *, label: str = "") -> CallCo
     return ctx.resolved()
 
 
-# --------------------------------------------------------------------------- per-attempt sink
-@dataclass(frozen=True)
-class AttemptRecord:
-    """One round-trip of one logical model call, reported to the sink from :func:`attempt_recording`.
-
-    Every round-trip is reported, winner included; a discarded one that cost money becomes a
-    ``source="extra"`` ledger row."""
-
-    attempt: int  #: 1-based issue order within the logical call
-    key: str  #: the full API key that served it; the ledger keeps only its last 4 chars
-    outcome: str  #: the KeyPool report vocabulary (``models.retry``): ok | 429 | 5xx | error | dead, plus whatever the pool adds
-    discarded: bool  #: True for every round-trip that is not the winning one
-    usage: Usage  #: what the provider billed for THIS round-trip
-    error: str = ""  #: str(ModelError) when the round-trip failed
-
-
-AttemptSink = Callable[[AttemptRecord], None]
-
-#: Request-scoped sink for per-attempt rows; the backend captures it once at call entry so a
-#: hedge loser landing later in another thread still reports.
-_attempt_sink: ContextVar[AttemptSink | None] = ContextVar("c3d_cost_attempt_sink", default=None)
-
-
-def attempt_sink() -> AttemptSink | None:
-    """The sink installed for the current logical call (``None`` = nobody meters)."""
-    return _attempt_sink.get()
-
-
-@contextmanager
-def attempt_recording(sink: AttemptSink) -> Iterator[None]:
-    """Install ``sink`` for the duration of ONE logical ``generate`` call."""
-    token = _attempt_sink.set(sink)
-    try:
-        yield
-    finally:
-        _attempt_sink.reset(token)
-
-
-__all__ = ["AttemptRecord", "AttemptSink", "CallContext", "attempt_recording", "attempt_sink",
-           "attribute", "bound_run", "call_context", "context_from_label", "current",
+__all__ = ["CallContext", "attribute", "bound_run", "call_context", "context_from_label", "current",
            "run_binding"]

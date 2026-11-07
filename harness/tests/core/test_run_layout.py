@@ -71,3 +71,13 @@ def test_a_planted_git_hook_or_filter_never_runs_on_a_commit(tmp_path):
     (ws.src / "model.py").write_text("x = 2\n")
     ws.changed_files()
     assert not fired.exists(), f"a planted filter ran during changed_files(): {fired.read_text()!r}"
+
+
+def test_the_event_log_skips_rows_that_are_not_objects(tmp_path):
+    from codeverse3d.proc import EventLog
+
+    log = EventLog(tmp_path / "events.jsonl")
+    log.emit("start")
+    with log.path.open("a") as fh:
+        fh.write("12\n\"text\"\n[1]\n")
+    assert [e["event"] for e in log.read()] == ["start"]

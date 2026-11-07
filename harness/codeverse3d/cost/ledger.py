@@ -19,7 +19,7 @@ from typing import Any
 
 from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.context import CallContext, _stage, attribute
-from codeverse3d.cost.tally import Tally, book_usage
+from codeverse3d.cost.tally import book_usage
 from codeverse3d.cost.types import (
     CallCost,
     CostBucket,
@@ -30,7 +30,6 @@ from codeverse3d.cost.types import (
     role_for_stage,
 )
 from codeverse3d.models.pricing import (
-    cache_write_surcharge,
     estimate_cost,
     price_provenance,
     unit_prices,
@@ -139,7 +138,6 @@ def price_call(
     *,
     backend: str = "",
     model: str = "",
-    cache_write_tokens: int = 0,
     reprice: bool = False,
 ) -> tuple[float, dict[str, Any]]:
     """``(cost_usd, price fields)`` for one call.
@@ -157,8 +155,6 @@ def price_call(
                       "price_checked": row.checked}
     if reprice or not cost:
         cost = estimate_cost(provider, name, usage)
-        if cache_write_tokens:
-            cost += cache_write_surcharge(provider, name, cache_write_tokens)
     source = row.match if row.price is not None else "unknown"
     if row.price is None and float(usage.cost_usd) > 0:
         source = "provider-reported"  # the backend billed us; our table cannot explain it
@@ -189,16 +185,14 @@ def record_call(
     model: str = "",
     outcome: str = "ok",
     latency_ms: int | None = None,
-    cache_write_tokens: int = 0,
     n_calls: int = 1,
     source: str = "live",
     ledger: CostLedger | str | Path | None = None,
     ts: float | None = None,
     reprice: bool = False,
-    tallies: tuple[Tally, ...] | None = None,
     **extra: Any,
 ) -> CallCost:
-    """Append one priced call to the ledger, book it into the open tallies (or ``tallies``), return the row.
+    """Append one priced call to the ledger, book it into the open tallies, return the row.
 
     Unstated ``run`` / ``round`` / ``stage`` / ``role`` resolve from the ambient context and label.
     Never raises."""
@@ -209,8 +203,7 @@ def record_call(
     rl = ctx.role or role_for_stage(st)
     run, round, label = ctx.run, ctx.round, ctx.label  # noqa: A001 - see the signature
     try:
-        cost, price_fields = price_call(u, backend=backend, model=model,
-                                        cache_write_tokens=cache_write_tokens, reprice=reprice)
+        cost, price_fields = price_call(u, backend=backend, model=model, reprice=reprice)
     except Exception as e:  # pragma: no cover - pricing must never break a run
         log.warning("cost: pricing failed for %s/%s: %s", backend, model, e)
         cost, price_fields = float(u.cost_usd), {}
@@ -225,7 +218,6 @@ def record_call(
         cached_tokens=int(u.cached_tokens),
         output_tokens=int(u.output_tokens),
         thoughts_tokens=int(u.thoughts_tokens),
-        cache_write_tokens=int(cache_write_tokens),
         tool_calls=int(u.tool_calls),
         cost_usd=cost,
         recorded_usd=float(u.cost_usd),
@@ -241,7 +233,7 @@ def record_call(
     book_usage(Usage(backend=row.backend, model=row.model, input_tokens=row.input_tokens,
                      output_tokens=row.output_tokens, cached_tokens=row.cached_tokens,
                      thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls,
-                     cost_usd=row.cost_usd, latency_ms=row.latency_ms), tallies)
+                     cost_usd=row.cost_usd, latency_ms=row.latency_ms))
     return row
 
 

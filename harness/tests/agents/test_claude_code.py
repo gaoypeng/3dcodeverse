@@ -150,3 +150,15 @@ def test_a_killed_session_is_booked_from_its_messages_and_its_retries_are_provid
     assert 0.0 < res.provider_wait_s <= res.duration_s
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["usage_from"] == "stream messages"
+
+
+def test_a_crash_is_read_from_the_cli_errors_not_from_the_tool_results_in_the_stream():
+    from codeverse3d.agents.backends import claude_end
+    from codeverse3d.agents.cli_common import CompletedProc
+
+    chatty = json.dumps({"type": "user", "message": "mesh has 503 triangles; see docs on rate limit handling"})
+    ended = claude_end(CompletedProc(rc=1, stdout=chatty, stderr="Segmentation fault", duration_s=1.0), None, "")
+    assert not ended.transient and not ended.rate_limited
+    retry = json.dumps({"type": "system", "subtype": "api_retry", "error": "rate_limit", "error_status": 429})
+    limited = claude_end(CompletedProc(rc=1, stdout=chatty + "\n" + retry, stderr="", duration_s=1.0), None, "")
+    assert limited.rate_limited
