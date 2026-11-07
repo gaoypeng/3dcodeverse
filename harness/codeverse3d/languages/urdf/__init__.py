@@ -687,7 +687,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
             return fail("LintError", f"{len(errs)} lint error(s):\n{msg}", file=str(errs[0].target or "src/robot.urdf"),
                         line=errs[0].data.get("line"), census=census)
 
-        # 2. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir),
+        # 1. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir),
         #    read like every other wrapper's report
         blender = settings.resolve_blender()
         if not blender:
@@ -716,7 +716,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
             msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)
 
-        # 5. the rest pose decides the build; other poses are the joint_sweep gate
+        # 2. the rest pose decides the build; other poses are the joint_sweep gate
         report = sweep_collisions(robot, [{}])
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
 
@@ -743,7 +743,7 @@ def _run_blender(blender: str, ws: Workspace, art: Path, timeout_s: int, rlimit_
            "--script", str(ws.root / "src" / "model.py"), "--urdf", str(ws.root / "src" / "robot.urdf"),
            "--out", str(art), "--rlimit-gb", str(rlimit_gb)]
     # whitelist env (no inherited PYTHONPATH, user config pinned into artifacts) — deliberately
-    # stricter than blender.runtime.blender_env(); keep it that way
+    # stricter than languages.blender.blender_env(); keep it that way
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", str(ws.root)),
            "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "BLENDER_USER_CONFIG": str(art / ".blender_config")}
     return run_subprocess(cmd, cwd=ws.root, env=env, timeout_s=timeout_s)

@@ -30,6 +30,7 @@ from pydantic import (
     ValidationInfo,
     ValidatorFunctionWrapHandler,
     WrapValidator,
+    field_validator,
     model_validator,
 )
 from pydantic_core import PydanticUseDefault
@@ -178,8 +179,8 @@ class Judge(BaseModel):
 
 class Placement(BaseModel):
     """The scene_placement gate's thresholds (spatial/scene_placement.py), metres / fractions.
-    The JS measurement (host_placement.mjs) keeps its own CONTACT / FLOATING / SUNK constants:
-    these decide severities only."""
+    The JS measurement (host_placement.mjs) keeps its own CONTACT / FLOATING / SUNK constants: Settings refuses a
+    placement whose contact_m / floating_outdoor_m / sunk_m differ from them; the rest decide severities only."""
 
     contact_m: float = Field(default=0.02, ge=0, description="foot within this of a surface = seated")
     floating_outdoor_m: float = Field(default=0.05, ge=0, description="gap above which an outdoor asset floats")
@@ -221,6 +222,16 @@ class Settings(BaseSettings):
                 sub = data.get(section) or {}
                 data[section] = {**(sub.model_dump() if isinstance(sub, BaseModel) else sub), name: raw}
         return data
+
+    @field_validator("placement")
+    @classmethod
+    def _placement_matches_the_probe(cls, v: Placement) -> Placement:
+        """The probe (host_placement.mjs) measures `seated` / `floating` / `sunk` at its own constants: the gate must grade the same numbers."""
+        d = Placement()
+        if (v.contact_m, v.floating_outdoor_m, v.sunk_m) != (d.contact_m, d.floating_outdoor_m, d.sunk_m):
+            raise ValueError("placement.contact_m / floating_outdoor_m / sunk_m are pinned to host_placement.mjs "
+                             "(CONTACT_TOL_M / FLOATING_M / SUNK_M); change both together")
+        return v
 
     runs_dir: Path = Field(default=Path("runs"))
     cache_dir: Path = Field(default=Path.home() / ".cache" / "codeverse3d")
