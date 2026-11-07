@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -93,19 +92,6 @@ def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monk
     assert asked == [0]                                           # `3dcodeverse judge`'s default round
 
 
-class _Pairwise:
-    def __init__(self, winner: str, confidence: float, *, fail: bool = False, thinking: str = "medium"):
-        self.winner, self.confidence, self.fail, self.calls = winner, confidence, fail, []
-        self.thinking = thinking
-
-    def compare(self, spec, renders_a, renders_b, *, rubric):
-        self.calls.append((renders_a.views[0].path, renders_b.views[0].path, rubric))
-        if self.fail:
-            raise RuntimeError("judge down")
-        return SimpleNamespace(winner=self.winner, confidence=self.confidence, reasons=["r"], usage=Usage(cost_usd=0.05),
-                               error="")
-
-
 # --------------------------------------------------------------------------- package
 def test_a_scene_or_graphics_round_packages_from_its_own_commit_and_renders(tmp_path):
     """A scene or graphics hand-over of round 0 of two is round 0's bytes, never the last's."""
@@ -144,7 +130,7 @@ def test_a_scene_or_graphics_round_packages_from_its_own_commit_and_renders(tmp_
 
 
 # --------------------------------------------------------------------------- CLI
-def test_pick_command_by_score_by_round_and_by_pairwise(tmp_path, monkeypatch):
+def test_pick_command_by_score_and_by_round(tmp_path, monkeypatch):
     runs = tmp_path / "runs"
     ws = _run(runs / "stool", [(0.70, 0), (0.72, 0), (0.50, 0)])
     r = runner.invoke(app, ["pick", "stool", "--runs-dir", str(runs)])
@@ -154,29 +140,6 @@ def test_pick_command_by_score_by_round_and_by_pairwise(tmp_path, monkeypatch):
     assert r.exit_code == 0 and json.loads((ws.root / "selection.json").read_text())["method"] == "round"
     assert (ws.deliverable / "src" / "model.py").read_text() == "import bpy  # round 2\n"
 
-    import codeverse3d.judges.pairwise as pw
-
-    pairwise = _Pairwise("b", 0.95, thinking="low")
-    monkeypatch.setattr(pw, "PairwiseJudge", lambda model: pairwise)
-    args = ["pick", "stool", "--runs-dir", str(runs), "--by", "pairwise", "--judge", "fake:pairwise"]
-    r = runner.invoke(app, args)
-    assert r.exit_code == 0, r.output
-    sel = json.loads((ws.root / "selection.json").read_text())
-    assert (sel["round"], sel["method"]) == (0, "pairwise")
-    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 1
-    cache = ws.judge_path(1, "_vs_r00_pairwise")
-    assert json.loads(cache.read_text())["thinking"] == "low"
-
-    # A new thinking level must run the comparison again, even with identical model and renders.
-    pairwise.thinking, pairwise.winner = "medium", "a"
-    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 2
-    assert json.loads((ws.root / "selection.json").read_text())["round"] == 1
-    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 2
-    cached = json.loads(cache.read_text())
-    assert cached.pop("thinking") == "medium"
-    ws.write_json(cache, cached)  # old caches did not record the level and cannot prove a match
-    assert runner.invoke(app, args).exit_code == 0 and len(pairwise.calls) == 3
-    assert runner.invoke(app, ["pick", "stool", "--runs-dir", str(runs), "--by", "vibes"]).exit_code == 2
     assert runner.invoke(app, ["pick", "stool", "--runs-dir", str(runs), "--round", "9"]).exit_code == 2
 
     _run(runs / "blank", [(None, 0)])
@@ -223,7 +186,7 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     ws.write_json(ws.artifacts / "measurement.json", {"extra": {"complexity": {"index": 0.9}}})
     assert select.round_file(ws, rec.rounds[0]) == ws.round_artifacts(0) / "object.glb"
     assert select.round_file(ws, rec.rounds[0], "preview.gif") is None
-    assert select.round_complexity_block(ws, rec.rounds[0]) is None  # never the canonical file's
+    assert select.round_complexity_block(rec.rounds[0]) is None  # never the canonical file's
     # Missing snapshots cannot borrow the canonical build, even with an obsolete best_round key.
     for i in (0, 1):
         (ws.round_artifacts(i) / "object.glb").unlink()
@@ -232,7 +195,7 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     ws.write_json(ws.record_path, {**data, "best_round": 1})
     assert select.round_file(ws, rec.rounds[0]) is None
     assert select.round_file(ws, rec.rounds[1]) is None
-    assert select.round_complexity_block(ws, rec.rounds[1]) is None
+    assert select.round_complexity_block(rec.rounds[1]) is None
 
 
 @pytest.mark.parametrize("gate,rounds,want", [
@@ -252,18 +215,3 @@ def test_a_round_failing_the_projects_own_checks_loses_to_one_that_passes(tmp_pa
     assert select.pick(ws.root) == want
     rows = select.round_rows(ws.root)
     assert [r.project_errors for r in rows] == ([e for _, e in rounds] if gate != "contract" else [0] * len(rounds))
-
-
-def test_pairwise_never_overturns_the_project_tier(tmp_path):
-    """Within the pairwise margin, a round failing a project check is never asked against a clean one."""
-    ws = _run(tmp_path / "r", [(0.70, 0), (0.71, 0)])
-    rec = json.loads(ws.record_path.read_text())
-    rec["rounds"][1]["gates"].append({"gate": "project:survey", "passed": False, "findings": [
-        {"gate": "project:survey", "severity": "error", "message": "eaves 0.9 m off"}]})
-    ws.record_path.write_text(json.dumps(rec))
-
-    class Never:
-        def judge(self, *a, **k):
-            raise AssertionError("pairwise asked across tiers")
-
-    assert select.pick(ws.root, by="pairwise", judge=Never()) == 0

@@ -155,7 +155,7 @@ _CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
 
 def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
     try:
-        block = select.round_complexity_block(ws, next((r for r in rec.rounds if r.index == picked), None))
+        block = select.round_complexity_block(next((r for r in rec.rounds if r.index == picked), None))
     except Exception:  # noqa: BLE001
         block = None
     if block is None or block.get("index") is None:

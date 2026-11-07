@@ -7,7 +7,6 @@
     3dcodeverse cost show runs/ --md report.md   # the same, explicit + full markdown
     3dcodeverse cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
     3dcodeverse cost prices [--stale] [--unverified]
-    3dcodeverse cost estimate gemini:… --in 12000 --out 800
 """
 
 from __future__ import annotations
@@ -157,54 +156,3 @@ def _age_days(checked: str) -> int | None:
         return (date.today() - datetime.strptime(checked, "%Y-%m-%d").date()).days
     except (TypeError, ValueError):
         return None
-
-
-# --------------------------------------------------------------------------- cache
-@cost_app.command("cache")
-def cache(
-    paths: Annotated[list[Path], typer.Argument(help="run slugs or run dirs")],
-    runs_dir: Annotated[Path | None, typer.Option("--runs-dir")] = None,
-) -> None:
-    """Did prompt caching happen?  Per session: cold first call, cached share, dollars saved."""
-    from codeverse3d.addons.costreport.caching import session_cache
-    from codeverse3d.cost.ledger import load_ledger
-
-    for arg in paths:
-        root = _resolve(str(arg), runs_dir)
-        rows = load_ledger(root)
-        sessions = session_cache(rows)
-        if not sessions:
-            warn(f"{root}: no priced calls found")
-            continue
-        console.print(f"[bold]{root.name}[/bold]  ({len(rows)} calls, {len(sessions)} sessions)")
-        header = ("session", "calls", "first in", "first cached", "cached", "saved $", "cold $")
-        table = [header] + [
-            (s.key, str(s.n_calls), f"{s.first_input:,}", f"{s.first_cached:,}",
-             f"{s.cached_fraction:.0%}", f"{s.saved_usd:.4f}", f"{s.cold_usd:.4f}") for s in sessions]
-        widths = [max(len(r[i]) for r in table) for i in range(len(header))]
-        for r in table:
-            console.print("  " + "  ".join(c.rjust(w) if i else c.ljust(w)
-                                           for i, (c, w) in enumerate(zip(r, widths, strict=True))),
-                          soft_wrap=True)
-        tot_in = sum(s.input_tokens for s in sessions)
-        tot_cached = sum(s.cached_tokens for s in sessions)
-        console.print(f"  → {tot_cached:,} of {tot_in:,} input tokens cached ({tot_cached / tot_in if tot_in else 0:.0%}), "
-                      f"saved ${sum(s.saved_usd for s in sessions):.4f}, "
-                      f"cold heads cost ${sum(s.cold_usd for s in sessions):.4f}\n")
-
-
-# --------------------------------------------------------------------------- estimate
-@cost_app.command("estimate")
-def estimate(
-    model: Annotated[str, typer.Argument(help="model id, e.g. gemini:gemini-3.1-pro-preview")],
-    input_tokens: Annotated[int, typer.Option("--in", help="prompt tokens")] = 0,
-    output_tokens: Annotated[int, typer.Option("--out", help="expected output tokens")] = 0,
-    cached: Annotated[int, typer.Option("--cached")] = 0,
-    images: Annotated[int, typer.Option("--images", help="input images at 1024px")] = 0,
-) -> None:
-    """What one call would cost before you send it."""
-    from codeverse3d.cost import estimate_call
-
-    est = estimate_call(model, input_tokens=input_tokens, output_tokens=output_tokens,
-                        cached_tokens=cached, n_images=images)
-    console.print(est.line())

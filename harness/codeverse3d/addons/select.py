@@ -2,29 +2,23 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import FIXED_PARTS_GATE, PROJECT_GATE_PREFIX
-from codeverse3d.cost.context import call_context
-from codeverse3d.cost.types import Role, Stage
-from codeverse3d.judges.base import judged_subset, resolve_paths
-from codeverse3d.proc import EventLog, read_json_or_none, sha256_file
+from codeverse3d.proc import EventLog, read_json_or_none
 from codeverse3d.record.deliverable import build_deliverable, round_outputs
 from codeverse3d.record.record import (
     effective_judgment,
     load_record,
     repackage,
     round_complexity,
-    rubric_of,
     stop_reason,
 )
 from codeverse3d.workspace import Workspace
@@ -32,11 +26,7 @@ from codeverse3d.workspace import Workspace
 log = logging.getLogger(__name__)
 
 SELECTION_NAME = "selection.json"
-PAIRWISE_MARGIN = 0.03
-PAIRWISE_MIN_CONFIDENCE = 0.6
-
-PickBy = Literal["score", "pairwise"]
-Method = Literal["score", "pairwise", "round"]
+Method = Literal["score", "round"]
 
 
 class RoundRow(BaseModel):
@@ -76,18 +66,6 @@ class Selection(BaseModel):
     selected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-class PairwiseNote(BaseModel):
-
-    a: str = Field(description="label of the top-scored round")
-    b: str = Field(description="label of the runner-up")
-    winner: Literal["a", "b", "tie"] = "tie"
-    confidence: float = 0.0
-    accepted: bool = Field(default=False, description="True when the runner-up is picked instead")
-    reasons: list[str] = Field(default_factory=list)
-    usage: Usage = Field(default_factory=Usage)
-    error: str = ""
-
-
 # --------------------------------------------------------------------------- rows
 def _load(run_dir: Path | str, record: RunRecord | None) -> RunRecord:
     return record if record is not None else load_record(Workspace(run_dir))
@@ -123,61 +101,15 @@ def round_file(ws: Workspace, rnd: RoundRecord | None, name: str = "object.glb")
     return p if p is not None and p.is_file() else None
 
 
-def round_complexity_block(ws: Workspace, rnd: RoundRecord | None) -> dict | None:
+def round_complexity_block(rnd: RoundRecord | None) -> dict | None:
     block = round_complexity(rnd) if rnd is not None else None
     return block if isinstance(block, dict) else None
 
 
 # --------------------------------------------------------------------------- pick
-def pick(run_dir: Path | str, *, by: PickBy = "score", pairwise_model: str | None = None,
-         record: RunRecord | None = None, judge: Any | None = None) -> int | None:
-    rec = _load(run_dir, record)
-    ranked = _ranked(round_rows(run_dir, record=rec))
-    if not ranked:
-        return None
-    top = ranked[0]
-    if (by != "pairwise" or len(ranked) < 2 or (ranked[1].project_errors > 0) != (top.project_errors > 0)
-            or (top.score or 0.0) - (ranked[1].score or 0.0) > PAIRWISE_MARGIN):
-        return top.index
-    note = pairwise_verdict(Workspace(run_dir), rec, top.index, ranked[1].index,
-                            model=pairwise_model or rec.spec.backends.judge, judge=judge)
-    return ranked[1].index if note.accepted else top.index
-
-
-def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: str, judge: Any | None = None) -> PairwiseNote:
-    cache = ws.judge_path(a, f"_vs_r{b:02d}_pairwise")
-    rounds = {r.index: r for r in rec.rounds}
-    renders = [judged_subset(resolve_paths(ws, rounds[i].renders)) for i in (a, b)]
-    note = PairwiseNote(a=f"r{a:02d}", b=f"r{b:02d}")
-    if renders[0] is None or renders[1] is None:
-        note.error = "a round has no renders to compare"
-        return note
-    seen = hashlib.sha256("\n".join(sha256_file(v.path) if Path(v.path).is_file() else v.path
-                                  for rs in renders for v in rs.views).encode()).hexdigest()
-    stored = read_json_or_none(cache) or {}
-    try:
-        if judge is None:
-            from codeverse3d.judges.pairwise import PairwiseJudge
-
-            judge = PairwiseJudge(model)
-        if (stored.get("model") == model and stored.get("renders") == seen
-                and stored.get("thinking") == judge.thinking and isinstance(stored.get("note"), dict)):
-            return PairwiseNote.model_validate(stored["note"])
-        with call_context(stage=Stage.PAIRWISE, role=Role.JUDGE, label="pick"):
-            res = judge.compare(rec.spec, renders[0], renders[1],
-                                rubric=rubric_of(rec))
-    except Exception as e:  # noqa: BLE001
-        log.warning("pairwise pick failed: %s", e)
-        note.error = f"{type(e).__name__}: {e}"
-        return note
-    note.winner, note.confidence = res.winner, float(res.confidence or 0.0)
-    note.reasons, note.usage, note.error = list(res.reasons or [])[:6], res.usage or Usage(), res.error or ""
-    note.accepted = note.winner == "b" and note.confidence >= PAIRWISE_MIN_CONFIDENCE
-    ws.write_json(cache, {"model": model, "renders": seen, "thinking": judge.thinking,
-                         "note": note.model_dump(mode="json")})
-    EventLog(ws.events_path).emit("pick.pairwise", a=a, b=b, winner=note.winner, confidence=note.confidence,
-                                  accepted=note.accepted, cost_usd=round(note.usage.cost_usd, 4))
-    return note
+def pick(run_dir: Path | str, *, record: RunRecord | None = None) -> int | None:
+    ranked = _ranked(round_rows(run_dir, record=_load(run_dir, record)))
+    return ranked[0].index if ranked else None
 
 
 def fallback_round(rounds: Iterable[RoundRecord]) -> int | None:

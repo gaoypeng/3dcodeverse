@@ -24,7 +24,6 @@ class Stage(StrEnum):
     GATES = "gates"
     RENDER = "render"
     JUDGE = "judge"
-    PAIRWISE = "pairwise"
     CAPTION = "caption"
     OTHER = "other"
 
@@ -88,7 +87,7 @@ def stage_for_label(label: str) -> Stage:
 def role_for_stage(stage: Stage) -> Role:
     if stage is Stage.PLAN:
         return Role.PLANNER
-    if stage in (Stage.JUDGE, Stage.PAIRWISE):
+    if stage is Stage.JUDGE:
         return Role.JUDGE
     if stage is Stage.CAPTION:
         return Role.CAPTIONER

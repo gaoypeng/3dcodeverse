@@ -174,7 +174,7 @@ class Judge(BaseModel):
         "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
     thinking: Annotated[Literal["off", "low", "medium", "high"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="medium",
-        description="VLM and pairwise judges' thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
+        description="VLM judge's thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
         "The default gemini-4-argon thinks only from 'medium' "
         "(4096) — measured 2026-10-14 on 19 scene/object rounds: argon@medium within-sd .012 vs .029 at low, "
         "same cost, same mean (D105).  `3dcodeverse judge --thinking` replays with another level.")
@@ -288,7 +288,6 @@ class Settings(BaseSettings):
                              "(object tracks)")
     plan_restart: Flag = Field(default=True, description="re-sample a degenerate plan from the original "
                                "prompt instead of editing it in context (docs/COST.md §30)")
-    reference_diff: Flag = Field(default=True, description="the judge's reference-image mismatch pass")
     zone_layouts: Flag = Field(default=True, description="scene track: the L2 zone-layout planner calls")
     axis_repair: Flag = Field(default=True, description="articulated track: rewrite a joint axis the "
                               "measured motion proves wrong, before the sweep renders")

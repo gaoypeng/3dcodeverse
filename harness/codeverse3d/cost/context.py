@@ -113,7 +113,6 @@ _LABEL_HINTS: tuple[tuple[str, Stage, Role], ...] = (
     ("planner", Stage.PLAN, Role.PLANNER),
     ("plan", Stage.PLAN, Role.PLANNER),
     ("judge", Stage.JUDGE, Role.JUDGE),
-    ("pairwise", Stage.PAIRWISE, Role.JUDGE),
     ("caption", Stage.CAPTION, Role.CAPTIONER),
     ("calibrate", Stage.JUDGE, Role.JUDGE),
 )
@@ -151,7 +150,7 @@ def _round_from_label(label: str) -> int | None:
 
 #: Stages whose label names a job of its own: they outrank the ambient session context.
 SELF_DESCRIBING: frozenset[Stage] = frozenset(
-    {Stage.PLAN, Stage.JUDGE, Stage.PAIRWISE, Stage.CAPTION})
+    {Stage.PLAN, Stage.JUDGE, Stage.CAPTION})
 
 
 def attribute(explicit: CallContext | None = None, *, label: str = "") -> CallContext:

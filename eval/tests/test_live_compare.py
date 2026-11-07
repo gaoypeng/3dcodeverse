@@ -20,7 +20,7 @@ pytestmark = [pytest.mark.live, pytest.mark.blender, pytest.mark.node]
 
 @pytest.mark.skipif(not get_settings().gemini_api_keys, reason="no gemini keys")
 def test_oneshot_gemini_cell_scores(tmp_path: Path):
-    opts = CompareOptions(judge="gemini:gemini-3.8-flash", n_samples=1, limit=1, parallel=1, pairwise=False)
+    opts = CompareOptions(judge="gemini:gemini-3.8-flash", n_samples=1, limit=1, parallel=1)
     deps = CompareDeps(FixedEvaluator(opts.judge, n_samples=1))
     rows = run_matrix(REPO / "bench" / "prompts" / "compare_v1.yaml", tmp_path / "o",
                       parse_arms("oneshot:gemini:gemini-3.8-flash"), opts, deps)

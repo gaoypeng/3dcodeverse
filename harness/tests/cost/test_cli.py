@@ -12,13 +12,9 @@ from codeverse3d.cli.main import app
 runner = CliRunner()
 
 
-def test_cost_prices_and_estimate():
+def test_cost_prices():
     r = runner.invoke(app, ["cost", "prices", "--provider", "gemini"])
     assert r.exit_code == 0 and "gemini:gemini-3.8-flash" in r.stdout and "verified" in r.stdout
-    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.8-flash", "--in", "100000", "--out", "1000"])
-    assert r.exit_code == 0 and "$0.0788" in r.stdout
-    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.8-flash", "--in", "12000", "--images", "8"])
-    assert r.exit_code == 0 and "~22,320 in" in r.stdout, r.stdout  # 12 000 + 8 x 1 290
 
 
 # --------------------------------------------------------------------- the live ledger

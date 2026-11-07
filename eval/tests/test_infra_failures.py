@@ -9,64 +9,6 @@ import pytest
 from bench._compare_report import CellResult, arm_stats
 from bench._infra import is_infra_failure
 
-
-@pytest.mark.parametrize("failed_side", [0, 1])
-def test_pairwise_outage_is_unavailable_even_with_cached_win(tmp_path, monkeypatch, failed_side):
-    from bench import compare_backends as cb
-    from bench._compare_report import PairRow, pair_stats
-    from bench.run_bench import Battery
-    from tests.conftest import BATTERY, FakeEvaluator
-
-    battery = Battery.load(BATTERY)
-    battery = battery.model_copy(update={"prompts": battery.prompts[:1]})
-    prompt = battery.prompts[0].id
-    arms = cb.parse_arms("harness:codex:gpt-6-astra@high,agent:agy:gemini-3.8-flash")
-    rows = [CellResult(prompt_id=prompt, arm=a.raw, kind=a.kind, status="scored", score=0.6) for a in arms]
-    rows[failed_side] = rows[failed_side].model_copy(update={"status": "infra_failed", "error_is_infra": True, "score": None})
-    cells = {(r.prompt_id, r.arm): r for r in rows}
-    old = PairRow(prompt_id=prompt, arm_a=arms[0].raw, arm_b=arms[1].raw, winner="a", judged=False)
-    path = tmp_path / "pairwise.jsonl"
-    path.write_text(old.model_dump_json() + "\n")
-
-    def no_render_lookup(*args):
-        pytest.fail("An outage cannot enter the missing-render or partial-render comparison path")
-
-    monkeypatch.setattr(cb, "_renders_of", no_render_lookup)
-    deps = cb.CompareDeps(FakeEvaluator())
-    pairs = cb.run_pairwise(battery, cells, arms, tmp_path, cb.CompareOptions(), deps)
-    assert len(pairs) == 1 and not pairs[0].eligible
-    assert pairs[0].winner == "unavailable" and not pairs[0].judged
-    assert pair_stats(pairs) == []  # neither a loss nor a tie in any denominator
-    assert len(path.read_text().splitlines()) == 2  # old evidence retained, superseded
-    cb.run_pairwise(battery, cells, arms, tmp_path, cb.CompareOptions(), deps)
-    assert len(path.read_text().splitlines()) == 2  # resume does not duplicate the exclusion
-
-
-def test_scene_pairwise_uses_the_same_track_rubric_as_fixed_evaluation(tmp_path, monkeypatch):
-    from bench import compare_backends as cb
-    from bench.run_bench import Battery
-    from codeverse3d.contracts.common import Language, Track
-    from tests.conftest import BATTERY, FakeEvaluator, FakePairwise
-
-    battery = Battery.load(BATTERY)
-    battery = battery.model_copy(update={"prompts": battery.prompts[:1], "track": Track.SCENE,
-                                         "language": Language.SCENE_THREEJS})
-    arms = cb.parse_arms("harness:codex:gpt-6-astra@high,agent:agy:gemini-3.8-flash")
-    cells = {(battery.prompts[0].id, a.raw): CellResult(prompt_id=battery.prompts[0].id,
-               arm=a.raw, kind=a.kind, status="scored", score=0.6) for a in arms}
-    monkeypatch.setattr(cb, "_renders_of", lambda *args: object())
-    seen = []
-
-    class Judge(FakePairwise):
-        def compare(self, spec, ra, rb, *, rubric=None):
-            seen.append(rubric)
-            return super().compare(spec, ra, rb, rubric=rubric)
-
-    pairs = cb.run_pairwise(battery, cells, arms, tmp_path, cb.CompareOptions(),
-                            cb.CompareDeps(FakeEvaluator(), pairwise_judge=Judge))
-    assert seen == ["scene"]
-    assert pairs[0].rubric == "scene"
-
 OUTAGES = [
     "ModelError: Gemini API error 503: This model is currently experiencing high demand.",
     "ModelError: Gemini request timed out: The read operation timed out",

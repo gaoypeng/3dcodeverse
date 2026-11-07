@@ -42,7 +42,6 @@ class JudgeInput(BaseModel):
     gates: list[GateReport] = Field(default_factory=list)
     acceptance: list[AcceptanceItem] = Field(default_factory=list)
     plan_summary: str = Field(default="", description="short plan digest (parts/zones/joints) for grounding")
-    part_names: list[str] = Field(default_factory=list, description="an object plan's part names (the reference diff)")
     round_index: int = 0
     previous: Judgment | None = Field(default=None, description="last verdict (for delta framing)")
     extra_context: str = ""
@@ -84,7 +83,6 @@ def round_input(spec: Spec, plan: Plan | None, rnd: RoundRecord, *, renders: Ren
     return JudgeInput(
         spec=spec, renders=renders, measurement=rnd.measurement, gates=list(gates),
         acceptance=list(getattr(plan, "acceptance", None) or []), plan_summary=plan_summary(plan, spec.language),
-        part_names=[p.name for p in plan.parts] if isinstance(plan, StaticPlan) else [],
         round_index=rnd.index, previous=previous, extra_context=extra_context, geometry_views=geometry_views,
         glb_path=glb_path if spec.track.value in SLICE_TRACKS else None,
     )

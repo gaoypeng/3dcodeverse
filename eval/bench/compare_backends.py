@@ -20,12 +20,10 @@ Every arm ends with a ``src/model.py`` that is copied into a fresh eval workspac
 and scored by the SAME fixed evaluator: BlenderRuntime lint+build → measure →
 connectivity gate → 14-view ``render_glb`` → ``VlmJudge(static_object, judge,
 n_samples=2)`` whose acceptance checklist is the battery's ``must_have`` list.
-A failed build (or unparseable answer) scores 0 with the error recorded.  Then a
-pairwise arena (``PairwiseJudge``, same judge model, both orders) runs every
-harness arm against every one-shot arm per prompt.
+A failed build (or unparseable answer) scores 0 with the error recorded.
 
 Layout of ``--out``: ``matrix.json`` · ``results.jsonl`` (cells; resume source) ·
-``pairwise.jsonl`` · ``cells/<prompt>/<arm>/{run,gen,eval}`` · ``report.md`` ·
+``cells/<prompt>/<arm>/{run,gen,eval}`` · ``report.md`` ·
 ``report.html`` (+ ``report_assets/``).
 """
 
@@ -56,8 +54,8 @@ for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + 
 
 from datetime import UTC  # noqa: E402
 
-from bench._compare_report import CellResult, PairRow, build_compare_report  # noqa: E402
-from bench._fixed_eval import EvalOutcome, FixedEvaluator, rubric_for  # noqa: E402
+from bench._compare_report import CellResult, build_compare_report  # noqa: E402
+from bench._fixed_eval import EvalOutcome, FixedEvaluator  # noqa: E402
 from bench._infra import is_budget_exhaustion, is_infra_failure, judge_outage  # noqa: E402
 from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
@@ -80,7 +78,6 @@ from bench.run_bench import (  # noqa: E402
 )
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
-from codeverse3d.contracts.artifacts import RenderSet  # noqa: E402
 from codeverse3d.contracts.common import ENTRY_FILE, Backends, Track, Usage  # noqa: E402
 from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
@@ -146,7 +143,6 @@ class CompareOptions(BaseModel):
     gen_timeout_s: float = 900.0
     repair_attempts: int = 2
     n_samples: int = 2
-    pairwise: bool = True
     degraded_min_wall_s: float = Field(default=40 * 60, description="flag_degraded: a harness run this long that never iterated waited, it did not work")
     degraded_max_rounds: int = Field(default=1, description="flag_degraded: completed rounds at or below this count")
     redo_status: list[str] = Field(default_factory=list, description="re-run cells whose status is one of these")
@@ -168,18 +164,10 @@ class CompareDeps:
     """Everything that touches a model / Blender / Chrome; tests swap these for fakes."""
 
     def __init__(self, evaluator: FixedEvaluator | Any, *, run_track: RunTrackFn | None = None,
-                 oneshot_backend: Callable[[str], OneShotBackend] | None = None,
-                 pairwise_judge: Callable[[str], Any] | None = None):
+                 oneshot_backend: Callable[[str], OneShotBackend] | None = None):
         self.evaluator = evaluator
         self.run_track = run_track or default_run_track
         self.oneshot_backend = oneshot_backend or get_oneshot_backend
-        self.pairwise_judge = pairwise_judge or _default_pairwise
-
-
-def _default_pairwise(model_id: str) -> Any:
-    from codeverse3d.judges.pairwise import PairwiseJudge
-
-    return PairwiseJudge(model_id)
 
 
 # ----------------------------------------------------------------------------- one cell
@@ -493,71 +481,7 @@ def _fill_from_outcome(res: CellResult, o: EvalOutcome) -> None:
     res.criteria = {k: round(v, 3) for k, v in j.scores.items()}
 
 
-# ----------------------------------------------------------------------------- pairwise arena
-def _renders_of(out: Path, r: CellResult) -> RenderSet | None:
-    p = Path(r.workspace) / "eval" / "eval.json"
-    if not p.is_file():
-        return None
-    o = EvalOutcome.model_validate(json.loads(p.read_text()))
-    return o.renders if o.renders and o.renders.views else None
-
-
-def run_pairwise(battery: Battery, cells: dict[tuple[str, str], CellResult], arms: Sequence[Arm], out: Path,
-                 opts: CompareOptions, deps: CompareDeps) -> list[PairRow]:
-    path = out / "pairwise.jsonl"
-    done = latest(read_jsonl(path, PairRow)) if opts.resume else {}
-    harness = [a for a in arms if a.kind == "harness"]
-    oneshot = [a for a in arms if a.kind != "harness"]
-    judge = None
-    seal_for_append(path)  # a kill left the last row unterminated; do not glue onto it
-    with path.open("a") as fh:
-        for item in battery.prompts:
-            for ha in harness:
-                for oa in oneshot:
-                    key = (item.id, ha.raw, oa.raw)
-                    ca, cb = cells.get((item.id, ha.raw)), cells.get((item.id, oa.raw))
-                    if ca is None or cb is None:
-                        continue
-                    infra = any(c.status == "infra_failed" or c.error_is_infra for c in (ca, cb))
-                    if infra:
-                        if key in done and not done[key].eligible:
-                            continue
-                        # A provider outage is unavailable evidence, even if it left
-                        # a partial render. Supersede cached automatic wins as well.
-                        row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw,
-                                      winner="unavailable", judged=False, eligible=False,
-                                      exclusion_reason="A cell failed because of infrastructure; no quality comparison.",
-                                      reasons=["excluded: infrastructure failure"])
-                    else:
-                        if key in done and done[key].eligible:
-                            continue
-                        spec = spec_for(battery, item, ha, opts)
-                        ra, rb = _renders_of(out, ca), _renders_of(out, cb)
-                        if ra is None or rb is None:
-                            winner = "tie" if ra is None and rb is None else ("a" if rb is None else "b")
-                            row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=winner, confidence=1.0,
-                                          reasons=["decided without the judge: a side has no renders (build failed)"], judged=False)
-                        else:
-                            judge = judge or deps.pairwise_judge(opts.judge)
-                            pr = judge.compare(spec, ra, rb, rubric=rubric_for(spec))
-                            row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=pr.winner, confidence=pr.confidence,
-                                          reasons=list(pr.reasons), orderings=list(pr.orderings), cost_usd=pr.usage.cost_usd,
-                                          error=pr.error, judged=True, rubric=rubric_for(spec))
-                    done[key] = row
-                    fh.write(row.model_dump_json() + "\n")
-                    fh.flush()
-    return list(done.values())
-
-
 # ----------------------------------------------------------------------------- matrix
-def _drop_pairs(path: Path, key: tuple[str, str]) -> None:
-    """Forget pairwise rows touching a cell that is about to be re-run."""
-    rows = [p for p in latest(read_jsonl(path, PairRow)).values()
-            if not (p.prompt_id == key[0] and key[1] in (p.arm_a, p.arm_b))]
-    if path.is_file():
-        write_text_atomic(path, "".join(p.model_dump_json() + "\n" for p in rows))
-
-
 def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm], opts: CompareOptions,
                deps: CompareDeps, *, on_result: Callable[[CellResult], None] | None = None) -> list[CellResult]:
     battery = Battery.load(battery_path)
@@ -569,7 +493,6 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
     results = out / "results.jsonl"
     done = latest(read_jsonl(results, CellResult)) if opts.resume else {}
     for key in [k for k, r in done.items() if r.status in set(opts.redo_status)]:
-        _drop_pairs(out / "pairwise.jsonl", key)
         del done[key]
     selected = select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit)
     todo = [(p, a) for a in sorted(arms, key=lambda a: a.kind == "harness")  # cheap one-shots first
@@ -591,10 +514,6 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
             fh.flush()
             if on_result:
                 on_result(r)
-    if opts.pairwise:
-        # the arena is battery-level spend: its own ledger at <out>/telemetry/cost.jsonl
-        with run_ledger(out, run=f"{battery.name}:pairwise"):
-            run_pairwise(battery, done, arms, out, opts, deps)
     build_compare_report(out)
     return list(done.values())
 
@@ -662,7 +581,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--judge-samples", type=int, default=2,
                     help="FIXED judge samples per cell (default 2 — kept for resumable batteries; use an odd "
                          "n for a true majority on the defect checklist, see docs/DECISIONS.md D36)")
-    ap.add_argument("--no-pairwise", action="store_true")
     ap.add_argument("--no-preflight", action="store_true",
                     help="skip the provider health check (see --wait-for-provider)")
     ap.add_argument("--wait-for-provider", type=float, default=0.0, metavar="MIN",
@@ -681,7 +599,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                           max_minutes=ns.max_minutes, parallel=ns.parallel,
                           limit=ns.limit, ids=[i for i in ns.ids.split(",") if i],
                           tiers=[t for t in ns.tiers.split(",") if t], resume=not ns.no_resume,
-                          gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts, pairwise=not ns.no_pairwise,
+                          gen_timeout_s=ns.gen_timeout, repair_attempts=ns.repair_attempts,
                           n_samples=max(1, ns.judge_samples),
                           redo_status=[x for x in ns.redo_status.split(",") if x])
     arms = parse_arms(ns.arms)

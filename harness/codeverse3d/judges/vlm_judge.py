@@ -17,10 +17,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.artifacts import Judgment, RenderView
+from codeverse3d.contracts.artifacts import Judgment
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import TRACK_INFO, Track, Usage
-from codeverse3d.conventions import views_by_preference
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.prompt_builder import (
     _key,
@@ -43,7 +42,7 @@ from codeverse3d.judges.rubrics import (
 from codeverse3d.models import get_chat_model
 from codeverse3d.models.base import ChatModel, ModelError
 from codeverse3d.proc import fan_out, unique_tmp
-from codeverse3d.reference import compare, conflict_note, dimension_conflict
+from codeverse3d.reference import conflict_note, dimension_conflict
 from codeverse3d.spatial.silhouette import (
     CompareFn,
     ReferenceMatch,
@@ -292,16 +291,8 @@ IOU_LOW, IOU_HIGH = 0.25, 0.85
 #: score the measured criterion gets when the measurement cannot be trusted
 NEUTRAL_SCORE = 0.5
 
-#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side)
-DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high", "right", "left")
-
-
 def iou_to_score(iou: float) -> float:
     return max(0.0, min(1.0, (float(iou) - IOU_LOW) / (IOU_HIGH - IOU_LOW)))
-
-
-def _diff_enabled(flag: bool) -> bool:
-    return flag and get_settings().reference_diff
 
 
 class ReferenceJudge(VlmJudge):
@@ -316,12 +307,10 @@ class ReferenceJudge(VlmJudge):
         *,
         rubric: str | Rubric = "reference",
         silhouette_fn: CompareFn | None = None,
-        diff: bool = True,
         **kwargs: Any,
     ):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
         self.silhouette_fn = silhouette_fn or compare_silhouette
-        self.diff = diff
 
     def context(self, inp: JudgeInput) -> JudgeContext:
         refs = [r for r in inp.spec.references if Path(r.path).is_file()]
@@ -336,7 +325,7 @@ class ReferenceJudge(VlmJudge):
             blocks.append(note)
         measured_ids = [c.id for c in self.rubric.measured_criteria()]
         measured_scores: dict[str, float] = {}
-        match = measure_reference(inp.renders.views, inp.spec, compare=self.silhouette_fn) if refs else None
+        match = measure_reference(inp.renders.views, inp.spec, compare=self.silhouette_fn, conflict=conflict) if refs else None
         if measured_ids:
             if match is None:
                 raise ReferenceJudgeError(f"cannot score measured criteria {measured_ids}: "
@@ -347,11 +336,7 @@ class ReferenceJudge(VlmJudge):
             blocks.append(
                 f"MEASURED SILHOUETTE (harness): {match.view} render vs reference {Path(match.reference).name}: "
                 f"IoU {match.iou:.3f} → silhouette_match score {score:.2f}{why}. extra: {extra}")
-        diff = self.reference_diff(inp, refs, match) if refs else None
-        if diff is not None and diff.as_text():
-            blocks.append(diff.as_text())
-        return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images,
-                            usage=diff.usage if diff is not None else Usage())
+        return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images)
 
     def dimension_conflict(self, inp: JudgeInput, refs: list[Any]) -> dict[str, Any]:
         """Does the target reference's own outline contradict the brief's dimensions?  If so the brief wins."""
@@ -371,30 +356,6 @@ class ReferenceJudge(VlmJudge):
         if not match.reliable:
             return NEUTRAL_SCORE, " (NEUTRAL: the background mask was unreliable)"
         return iou_to_score(match.iou), ""
-
-    def reference_diff(self, inp: JudgeInput, refs: list[Any], match: ReferenceMatch | None) -> Any | None:
-        """One extra vision call naming concrete mismatches; ``None`` when disabled; never raises."""
-        if not _diff_enabled(self.diff):
-            return None
-        targets = [r.path for r in refs if r.role == "target"] or [r.path for r in refs]
-        renders = self.diff_views(list(inp.renders.views))
-        measured = None if match is None else {"iou": match.iou, "aspect_ratio_err": match.aspect_ratio_err, "reliable": match.reliable,
-                                                "view": match.view, "reference": Path(match.reference).name}
-        try:
-            return compare(inp.spec, targets, renders, model=self.model,
-                           part_names=inp.part_names, measured=measured, thinking=self.thinking)  # type: ignore[arg-type]
-        except Exception as e:  # noqa: BLE001
-            log.warning("reference diff pass failed: %s", e)
-            return None
-
-    def diff_views(self, views: list[RenderView]) -> list[str]:
-        picked = [v.path for v in views_by_preference(views, DIFF_VIEW_NAMES)]
-        for v in views:
-            if len(picked) >= 3:
-                break
-            if v.path not in picked:
-                picked.append(v.path)
-        return picked[:3]
 
 
 LIKENESS_NOTE = (

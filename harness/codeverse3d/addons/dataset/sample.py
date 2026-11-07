@@ -244,7 +244,7 @@ def build_meta(
     code_files = [f for f in files if f.startswith("src/")]
     gates = gate_error_summary(rnd)
     n_gate_errors = sum(gates.values())
-    cx = select.round_complexity_block(ws, rnd)
+    cx = select.round_complexity_block(rnd)
     name = ""
     if record.plan is not None:
         name = getattr(record.plan, "object_name", "") or getattr(record.plan, "title", "")

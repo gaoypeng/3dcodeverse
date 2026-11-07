@@ -95,19 +95,3 @@ def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: A
         raise C.CliError(f"cannot load rubric {rubric_name!r}: {e}") from e
     cls = vlm_judge.judge_for(spec.track, rubric, references=bool(spec.references))
     return cls(model_id=model_id, n_samples=n, rubric=rubric_name, **options)
-
-
-def count_prompt_images(inp: Any, rubric_name: str, judge: Any = None) -> int | None:
-    """Number of image parts a single judge sample sends (None on failure), including
-    ``judge``'s slice payload when given."""
-    try:
-        from codeverse3d.contracts.chat import ImagePart
-        from codeverse3d.judges.prompt_builder import build_judge_messages
-        from codeverse3d.judges.rubrics import load_rubric
-
-        slices, elicit = judge.slice_payload(inp) if judge is not None else ([], False)
-        _, messages = build_judge_messages(inp, load_rubric(rubric_name),
-                                           slice_images=slices, provenance_elicitation=elicit)
-        return sum(1 for m in messages for p in m.parts if isinstance(p, ImagePart))
-    except Exception:  # noqa: BLE001 — informational only
-        return None

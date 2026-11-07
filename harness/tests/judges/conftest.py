@@ -32,7 +32,6 @@ def judge_settings(monkeypatch):
             monkeypatch.delenv(name)
     settings = Settings()
     monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: settings)
-    monkeypatch.setattr("codeverse3d.judges.pairwise.get_settings", lambda: settings)
     return settings
 
 

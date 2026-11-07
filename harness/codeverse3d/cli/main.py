@@ -417,26 +417,25 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
         ) from e
     if pick:
         with run_ledger(ws.root, run=ws.root.name):
-            _pick_and_package(ws, by="score")
+            _pick_and_package(ws)
     print_record_summary(record, ws.root)
     if record.status.value == "failed":
         raise typer.Exit(code=1)
 
 
-def _pick_and_package(ws, *, by: str, round_index: int | None = None,
-                      judge_model: str | None = None) -> int | None:
+def _pick_and_package(ws, *, round_index: int | None = None) -> int | None:
     """Choose the round (or take ``round_index``) and package it."""
     from codeverse3d.addons import select
 
-    idx = round_index if round_index is not None else select.pick(ws.root, by=by, pairwise_model=judge_model)
+    idx = round_index if round_index is not None else select.pick(ws.root)
     if idx is None:
         warn("no round was judged, so none was picked: name one with `3dcodeverse pick <slug> --round N`")
         return None
     try:
-        select.package(ws.root, idx, method="round" if round_index is not None else by)
+        select.package(ws.root, idx, method="round" if round_index is not None else "score")
     except ValueError as e:
         raise C.CliError(str(e), code=2) from e
-    ok(f"picked round {idx} ({'named' if round_index is not None else f'by {by}'}) → {ws.deliverable}")
+    ok(f"picked round {idx} ({'named' if round_index is not None else 'by score'}) → {ws.deliverable}")
     return idx
 
 
@@ -543,10 +542,7 @@ def resume(
 @app.command()
 def pick(
     slug: str,
-    by: Annotated[str, typer.Option("--by", help="score | pairwise (the pairwise judge decides "
-                                                 "between the top two when they are within judge noise)")] = "score",
     round_index: Annotated[int | None, typer.Option("--round", min=0, help="hand over this round instead")] = None,
-    judge: Annotated[str | None, typer.Option("--judge", help="pairwise judge model (default: the run's judge)")] = None,
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Choose the round of a finished run to hand over and package it: deliverable/ + selection.json."""
@@ -554,16 +550,12 @@ def pick(
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.record.record import RecordError
 
-    if by not in ("score", "pairwise"):
-        raise C.CliError(f"--by must be score or pairwise, not {by!r}", code=2)
-    if judge and (by != "pairwise" or round_index is not None):
-        raise C.CliError("--judge is the pairwise judge: it goes with --by pairwise (and no --round)", code=2)
     ws = C.open_workspace(slug, runs_dir)
     # writes deliverable/ + selection.json: one writer per run dir
     with (C.mutating(ws, what=f"3dcodeverse pick {ws.root.name}", action="pick"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         try:
-            idx = _pick_and_package(ws, by=by, round_index=round_index, judge_model=judge)
+            idx = _pick_and_package(ws, round_index=round_index)
             rows = select.round_rows(ws.root)
         except RecordError as e:
             raise C.CliError(str(e), code=2) from e
@@ -572,10 +564,9 @@ def pick(
     console.print(C.rounds_table(rows, idx))
 
 
-# --------------------------------------------------------------------------- render / judge
-from codeverse3d.cli.inspect_cmd import judge, render  # noqa: E402
+# --------------------------------------------------------------------------- judge
+from codeverse3d.cli.inspect_cmd import judge  # noqa: E402
 
-app.command()(render)
 app.command()(judge)
 
 

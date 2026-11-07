@@ -81,7 +81,7 @@ def _vector_for(run: Path, rnd: dict[str, Any] | None) -> ComplexityVector | Non
     """
     ws, one = Workspace(run), RoundRecord(index=int((rnd or {}).get("index") or 0), kind="")
     own = (((rnd or {}).get("measurement") or {}).get("extra") or {}).get("complexity")
-    for block in (own, select.round_complexity_block(ws, one)):
+    for block in (own, select.round_complexity_block(one)):
         if isinstance(block, dict):
             try:
                 return ComplexityVector.model_validate(block)
