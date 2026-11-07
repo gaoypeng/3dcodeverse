@@ -341,9 +341,9 @@ class ManifestEntry(BaseModel):
     files: dict[str, str] = Field(
         description="sample-relative file path → sha256 of the bytes the export wrote")
     code_fingerprint: str = Field(
-        default="", description="sha256 of the NORMALISED src tree (dedupe.code_fingerprint)")
+        default="", description="sha256 of the NORMALISED src tree (quality.code_fingerprint)")
     code_sha256: str = Field(
-        default="", description="sha256 of the RAW src tree bytes (dedupe.code_sha256 — the exact hash)")
+        default="", description="sha256 of the RAW src tree bytes (quality.code_sha256 — the exact hash)")
 
 
 class DroppedRun(BaseModel):

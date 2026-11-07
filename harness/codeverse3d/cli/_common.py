@@ -1,5 +1,4 @@
-"""Shared CLI plumbing: Rich formatting, the run mutex, workspace opening / creation and
-variant resolution."""
+"""Shared CLI plumbing: Rich formatting, the run mutex and workspace opening / creation."""
 
 from __future__ import annotations
 
@@ -8,7 +7,6 @@ import math
 import shutil
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -243,61 +241,5 @@ def check_backends(backends: Any) -> None:
         except ValueError as e:
             raise CliError(f"--{role} {value!r}: {e}", code=2) from None
 
-
-# --------------------------------------------------------------------------- the variant
-@dataclass(frozen=True)
-class ResolvedVariant:
-
-    name: str
-    version: int
-    hash: str
-    source: str   # "--variant" | "settings.variant" | "settings.variants" | "" (base)
-
-    @property
-    def label(self) -> str:
-        return f"{self.name} v{self.version} ({self.hash}) via {self.source}" if self.name else "base"
-
-
-def resolve_variant(settings: Any | None, generator: str, flag: str | None = None) -> ResolvedVariant:
-    """Resolve the variant: ``flag`` over ``settings.variant`` over ``settings.variants[<generator>]``
-    over the base.  An unknown name is a typed refusal (exit 2)."""
-    from codeverse3d.prompts import variants as V
-
-    settings = settings or get_settings()
-    try:
-        if flag and flag.strip():
-            name, source = flag.strip(), "--variant"
-        else:
-            name = V.resolve_variant(settings, generator)
-            source = ("settings.variant" if name and settings.variant.strip() == name
-                      else "settings.variants" if name else "")
-        if not name:
-            return ResolvedVariant(name="", version=0, hash="", source="")
-        info = V.variant_info(name)
-        return ResolvedVariant(name=name, version=info.version, hash=V.variant_hash(name), source=source)
-    except ValueError as e:
-        raise CliError(f"bad configuration: {e}", code=2) from e
-
-
-def record_variant(record: RunRecord) -> str:
-    block = record.extra.get("variant")
-    stamped = str(block.get("name") or "") if isinstance(block, dict) else ""
-    return record.spec.options.variant or stamped
-
-
-@contextmanager
-def replay_variant(record: RunRecord) -> Iterator[str]:
-    """Activate the variant a stored run used; an unshipped one warns and falls back to base."""
-    from codeverse3d.prompts.variants import activate, variant_info
-
-    name = record_variant(record)
-    if name:
-        try:
-            variant_info(name)
-        except ValueError as e:
-            warn(f"replaying with the base prompts: {e}")
-            name = ""
-    with activate(name):
-        yield name
 
 

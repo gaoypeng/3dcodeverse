@@ -80,7 +80,6 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     limits = s.limits.model_dump(mode="json")
     keys = len(s.gemini_api_keys)
     env = dict(record.environment)
-    variant, variant_version, variant_hash = _variant_fields(record)
     return SettingsSnapshot(
         roles=_role_settings(record),
         budget=spec.budget.model_dump(mode="json"),
@@ -94,22 +93,7 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
         price_table_version=price_table_version(),
         render=render,
         limits=limits,
-        variant=variant,
-        variant_version=variant_version,
-        variant_hash=variant_hash,
     )
-
-
-def _variant_fields(record: RunRecord) -> tuple[str, int, str]:
-    """``(name, version, hash)`` of the variant the run used; the base is ``("", 0, "")``."""
-    block = record.extra.get("variant")
-    block = block if isinstance(block, dict) else {}
-    name = str(block.get("name") or record.environment.get("variant") or record.spec.options.variant or "")
-    if not name:
-        return "", 0, ""
-    version = block.get("version")
-    hashed = block.get("hash") or record.prompt_hashes.get("variant", "")
-    return name, int(version) if isinstance(version, int) and not isinstance(version, bool) else 0, str(hashed or "")
 
 
 _TOOL_KEYS = frozenset({"python", "platform", "host", "blender", "blender_path", "node", "three",

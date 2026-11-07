@@ -31,7 +31,7 @@ from codeverse3d.cli.flywheel_cmd import flywheel_app
 from codeverse3d.cli.skills_cmd import skills_app
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
-from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
+from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
 
 
 # ===================================================================== doctor
@@ -182,7 +182,7 @@ app = typer.Typer(
     help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
     pretty_exceptions_enable=False,
 )
-app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions.")
+app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / refine / captions.")
 app.add_typer(
     gallery_app,
     name="gallery",
@@ -244,15 +244,6 @@ def make(
     planner: Annotated[str | None, typer.Option()] = None,
     judge: Annotated[str | None, typer.Option()] = None,
     image: Annotated[list[Path] | None, typer.Option("--image", help="reference image(s)")] = None,
-    variant: Annotated[
-        str,
-        typer.Option(
-            "--variant",
-            help="per-model prompt/skill variant (an overlay under codeverse3d/prompts/variants/<name>/ "
-            "and codeverse3d/skills/variants/<name>/, frozen on the spec); default: C3D_VARIANT, else "
-            "C3D_VARIANTS[<generator>] by the id as typed and then by its served model, else the base",
-        ),
-    ] = "",
     rounds: Annotated[
         int | None,
         typer.Option(
@@ -309,8 +300,6 @@ def make(
     settings = get_settings()
     backends = settings.backends(generator=generator, planner=planner, judge=judge)
     C.check_backends(backends)
-    # resolved once here and frozen on the spec
-    chosen = C.resolve_variant(settings, backends.generator, variant)
     # validate the whole Spec before touching the filesystem (no orphan run directory)
     try:
         spec = Spec(
@@ -328,7 +317,6 @@ def make(
             budget=Budget(**{k: v for k, v in
                              {"max_rounds": rounds, "max_minutes": max_minutes}.items() if v is not None}),
             backends=backends,
-            options=RunOptions(variant=chosen.name),
             tags=tag,
         )
     except ValueError as e:
@@ -350,7 +338,6 @@ def make(
                     "judge": f"{backends.judge} n={settings.judge.samples} "
                     f"({settings.judge.max_px}px/{settings.judge.detail_crops}crop)",
                     "rounds": spec.budget.max_rounds,
-                    "variant": chosen.label,
                 },
             )
         )

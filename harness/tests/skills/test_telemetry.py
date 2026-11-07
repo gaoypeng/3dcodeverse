@@ -30,8 +30,7 @@ def _plan(n=3):
 
 def _attach(ws, library, **kw):
     return attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                         plan=_plan(), library=library,
-                         max_skills=5, allow_unverified=False, **kw)
+                         plan=_plan(), library=library, **kw)
 
 def _touch_read(path: Path) -> None:
     """Simulate a reader on a filesystem whose atime we cannot rely on in a test."""

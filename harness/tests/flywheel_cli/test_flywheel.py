@@ -73,7 +73,7 @@ def test_export_pairs_and_a_core_only_install_over_a_runs_dir(runs_dir: Path, tm
     assert p["chosen"]["files"]["src/model.py"].startswith("# round 1")
     assert p["rejected"]["files"]["src/model.py"].startswith("# round 0")
     xb = next(x for x in pairs if x["kind"] == "cross_backend")
-    assert xb["chosen"]["generator"].startswith("gemini-cli") and xb["rejected"]["generator"].startswith("codex")
+    assert xb["chosen"]["generator"].startswith("agy") and xb["rejected"]["generator"].startswith("codex")
     assert xb["delta"] == pytest.approx(0.2)
 
     # a core-only install (no pyarrow) always exports JSONL, makes parquet optional, and --pack refuses

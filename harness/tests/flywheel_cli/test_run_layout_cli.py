@@ -77,7 +77,7 @@ def test_show_sections_and_status_share_the_packaged_run(fake_run):
     assert "deliverable/object.glb" in out and "deliverable/src/model.py" in out
     assert "static_object" in out                       # evidence: rubric
     assert "the ledger, list price" in out and "models per role" in out and "price table" in out
-    assert "gemini-cli" in out and "generator" in out      # settings: model id per role
+    assert "agy" in out and "generator" in out      # settings: model id per role
 
     # A selected section stays isolated, and invalid selectors fail cleanly.
     r = _show(ws.root.name, ws.root.parent, "--section", "cost")

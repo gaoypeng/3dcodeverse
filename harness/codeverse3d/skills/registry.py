@@ -9,12 +9,11 @@ conditions hold, ``priority`` decides who survives the cap, and gate-fired rows 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from codeverse3d.contracts.artifacts import LintKind
-from codeverse3d.skills.model import EVIDENCE_INHERITED, Selection, Skill
+from codeverse3d.skills.model import Selection, Skill
 
 # --------------------------------------------------------------------------- finding kinds
 UNTYPED = "untyped"
@@ -153,11 +152,9 @@ ROUTES: tuple[Route, ...] = (
           findings=(LINT_PART_NOT_IMPORTED,),
           why="a part file was written but never imported, so its geometry does not exist"),
     Route("R10", "c3d-cadquery-forms", 75, languages=("cadquery",), kinds=BUILD_KINDS,
-          why="cadquery authoring (evidence: inherited-unverified — unranked by our corpus; routed by default "
-              "since 2026-09-22, C3D_SKILLS_UNVERIFIED=0 drops it)"),
+          why="cadquery authoring (evidence: inherited-unverified — unranked by our corpus)"),
     Route("R11", "c3d-threejs-forms", 75, tracks=("static_object",), languages=("threejs",), kinds=BUILD_KINDS,
-          why="three.js object authoring (evidence: inherited-unverified — unranked by our corpus; routed by "
-              "default since 2026-09-22, C3D_SKILLS_UNVERIFIED=0 drops it)"),
+          why="three.js object authoring (evidence: inherited-unverified — unranked by our corpus)"),
     Route("R12", "c3d-urdf-joints", 80, tracks=("articulated_object",), languages=("urdf_blender",),
           kinds=("baseline", "refine", "rebuild", "repair"),
           why="joints, limits and axes: joint_sweep fires on 38% and motion_direction on 35% of urdf runs"),
@@ -288,27 +285,6 @@ def _row_applies(row: Route, track: str, language: str, kind: str, signals: dict
     return not (row.requires_any and not any(signals.get(k) for k in row.requires_any))
 
 
-#: the floor of a gate-fired row: ``Selection.gate_fired`` reads priority >= 90 as "a gate routed this",
-#: so a variant boost may not move a row across it
-GATE_FIRED_PRIORITY = 90
-
-
-def effective_priority(row: Route, boosts: Mapping[str, int]) -> int:
-    """``row.priority`` plus the variant's boost, clamped so standing rows stay below and gate-fired rows at or above the floor."""
-    delta = int(boosts.get(row.skill, 0))
-    if not delta:
-        return row.priority
-    boosted = row.priority + delta
-    if row.gate_fired:
-        return max(GATE_FIRED_PRIORITY, boosted)
-    if boosted >= GATE_FIRED_PRIORITY:
-        log.warning("variant boost %+d lifts standing route %s (%s, priority %d) to %d: clamped to %d — a "
-                    "standing row never outranks a gate-fired one", delta, row.rule, row.skill, row.priority,
-                    boosted, GATE_FIRED_PRIORITY - 1)
-        return GATE_FIRED_PRIORITY - 1
-    return max(0, boosted)
-
-
 def select(
     track: str,
     language: str,
@@ -318,30 +294,22 @@ def select(
     findings: Any = (),
     library: dict[str, Skill] | None = None,
     max_skills: int = 5,
-    allow_unverified: bool = False,
-    routes: Sequence[Route] = ROUTES,
-    boosts: Mapping[str, int] | None = None,
-    disabled: frozenset[str] = frozenset(),
 ) -> list[Selection]:
     """The routed bundles for one session, ranked, capped, each with its reason.
 
-    ``findings`` may be ``GateFinding``s, ``GateReport``s or kind strings; ``routes`` / ``boosts`` /
-    ``disabled`` are a variant's reshaping of the table.
+    ``findings`` may be ``GateFinding``s, ``GateReport``s or kind strings.
     """
     from codeverse3d.skills import all_skills
 
     lib = library if library is not None else all_skills()
     sig = dict(signals or {})
-    boost: Mapping[str, int] = boosts or {}
     kinds = [f for f in findings if isinstance(f, str)] if findings else []
     if findings and not kinds:
         kinds = finding_kinds(findings)
 
     best: dict[str, Selection] = {}
     first_seen: dict[str, int] = {}
-    for order, row in enumerate(routes):
-        if row.rule in disabled:
-            continue
+    for order, row in enumerate(ROUTES):
         hit = row.matches_finding(kinds) if row.gate_fired else None
         if row.gate_fired and hit is None:
             continue
@@ -354,12 +322,8 @@ def select(
             # a table row without a bundle must not crash a run
             log.debug("route %s names skill %r, which is not in the library", row.rule, row.skill)
             continue
-        if skill.evidence == EVIDENCE_INHERITED and not allow_unverified:
-            log.debug("skill %s is %s and C3D_SKILLS_UNVERIFIED is off; not routed", skill.name, EVIDENCE_INHERITED)
-            continue
-        priority = effective_priority(row, boost)
-        reason = (f"{row.rule}: {row.why}" + (f" [{hit}]" if hit else "")
-                  + (f" (variant boost {priority - row.priority:+d})" if priority != row.priority else ""))
+        priority = row.priority
+        reason = f"{row.rule}: {row.why}" + (f" [{hit}]" if hit else "")
         first_seen.setdefault(row.skill, order)
         prev = best.get(row.skill)
         if prev is None:

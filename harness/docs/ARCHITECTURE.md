@@ -75,7 +75,7 @@ codeverse3d/
                       get_settings() where it is used; an on/off switch is a Flag, Settings.FLAT holds the flat
                       spellings of nested knobs (docs/INSTALL.md §8.3)
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
-                      ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
+                      ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec, plan, artifacts
                       (GateFinding, GateReport, BuildResult.gates, RenderView, RenderSet, Judgment), run
                       (+ SkillsUsage/SkillRead), chat, agent (typed AgentJob)
   workspace.py        run-dir layout + git snapshots
@@ -124,12 +124,11 @@ codeverse3d/
                       (MCP name: 3dcode).  Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals
                       silhouette clay); build error_type spellings are languages/_common.MISSING_ENTRY and
                       BUILD_TIMEOUT for every runtime
-  skills/             registry.py (typed ROUTES + the router; select takes a variant's extra rows / boosts /
-                      disabled ids), model.py (Skill/Selection + the SKILL.md loader), prompting.py (per-backend
+  skills/             registry.py (typed ROUTES + the router),
+                      model.py (Skill/Selection + the SKILL.md loader), prompting.py (per-backend
                       discovery root + the mandate text), materialize.py, telemetry.py (the read probe: the CLIs'
                       own tool calls first, atime as fallback); switches are Settings fields (C3D_SKILLS*, on by
-                      default).  variants/<name>/ is the skills half of a variant overlay: bundles that shadow base
-                      bundles by name, their _claims/, and routes.toml (docs/SKILLS.md)
+                      default)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price
                       provenance) context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row for a backend that does NOT
@@ -180,10 +179,6 @@ codeverse3d/
                       system/* (harness contract, single-shot envelope, role_{scope,asset,repair}.j2),
                       tracks/*.j2.  catalog.py answers "what exists and how does each piece reach the model",
                       including the ONE per-language lookup language_prompt(language, name) / language_text.
-                      variants.py: per-model OVERLAYS — variants/<name>/<rel> shadows <rel> for load_text /
-                      render / language_text while that variant is active (a ContextVar BaseTrack.run sets from
-                      RunOptions.variant, else C3D_VARIANT / C3D_VARIANTS, resolved by exact generator id);
-                      variant.toml = name/version/generators, variant_hash lands in the record.
                       codeverse3d/skills/ is what an AGENT chooses to read; a file that tries to be both is the
                       bug this split prevents
   cli/                main.py (app wiring, make/resume/mcp + the doctor/tools/gallery commands), inspect_cmd.py
@@ -212,46 +207,9 @@ One run is one directory, `runs/<slug>/`: `src/` is the code (git, one commit pe
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 
-Authoritative text lives in `codeverse3d/prompts/<lang>/contract.md` (+ `system.md`); summary:
-
-* **blender** (multi-file): `src/model.py` entry + `src/parts/<snake>.py` each defining
-  `def build_<snake>()` (self-contained; optional `src/parts/_x.py` helpers) — pure bpy, Z-up,
-  -Y front, meters; PascalCase object names = part names.  Small objects may stay single-file.
-  The wrapper (`languages/wrappers/run_bpy.py`) puts `src/` on sys.path, maps errors to
-  workspace-relative `src/parts/<x>.py:line`, collects a census (incl. material-slot use, read
-  off the evaluated mesh) and exports GLB (Y-up) + STL.
-* **cadquery**: `src/model.py` — `import cadquery as cq` (+math) only; module-level `result` =
-  `cq.Assembly` or `Workplane`.  A chain ending in a selector exports the parent solid with a
-  warning (ExportError when no solid exists); helper-module errors map to `src/<file>.py:line`.
-* **threejs** (static): `src/parts/<snake>.js` each `export function build<Pascal>(THREE) → THREE.Group`
-  at world pose (Y-up, +Z front, meters); `src/object.js` `export function build(THREE)`.  Export
-  is **as authored**; `InstancedMesh` is baked to plain `<Name>_<i>` meshes; an exported
-  `selfcheck(THREE, root)` is called and a throw fails the build as `SelfCheckError`.
-* **urdf_blender**: `src/model.py` builds one object per link named `<link>` in **WORLD
-  coordinates** at the rest pose (q=0 = authored pose); `src/robot.urdf` hand-written: link frame
-  = its pivot, joint origin = pivot_child − frame_parent, `rpy="0 0 0"`, visual AND collision
-  `<origin xyz>` = −pivot (root `0 0 0`) — verified by the FK-consistency check; URDF limits =
-  plan lower−rest .. upper−rest.  Link name `world` is reserved.  The harness exports
-  `meshes/<link>.glb` (raw Z-up link frames), fails the build on a rest-pose penetration > 5 mm,
-  builds hierarchical `object.glb`; the round's `joint_sweep` gate sweeps every pose
-  (deterministic; python-fcl) and `motion_direction` checks the axis against the plan text.
-* **scene_threejs**: `src/scene.js` `createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`;
-  `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
-  `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.  The
-  harness-owned, read-only **effect library** `src/lib/*.js` ships into every workspace and is
-  listed in `HARNESS_OWNED_SRC` so agent writes to it are reverted; the want → call table the
-  prompts carry is `prompts/scene_threejs/effects_catalog.md`.  `src/lib/` is committed with
-  `src/`, so the deliverable and the dataset sample carry it.
-* **scene_blender**: the same shape in bpy (`src/scene.py`, `src/env.py`, `src/zones/*.py`,
-  `src/assets/*.py`), every module the agent's; judged frames render in Cycles.
-* **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`, `src/buffer_a.frag` for
-  feedback) — the agent never writes `#version`, uniform declarations or `out vec4`; the harness
-  header provides `u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise/u_buffer_a` (+ Shadertoy
-  `iTime/iResolution/iChannel*` aliases).  Feedback shaders are simulated at 30 fps.
-* **opengl_python**: `src/program.py` with `setup(ctx, w, h) -> state` and
-  `render(ctx, state, t, frame, fbo)` — moderngl only, no window libs, no wall clock, no file
-  writes; GLSL may live in `src/*.glsl` or in-string (errors carry both line numbers).  Runs in a
-  fresh subprocess per render; GPU d3d12 first, llvmpipe fallback.
+The authoritative text is `codeverse3d/prompts/<lang>/contract.md` (+ `system.md`) for each language.  The harness-owned
+`src/lib/` (scene_threejs effect library, `HARNESS_OWNED_SRC`) is committed with `src/`, so the deliverable and the
+dataset sample carry it.
 
 ## 5. Spatial tool registry
 

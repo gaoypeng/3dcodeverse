@@ -14,9 +14,7 @@ format is not ours to bend — and it is why the bundles reach a session only th
 native skill loader: claude-code, codex and agy discover them themselves.
 
 `C3D_SKILLS` is **on by default**; `C3D_SKILLS=0` is the off switch and an A/B's no-skills arm.
-Knobs: `C3D_SKILLS_MAX` (5 bundles a session), `C3D_SKILLS_UNVERIFIED` (the
-`inherited-unverified` bundles, on), `C3D_SKILLS_ONLY` (restrict the library before routing),
-`C3D_SKILLS_DIR` (another library).
+Knobs: `C3D_SKILLS_ONLY` (restrict the library before routing), `C3D_SKILLS_DIR` (another library).
 
 ## 1. How the library is managed
 
@@ -24,8 +22,7 @@ Knobs: `C3D_SKILLS_MAX` (5 bundles a session), `C3D_SKILLS_UNVERIFIED` (the
 plain `SKILL.md` directories that know nothing about any backend — `cp -r` one into
 `~/.claude/skills/` and it works without the harness.  `registry.py` picks the set from typed
 inputs.  The one thing that differs between coding agents is the discovery root, in one file,
-`skills/prompting.py` (`_BACKEND_ROOTS`; `tests/skills/test_delivery.py` fails if per-backend
-knowledge leaks anywhere else):
+`skills/prompting.py` (`_BACKEND_ROOTS`):
 
 | backend | discovery root | how the CLI shows and activates a bundle |
 |---|---|---|
@@ -51,7 +48,7 @@ the prose came from — not a measured effect.
 | skill | track | language | evidence | routes |
 |---|---|---|---|---|
 | `c3d-part-contact` | object tracks | any | measured | R1, R2 |
-| `c3d-bbox-contract` | object + scene | any | measured | R3, R4 |
+| `c3d-bbox-contract` | object tracks | any | measured | R3, R4 |
 | `c3d-repeats-and-mirrors` | object tracks | any | measured | R6, R7 |
 | `c3d-blender-forms` | any | blender, urdf_blender | measured | R8, R9 |
 | `c3d-urdf-joints` | articulated_object | urdf_blender | measured | R12, R13 |
@@ -89,9 +86,9 @@ turns `(track, language, kind, plan signals, findings)` into a ranked, capped, r
 Four laws, all tested:
 
 1. **Gate findings outrank everything.**  A row answering a finding sits at priority ≥ 90,
-   standing rows at ≤ 80: a repair round spends its budget on what broke — the input no CLI's
+   standing rows below 90: a repair round spends its budget on what broke — the input no CLI's
    own loader can see, and the reason routing is in code.
-2. **The cap is 5** (`C3D_SKILLS_MAX`); it cuts the low-priority tail, never the gate-fired head.
+2. **The cap is 5** (`select(max_skills=)`); it cuts the low-priority tail, never the gate-fired head.
 3. **Quiet kinds attach nothing on their own** — `asset`, `asset_fix`, `reference` are short,
    narrow sessions.  A gate-fired row still reaches them.
 4. **Unknown input degrades to `[]`, never an exception** — a planner failure must not also take
@@ -119,13 +116,11 @@ is `None`, not a number.
 
 ```
 3dcodeverse skills report eval/bench/out/<battery>    # deep-read rate per skill per backend (--json)
-3dcodeverse skills validate [--strict]                # bundles, overlays, routes, claims
+3dcodeverse skills validate [--strict]                # bundles, claims
 ```
 
 Target: ≥ 60 % deep-read, counted only over sessions the control says were measurable.  A skill
 under 20 % over 20 such sessions is merged or deleted — a library that only grows ends as bloat.
-`pytest -m live tests/skills/test_live_discovery.py` proves on the real CLIs that a bundle is
-found and opened through each discovery root.
 
 ## 5. How to add a skill
 
@@ -161,5 +156,4 @@ found and opened through each discovery root.
 Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 12 lines; never restate a frame,
 unit or naming rule (`conventions.py` owns those); every corpus percentage carries its battery,
 its n and its date.  `tests/skills/` enforces all of it: the spec's field rules, the body budget,
-every `_claims` number against its live constant, every tool / gate kind / rubric criterion /
-constant a bundle names still existing, the four routing laws, and the read probe.
+every `_claims` number against its live constant, the four routing laws, and the read probe.

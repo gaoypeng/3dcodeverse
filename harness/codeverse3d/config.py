@@ -78,10 +78,8 @@ class Agents(BaseModel):
         "Override per id with `codex:<model>@<effort>`.")
     claude_effort: str = Field(
         default="xhigh",
-        description="`--effort` passed to every `claude-code:` session (low|medium|high|xhigh|max; '' in the "
-        "config file leaves it to the CLI).  A harness session reads no user settings (`--setting-sources project`), so the "
-        "effort is the harness's to state; xhigh is what sessions ran at while they still inherited the "
-        "owner's ~/.claude/settings.json (until 2026-09-22).")
+        description="`--effort` passed to every `claude-code:` session (low|medium|high|xhigh|max; '' leaves it "
+        "to the CLI).  A harness session reads no user settings, so the effort is stated here.")
 
 
 class Render(BaseModel):
@@ -138,13 +136,9 @@ class Rate(BaseModel):
     max_in_flight: int = Field(
         default=96,
         ge=0,  # negative is not "unlimited" (0 is); a negative would poison the slot accounting
-        description="machine-wide cap on concurrent model calls (0 = off): every process draws "
-        "from the same N slot files, so the machine never exceeds the largest N any process runs "
-        "with.  Measured knee: a 128-call burst of 12k-token prompts ran 29.6 calls/min at 16 "
-        "in-flight, 43.9 at 32, 72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III) — with 22 "
-        "keys; raised 64 → 96 on 2026-10-15 for the 30-key pool after iteration 0 of the argon loop hit the "
-        "64 cap 172 times at launch while the keys themselves showed no 429 pressure (12 concurrent calls on "
-        "one key: 0 × 429; re-measure the knee when the loops run two tracks at once).")
+        description="machine-wide cap on concurrent model calls (0 = off): every process draws from the same "
+        "N slot files.  Measured knee with 22 keys: 72.9 calls/min at 64 in flight, 47.2 at 128; 96 serves "
+        "the 30-key pool.")
     hedge: int = Field(
         default=2, ge=1,
         description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
@@ -161,16 +155,14 @@ class Judge(BaseModel):
     samples: int = Field(default=1, description="default VLM samples per verdict")
     slices: Literal["on-error", "off"] = Field(
         default="on-error",
-        description="conditional cross-section slices (D48, C3D_JUDGE__SLICES): 'on-error' appends ≤2 "
-        "interior slice images + one provenance-elicitation sentence to an object-track verdict whose "
-        "connectivity gate carries an ERROR; clean rounds build a byte-identical payload either way.  "
-        "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
+        description="conditional cross-section slices (C3D_JUDGE__SLICES): 'on-error' appends ≤2 interior "
+        "slice images + one provenance sentence to an object-track verdict whose connectivity gate carries "
+        "an ERROR; clean rounds build a byte-identical payload either way.")
     thinking: Annotated[Literal["off", "low", "medium", "high"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="medium",
-        description="VLM and pairwise judges' thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
-        "The default gemini-4-argon thinks only from 'medium' "
-        "(4096) — measured 2026-10-14 on 19 scene/object rounds: argon@medium within-sd .012 vs .029 at low, "
-        "same cost, same mean (D105).  `3dcodeverse judge --thinking` replays with another level.")
+        description="VLM judge thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
+        "gemini-4-argon thinks only from 'medium' (4096): within-sd .012 vs .029 at low, same cost.  "
+        "`3dcodeverse judge --thinking` replays with another level.")
 
 
 class Placement(BaseModel):
@@ -246,35 +238,18 @@ class Settings(BaseSettings):
 
     model_timeout_s: float = Field(
         default=1200.0,
-        description="HTTP read timeout for ONE API model call (per attempt).  It is a CEILING: the "
-        "call ends when the answer does, and gemini.py clips each attempt to the retry budget "
-        "actually left.  300 s was the binding wall once max_output_tokens went to the model's "
-        "65 536 ceiling — measured 2026-08-27, output streams at 145 tok/s p50 and 60 tok/s p10, so "
-        "a 55 800-token plan needs ~930 s and died at the socket, its tokens billed and discarded. "
-        "Owner's rule 2026-08-27: time may be generous, errors may not.")
-
-    # Per-model prompt/skill variants: overlays under prompts/variants/<name>/ and
-    # skills/variants/<name>/, chosen by name or exact generator id, never by regex.
-    variant: str = Field(default="", description="prompt/skill variant for every run of this process "
-                         "(C3D_VARIANT; a name under codeverse3d/prompts/variants/); '' = base")
-    variants: dict[str, str] = Field(default_factory=dict, description="exact generator id → variant name, "
-                                     "e.g. {'agy:gemini-4-argon': 'argon'} (yaml mapping, or env as JSON "
-                                     "C3D_VARIANTS='{\"agy:gemini-4-argon\": \"argon\"}'); consulted when "
-                                     "`variant` is empty, by the id as typed and then by '<kind>:<served model>'")
+        description="HTTP read timeout for ONE API model call (per attempt): a ceiling, generous on purpose "
+        "(a 55k-token plan streams for ~930 s at p10; time may be generous, errors may not).")
 
     # ------------------------------------------------------------------ switches
     # tracks/plan_features.py derives the live C3D_* names from these fields.
     skills: Flag = Field(default=True, description="route, materialise and measure skill bundles "
                          "(D81, on since 2026-09-22); C3D_SKILLS=0 is an A/B's no-skills arm")
-    skills_max: Count = Field(
-        default=5, description="bundles attached to one session (skills design §5.2 law 1)")
-    skills_unverified: Flag = Field(default=True, description="also route the bundles labelled "
-                                    "inherited-unverified (with it all 17 route; the cap still holds)")
     skills_only: str = Field(default="", description="comma list: the router considers ONLY these "
                              "bundles, so an effect A/B can attribute its delta to one; an unknown name "
-                             "routes nothing, which shows up at once as a variant equal to its control")
+                             "routes nothing")
     skills_dir: Path | None = Field(default=None, description="another skill library (tests, the live "
-                                    "CLI smoke, a private overlay)")
+                                    "CLI smoke)")
     plan_brief: Flag = Field(default=True, description="expand the engineering brief before planning "
                              "(object tracks)")
     plan_restart: Flag = Field(default=True, description="re-sample a degenerate plan from the original "
