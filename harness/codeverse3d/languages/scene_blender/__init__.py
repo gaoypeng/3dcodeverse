@@ -53,6 +53,7 @@ from codeverse3d.languages._common import (
     target_line,
     ws_rel,
 )
+from codeverse3d.languages.base import scene_files_for
 from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BpyCollector,
@@ -96,28 +97,6 @@ def zone_file(name: str) -> str:
 def asset_file(asset: AssetPlan) -> str:
     snake = to_snake(asset.name)
     return f"public/assets/{snake}.glb" if asset.kind == "blender_glb" else f"src/assets/{snake}.py"
-
-
-def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-    """The files that own a scene refine target (same routing as scene_threejs)."""
-    zone_plans = list(getattr(plan, "zones", None) or [])
-    zones = {to_snake(z.name) for z in zone_plans}
-    assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
-    survivor = {to_snake(k): v for k, v in (alias or {}).items()}
-    key = to_snake(target)
-    if key in zones:
-        return [zone_file(key)]
-    if key in assets:
-        if assets[key].kind != "blender_glb":
-            return [asset_file(assets[key].model_copy(update={"name": survivor.get(key, key)}))]
-        return [zone_file(z.name) for z in zone_plans if key in {to_snake(c) for c in z.contents}]
-    if key in {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])} or key in ("camera", "cameras", "composition"):
-        return [ENTRY_REL]
-    if key in ENV_WORDS:
-        return ["src/env.py"]
-    if "/" in target and to_snake(target.split("/", 1)[0]) in zones:
-        return [zone_file(target.split("/", 1)[0])]
-    return []
 
 
 def module_files(ws: Workspace, sub: str) -> list[Path]:
@@ -717,8 +696,9 @@ class SceneBlenderRuntime:
     def expected_files(self, plan: Plan | None) -> list[str]:
         return list(SCENE_FILES)
 
-    def files_for(self, plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-        return scene_files_for(plan, target, alias=alias)
+    def files_for(self, plan: Plan | None, target: str) -> list[str]:
+        return scene_files_for(plan, target, zone_file=zone_file, asset_file=asset_file, entry=ENTRY_REL, env_file="src/env.py",
+                               env_words=ENV_WORDS)
 
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
         return write_skeleton(ws, plan)

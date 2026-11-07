@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -21,7 +20,7 @@ from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, Sta
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import MAX_TRIS_OBJECT, OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.orchestrator import BudgetExceeded
-from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic
+from codeverse3d.proc import fan_out, write_json_atomic
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.common import (
@@ -83,21 +82,15 @@ class AssetResult(BaseModel):
 
 
 
-def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None, *,
-                      language: Language = Language.SCENE_THREEJS) -> str:
-    alias = alias or {}
+def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], *, language: Language = Language.SCENE_THREEJS) -> str:
     lines = []
     for a in plan.assets:
-        kept = alias.get(a.name)
-        r = results.get(kept or a.name)
-        size = (r.size_m if r and r.size_m and not kept else a.approx_size_m)
+        r = results.get(a.name)
+        size = r.size_m if r and r.size_m else a.approx_size_m
         s = f"{size[0]:.2f}×{size[1]:.2f}×{size[2]:.2f} m (w×h×d)"
         status = "" if (r and r.ok) else "  [NOT AVAILABLE — do not reference]"
         if language is Language.SCENE_BLENDER:
-            lines.append(_bpy_api_line(a, r, kept, s, status))
-        elif kept:
-            lines.append(f"- {a.name}: use `build{to_pascal(kept)}(THREE, {{ variant: {variant_index(alias, a.name)} }})` "
-                         f"from './assets/{to_snake(kept)}.js' (merged variant), base at y=0, {s}{status}")
+            lines.append(_bpy_api_line(a, r, s, status))
         elif a.kind == "threejs":
             lines.append(f"- {a.name}: `import {{ build{to_pascal(a.name)} }} from './assets/{to_snake(a.name)}.js'` → Group, base at y=0, {s}{status}")
         else:
@@ -114,12 +107,9 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
     return "\n".join(lines) or "(no assets)"
 
 
-def _bpy_api_line(a: AssetPlan, r: AssetResult | None, kept: str | None, size: str, status: str) -> str:
+def _bpy_api_line(a: AssetPlan, r: AssetResult | None, size: str, status: str) -> str:
     """One asset's line of the bpy asset API (see ``asset_api_summary``)."""
     snake = to_snake(a.name)
-    if kept:
-        return (f"- {a.name}: `ctx.assets['{snake}']` — variant {to_snake(kept)} builds (its module `src/assets/{snake}.py` is a "
-                f"harness shim onto `build_{to_snake(kept)}`), {size}{status}")
     if a.kind == "blender_glb":
         motion = f", carries {r.clips} keyframed motion clip(s) (its action plays in every instance)" if r and r.clips else ""
         return (f"- {a.name}: `ctx.assets['{snake}']` — the hero GLB `public/assets/{snake}.glb` imported by the harness "
@@ -132,14 +122,9 @@ def run_asset_stage(ctx: RunContext) -> dict[str, AssetResult]:
     plan: ScenePlan = ctx.plan  # type: ignore[assignment]
     cap = MAX_ASSETS if ctx.budget.soft_ok() else DEGRADED_MAX_ASSETS
     planned = list(plan.assets)
-    assets, alias = select_assets(planned, cap)
-    write_dedupe_note(ctx.ws, alias)
-    if alias:
-        ctx.events.emit("assets.deduped", merged=alias, kept=[a.name for a in assets])
-    built = {a.name for a in assets} | set(alias)
-    if len(planned) > len(built):
-        ctx.events.emit("assets.capped", n=len(planned), cap=cap, dropped=[a.name for a in planned if a.name not in built])
-    ctx.extra["asset_alias"] = alias
+    assets = planned[:cap]
+    if len(planned) > len(assets):
+        ctx.events.emit("assets.capped", n=len(planned), cap=cap, dropped=[a.name for a in planned[cap:]])
     if not assets:
         return {}
 
@@ -160,37 +145,10 @@ def run_asset_stage(ctx: RunContext) -> dict[str, AssetResult]:
             ctx.events.emit("asset.failed", asset=asset.name, error=f"{type(r).__name__}: {r}")
         else:
             out[asset.name] = r
-    shims = write_variant_shims(ctx.ws, alias, {n for n, r in out.items() if r.ok}, language=ctx.language)
-    _record_spec_hashes(ctx, out, assets)  # the reuse guard's identity registry (rounds/ bookkeeping)
     ctx.ws.commit("assets")
     ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok],
-                    strategies={n: r.strategy for n, r in out.items() if r.strategy}, variant_shims=shims)
-    ctx.budget.check()  # stage boundary: stop only after the finished assets are committed
+                    strategies={n: r.strategy for n, r in out.items() if r.strategy})
     return out
-
-
-# ------------------------------------------------------------- committed-asset identity
-def _asset_spec_hash(asset: AssetPlan) -> str:
-    """The reuse guard's identity: the whole plan slice, not just the file name."""
-    return hashlib.sha1(asset.model_dump_json().encode()).hexdigest()[:12]
-
-
-def _spec_hashes_path(ctx: RunContext) -> Path:
-    return ctx.ws.root / "rounds" / "asset_spec_hashes.json"
-
-
-def _spec_hash_matches(ctx: RunContext, asset: AssetPlan) -> bool:
-    return (read_json_or_none(_spec_hashes_path(ctx)) or {}).get(asset.name) == _asset_spec_hash(asset)
-
-
-def _record_spec_hashes(ctx: RunContext, results: dict[str, AssetResult], assets: list[AssetPlan]) -> None:
-    by_name = {a.name: a for a in assets}
-    path = _spec_hashes_path(ctx)
-    recorded = read_json_or_none(path) or {}
-    for name, r in results.items():
-        if r.ok and name in by_name:
-            recorded[name] = _asset_spec_hash(by_name[name])
-    write_json_atomic(path, recorded)
 
 
 # ----------------------------------------------------------------------------- module asset
@@ -200,13 +158,6 @@ def build_module_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> Ass
     name = to_snake(asset.name) if bpy else to_pascal(asset.name)
     check_fn = check_bpy_asset if bpy else check_threejs_asset
     language = Language.SCENE_BLENDER if bpy else Language.SCENE_THREEJS
-    # committed-child reuse: a resume must not re-pay a finished asset (deterministic check, no model call)
-    if (ctx.ws.root / rel).is_file() and _spec_hash_matches(ctx, asset):
-        chk0 = check_fn(ctx, rel, name, expected_size_m=asset.approx_size_m)
-        if chk0.ran and chk0.ok:
-            ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
-            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m, strategy="reused",
-                               notes=f"committed module reused ({'Blender build' if bpy else 'import'} check passed)")
 
     def check(c: RunContext) -> AssetCheck:
         return check_fn(c, rel, name, expected_size_m=asset.approx_size_m)
@@ -329,13 +280,6 @@ HERO_THIN_PLAN_PARTS = 2
 
 def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     snake = to_snake(asset.name)
-    # committed-child reuse: a measurable GLB at this path means the build already finished
-    glb = ctx.ws.root / ctx.runtime.asset_file(asset)
-    if glb.is_file() and glb.stat().st_size > 0 and _spec_hash_matches(ctx, asset) \
-            and (size := _measure_size(ctx, glb)) is not None:
-        ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=0, errors=[])
-        return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=ctx.runtime.asset_file(asset), size_m=size,
-                           strategy="reused", notes="committed GLB reused")
     w, h, d = asset.approx_size_m
     sub_ws = Workspace(ctx.ws.root / "_assets" / snake).create()
     runtime = ctx.services.runtime(Language.BLENDER)
@@ -855,116 +799,3 @@ def repair_feedback(chk: AssetCheck, rel: str) -> str:
     return (f"## The file you wrote did NOT pass the deterministic asset check\n"
             f"The harness imported `{rel}` in node and called its builder. Fix exactly these, "
             f"return the COMPLETE file again:\n{chk.report()}\n")
-
-
-# ----------------------------------------------------------------------------- dedupe
-#: head noun → canonical family (near-identical scene props collapse into one factory)
-_FAMILY = {
-    "rock": "rock", "boulder": "rock", "stone": "rock", "pebble": "rock", "rubble": "rock", "cobble": "rock",
-    "tree": "tree", "sapling": "tree", "pine": "tree", "conifer": "tree", "palm": "tree",
-    "bush": "bush", "shrub": "bush", "hedge": "bush", "scrub": "bush", "fern": "bush", "grass": "bush",
-    "planter": "planter", "pot": "planter", "urn": "planter", "trough": "planter", "tub": "planter",
-    "lamp": "lamp", "lantern": "lamp", "light": "lamp", "lightpost": "lamp", "sconce": "lamp",
-    "bench": "bench", "seat": "bench", "stool": "bench", "chair": "bench",
-    "crate": "crate", "box": "crate", "carton": "crate", "barrel": "crate",
-    "post": "post", "pole": "post", "pillar": "post", "column": "post", "bollard": "post", "stake": "post",
-    "fence": "fence", "railing": "fence", "rail": "fence", "balustrade": "fence",
-    "table": "table", "desk": "table",
-}
-
-
-def _family(name: str) -> str:
-    head = to_snake(name).split("_")[-1].rstrip("s") or to_snake(name)
-    return _FAMILY.get(head, head)
-
-
-def select_assets(assets: list[AssetPlan], cap: int) -> tuple[list[AssetPlan], dict[str, str]]:
-    """The assets to actually build, in plan (= priority) order, plus the merge map."""
-    alias: dict[str, str] = {}
-    if len(assets) > cap:
-        assets, alias = dedupe_assets(assets)
-    if len(assets) > cap:
-        kept = {a.name for a in assets[:cap]}
-        assets = assets[:cap]
-        alias = {k: v for k, v in alias.items() if v in kept}
-    return assets, alias
-
-
-def dedupe_assets(assets: list[AssetPlan]) -> tuple[list[AssetPlan], dict[str, str]]:
-    """Fold near-identical props into ONE parameterised factory."""
-    kept: list[AssetPlan] = []
-    alias: dict[str, str] = {}
-    for a in assets:
-        fam = _family(a.name)
-        twin = next((k for k in kept if k.kind == a.kind and _family(k.name) == fam
-                     and _ratio(max(k.approx_size_m), max(a.approx_size_m)) <= 3.0), None)
-        if twin is None:
-            kept.append(a)
-            continue
-        alias[a.name] = twin.name
-    if alias:
-        kept = [_with_variants(k, [n for n, t in alias.items() if t == k.name],
-                               {n: a for n, a in ((x.name, x) for x in assets)}) for k in kept]
-    return kept, alias
-
-
-def _ratio(a: float, b: float) -> float:
-    lo, hi = sorted((abs(a) or 1e-6, abs(b) or 1e-6))
-    return hi / lo
-
-
-def _with_variants(asset: AssetPlan, dropped: list[str], by_name: dict[str, AssetPlan]) -> AssetPlan:
-    """Tell the kept asset it must also serve as its merged twins (opts.variant)."""
-    if not dropped:
-        return asset
-    lines = [f"variant {i + 1} = {n} ({by_name[n].description.strip()})" for i, n in enumerate(dropped) if n in by_name]
-    extra = (f" This ONE factory must also cover: {'; '.join(lines)}. Read `opts.variant` (integer, 0 = the base "
-             f"asset above, 1..{len(lines)} = the variants in that order) and `opts.scale` (number, default 1) and "
-             f"change proportions/detail/colour accordingly — zone code calls the same builder with different opts.")
-    return asset.model_copy(update={"description": asset.description.rstrip() + extra})
-
-
-def variant_index(alias: dict[str, str], name: str) -> int:
-    """1-based variant index of a merged asset within its surviving factory."""
-    kept = alias.get(name)
-    if not kept:
-        return 0
-    return sorted(n for n, t in alias.items() if t == kept).index(name) + 1
-
-
-def write_dedupe_note(ws: Workspace, alias: dict[str, str]) -> None:
-    """Persist the merge map the stage USED."""
-    write_json_atomic(ws.root / "stages" / "asset_aliases.json", {"alias": alias})
-
-
-def read_dedupe_note(ws: Workspace) -> dict[str, str]:
-    """The merge map the asset stage used, or ``{}`` when no stage has run in this workspace."""
-    data = read_json_or_none(ws.root / "stages" / "asset_aliases.json")
-    return dict((data or {}).get("alias") or {})
-
-
-def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str], *,
-                        language: Language = Language.SCENE_THREEJS) -> list[str]:
-    """Replace a merged asset's skeleton stub with a shim onto the surviving factory."""
-    written: list[str] = []
-    for dropped, kept in sorted(alias.items()):
-        if kept not in available:
-            continue
-        variant = variant_index(alias, dropped)
-        if language is Language.SCENE_BLENDER:
-            rel = f"src/assets/{to_snake(dropped)}.py"
-            text = (f'"""{dropped} is a variant of {kept} (assets were merged into one factory): the harness\'s shim."""\n'
-                    f"from assets.{to_snake(kept)} import build_{to_snake(kept)}\n\n\n"
-                    f"def build_{to_snake(dropped)}(ctx, variant={variant}):\n"
-                    f"    return build_{to_snake(kept)}(ctx, variant=variant)\n")
-        else:
-            rel = f"src/assets/{to_snake(dropped)}.js"
-            text = (f"// {dropped} is a variant of {kept} (assets were merged into one factory).\n"
-                    f"import {{ build{to_pascal(kept)} }} from './{to_snake(kept)}.js';\n\n"
-                    f"export function build{to_pascal(dropped)}(THREE, opts = {{}}) {{\n"
-                    f"  return build{to_pascal(kept)}(THREE, {{ variant: {variant}, ...opts }});\n}}\n")
-        path = ws.root / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-        written.append(rel)
-    return written

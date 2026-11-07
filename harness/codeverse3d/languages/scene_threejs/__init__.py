@@ -35,6 +35,7 @@ from codeverse3d.languages._js_lint import (
     node_check_syntax,
     strip_js,
 )
+from codeverse3d.languages.base import scene_files_for
 from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
@@ -290,28 +291,6 @@ def zone_file(name: str) -> str:
 def asset_file(asset: AssetPlan) -> str:
     snake = to_snake(asset.name)
     return f"src/assets/{snake}.js" if asset.kind == "threejs" else f"public/assets/{snake}.glb"
-
-
-def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-    """The files that own a scene refine target: an aliased asset in its survivor, a hero where it is placed, cameras in ``scene.js``, env words in ``env.js``."""
-    zone_plans = list(getattr(plan, "zones", None) or [])
-    zones = {to_snake(z.name) for z in zone_plans}
-    assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
-    survivor = {to_snake(k): v for k, v in (alias or {}).items()}
-    key = to_snake(target)
-    if key in zones:
-        return [zone_file(key)]
-    if key in assets:
-        if assets[key].kind == "threejs":
-            return [asset_file(assets[key].model_copy(update={"name": survivor.get(key, key)}))]
-        return [zone_file(z.name) for z in zone_plans if key in {to_snake(c) for c in z.contents}]
-    if key in {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])} or key in ("camera", "cameras", "composition"):
-        return ["src/scene.js"]
-    if key in ENV_WORDS:
-        return ["src/env.js"]
-    if "/" in target and to_snake(target.split("/", 1)[0]) in zones:
-        return [zone_file(target.split("/", 1)[0])]
-    return []
 
 
 def _asset_stub(a: AssetPlan) -> str:
@@ -805,8 +784,9 @@ class SceneThreeJsRuntime:
 
         return render_scene(ws, out_dir, cameras=cameras, orbit=orbit, times=tuple(times), width=width, height=height, sheet=sheet)
 
-    def files_for(self, plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-        return scene_files_for(plan, target, alias=alias)
+    def files_for(self, plan: Plan | None, target: str) -> list[str]:
+        return scene_files_for(plan, target, zone_file=zone_file, asset_file=asset_file, entry="src/scene.js", env_file="src/env.js",
+                               env_words=ENV_WORDS)
 
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
         return write_skeleton(ws, plan)

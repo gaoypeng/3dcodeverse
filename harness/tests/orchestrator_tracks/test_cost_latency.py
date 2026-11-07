@@ -22,11 +22,8 @@ from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.scene import SceneTrack
 from codeverse3d.tracks.scene_assets import (
-    asset_api_summary,
     check_threejs_asset,
-    dedupe_assets,
     run_asset_stage,
-    variant_index,
 )
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
@@ -75,29 +72,8 @@ def test_soft_budget_degrades_before_the_hard_cap_and_the_timeout_is_clipped():
     assert g.timeout_s(600, floor_s=0, soft=False) == 0                 # ...unless the floor is 0
 
 
-# ----------------------------------------------------------------------------- dedupe
 def _asset(name: str, size: tuple[float, float, float], kind: str = "threejs") -> AssetPlan:
     return AssetPlan(name=name, kind=kind, description=f"a {name}", approx_size_m=size)
-
-
-def test_dedupe_folds_near_identical_props_into_one_variant_factory():
-    assets = [_asset("SteppingStone", (0.4, 0.1, 0.4)), _asset("PondRock", (0.8, 0.5, 0.7)),
-              _asset("HeroBoulder", (2.5, 2.0, 2.4)), _asset("StoneLantern", (0.6, 1.4, 0.6))]
-    kept, alias = dedupe_assets(assets)
-    assert [k.name for k in kept] == ["SteppingStone", "HeroBoulder", "StoneLantern"]
-    assert alias == {"PondRock": "SteppingStone"}          # same family, sizes within 3×
-    assert variant_index(alias, "PondRock") == 1 and variant_index(alias, "SteppingStone") == 0
-    assert "opts.variant" in kept[0].description and "variant 1 = PondRock" in kept[0].description
-    # HeroBoulder is 6× the stepping stone → a different prop, not a variant
-    assert "HeroBoulder" not in alias
-    # a no-op for unrelated assets, and the merge reaches the zone prompt
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    kept, alias = dedupe_assets(list(plan.assets))
-    assert not alias and len(kept) == len(plan.assets)
-    merged = {"PondRock": "SteppingStone"}
-    api = asset_api_summary(plan.model_copy(update={"assets": [_asset("SteppingStone", (0.4, 0.1, 0.4)),
-                                                              _asset("PondRock", (0.8, 0.5, 0.7))]}), {}, merged)
-    assert "buildSteppingStone(THREE, { variant: 1 })" in api and "merged variant" in api
 
 
 def _zone(name: str, n: int) -> ZonePlan:
@@ -194,29 +170,6 @@ def _writer(job, ws):
     if job.label == "env":
         return {"src/env.js": "export function buildEnv(){}\n"}
     return {f"src/assets/{job.label[6:]}.js": "export function build(){}\n"}
-
-
-@needs_node
-def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, settings, monkeypatch):
-    import codeverse3d.tracks.scene_assets as sa
-
-    monkeypatch.setattr(sa, "MAX_ASSETS", 1)  # force the rescue path with a tiny plan
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan = plan.model_copy(update={"assets": [_asset("PondRock", (1.1, 0.75, 0.9)),
-                                              _asset("SteppingStone", (0.65, 0.12, 0.55))], "zones": []})
-
-    def respond(req):
-        rel = req.messages[0].text.split("write `")[1].split("`")[0]
-        return _envelope(rel, _module("PondRock", 1.1, 0.75, 0.9))
-
-    services = _ChatServices(FakeChatModel(respond), judge=FakeJudge(scores=(0.9,)))
-    ctx = _scene_ctx(tmp_path, settings, services=services, agent=FakeAgent(lambda j, w: None), plan=plan)
-    results = run_asset_stage(ctx)
-    assert set(results) == {"PondRock"}, "the twin is a variant of the survivor, not a second build"
-    shim = ctx.ws.src / "assets" / "stepping_stone.js"
-    assert shim.is_file() and "variant: 1" in shim.read_text() and "from './pond_rock.js'" in shim.read_text()
-    chk = check_threejs_asset(ctx, "src/assets/stepping_stone.js", "SteppingStone")
-    assert chk.ok and chk.meshes == 2, "the shim resolves to the real factory, not the blockout stub"
 
 
 def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote(tmp_path, settings):
