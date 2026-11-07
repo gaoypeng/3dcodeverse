@@ -233,7 +233,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     settings = SimpleNamespace(
         gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="",
         rate=SimpleNamespace(max_in_flight=1),
-        binaries=SimpleNamespace(node="node", gemini_cli="gemini", claude_cli="claude",
+        binaries=SimpleNamespace(node="node", claude_cli="claude",
                                  codex_cli="codex", agy_cli="agy"),
         resolve_blender=lambda: "blender",
         runtime_js_dir=lambda: HARNESS / "runtime_js",
@@ -246,9 +246,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     )
     busy = SimpleNamespace(n=1, root="/fake/slots", busy=lambda: 1)   # saturated: the WARN wording
     monkeypatch.setattr("codeverse3d.models.gemini.shared_pool",
-                        lambda keys, **kw: SimpleNamespace(slots=busy, stats=lambda: {
-                            "n_keys": 1, "in_flight": 0, "peak_in_flight": 0, "acquired": 0, "ok": 0,
-                            "429": 0, "5xx": 0, "n_dead": 0, "n_cooling": 0}))
+                        lambda keys, **kw: SimpleNamespace(slots=busy))
     from codeverse3d.models.health import Health
 
     monkeypatch.setattr("codeverse3d.models.health.probe", lambda **kw: Health(model="gemini:m", n_ok=1, n_tried=1))

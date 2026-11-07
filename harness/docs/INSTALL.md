@@ -323,7 +323,7 @@ The generator is always a vendor CLI: `--generator agy:… | claude-code:… | c
 default is `agy:gemini-4-argon`, so **`agy` is the one CLI a default run needs**.  The harness
 runs agy **only in Gemini-API mode**, so it needs Gemini keys (§8.1): one key from the harness's
 own pool per session, the 3dcode MCP tools, priced at Gemini list price — no sign-in, no
-non-Gemini model.  Without keys an agy session fails at once (doctor row `agy gemini keys`).
+non-Gemini model.  Without keys an agy session fails at once (doctor row `gemini keys`).
 The other two are needed only when you name them.
 
 `setup.sh` brings all three to their latest release on every run (`--no-clis` skips it): agy
@@ -384,7 +384,7 @@ export C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'   # per-model prompt/skill
 Every knob the harness reads is a `Settings` field (`codeverse3d/config.py`, one description
 each): `C3D_<FIELD>` at the top level, `C3D_<SECTION>__<FIELD>` nested, plus three flat
 spellings of nested knobs — `C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`, `C3D_AGENT_MAX_TURNS`.  An
-on/off switch (`C3D_SKILLS`, `C3D_STREAM`, `C3D_PLAN_BRIEF`, … — every `Flag` field) takes
+on/off switch (`C3D_SKILLS`, `C3D_POST`, `C3D_PLAN_BRIEF`, … — every `Flag` field) takes
 on/off, 1/0, true/false or yes/no in any case; a typo warns and keeps the default, and an empty
 value is unset.  The node side also reads `C3D_RENDER_GPU` and `C3D_CACHE_DIR` itself, and one
 variable only it reads: `C3D_BROWSER_REUSE=off` disables the shared headless-Chrome daemon.
@@ -399,8 +399,8 @@ cd harness && 3dcodeverse doctor        # add --live for one tiny Gemini call, -
 
 One row per check (`python`, `python deps`, `blender`, `blender cycles`, `blender eevee`,
 `blender gpu slots`, `node`, `three`, `puppeteer`, `chrome webgl`, `gemini keys`, `in-flight
-slots`, `anthropic key`, `openai key`, `agy`, `claude`, `codex`, `git`, `agy gemini keys`,
-`mcp`; `--live` adds `gemini live call` and `gemini pool`); any FAIL row makes it exit 1, WARN
+slots`, `anthropic key`, `openai key`, `agy`, `claude`, `codex`, `git`,
+`mcp`; `--live` adds `gemini live call`); any FAIL row makes it exit 1, WARN
 rows name what is optional or busy.
 
 ### Troubleshooting table
@@ -427,7 +427,6 @@ rows name what is optional or busy.
 | `anthropic key` / `openai key` | WARN | not set | expected unless you use `anthropic:*` / `openai:*`; export the key to clear it |
 | `agy` / `claude` / `codex` | WARN | CLI not on `PATH` | only that `--generator` is unavailable — but `agy` serves the default generator (§8.2) |
 | `git` | FAIL | git missing | install git — run workspaces are git repos |
-| `agy gemini keys` | FAIL | no Gemini keys: agy runs on API keys only, so the default generator cannot run | export `GEMINI_API_KEYS` (§8.1), or name a `claude-code:` / `codex:` generator |
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `in-flight slots` | WARN | every machine-wide slot is held right now (`busy n/n`), or `max_in_flight=0` switched the cap off | busy: other harness processes are mid-call and new calls wait for a slot — nothing to fix unless it stays full; a slot is held only while a call is out and a killed process frees its slots at once.  Off: unset `C3D_MAX_IN_FLIGHT` |

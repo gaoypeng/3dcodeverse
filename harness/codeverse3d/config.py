@@ -135,7 +135,7 @@ class Limits(BaseModel):
 
 
 class Rate(BaseModel):
-    """The model-call ceiling and the 503 hedge.
+    """The model-call ceiling.
 
     ``max_in_flight`` is machine-wide (flock'd slot files under ``<cache_dir>/slots/``), separate
     from the core-bound ``Limits`` fan-outs.  0 = unlimited.  A vendor CLI session takes a key
@@ -152,13 +152,6 @@ class Rate(BaseModel):
         "keys; raised 64 → 96 on 2026-10-15 for the 30-key pool after iteration 0 of the argon loop hit the "
         "64 cap 172 times at launch while the keys themselves showed no 429 pressure (12 concurrent calls on "
         "one key: 0 × 429; re-measure the knee when the loops run two tracks at once).")
-    hedge: int = Field(
-        default=2, ge=1,
-        description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
-        "2026-08-26: a failed 503 costs the 21-50 s round-trip the provider holds before rejecting, "
-        "storm streaks average 4.7 attempts, and a 503 bills nothing — so the hedge is free while it "
-        "storms and wastes one call only when both keys answer (docs/COST.md §27).  "
-        "C3D_RATE__HEDGE=1 for the A/B.")
 
 
 class Judge(BaseModel):
@@ -296,10 +289,6 @@ class Settings(BaseSettings):
     camera_repair: Flag = Field(default=True, description="scene driver: move a camera out of geometry "
                                 "(zero triggers on a healthy battery; the case it exists for is fatal)")
     post: Flag = Field(default=True, description="scene pictures: the GTAO + bloom + grade post chain")
-    stream: Flag = Field(default=True, description="Gemini: stream replies with inter-chunk stall "
-                         "detection (a hung buffered read held the socket for the whole attempt)")
-    ipv4: Flag = Field(default=True, description="Gemini: bind the transport to IPv4 (the WSL2 IPv6 "
-                       "path dropped responses silently)")
     runtime_js: Path | None = Field(default=None, description="the node runtime directory; a "
                                     "non-editable install must point this at a checkout")
 

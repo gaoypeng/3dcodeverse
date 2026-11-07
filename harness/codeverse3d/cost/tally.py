@@ -56,18 +56,13 @@ def tally() -> Iterator[Tally]:
         _open.reset(token)
 
 
-def open_tallies() -> tuple[Tally, ...]:
-    """The tallies this context books into, for callers whose work lands later in a thread without it."""
-    return _open.get()
-
-
-def book_usage(usage: Usage, tallies: tuple[Tally, ...] | None = None) -> None:
-    for t in open_tallies() if tallies is None else tallies:
+def book_usage(usage: Usage) -> None:
+    for t in _open.get():
         t.add_usage(usage)
 
 
 def book_time(wall_s: float, lost_s: float) -> None:
-    for t in open_tallies():
+    for t in _open.get():
         t.add_time(max(0.0, wall_s), max(0.0, lost_s))
 
 
@@ -85,4 +80,4 @@ def timed(step: str, into: list[StepTime], *, round_index: int | None = None) ->
                                      lost_s=round(min(wall, t.lost_s()), 2)))
 
 
-__all__ = ["Tally", "book_time", "book_usage", "open_tallies", "tally", "timed"]
+__all__ = ["Tally", "book_time", "book_usage", "tally", "timed"]

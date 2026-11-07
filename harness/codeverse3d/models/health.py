@@ -103,7 +103,7 @@ def _bare_model(model_id: str, timeout_s: float, key: str | None = None):
         model_id = f"gemini:{model_id}"
     extra: dict[str, Any] = {}
     if model_id.startswith("gemini:"):
-        extra = {"storm_attempts": 0, "hedge": 1}
+        extra = {"storm_attempts": 0}
         if key is not None:
             extra["keys"] = [key]
     return build_chat_model(model_id, timeout_s=timeout_s, max_attempts=1, **extra)

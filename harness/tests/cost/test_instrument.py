@@ -76,9 +76,8 @@ def test_a_full_key_never_reaches_the_ledger(tmp_path: Path):
     assert "secret" not in (tmp_path / "telemetry" / "cost.jsonl").read_text()
 
 
-def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Path):
-    """A charged invalid attempt is counted exactly once beside its winner."""
-    from codeverse3d.cost.ledger import summarise
+def test_a_billed_but_invalid_attempt_joins_its_winners_row(tmp_path: Path):
+    """A charged invalid attempt is counted exactly once, inside its winner's one row."""
     from tests.models.test_gemini import make_model, text_response
 
     m, _log, _ = make_model([text_response("not json"), text_response('{"ok": true}')])
@@ -87,15 +86,9 @@ def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Pat
             ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"},
                         label="planner"))
     assert resp.parsed == {"ok": True}
-    rows = load_ledger(tmp_path)  # "extra" is the discarded round-trip's money
-    bad, = [r for r in rows if r.source == "extra"]
-    logical, = [r for r in rows if r.source == "live"]
-    assert logical.outcome == "ok" and logical.attempts == 2 and logical.call_id
-    assert bad.discarded and bad.outcome == "discarded" and bad.input_tokens == 100
-    assert bad.call_id == logical.call_id and bad.cost_usd > 0
-    total = summarise(rows).total
-    assert total.input_tokens == logical.input_tokens + bad.input_tokens
-    assert {r.source for r in rows} == {"live", "extra"}
+    (row,) = load_ledger(tmp_path)
+    assert row.outcome == "ok" and row.attempts == 2 and row.source == "live"
+    assert row.input_tokens == 200 and row.cost_usd > 0   # the bad reply's 100 + the winner's 100
 
 
 def test_a_failed_call_is_recorded_re_raised_and_carries_what_was_billed(tmp_path: Path):

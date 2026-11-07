@@ -233,21 +233,6 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
              f"{'GPU' if res.get('gpu') else 'CPU/software'}: {renderer[:120]}")]
 
 
-def check_pool(live: bool) -> list[Row]:
-    from codeverse3d.models.gemini import shared_pool
-
-    s = get_settings()
-    if not live or not s.gemini_api_keys:
-        return []
-    st = shared_pool(list(s.gemini_api_keys)).stats()
-    return [(
-        "gemini pool", "WARN" if st["n_dead"] else "OK",
-        f"{st['n_keys']} keys · in-flight {st['in_flight']} (peak {st['peak_in_flight']}) · "
-        f"{st['acquired']} acquired, {st['ok']} ok, {st['429']} x429, {st['5xx']} x5xx, "
-        f"{st['n_dead']} dead, {st['n_cooling']} cooling (this process)",
-    )]
-
-
 def check_keys(live: bool) -> list[Row]:
     s = get_settings()
     n = len(s.gemini_api_keys)
@@ -281,10 +266,6 @@ def check_clis() -> list[Row]:
         rows.append((name, "OK" if okk else "WARN", v if okk else f"{v} (backend {name} unavailable)"))
     okk, v = _ver(["git", "--version"])
     rows.append(("git", "OK" if okk else "FAIL", v))
-    n = len(s.gemini_api_keys)
-    rows.append(("agy gemini keys", "OK" if n else "FAIL",
-                 f"{n}-key pool (Gemini-API mode, 3dcode MCP, priced)" if n
-                 else "no Gemini keys: agy runs on API keys only, so the default generator cannot run"))
     return rows
 
 
@@ -309,7 +290,6 @@ def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     if gpu:
         rows += check_gpu_probe()
     rows += check_keys(live)
-    rows += check_pool(live)
     rows += check_clis()
     rows += check_mcp()
     return rows

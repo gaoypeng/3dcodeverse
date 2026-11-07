@@ -55,7 +55,7 @@ def _rows(root: Path, led: RunLedger, *, recheck: bool) -> None:
                           cached_tokens=row.cached_tokens, output_tokens=row.output_tokens,
                           thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls, cost_usd=row.recorded_usd)
             cost, fields = price_call(usage, backend=row.backend, model=row.model_id or row.model,
-                                      cache_write_tokens=row.cache_write_tokens, reprice=True)
+                                      reprice=True)
             row = row.model_copy(update={"cost_usd": cost, **fields})
         led.rows.append(row)
 

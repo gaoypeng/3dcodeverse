@@ -1,11 +1,10 @@
 """Gemini backend: ``ChatRequest`` ⇄ google-genai conversion, and ``GeminiModel`` (shared
-``KeyPool``, ``rotate_with_retries`` with hedge, streaming with stall detection, per-attempt ledger rows)."""
+``KeyPool``, ``rotate_with_retries``, streaming with stall detection)."""
 
 from __future__ import annotations
 
 import logging
 import random
-import re
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -24,9 +23,9 @@ from codeverse3d.contracts.chat import (
     ImagePart,
 )
 from codeverse3d.contracts.common import Usage
-from codeverse3d.cost.context import AttemptRecord, attempt_sink
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import (
+    FailedBills,
     Stopwatch,
     attempt_timeout_s,
     default_timeout_s,
@@ -36,7 +35,7 @@ from codeverse3d.models.parts import (
     retryable_status,
 )
 from codeverse3d.models.pricing import estimate_cost
-from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
+from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, rotate_with_retries
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
 
 #: thinking level → token budget
@@ -168,10 +167,8 @@ def extract_candidate(
 # ===================================================================== gemini
 log = logging.getLogger(__name__)
 
-_RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
-
 #: ceiling of the inter-chunk read timeout under streaming: a hung socket dies within it,
-#: while a long healthy stream is bounded only by its attempt budget (``C3D_STREAM=off`` buffers)
+#: while a long healthy stream is bounded only by its attempt budget
 STREAM_STALL_S = 300.0
 
 _pools: dict[tuple[str, ...], KeyPool] = {}
@@ -218,7 +215,9 @@ def _client_for(key: str, timeout_s: float, factory: Callable[[str], Any] | None
         client = _clients.get(ck)
         if client is None:
             client = genai.Client(api_key=key, http_options=types.HttpOptions(
-                timeout=ck[1], client_args=_ipv4_client_args() or None))
+                timeout=ck[1],
+                # the WSL2 IPv6 path silently hangs reads: bind the transport to IPv4
+                client_args={"transport": httpx.HTTPTransport(local_address="0.0.0.0")}))
             _clients[ck] = client
         return client
 
@@ -238,18 +237,6 @@ def classify_exception(exc: BaseException) -> ModelError:
     if isinstance(exc, KeyPoolExhausted):
         return ModelError(f"Gemini key pool exhausted: {exc}", retryable=False, status=429)
     return ModelError(f"Gemini unexpected error: {type(exc).__name__}: {exc}", retryable=False)
-
-
-def _retry_after_s(exc: BaseException) -> float | None:
-    """Gemini 429 bodies carry ``details[].retryDelay: "7s"``; honour it (capped)."""
-    m = _RETRY_DELAY_RE.search(str(exc))
-    return min(float(m.group(1)), 120.0) if m else None
-
-
-def _ipv4_client_args() -> dict[str, Any]:
-    """Bind the sync transport to IPv4: the WSL2 IPv6 path silently hangs reads
-    (``C3D_IPV4=off`` restores dual-stack)."""
-    return {"transport": httpx.HTTPTransport(local_address="0.0.0.0")} if get_settings().ipv4 else {}
 
 
 def _drain_stream(
@@ -319,15 +306,12 @@ class GeminiModel:
         timeout_s: float | None = None,
         max_attempts: int = 6,
         storm_attempts: int | None = None,
-        hedge: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
     ) -> None:
         self.model = model
         #: None = rotate_with_retries' default; 0 = a 503 is final (the storm branch ignores max_attempts)
         self.storm_attempts = storm_attempts
-        #: keys a retry is raced on after the first 503 (1 = off)
-        self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys)
         self.timeout_s = default_timeout_s() if timeout_s is None else timeout_s
@@ -345,7 +329,6 @@ class GeminiModel:
     # --------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
         contents = to_contents(request.messages)
-        warnings: list[str] = []
         state = {"config": self._config(request)}
 
         def downgrade_thinking(err: ModelError) -> bool:
@@ -354,31 +337,34 @@ class GeminiModel:
                 return False
             with self._lock:
                 self._thinking_ok = False
-            warnings.append(f"{self.model} rejected thinking config; retrying without it: {err}")
+            log.warning("%s rejected thinking config; retrying without it: %s", self.model, err)
             state["config"] = self._config(request)
             return True
 
         budget = retry_budget_s(request.max_wait_s)
         deadline = time.monotonic() + budget
         stats: dict[str, Any] = {}
-        resp = rotate_with_retries(
-            self.pool,
-            lambda key: self._once(
-                key, contents, self._attempt_config(state["config"], deadline),
-                request, warnings,
-            ),
-            classify=classify_exception,
-            max_attempts=self.max_attempts,
-            max_total_s=budget,
-            hedge=self.hedge,
-            sleep=self._sleep,
-            on_free_retry=downgrade_thinking,
-            retry_after=_retry_after_s,
-            label=f"gemini {self.model}",
-            stats=stats,
-            on_attempt=self._attempt_hook(),
-            **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
-        )
+        bills = FailedBills()
+        try:
+            resp = rotate_with_retries(
+                self.pool,
+                bills.track(lambda key: self._once(
+                    key, contents, self._attempt_config(state["config"], deadline),
+                    request,
+                )),
+                classify=classify_exception,
+                max_attempts=self.max_attempts,
+                max_total_s=budget,
+                sleep=self._sleep,
+                on_free_retry=downgrade_thinking,
+                label=f"gemini {self.model}",
+                stats=stats,
+                **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
+            )
+        except ModelError as e:
+            bills.charge(e)
+            raise
+        resp = bills.join(resp)
         resp.raw["attempts"] = int(stats.get("attempts", 0))
         return resp
 
@@ -395,52 +381,27 @@ class GeminiModel:
         """Config whose HTTP timeout is the remaining retry budget (see ``attempt_timeout_s``)."""
         return clip_timeout(config, int(attempt_timeout_s(deadline, self.timeout_s) * 1000))
 
-    def _attempt_hook(self) -> OnAttempt:
-        """Per-round-trip observer feeding the ledger's attempt sink (books discarded round-trips).
-        The sink is captured once per call so a late hedge loser still reports."""
-        sink = attempt_sink()
-
-        def on_attempt(t: _Try, no: int, discarded: bool) -> None:
-            if t.err is None:
-                usage: Usage = t.result.usage
-                outcome, error = "ok", ""
-            else:
-                usage = getattr(t.err, "usage", None) or Usage()
-                outcome, error = t.outcome, str(t.err)
-            if sink is not None:
-                sink(AttemptRecord(attempt=no, key=t.key, outcome=outcome,
-                                   discarded=discarded, usage=usage, error=error))
-
-        return on_attempt
-
     def _once(
         self,
         key: str,
         contents: list[types.Content],
         config: types.GenerateContentConfig,
         request: ChatRequest,
-        warnings: list[str],
     ) -> ChatResponse:
         client = _client_for(key, self.timeout_s, self._client_factory)
 
-        if not get_settings().stream:   # C3D_STREAM=off: the buffered call
-            with Stopwatch() as sw:
-                resp = client.models.generate_content(
-                    model=self.model, contents=contents, config=config
-                )
-        else:
-            # the attempt budget becomes an in-loop deadline; the wire timeout drops to the stall ceiling
-            cfg_ms = config.http_options.timeout if config.http_options is not None else None
-            attempt_s = (float(cfg_ms) / 1000.0) if cfg_ms else self.timeout_s
-            wire = clip_timeout(config, int(min(attempt_s, STREAM_STALL_S) * 1000))
-            with Stopwatch() as sw:
-                chunks = _drain_stream(
-                    client.models.generate_content_stream(
-                        model=self.model, contents=contents, config=wire
-                    ),
-                    time.monotonic() + attempt_s,
-                )
-            resp = _merge_stream_chunks(chunks)
+        # the attempt budget becomes an in-loop deadline; the wire timeout drops to the stall ceiling
+        cfg_ms = config.http_options.timeout if config.http_options is not None else None
+        attempt_s = (float(cfg_ms) / 1000.0) if cfg_ms else self.timeout_s
+        wire = clip_timeout(config, int(min(attempt_s, STREAM_STALL_S) * 1000))
+        with Stopwatch() as sw:
+            chunks = _drain_stream(
+                client.models.generate_content_stream(
+                    model=self.model, contents=contents, config=wire
+                ),
+                time.monotonic() + attempt_s,
+            )
+        resp = _merge_stream_chunks(chunks)
         usage = parse_usage(resp, self.model)  # before extract_candidate, whose raises carry it
         usage.latency_ms = sw.ms
         usage.cost_usd = estimate_cost("gemini", self.model, usage)
@@ -464,12 +425,5 @@ class GeminiModel:
                 ) from exc
         elif finish in RETRYABLE_FINISH and not text.strip():
             raise ModelError(f"Gemini finish_reason={finish}", retryable=True, usage=usage)
-        raw: dict[str, Any] = {
-            "finish_reason": finish,
-            "model_version": resp.model_version,
-            "response_id": resp.response_id,
-            "key": f"…{key[-4:]}",
-        }
-        if warnings:
-            raw["warnings"] = list(warnings)
-        return ChatResponse(text=text, parsed=parsed, finish_reason=finish, usage=usage, raw=raw)
+        return ChatResponse(text=text, parsed=parsed, finish_reason=finish, usage=usage,
+                            raw={"key": f"…{key[-4:]}"})

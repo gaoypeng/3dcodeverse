@@ -13,29 +13,22 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.context import (
-    AttemptRecord,
-    CallContext,
-    attempt_recording,
-    attribute,
     bound_run,
     call_context,
-    run_binding,
 )
 from codeverse3d.cost.ledger import (
     CostLedger,
     bound_ledger,
-    default_ledger,
     existing_ledger_path,
     open_run_ledger,
     record_call,
 )
-from codeverse3d.cost.tally import Tally, book_time, open_tallies
+from codeverse3d.cost.tally import book_time
 from codeverse3d.cost.types import Role, Stage, stage_for_label
 
 log = logging.getLogger(__name__)
@@ -69,97 +62,37 @@ class MeteredChatModel(_Proxy):
 
     # -- the meter --------------------------------------------------------
     def generate(self, request: ChatRequest) -> ChatResponse:
-        call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
-        # captured now: a hedge loser lands after this call returned, in a thread with no context
-        ledger = default_ledger()
-        run = run_binding().run
-        ctx = attribute(label=request.label)
-        tallies = open_tallies()
-        booked: list[int] = []  # round-trips that already billed themselves as "extra"
-        trips = _RoundTrips()
-
-        def attempt_row(rec: AttemptRecord) -> None:
-            trips.add(rec)
-            if self._record_attempt(request, call_id, rec, ledger, run, ctx, tallies):
-                booked.append(rec.attempt)
-
         t0 = time.perf_counter()
         try:
-            with attempt_recording(attempt_row):
-                resp = self._inner.generate(request)
+            resp = self._inner.generate(request)
         except BaseException as exc:  # noqa: BLE001 - record the attempt, then re-raise
-            # a failed call may still have been billed (ModelError.usage), unless a round-trip already booked it
+            # a failed call may still have been billed (ModelError.usage)
             ms = int((time.perf_counter() - t0) * 1000)
             usage = getattr(exc, "usage", None)
             usage = usage if isinstance(usage, Usage) else Usage(backend=self.provider, model=self.model)
-            book_time(ms / 1000, trips.lost_ms(ms, usage.latency_ms) / 1000)
-            if booked:
-                usage = Usage(backend=usage.backend, model=usage.model, latency_ms=usage.latency_ms)
-            self._record(usage, request, outcome=_outcome(exc), ms=ms,
-                         attempts=getattr(exc, "attempts", 0), call_id=call_id)
+            book_time(ms / 1000, _lost_s(ms, usage.latency_ms))
+            self._record(usage, request, outcome=_outcome(exc), ms=ms, attempts=getattr(exc, "attempts", 0))
             raise
         ms = int((time.perf_counter() - t0) * 1000)
-        book_time(ms / 1000, trips.lost_ms(ms, resp.usage.latency_ms) / 1000)
+        book_time(ms / 1000, _lost_s(ms, resp.usage.latency_ms))
         self._record(resp.usage, request, outcome="ok", ms=ms,
-                     key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0),
-                     call_id=call_id)
+                     key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0))
         return resp
 
     def _record(self, usage: Usage, request: ChatRequest, *, outcome: str, ms: int,
-                key: object = None, attempts: object = 0, call_id: str = "") -> None:
+                key: object = None, attempts: object = 0) -> None:
         try:
             record_call(usage, label=request.label, backend=usage.backend or self.provider,
                         model=usage.model or self.model, outcome=outcome,
                         latency_ms=usage.latency_ms or ms,
-                        key=_key_suffix(key), attempts=int(attempts or 0), call_id=call_id)
+                        key=_key_suffix(key), attempts=int(attempts or 0))
         except Exception as e:  # pragma: no cover - accounting must never break a call
             log.debug("cost: could not record %s: %s", request.label, e)
 
-    def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
-                        ledger: CostLedger | None, run: str = "",
-                        ctx: CallContext | None = None, tallies: tuple[Tally, ...] | None = None) -> bool:
-        """Book a discarded round-trip that still cost money as ``source="extra"``; True when it did."""
-        if not (rec.discarded and rec.usage.cost_usd):
-            return False
-        try:
-            record_call(rec.usage, run=run, label=request.label,
-                        stage=ctx.stage if ctx else None, role=ctx.role if ctx else None,
-                        round=ctx.round if ctx else None,
-                        backend=rec.usage.backend or self.provider,
-                        model=rec.usage.model or self.model,
-                        outcome="discarded" if rec.discarded else "ok",
-                        latency_ms=rec.usage.latency_ms,
-                        source="extra", key=_key_suffix(rec.key),
-                        call_id=call_id, attempt=rec.attempt, discarded=rec.discarded,
-                        ledger=ledger, tallies=tallies)
-        except Exception as e:  # pragma: no cover - accounting must never break a call
-            log.debug("cost: could not record attempt %s#%d: %s", request.label, rec.attempt, e)
-            return False
-        return True
 
-
-class _RoundTrips:
-    """The round-trips of one logical call, reduced to what the minutes need: time answered, any failure."""
-
-    def __init__(self) -> None:
-        self.answered_ms = 0  # the winner, and a reply that came back unusable (bad JSON, empty)
-        self.failed = False  # a round-trip with no answer at all: 503 / 429 / timeout / transport / dead key
-        self.seen = False
-
-    def add(self, rec: AttemptRecord) -> None:
-        self.seen = True
-        if rec.discarded and rec.outcome == "ok":
-            return  # a hedge loser that answered ran beside the winner, not before it
-        if rec.usage.latency_ms:
-            self.answered_ms += rec.usage.latency_ms
-        elif rec.outcome != "ok":
-            self.failed = True
-
-    def lost_ms(self, wall_ms: int, answer_ms: int) -> int:
-        """Milliseconds lost to provider errors: everything outside the answered round-trips once one failed."""
-        if not self.seen:
-            return max(0, wall_ms - answer_ms)
-        return max(0, wall_ms - self.answered_ms) if self.failed else 0
+def _lost_s(wall_ms: int, answered_ms: int) -> float:
+    """Seconds lost to provider errors: the call's wall time outside the answered round-trips."""
+    return max(0, wall_ms - answered_ms) / 1000
 
 
 def _key_suffix(key: object) -> str:

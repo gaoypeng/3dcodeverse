@@ -28,7 +28,7 @@ def test_a_losing_candidate_is_waste(fake_run: Path, tmp_path: Path):
     shutil.copytree(fake_run, ws)
     (ws / "rounds").mkdir(exist_ok=True)
     (ws / "rounds" / "candidates.json").write_text(json.dumps({"n": 2, "selected": 1}))
-    usage = Usage(backend="gemini-cli", model="gemini-3.8-flash", input_tokens=10_000, output_tokens=500)
+    usage = Usage(backend="agy", model="gemini-3.8-flash", input_tokens=10_000, output_tokens=500)
     for k in (0, 1):
         record_call(usage, stage=Stage.CANDIDATE, round=0, label=f"baseline_c{k}", source="session",
                     ledger=ws / "telemetry" / "cost.jsonl")

@@ -120,7 +120,7 @@ def test_a_session_runs_on_a_pool_key_in_a_home_of_its_own(tmp_ws: Workspace, fa
     monkeypatch.setenv("FAKE_MODE", "429")
     res2 = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="api429", timeout_s=30, spatial_tools=False))
     assert not res2.ok and res2.exit_reason == "budget" and res2.transient
-    assert backends._key_pool().stats()["keys"][0]["429"] >= 1
+    assert backends._key_pool().stats()["429"] >= 1
     assert json.loads((tmp_ws.src / "seen.json").read_text())["mcp"] == {"mcpServers": {}}
 
 

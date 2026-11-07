@@ -101,35 +101,27 @@ def role_for_stage(stage: Stage) -> Role:
 #: agent/backend kind → pricing provider, when the model id carries no ``provider:`` prefix
 _BACKEND_PROVIDER: dict[str, str] = {
     "gemini": "gemini",
-    "gemini-cli": "gemini",
     "codex": "openai",
     "openai": "openai",
     "claude-code": "anthropic",
     "anthropic": "anthropic",
     "agy": "gemini",
-    "antigravity": "gemini",
 }
 
 
 def split_model_id(backend: str, model: str) -> tuple[str, str]:
-    """``("api-agent", "gemini:gemini-3.8-flash") -> ("gemini", "gemini-3.8-flash")``.
+    """``("agy", "gemini:gemini-3.8-flash") -> ("gemini", "gemini-3.8-flash")``.
 
     Without a provider prefix the backend kind decides; an unknown backend yields provider ``""``."""
     m = (model or "").strip()
     if ":" in m:
         provider, _, rest = m.partition(":")
-        while ":" in rest:  # api-agent:gemini:gemini-3.8-flash
-            provider, _, rest = rest.partition(":")
         return provider.strip().lower(), rest.strip()
-    kind = (backend or "").strip().lower()
-    if kind.startswith("api-agent"):
-        kind = "gemini"
-    return _BACKEND_PROVIDER.get(kind, ""), m
+    return _BACKEND_PROVIDER.get((backend or "").strip().lower(), ""), m
 
 
 #: agent session kinds that are not themselves an API provider
-AGENT_KINDS = frozenset({"api-agent", "gemini-cli", "claude-code", "codex", "agy", "antigravity",
-                         "single-shot"})
+AGENT_KINDS = frozenset({"claude-code", "codex", "agy"})
 
 
 def normalise_ids(backend: str, model: str) -> tuple[str, str, str]:
@@ -163,7 +155,6 @@ class CallCost(BaseModel):
     cached_tokens: int = 0
     output_tokens: int = 0
     thoughts_tokens: int = 0
-    cache_write_tokens: int = 0
     tool_calls: int = 0
 
     price_input: float = 0.0  # USD / 1M
@@ -177,19 +168,14 @@ class CallCost(BaseModel):
     recorded_usd: float = 0.0  # what the run was billed at the time (before any re-pricing)
     latency_ms: int = 0
     cache_hit: bool = False
-    outcome: str = "ok"  # ok | error | timeout | budget | degraded | discarded
+    outcome: str = "ok"  # ok | error | timeout | budget | degraded
     n_calls: int = 1  # >1 when a row aggregates a whole agent session
-    #: extra = a discarded but billed round-trip (counts in every total); estimate = priced from the stream
-    source: str = "live"  # live | record | events | transcript | stdout | residual | session | estimate | attempt | extra
+    #: estimate = priced from the stream
+    source: str = "live"  # live | record | events | transcript | stdout | residual | session | estimate
     #: last 4 chars of the API key that served the call ("…ab12"); "" when none
     key: str = ""
     #: round-trips issued for this call (1 = clean, 0 = not recorded)
     attempts: int = 0
-    #: joins a call's per-attempt rows to its logical row
-    call_id: str = ""
-    attempt: int = 0
-    #: this round-trip's response was thrown away (paid: ``source="extra"``, counted; free: ``attempt``, filtered)
-    discarded: bool = False
 
 
 class CostBucket(BaseModel):
