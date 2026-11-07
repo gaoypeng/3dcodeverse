@@ -119,6 +119,14 @@ caps:
     kinds: [penetrat, intersect, overlap, collision]
     cap: 0.7
     measures: [interpenetration]
+  # the project's fixed parts built as declared (Spec.fixed_parts, the contract_fixed gate): a part moved,
+  # scaled or edited past the declared box is the object built wrong, not a detail
+  - id: fixed_part_violation
+    when: gate
+    gate: "contract_fixed"
+    severity: error
+    cap: 0.6
+    note: a project-fixed part is missing or not as declared
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
