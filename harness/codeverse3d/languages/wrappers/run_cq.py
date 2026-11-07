@@ -1,7 +1,7 @@
 """CadQuery build wrapper; run by the harness in a subprocess, never imported.
 
     python run_cq.py --script /abs/src/model.py --out /abs/artifacts \
-        [--rlimit-gb 8] [--tolerance 0.001] [--angular-tolerance 0.15] [--seed 0]
+        [--rlimit-gb 8] [--seed 0]
 
 Runs ``model.py``, reads its module-level ``result`` (Assembly, Workplane or Shape), tessellates
 each part and writes ``object.glb`` (Y-up, +Z front), ``.step``, ``.stl``, ``census.json`` and
@@ -31,6 +31,7 @@ from _wrapper_common import (  # noqa: E402
 GLB_NAME, STEP_NAME, STL_NAME = "object.glb", "object.step", "object.stl"
 PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
 DEFAULT_RGBA = (0.7, 0.7, 0.7, 1.0)
+TOLERANCE, ANGULAR_TOLERANCE = 0.001, 0.15   # tessellation
 MEMORY_HINT = "reduce boolean/pattern counts or tessellation density."
 
 
@@ -39,8 +40,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--script", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--rlimit-gb", type=float, default=8.0)
-    p.add_argument("--tolerance", type=float, default=0.001)
-    p.add_argument("--angular-tolerance", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args(argv)
 
@@ -208,7 +207,7 @@ def main() -> int:
                 report["warnings"].append("result is a bare Workplane/Shape: exported as ONE node 'Object' — prefer cq.Assembly with named, coloured parts")
             meshes = []
             for p in parts:
-                verts, tris = tessellate(p, args.tolerance, args.angular_tolerance)
+                verts, tris = tessellate(p, TOLERANCE, ANGULAR_TOLERANCE)
                 meshes.append((p, verts, tris))
                 rec = part_census(p, len(tris))
                 census["parts"].append(rec)
@@ -222,7 +221,7 @@ def main() -> int:
             glb = os.path.join(out_dir, GLB_NAME)
             build_glb(meshes, glb)
             report["exported"]["glb"] = glb
-            export_step_stl(cq, ns["result"], parts, out_dir, args.tolerance, args.angular_tolerance, report)
+            export_step_stl(cq, ns["result"], parts, out_dir, TOLERANCE, ANGULAR_TOLERANCE, report)
         except Exception as e:  # noqa: BLE001
             err = script_error(e, script)
             if not err["error_file"]:

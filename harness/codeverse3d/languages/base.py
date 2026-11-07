@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +28,6 @@ class AssembleResult(BaseModel):
     census: dict[str, Any] = Field(default_factory=dict)
 
 
-@runtime_checkable
 class LanguageRuntime(Protocol):
     language: Language
     #: files the agent is expected to author (globs relative to workspace root)
@@ -55,7 +54,6 @@ class LanguageRuntime(Protocol):
         ...
 
 
-@runtime_checkable
 class SceneRuntime(LanguageRuntime, Protocol):
     """What the scene track asks of its language: zone / asset locations, entry assembly, probe and render."""
 

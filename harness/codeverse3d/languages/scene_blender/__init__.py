@@ -56,6 +56,7 @@ from codeverse3d.languages.base import AssembleResult, scene_files_for
 from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BpyCollector,
+    blender_binary,
     blender_env,
     call_traps,
     finish_for,
@@ -401,14 +402,10 @@ def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, floa
     return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))
 
 
-#: the placeholder plate's side as a multiple of the plan span
-PLACEHOLDER_GROUND_SPANS = 3.0
-
-
 def _env_source(plan: ScenePlan) -> str:
     """``src/env.py`` as an interface stub: the plan's data, the two exports the wrapper calls and a
     placeholder ground plate.  No world, lamp or atmosphere, so it fails the probe until the author writes them."""
-    from codeverse3d.languages.scene_threejs import sun_from_plan
+    from codeverse3d.languages.scene_threejs import PLACEHOLDER_GROUND_SPANS, sun_from_plan
 
     c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
     span = max(e[0], e[1], 1.0)
@@ -695,18 +692,12 @@ class SceneBlenderRuntime:
         return f"{ENV_FILE}: {dark.message}" if dark is not None else ""
 
     # ------------------------------------------------------------------ the Blender process
-    def blender_binary(self) -> str:
-        b = self._blender or self._settings.resolve_blender()
-        if not b or not Path(b).exists():
-            raise BlenderNotFoundError("Blender binary not found; set C3D_BINARIES__BLENDER=/path/to/blender")
-        return b
-
     def run_wrapper(self, ws: Workspace, out_dir: Path, *, zones: dict[str, str] | None = None, blend: bool = True,
                     timeout_s: float | None = None, entry: str = ENTRY_REL) -> WrapperRun:
         """Build the workspace in Blender into ``out_dir``; ``zones`` overrides ZONES, ``entry`` is another data entry."""
         out_dir.mkdir(parents=True, exist_ok=True)
         basis = ",".join(f"{v:g}" for row in glb_basis(LANGUAGE.value) for v in row)
-        cmd = [self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+        cmd = [blender_binary(self._blender, self._settings), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
                "--scene", str(ws.root / entry), "--out", str(out_dir), "--basis", basis, "--zone-key", ZONE_ROOT_KEY,
                "--fps", str(FPS), "--frames", f"{frame_of(TIMES[0])},{frame_of(TIMES[-1])}",
                "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb), "--seed", "0"]

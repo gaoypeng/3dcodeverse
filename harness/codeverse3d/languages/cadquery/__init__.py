@@ -30,7 +30,7 @@ from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
 GATE = "lint:cadquery"
-ALLOWED_IMPORTS = {"cadquery", "cq", "math", "random", "numpy", "np", "itertools", "functools", "collections",
+ALLOWED_IMPORTS = {"cadquery", "math", "random", "numpy", "itertools", "functools", "collections",
                    "typing", "dataclasses", "enum", "copy", "statistics", "operator", "__future__"}
 FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {
     "os", "sys", "pathlib",  # no file-system / interpreter access (unlike blender, nothing legitimate needs them)
@@ -317,20 +317,16 @@ class CadQueryRuntime(RuntimeLayout):
     language = Language.CADQUERY
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.CADQUERY],)
 
-    def __init__(self, *, python: str | None = None, settings: Settings | None = None, rlimit_gb: float = 8.0):
+    def __init__(self, *, python: str | None = None, settings: Settings | None = None):
         self._settings = settings or get_settings()
         self._python = python or sys.executable
-        self._rlimit_gb = rlimit_gb
 
     def entry_file(self, ws: Workspace) -> Path:
         return ws.src / "model.py"
 
-    def build_command(self, ws: Workspace, *, seed: int = 0) -> list[str]:
-        """The wrapper's own tolerance defaults are the tessellation."""
-        return [
-            self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
-            "--rlimit-gb", str(self._rlimit_gb), "--seed", str(seed),
-        ]
+    def build_command(self, ws: Workspace) -> list[str]:
+        """The wrapper's own constants are the tessellation and the seed."""
+        return [self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts)]
 
     # ------------------------------------------------------------------ protocol
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
@@ -341,9 +337,9 @@ class CadQueryRuntime(RuntimeLayout):
     def lint(self, ws: Workspace) -> GateReport:
         return lint_cadquery_file(self.entry_file(ws))
 
-    def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0) -> BuildResult:
+    def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
         return run_wrapper_build(
             ws, language=self.language, extras={"step": "object.step", "stl": "object.stl"},
-            argv=lambda: self.build_command(ws, seed=seed),
+            argv=lambda: self.build_command(ws),
             env=cadquery_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s)
 

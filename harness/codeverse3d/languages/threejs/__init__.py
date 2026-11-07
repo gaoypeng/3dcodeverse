@@ -261,15 +261,15 @@ def render_object(plan: StaticPlan) -> str:
     return OBJECT_HEADER.format(object_name=to_pascal(plan.object_name), imports=imports, adds=adds)
 
 
-def write_skeleton(ws: Workspace, plan: Plan, *, overwrite: bool = False) -> list[Path]:
-    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; existing files are kept unless ``overwrite``."""
+def write_skeleton(ws: Workspace, plan: Plan) -> list[Path]:
+    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; existing files are kept."""
     if not isinstance(plan, StaticPlan):
         raise TypeError(f"threejs skeleton needs a StaticPlan, got {type(plan).__name__}")
     written: list[Path] = []
     (ws.src / "parts").mkdir(parents=True, exist_ok=True)
 
     def _put(path: Path, text: str) -> None:
-        if path.exists() and not overwrite:
+        if path.exists():
             return
         path.write_text(text)
         written.append(path)

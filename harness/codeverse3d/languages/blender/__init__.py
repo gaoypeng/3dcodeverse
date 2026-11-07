@@ -30,7 +30,7 @@ from codeverse3d.workspace import Workspace
 GATE = "lint:blender"
 
 ALLOWED_IMPORTS = {
-    "bpy", "bmesh", "mathutils", "math", "random", "numpy", "np", "itertools", "functools",
+    "bpy", "bmesh", "mathutils", "math", "random", "numpy", "itertools", "functools",
     "collections", "typing", "dataclasses", "colorsys", "statistics", "operator", "enum", "copy",
     "sys", "os", "__future__", "bpy_extras",
     "parts",  # the workspace's own src/parts/<snake>.py modules (multi-file layout)
@@ -702,6 +702,13 @@ class BlenderNotFoundError(RuntimeError):
     """No usable Blender binary (configure ``C3D_BINARIES__BLENDER`` or put blender on PATH)."""
 
 
+def blender_binary(override: str | None, settings: Settings) -> str:
+    b = override or settings.resolve_blender()
+    if not b or not Path(b).exists():
+        raise BlenderNotFoundError("Blender binary not found; set C3D_BINARIES__BLENDER=/path/to/blender")
+    return b
+
+
 def blender_env() -> dict[str, str]:
     """Environment for a headless Blender child: host python cannot leak in, credential-shaped vars are stripped."""
     env = scrub_secrets(dict(os.environ))
@@ -723,29 +730,8 @@ class BlenderRuntime(RuntimeLayout):
         self._blender = blender
 
     # ------------------------------------------------------------------ helpers
-    def blender_binary(self) -> str:
-        b = self._blender or self._settings.resolve_blender()
-        if not b or not Path(b).exists():
-            raise BlenderNotFoundError("Blender binary not found; set C3D_BINARIES__BLENDER=/path/to/blender")
-        return b
-
     def entry_file(self, ws: Workspace) -> Path:
         return ws.root / ENTRY_REL
-
-    def build_command(
-        self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,
-    ) -> list[str]:
-        cmd = [
-            self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
-            "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
-            "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb),
-            "--seed", str(seed),
-        ]
-        if stl:
-            cmd.append("--stl")
-        if blend:
-            cmd.append("--blend")
-        return cmd
 
     # ------------------------------------------------------------------ protocol
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
@@ -756,12 +742,12 @@ class BlenderRuntime(RuntimeLayout):
     def lint(self, ws: Workspace) -> GateReport:
         return lint_workspace(ws)
 
-    def build(
-        self, ws: Workspace, *, timeout_s: int | None = None, stl: bool = True, blend: bool = False,
-        seed: int = 0,
-    ) -> BuildResult:
-        return run_wrapper_build(
-            ws, language=self.language, extras={"stl": "object.stl", "blend": "object.blend"},
-            argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed),
-            env=blender_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s, output_filter=strip_blender_noise)
+    def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
+        def argv() -> list[str]:
+            return [blender_binary(self._blender, self._settings), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+                    "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
+                    "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb), "--stl"]
 
+        return run_wrapper_build(
+            ws, language=self.language, extras={"stl": "object.stl"}, argv=argv,
+            env=blender_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s, output_filter=strip_blender_noise)
