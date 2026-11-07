@@ -351,7 +351,7 @@ class FakeServices(Services):
         self.motion_errors = motion_errors
         self.materialized: list[str] = []
         self.records: list[RunRecord] = []
-        self.reference_judges: list[tuple[str, int, str]] = []
+        self.judges_made: list[tuple[str, bool]] = []
         self.silhouette_calls: list[tuple[str, str]] = []
         self.planned_edges: list[list[tuple[str, str]]] = []
 
@@ -361,11 +361,8 @@ class FakeServices(Services):
     def coding_agent(self, agent_id: str) -> Any:
         raise ServiceUnavailable("no coding agent in tests")
 
-    def judge(self, rubric: str, model_id: str, n_samples: int = 1) -> Any:
-        return self._judge if self._judge is not None else FakeJudge()
-
-    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference") -> Any:
-        self.reference_judges.append((model_id, n_samples, rubric))
+    def judge(self, track: Any, rubric: str, model_id: str, n_samples: int = 1, *, references: bool = False) -> Any:
+        self.judges_made.append((rubric, references))
         return self._judge if self._judge is not None else FakeJudge()
 
     def silhouette(self, render_png, reference_png) -> dict[str, Any]:

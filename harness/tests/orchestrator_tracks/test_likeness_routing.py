@@ -28,19 +28,13 @@ def test_graphics_note_asks_for_the_physics_not_a_silhouette(tmp_path):
     assert reference_note(_ctx(Track.GRAPHICS, [str(tmp_path / "gone.png")])) == ""
 
 
-def test_make_judge_routes_photos_to_the_likeness_judge_and_a_replay_picks_the_same():
-    calls: list[tuple[str, str]] = []
-    services = SimpleNamespace(
-        likeness_judge=lambda model, n_samples, rubric: calls.append(("likeness", rubric)) or "L",
-        reference_judge=lambda model, n_samples, rubric: calls.append(("reference", rubric)) or "R",
-        judge=lambda rubric, model, n_samples: calls.append(("plain", rubric)) or "P",
-    )
+def test_make_judge_hands_the_track_rubric_and_photos_to_one_factory_and_a_replay_picks_the_same():
+    calls: list[tuple] = []
+    services = SimpleNamespace(judge=lambda track, rubric, model, n_samples, references: calls.append((track, rubric, references)))
     me = SimpleNamespace(_judge=None, services=services)
-    assert BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, ["/x.png"])) == "L"
-    assert BaseTrack.make_judge(me, _ctx(Track.SCENE, ["/x.png"])) == "L"
-    assert BaseTrack.make_judge(me, _ctx(Track.STATIC_OBJECT, ["/x.png"])) == "R"
-    assert BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, [])) == "P"
-    assert calls[0] == ("likeness", "shader")
+    BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, ["/x.png"]))
+    BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, []))
+    assert calls == [(Track.GRAPHICS, "shader", True), (Track.GRAPHICS, "shader", False)]
     # a replay picks the judge the live run did: `3dcodeverse judge` / calibration and the live run share
     # `judge_for` — a graphics or scene run with photos was re-judged by ReferenceJudge (silhouette +
     # diff pass) where the run used likeness

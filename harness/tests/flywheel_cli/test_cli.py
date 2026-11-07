@@ -156,7 +156,6 @@ def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
     assert inp.gates and inp.renders.views
     assert inp.geometry_views is not None and inp.geometry_views.views[0].mode == "clay"
     assert (ws.artifacts / "judge" / "r01_cli.json").is_file()
-    assert "prompt images" in r.output
 
     # a measured rubric goes to the reference judge
     class _FakeRef(_FakeVlm):
@@ -261,7 +260,7 @@ def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_
         record_call(Usage(backend="gemini", model="gemini-3.8-flash", cost_usd=cost), stage="judge", label="t", ledger=ledger)
         return ledger_usage(load_ledger(ws.root)).cost_usd
 
-    total = paid(0.03)                # a pairwise verdict `pick` paid: the pick re-packages the record
+    total = paid(0.03)                # a paid call: the pick re-packages the record
     assert runner.invoke(app, ["pick", "stool_img", "--round", "0", "--runs-dir", str(runs)]).exit_code == 0
     assert load_record(ws).total_usage.cost_usd == pytest.approx(total)
 

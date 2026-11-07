@@ -100,11 +100,11 @@ cd harness
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --rounds 2 --dim height=0.45 --must "three legs" --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
-3dcodeverse pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
-3dcodeverse resume <slug> · 3dcodeverse show <slug> [--section status] (`status` = its STATUS section) · 3dcodeverse render <slug> [--mode wire] · 3dcodeverse judge <slug> [--model ... --n 3 --thinking medium]
+3dcodeverse pick <slug> [--round N]   # hand over a round (codeverse3d/addons/select.py)
+3dcodeverse resume <slug> · 3dcodeverse show <slug> [--section status] (`status` = its STATUS section) · 3dcodeverse judge <slug> [--model ... --n 3 --thinking medium]
 3dcodeverse tools list · 3dcodeverse tools measure --workspace runs/<slug> · 3dcodeverse mcp --workspace runs/<slug>
-3dcodeverse cost <slug> · 3dcodeverse cost --runs-dir ../eval/bench/out/<battery> · 3dcodeverse cost cache <slug>
-3dcodeverse cost prices [--stale] · 3dcodeverse cost estimate gemini:gemini-3.1-pro-preview --in 12000
+3dcodeverse cost <slug> · 3dcodeverse cost --runs-dir ../eval/bench/out/<battery>
+3dcodeverse cost prices [--stale]
 3dcodeverse flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcodeverse flywheel pairs runs/ pairs.jsonl
 3dcodeverse flywheel caption <slug> [--out dir]   # the gallery is `3dcodeverse gallery build --embed`
 3dcodeverse gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcodeverse gallery build --out gallery.html [--embed]

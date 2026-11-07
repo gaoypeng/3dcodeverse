@@ -47,16 +47,11 @@ class Services:
     def coding_agent(self, agent_id: str) -> Any:
         return _import("codeverse3d.agents", "get_coding_agent")(agent_id)
 
-    def judge(self, rubric: str, model_id: str, n_samples: int = 1) -> Any:
-        return _import("codeverse3d.judges.vlm_judge", "VlmJudge")(rubric=rubric, model_id=model_id, n_samples=n_samples)
-
-    def reference_judge(self, model_id: str, n_samples: int = 1, rubric: str = "reference") -> Any:
-        """Image-conditioned judge (spec has reference images): renders + references + silhouette IoU."""
-        return _import("codeverse3d.judges.vlm_judge", "ReferenceJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
-
-    def likeness_judge(self, model_id: str, n_samples: int = 1, rubric: str = "shader") -> Any:
-        """Reference photos beside the frames, no silhouette (graphics / scene with images)."""
-        return _import("codeverse3d.judges.vlm_judge", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
+    def judge(self, track: Track, rubric: str, model_id: str, n_samples: int = 1, *, references: bool = False) -> Any:
+        """The judge that scores a round: the class ``judge_for`` picks, shared with every replay."""
+        judges = importlib.import_module("codeverse3d.judges.vlm_judge")
+        cls = judges.judge_for(track, rubric, references=references)
+        return cls(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
     def runtime(self, language: Language) -> Any:
         return _import("codeverse3d.languages", "get_runtime")(language)

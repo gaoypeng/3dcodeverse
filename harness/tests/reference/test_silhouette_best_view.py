@@ -48,5 +48,5 @@ def test_the_gate_and_the_judge_read_one_measurement(tmp_path: Path) -> None:
     ctx = SimpleNamespace(spec=spec, services=SimpleNamespace(silhouette=compare_silhouette))
     (finding,) = silhouette_gate(ctx, RenderSet(views=views)).findings
     assert finding.data["view"] == "right" and finding.data["iou"] > 0.8 and finding.severity == Severity.INFO
-    jc = ReferenceJudge("fake:fake-1", chat_model=FakeChatModel([]), diff=False).context(JudgeInput(spec=spec, renders=RenderSet(views=views)))
+    jc = ReferenceJudge("fake:fake-1", chat_model=FakeChatModel([])).context(JudgeInput(spec=spec, renders=RenderSet(views=views)))
     assert f"right render vs reference ref.png: IoU {finding.data['iou']:.3f}" in jc.extra_text

@@ -35,17 +35,17 @@ def test_defect_parse_variants():
     out = parse_judge_output(_reply(defects=["floating_part"]), R, IDS)
     assert out.defects["floating_part"] is True and out.defects["primitive_only"] is False
     assert out.defect_evidence["floating_part"] == "MONTAGE 1 top-left"
-    # bare booleans and list-of-records are accepted; unknown ids dropped; missing ids → absent
+    # unknown ids dropped; missing ids → absent
     rep = good_reply(R, IDS, 0.8)
-    rep["defects"] = [{"id": "interpenetration", "present": True}, {"id": "made_up", "present": True}]
+    rep["defects"] = {"interpenetration": {"present": True}, "made_up": {"present": True}}
     out2 = parse_judge_output(rep, R, IDS)
     assert out2.defects["interpenetration"] is True and "made_up" not in out2.defects
     assert out2.defects["floating_part"] is False and out2.defect_evidence["floating_part"] == "not answered by judge"
-    rep3 = good_reply(R, IDS, 0.8)
-    rep3["defects"] = {"floating_part": True}
-    assert parse_judge_output(rep3, R, IDS).defects["floating_part"] is True
     rep4 = good_reply(R, IDS, 0.8)
     rep4["defects"] = {"floating_part": {"present": "yes"}}
+    with pytest.raises(JudgeParseError):
+        parse_judge_output(rep4, R, IDS)
+    rep4["defects"] = [{"id": "floating_part", "present": True}]  # not the wire shape: a retry, never an AttributeError
     with pytest.raises(JudgeParseError):
         parse_judge_output(rep4, R, IDS)
 
@@ -62,7 +62,6 @@ def test_penalties_and_caps_computed_in_code(judge_input, cache_dir):
     model2 = FakeChatModel([_reply(0.9, ["floating_part", "primitive_only"])])
     j2 = VlmJudge("static_object", chat_model=model2, cache_dir=cache_dir).judge(judge_input)
     raw2 = json.loads(j2.raw)
-    assert raw2["overall_after_defects"] == pytest.approx(0.72)
     assert j2.overall == 0.6 and not j2.passed  # capped by defect:floating_part
     assert raw2["caps"]["caps_applied"][0]["rule"] == "defect:floating_part"
     # the checklist is per-sample data too
@@ -76,9 +75,7 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
         j = VlmJudge("static_object", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert "n_samples=2 is even" in caplog.text
     raw = json.loads(j.raw)
-    assert raw["defect_votes"]["render_artifacts"] == [True, False]
     assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
-    assert raw["tie_broken"] == ["render_artifacts"]
     assert raw["scoring_version"] == 4 and raw["overridden"] == []  # 4: the kind-scoped veto (scene, 2026-10-14)
 
 

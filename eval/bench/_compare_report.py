@@ -1,9 +1,8 @@
 """Result rows + report.md / report.html for ``bench/compare_backends.py``.
 
-``CellResult`` is one (prompt, arm) cell; ``PairRow`` one pairwise verdict.
-``build_compare_report(out_dir)`` reads ``results.jsonl`` + ``pairwise.jsonl``
-and writes the arm summary table, the per-prompt score matrix, the pairwise
-arena (win rates) and an HTML gallery of the contact sheets side by side.
+``CellResult`` is one (prompt, arm) cell.  ``build_compare_report(out_dir)`` reads
+``results.jsonl`` and writes the arm summary table, the per-prompt score matrix and an
+HTML gallery of the contact sheets side by side.
 """
 
 from __future__ import annotations
@@ -96,26 +95,6 @@ def cell_minutes(r: CellResult) -> float:
     return r.wall_s / 60 if r.minutes is None else r.minutes
 
 
-class PairRow(BaseModel):
-    prompt_id: str
-    arm_a: str
-    arm_b: str
-    winner: str = Field(description="a | b | tie | unavailable")
-    confidence: float = 0.0
-    reasons: list[str] = Field(default_factory=list)
-    orderings: list[dict] = Field(default_factory=list)
-    cost_usd: float = 0.0
-    judged: bool = Field(default=True, description="False when decided by a missing build (no judge call)")
-    error: str = ""
-    eligible: bool = Field(default=True, description="False when an infrastructure-failed cell makes this pair unavailable")
-    exclusion_reason: str = ""
-    rubric: str = Field(default="", description="Track rubric used by the pairwise judge; empty on historical rows")
-
-    def natural_key(self) -> tuple[str, ...]:
-        """Row identity: one pairwise verdict is one (prompt, arm A, arm B)."""
-        return (self.prompt_id, self.arm_a, self.arm_b)
-
-
 # ----------------------------------------------------------------------------- aggregates
 class ArmStats(BaseModel):
     arm: str
@@ -136,17 +115,6 @@ class ArmStats(BaseModel):
     errors: int
     degraded: int = Field(default=0, description="harness cells flagged storm-degraded (scored, but the run never iterated)")
     ceiling_cut: int = Field(default=0, description="harness cells whose run had a round cut by the ceiling")
-
-
-class PairStats(BaseModel):
-    arm_a: str
-    arm_b: str
-    n: int
-    wins_a: int
-    wins_b: int
-    ties: int
-    win_rate_a: float | None = Field(description="wins_a / (wins_a + wins_b); ties excluded")
-    mean_confidence: float
 
 
 def _mean(xs: list[float]) -> float | None:
@@ -180,21 +148,6 @@ def arm_stats(rows: list[CellResult]) -> list[ArmStats]:
     return sorted(out, key=lambda s: (s.kind != "harness", -(s.mean_score or -1)))
 
 
-def pair_stats(pairs: list[PairRow]) -> list[PairStats]:
-    groups: dict[tuple[str, str], list[PairRow]] = {}
-    for p in pairs:
-        if not p.eligible:
-            continue
-        groups.setdefault((p.arm_a, p.arm_b), []).append(p)
-    out = []
-    for (a, b), ps in groups.items():
-        wa, wb = sum(p.winner == "a" for p in ps), sum(p.winner == "b" for p in ps)
-        out.append(PairStats(arm_a=a, arm_b=b, n=len(ps), wins_a=wa, wins_b=wb, ties=len(ps) - wa - wb,
-                             win_rate_a=round(wa / (wa + wb), 4) if wa + wb else None,
-                             mean_confidence=round(statistics.fmean(p.confidence for p in ps), 3)))
-    return out
-
-
 # ----------------------------------------------------------------------------- markdown
 def _prompt_order(rows: list[CellResult], meta: dict) -> list[str]:
     """Battery order, restricted to prompts that have at least one cell."""
@@ -223,7 +176,7 @@ def _cell_text(r: CellResult | None) -> str:
     return f"{r.score:.2f}{'✓' if r.passed else ''}{flag}{'†' if r.degraded else ''}"
 
 
-def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: dict) -> str:
+def compare_markdown(out: Path, rows: list[CellResult], meta: dict) -> str:
     opts = meta.get("options", {})
     arms = _arm_order(rows, meta)
     prompts = _prompt_order(rows, meta)
@@ -253,15 +206,6 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
     for pid in prompts:
         tier = next((r.tier for r in rows if r.prompt_id == pid), "")
         md.append(f"| {pid} | {tier} | " + " | ".join(_cell_text(cells.get((pid, a))) for a in arms) + " |")
-    md += ["", "## pairwise arena (PairwiseJudge, both orders; ties = orderings disagree or equal)", "",
-           "| harness arm (A) | one-shot arm (B) | n | A wins | B wins | ties | A win rate | conf |", "|---|---|---|---|---|---|---|---|"]
-    for s in pair_stats(pairs):
-        md.append(f"| {s.arm_a} | {s.arm_b} | {s.n} | {s.wins_a} | {s.wins_b} | {s.ties} | {_f(s.win_rate_a, '.0%')} | {s.mean_confidence:.2f} |")
-    if pairs:
-        md += ["", "### pairwise verdicts", "", "| prompt | A | B | winner | conf | judged | reason |", "|---|---|---|---|---|---|---|"]
-        for p in sorted(pairs, key=lambda p: (p.prompt_id, p.arm_a, p.arm_b)):
-            md.append(f"| {p.prompt_id} | {p.arm_a} | {p.arm_b} | {p.winner} | {p.confidence:.2f} | {'yes' if p.judged else 'no'} | "
-                      f"{html.escape((p.reasons[0] if p.reasons else p.error)[:160])} |")
     hr = [r for r in rows if r.kind == "harness"]
     if hr:
         md += ["", "## harness runs (loop judge score vs fixed judge score)", "",
@@ -269,8 +213,8 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
         md += [f"| {r.prompt_id} | {r.arm} | {r.harness_status} | {r.harness_stop_reason} | {r.harness_rounds} | {r.harness_aborted_rounds or ''} | "
                f"{_f(r.harness_loop_score)} | {_f(r.score)} | {r.gen_cost_usd:.2f} | {cell_minutes(r):.1f} | {'† ' + r.degraded_reason if r.degraded else ''} |"
                for r in sorted(hr, key=lambda r: (r.prompt_id, r.arm))]
-    total_gen, total_judge, total_pw = sum(r.gen_cost_usd for r in rows), sum(r.judge_cost_usd for r in rows), sum(p.cost_usd for p in pairs)
-    md += ["", f"**Total cost**: generation ${total_gen:.2f} · fixed judge ${total_judge:.2f} · pairwise ${total_pw:.2f} "
+    total_gen, total_judge = sum(r.gen_cost_usd for r in rows), sum(r.judge_cost_usd for r in rows)
+    md += ["", f"**Total cost**: generation ${total_gen:.2f} · fixed judge ${total_judge:.2f} "
            f"(subscription CLIs report their own cost figure or 0)."]
     errs = [r for r in rows if r.error]
     if errs:
@@ -286,7 +230,7 @@ _STYLE = ("body{font-family:system-ui,sans-serif;margin:24px;background:#111;col
           "pre{white-space:pre-wrap;font-size:11px;color:#bbb}")
 
 
-def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: dict) -> str:
+def compare_html(out: Path, rows: list[CellResult], meta: dict) -> str:
     assets = out / "report_assets"
     assets.mkdir(exist_ok=True)
     arms = _arm_order(rows, meta)
@@ -295,8 +239,6 @@ def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: 
     head = "<tr><th>arm</th><th>n</th><th>mean</th><th>pass</th><th>build ok</th><th>$gen</th><th>min</th></tr>"
     summ = "".join(f"<tr><td>{html.escape(s.arm)}</td><td>{s.n}</td><td>{_f(s.mean_score)}</td><td>{_f(s.pass_rate, '.0%')}</td>"
                    f"<td>{s.build_ok_rate:.0%}</td><td>{s.mean_gen_usd:.2f}</td><td>{s.mean_minutes:.1f}</td></tr>" for s in arm_stats(rows))
-    pw = "".join(f"<tr><td>{html.escape(s.arm_a)}</td><td>{html.escape(s.arm_b)}</td><td>{s.wins_a}/{s.wins_b}/{s.ties}</td>"
-                 f"<td>{_f(s.win_rate_a, '.0%')}</td></tr>" for s in pair_stats(pairs))
     grid = ["<table class='g'><tr><th>prompt</th>" + "".join(f"<th>{html.escape(a)}</th>" for a in arms) + "</tr>"]
     for pid in prompts:
         tds = []
@@ -320,20 +262,18 @@ def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: 
     name = meta.get("battery", {}).get("name", out.name)
     return (f"<!doctype html><meta charset='utf-8'><title>compare {html.escape(name)}</title><style>{_STYLE}</style>"
             f"<h1>harness vs one-shot — {html.escape(name)}</h1><p>fixed judge {html.escape(str(meta.get('options', {}).get('judge')))}</p>"
-            f"<table>{head}{summ}</table><h2>pairwise (A wins / B wins / ties)</h2><table><tr><th>A (harness)</th><th>B (one-shot)</th>"
-            f"<th>w/l/t</th><th>A win rate</th></tr>{pw}</table><h2>gallery</h2>{''.join(grid)}")
+            f"<table>{head}{summ}</table><h2>gallery</h2>{''.join(grid)}")
 
 
 def build_compare_report(out_dir: Path | str) -> tuple[str, str]:
     out = Path(out_dir)
     rows = list(latest(read_jsonl(out / "results.jsonl", CellResult)).values())
-    pairs = list(latest(read_jsonl(out / "pairwise.jsonl", PairRow)).values())
     meta = json.loads((out / "matrix.json").read_text()) if (out / "matrix.json").is_file() else {}
-    md = compare_markdown(out, rows, pairs, meta)
-    page = compare_html(out, rows, pairs, meta)
+    md = compare_markdown(out, rows, meta)
+    page = compare_html(out, rows, meta)
     (out / "report.md").write_text(md)
     (out / "report.html").write_text(page)
     return md, page
 
 
-__all__ = ["ArmStats", "CellResult", "PairRow", "PairStats", "arm_stats", "build_compare_report", "pair_stats"]
+__all__ = ["ArmStats", "CellResult", "arm_stats", "build_compare_report"]

@@ -1,4 +1,4 @@
-"""Matrix runner: cells, resume, pairwise arena, report (offline, fakes)."""
+"""Matrix runner: cells, resume, report (offline, fakes)."""
 
 from __future__ import annotations
 
@@ -14,11 +14,8 @@ if str(REPO) not in sys.path:
 
 from bench._compare_report import (  # noqa: E402
     CellResult,
-    PairRow,
     arm_stats,
-    pair_stats,
 )
-from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.compare_backends import (  # noqa: E402
     CompareDeps,
     CompareOptions,
@@ -35,7 +32,6 @@ from tests.conftest import (  # noqa: E402
     GOOD,
     FakeBackend,
     FakeEvaluator,
-    FakePairwise,
     GeminiChat,
     fake_run_track,
 )
@@ -66,15 +62,7 @@ def test_spec_for_and_acceptance():
 
 
 def _deps(ev: FakeEvaluator, backends: dict[str, FakeBackend], run_track) -> CompareDeps:
-    pw = {}
-
-    def _pw(model_id: str):
-        pw.setdefault(model_id, FakePairwise(model_id))
-        return pw[model_id]
-
-    deps = CompareDeps(ev, run_track=run_track, oneshot_backend=lambda t: backends[t], pairwise_judge=_pw)
-    deps.pw = pw  # type: ignore[attr-defined]
-    return deps
+    return CompareDeps(ev, run_track=run_track, oneshot_backend=lambda t: backends[t])
 
 
 def test_matrix_end_to_end_with_fakes(tmp_path: Path):
@@ -109,14 +97,6 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     assert len(repairs) == 4 and all("BOOM" in c and "PREVIOUS `src/model.py`" in c for c in repairs)
     # the fixed evaluator ran once per cell that had code (6 of 8)
     assert len(ev.evaluated) == 6
-    # pairwise: 1 harness arm × 3 one-shot arms × 2 prompts = 6 rows; the no-code arm is auto-decided
-    pairs = list(latest(read_jsonl(out / "pairwise.jsonl", PairRow)).values())
-    assert len(pairs) == 6
-    auto = [p for p in pairs if p.arm_b == "oneshot:gemini:gemini-3.8-flash"]
-    assert all(p.winner == "a" and not p.judged for p in auto)
-    judged = [p for p in pairs if p.judged]
-    assert len(judged) == 4 and all(p.winner == "a" and p.cost_usd == pytest.approx(0.03) for p in judged)
-    assert deps.pw["gemini:fixed"].calls == 4
     # report
     md = (out / "report.md").read_text()
     assert "fixed judge: **gemini:fixed**" in md
@@ -125,7 +105,6 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     assert "| arm | kind | n | dropped | over budget | mean |" in md, md
     assert "| harness:agy:gemini-3.8-flash | harness | 2 |  |  | 0.900 |" in md, md
     assert "| cmp_easy_stool | easy | 0.90✓ | 0.60 | 0.75✓ | 0.00 ✗build |" in md
-    assert "| harness:agy:gemini-3.8-flash | oneshot:claude-code | 2 | 2 | 0 | 0 | 100% |" in md
     page = (out / "report.html").read_text()
     assert "report_assets/cmp_easy_stool__harness_agy_gemini-3.8-flash.png" in page
     assert len(list((out / "report_assets").glob("*.png"))) == 6
@@ -134,12 +113,11 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     run_track2 = fake_run_track(0.1)
     deps2 = _deps(FakeEvaluator(), {k: FakeBackend(["x"]) for k in backends}, run_track2)
     rows2 = run_matrix(BATTERY, out, parse_arms(ARMS), opts, deps2)
-    assert len(rows2) == 8 and not run_track2.calls and deps2.evaluator.evaluated == [] and not deps2.pw
+    assert len(rows2) == 8 and not run_track2.calls and deps2.evaluator.evaluated == []
     assert {(r.prompt_id, r.arm): r.score for r in rows2} == {(r.prompt_id, r.arm): r.score for r in rows}
     # ---- adding a prompt (limit 3) only runs the new cells
     rows3 = run_matrix(BATTERY, out, parse_arms(ARMS), opts.model_copy(update={"limit": 3}), deps2)
     assert len(rows3) == 12 and run_track2.calls == ["compare_v1/cmp_med_dining_chair"]
-    assert len(latest(read_jsonl(out / "pairwise.jsonl", PairRow))) == 9
 
 
 def test_cell_errors_are_recorded_not_raised(tmp_path: Path):
@@ -153,8 +131,7 @@ def test_cell_errors_are_recorded_not_raised(tmp_path: Path):
     def failing_track(spec, ws, resume):
         raise RuntimeError("planner down")
 
-    deps = CompareDeps(Exploding(), run_track=failing_track, oneshot_backend=lambda t: FakeBackend([GOOD.format(score=0.5)]),
-                       pairwise_judge=FakePairwise)
+    deps = CompareDeps(Exploding(), run_track=failing_track, oneshot_backend=lambda t: FakeBackend([GOOD.format(score=0.5)]))
     rows = run_matrix(BATTERY, tmp_path / "o", parse_arms("harness:agy:gemini-3.8-flash,oneshot:codex"),
                       CompareOptions(limit=1, parallel=1), deps)
     by = {r.arm: r for r in rows}
@@ -171,10 +148,6 @@ def test_stats_math():
     assert s["a"].mean_score == pytest.approx(0.4) and s["a"].pass_rate == 0.5 and s["a"].build_ok_rate == 0.5
     assert s["a"].mean_gen_usd == 0.75 and s["a"].mean_minutes == 1.5
     assert s["b"].mean_score is None and s["b"].errors == 1
-    ps = pair_stats([PairRow(prompt_id="p1", arm_a="a", arm_b="b", winner="a", confidence=0.9),
-                     PairRow(prompt_id="p2", arm_a="a", arm_b="b", winner="tie", confidence=0.3),
-                     PairRow(prompt_id="p3", arm_a="a", arm_b="b", winner="b", confidence=0.6)])[0]
-    assert (ps.wins_a, ps.wins_b, ps.ties, ps.win_rate_a) == (1, 1, 1, 0.5) and ps.mean_confidence == pytest.approx(0.6)
 
 
 def test_cli_report_only(tmp_path: Path):
@@ -207,16 +180,16 @@ def test_redo_status_reuses_recorded_answers(tmp_path: Path):
     """A redo of failed cells re-evaluates without a second generation call; a failed generation is not cached."""
     ev = FakeEvaluator()
     be = FakeBackend([BAD])
-    deps = CompareDeps(ev, run_track=fake_run_track(), oneshot_backend=lambda t: be, pairwise_judge=FakePairwise)
+    deps = CompareDeps(ev, run_track=fake_run_track(), oneshot_backend=lambda t: be)
     out = tmp_path / "o"
-    opts = CompareOptions(limit=1, parallel=1, pairwise=False)
+    opts = CompareOptions(limit=1, parallel=1)
     rows = run_matrix(BATTERY, out, parse_arms("oneshot:codex"), opts, deps)
     assert rows[0].status == "build_failed" and len(be.calls) == 1
     assert (out / "cells" / "cmp_easy_stool" / "oneshot_codex" / "gen" / "attempt0" / "result.json").is_file()
     rows2 = run_matrix(BATTERY, out, parse_arms("oneshot:codex"), opts.model_copy(update={"redo_status": ["build_failed"]}), deps)
     assert rows2[0].status == "build_failed" and len(be.calls) == 1 and len(ev.evaluated) == 2  # re-evaluated, not re-generated
     empty = FakeBackend([""])
-    deps3 = CompareDeps(ev, run_track=fake_run_track(), oneshot_backend=lambda t: empty, pairwise_judge=FakePairwise)
+    deps3 = CompareDeps(ev, run_track=fake_run_track(), oneshot_backend=lambda t: empty)
     rows3 = run_matrix(BATTERY, out, parse_arms("oneshot:claude-code"), opts, deps3)
     r3 = next(r for r in rows3 if r.arm == "oneshot:claude-code")
     assert r3.status == "no_code" and "empty" in r3.error
@@ -248,7 +221,7 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
 
     deps = _deps(ev, {"claude-code": FakeBackend(["```python\n" + GOOD.format(score=0.6) + "```"])}, run_track)
     out = tmp_path / "cmp"
-    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=2, pairwise=False)
+    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=2)
     rows = run_matrix(BATTERY, out, parse_arms("harness:agy:gemini-3.8-flash,oneshot:claude-code"),
                       opts, deps)
     assert len(rows) == 2
@@ -274,7 +247,7 @@ def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):
     out = tmp_path / "cmp"
     arms = parse_arms("harness:agy:gemini-3.8-flash")
     deps = _deps(ev, {}, run)
-    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=1, pairwise=False)
+    opts = CompareOptions(judge="gemini:fixed", limit=1, parallel=1)
     cell = Path(run_matrix(BATTERY, out, arms, opts, deps)[0].workspace)
     (cell / "run" / "src" / "stale.py").write_text("# stale")
     run_matrix(BATTERY, out, arms, opts, deps)

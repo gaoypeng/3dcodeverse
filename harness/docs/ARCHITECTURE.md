@@ -133,14 +133,14 @@ codeverse3d/
                       provenance) context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row for a backend that does NOT
                       meter itself; run_ledger is context-local so parallel batteries work) tally.py (a block's
-                      money = its ledger rows, its lost seconds → StepTime) guard.py (a call's cost estimated
-                      before it is sent — `3dcodeverse cost estimate`)
+                      money = its ledger rows, its lost seconds → StepTime) guard.py (text_tokens: the
+                      ~4 chars/token estimate)
   judges/             base.py (JudgeInput; round_input + plan_summary, the ONE payload builder the in-run judge,
                       `3dcodeverse judge`, calibration and eval all use), rubrics.py + rubrics/*.yaml (defect
                       checklists, the wire schema, caps and scoring), prompt_builder.py (image prep, montages, the
-                      judge messages), vlm_judge.py (+ the reference/likeness judges), pairwise.py.  No Judge
+                      judge messages), vlm_judge.py (+ the reference/likeness judges).  No Judge
                       Protocol: a judge is duck-typed `.judge(JudgeInput) -> Judgment`
-  reference.py        a user `--image` against the render: proportions and the render-vs-reference mismatch diff
+  reference.py        a user `--image` against the render: the proportion check
   orchestrator.py     the round loop's LIBRARY, not the loop: RoundPolicy, refine-task compilation + grouping,
                       StageRunner + RunState (resume), BudgetGuard (the clock).  The loop itself is
                       tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round
@@ -164,7 +164,7 @@ codeverse3d/
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
                       (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py, refine.py,
                       captions.py, index.py, sample.py, quality.py (tiers + code fingerprints + duplicate groups)
-                      — `3dcodeverse flywheel …`; costreport/ = audit.py, report.py, caching.py — `3dcodeverse cost`;
+                      — `3dcodeverse flywheel …`; costreport/ = audit.py, report.py — `3dcodeverse cost`;
                       calibration.py (judge repeatability over recorded runs); skill_targets.py (measured targets
                       + claims per skill bundle); select.py (round_rows / pick / summarise / package: which round
                       of a finished run to hand over — `3dcodeverse pick`, and `3dcodeverse make` after the run)
@@ -182,7 +182,7 @@ codeverse3d/
                       codeverse3d/skills/ is what an AGENT chooses to read; a file that tries to be both is the
                       bug this split prevents
   cli/                main.py (app wiring, make/resume/mcp + the doctor/tools/gallery commands), inspect_cmd.py
-                      (render/judge on one existing run), layout_cmd.py (THE single-run view: `show` = STATUS /
+                      (judge on one existing run), layout_cmd.py (THE single-run view: `show` = STATUS /
                       DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS; `status` = `show --section status`),
                       flywheel_cmd.py, cost_cmd.py (`3dcodeverse cost`), skills_cmd.py (`3dcodeverse skills
                       list|show|validate|report`)
@@ -248,8 +248,7 @@ GLB on the two vertical centre planes, red hatch only on the gate's ERROR penetr
 appended after the montages with a factual rig-text block.  A clean round's payload is
 byte-identical to the unconditional one (test-pinned).
 
-`PairwiseJudge` (position-swapped, tie on disagreement; only `3dcodeverse pick --by pairwise` asks
-it); `ReferenceJudge` for image-conditioned specs.  Rubrics (pass threshold 0.70 unless named):
+`ReferenceJudge` for image-conditioned specs.  Rubrics (pass threshold 0.70 unless named):
 `static_object` (0.72), `articulated` (requires pose views: the `missing_pose_sheet` cap), `scene`
 (placement caps floating 0.60 / sunken 0.65 / interpenetration 0.70 / scale 0.75 / free_exempt
 0.75 measured by `scene_placement`, frame-gate caps dark/blown/flat/content_small, graded
@@ -351,7 +350,7 @@ the shader-traps skill).  `scene_probe` also holds the scene draw budget: the ce
 ## 8. Cost and time
 
 `docs/RUNBOOK.md` §2 gives expected cost and time per track.  `3dcodeverse cost <slug>` prints a
-run's recorded spend, `3dcodeverse cost estimate` a call's expected price.
+run's recorded spend.
 
 ## 9. Known limits
 

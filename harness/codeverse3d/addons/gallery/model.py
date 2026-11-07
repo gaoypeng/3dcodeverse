@@ -124,8 +124,6 @@ class RunEntry(BaseModel):
     n_views: int = Field(default=0, description="how many individual views the picked round has")
     links: list[RunLink] = Field(default_factory=list)
     round_rows: list[RoundRow] = Field(default_factory=list)
-    cost_by_stage: dict[str, float] = Field(default_factory=dict)
-    models: dict[str, str] = Field(default_factory=dict)
 
     @property
     def key(self) -> str:

@@ -151,15 +151,3 @@ def fake_run_track(score: float = 0.8):
 
     run.calls = calls  # type: ignore[attr-defined]
     return run
-
-
-class FakePairwise:
-    def __init__(self, model_id: str):
-        self.model_id = model_id
-        self.calls = 0
-
-    def compare(self, spec: Spec, ra: RenderSet, rb: RenderSet, *, rubric: Any = None):
-        from codeverse3d.judges.pairwise import PairwiseResult
-
-        self.calls += 1
-        return PairwiseResult(winner="a", confidence=0.8, reasons=["Candidate A is cleaner"], usage=Usage(cost_usd=0.03))

@@ -1,1 +1,1 @@
-"""Judges: VLM rubric judge, pairwise judge, reference-fidelity judge, metrics."""
+"""Judges: VLM rubric judge, reference-fidelity judge, metrics."""

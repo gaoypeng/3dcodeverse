@@ -226,9 +226,11 @@ class ReferenceMatch(BaseModel):
         return self.reliable and not self.conflict
 
 
-def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: CompareFn | None = None) -> ReferenceMatch | None:
+def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: CompareFn | None = None,
+                      conflict: dict[str, Any] | None = None) -> ReferenceMatch | None:
     """:class:`ReferenceMatch` of ``renders`` against ``spec``'s target reference, or ``None``
-    when the spec has no readable reference or no render view could be compared."""
+    when the spec has no readable reference or no render view could be compared.  ``conflict`` is
+    the caller's own :func:`dimension_conflict` of the same reference, when it already has it."""
     from codeverse3d.reference import dimension_conflict  # reference.py imports this module
 
     ref = target_reference(spec.references)
@@ -239,4 +241,4 @@ def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: Com
         return None
     num = {k: float(res[k]) for k in ("ref_fill", "render_fill", "aspect_ratio_err", "ref_aspect", "render_aspect") if isinstance(res.get(k), int | float)}
     return ReferenceMatch(iou=float(res["iou"]), view=str(res.get("view", "")), reference=ref, reliable=bool(res.get("reliable", True)),
-                          conflict=bool(dimension_conflict(spec, ref).get("conflict")), per_view=res.get("per_view") or {}, **num)
+                          conflict=bool((conflict if conflict is not None else dimension_conflict(spec, ref)).get("conflict")), per_view=res.get("per_view") or {}, **num)

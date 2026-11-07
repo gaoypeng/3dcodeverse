@@ -254,7 +254,6 @@ class Settings(BaseSettings):
                              "(object tracks)")
     plan_restart: Flag = Field(default=True, description="re-sample a degenerate plan from the original "
                                "prompt instead of editing it in context (docs/COST.md §30)")
-    reference_diff: Flag = Field(default=True, description="the judge's reference-image mismatch pass")
     zone_layouts: Flag = Field(default=True, description="scene track: the L2 zone-layout planner calls")
     axis_repair: Flag = Field(default=True, description="articulated track: rewrite a joint axis the "
                               "measured motion proves wrong, before the sweep renders")

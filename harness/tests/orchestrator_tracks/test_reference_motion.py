@@ -77,7 +77,7 @@ def test_reference_images_wire_judge_prompts_and_silhouette(tmp_path, chair_plan
                               settings=settings, runtime=FakeRuntime(Language.BLENDER))
     rec = track.run(spec, ws)
     # reference judge + rubric
-    assert services.reference_judges and services.reference_judges[0][2] == "reference" and rec.extra["rubric"] == "reference"
+    assert services.judges_made and services.judges_made[0] == ("reference", True) and rec.extra["rubric"] == "reference"
     # prompts mention the references; single-shot attaches the image
     from codeverse3d.contracts.chat import ImagePart
 

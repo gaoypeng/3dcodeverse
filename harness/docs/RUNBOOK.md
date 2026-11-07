@@ -116,16 +116,15 @@ bookmarked.  `--reload` re-scans on every page load (a run with no `record.json`
 *pending*, a half-written one as *broken*).  The server binds `127.0.0.1` unless you pass
 `--host` and never serves a path outside the declared roots.
 
-## 5. Resume, re-render, re-judge, export
+## 5. Resume, re-judge, export
 
 New runs and standalone calibration default to `gemini:gemini-4-argon` with thinking
-`medium`. Existing runs retain the judge model in `record.spec.backends.judge`: `resume`,
-`judge` and `pick --by pairwise` use that model by default. `resume` has no `--judge`
+`medium`. Existing runs retain the judge model in `record.spec.backends.judge`: `resume` and
+`judge` use that model by default. `resume` has no `--judge`
 override. Thinking still comes from the current `judge.thinking` setting (default `medium`),
-not the recorded model; `judge --thinking` overrides it for that call. `pick --by score`
+not the recorded model; `judge --thinking` overrides it for that call. `pick`
 uses the recorded scores without calling a judge. To re-judge an old run with Argon, use
-`3dcodeverse judge <slug> --model gemini:gemini-4-argon --thinking medium`. For a pairwise
-pick with Argon, use `3dcodeverse pick <slug> --by pairwise --judge gemini:gemini-4-argon`.
+`3dcodeverse judge <slug> --model gemini:gemini-4-argon --thinking medium`.
 
 ```bash
 3dcodeverse resume <slug> [--no-pick]
@@ -137,13 +136,11 @@ pick with Argon, use `3dcodeverse pick <slug> --by pairwise --judge gemini:gemin
                                         # recorded stage never runs again; `resume --force` regenerates the stages:
                                         # it archives the round journal + record.json to rounds/pre_force/ and the
                                         # run starts again at round 0
-3dcodeverse pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]
+3dcodeverse pick <slug> [--round N]
                                         # hand over a round: deliverable/ + selection.json.  score = rounds
                                         # without a project:* / contract_fixed ERROR first, then highest
-                                        # effective score, ties → fewer gate errors → the earlier round; pairwise =
-                                        # the pairwise judge between the top two when within 0.03 (same tier); --round N = that
-                                        # round.  `make`/`resume` run `pick --by score` for you
-3dcodeverse render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
+                                        # effective score, ties → fewer gate errors → the earlier round; --round N = that
+                                        # round.  `make`/`resume` run `pick` for you
 3dcodeverse judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-4-argon] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
 3dcodeverse tools list [--cards] · 3dcodeverse tools measure --workspace runs/<slug> · 3dcodeverse tools gl_frames --workspace … --json '{"times":[0,1,2.5]}'

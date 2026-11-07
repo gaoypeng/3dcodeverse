@@ -1,16 +1,6 @@
 name: shader
 version: 2
 pass_threshold: 0.70
-description: >
-  Rubric for the GRAPHICS track (Shadertoy-style fragment shader or raw OpenGL program), judged on
-  a contact sheet of frames sampled at t = 0, 1, 2.5, 4, 6 s plus the harness frame metrics.
-  v2 (2026-08-26) replaces "brief fidelity" with LIKENESS: does the effect look like the thing
-  the brief names — the physics of it, not the list of nouns.  Measured on 17 judged runs before
-  this revision: Spearman(judge, a curator's eye) = 0.16, judge mean 0.77 against an eye mean of
-  0.55; three aurora versions that a person would not accept as an aurora scored 0.78-0.94 with
-  empty issue lists because every noun in the brief was present.  The checklist below names the
-  ways those frames failed so that a 0.9 is once again something a person would screenshot.
-
 extra_instructions: >
   Every view is the SAME program rendered at a different time (label t=...s); there are no camera
   angles.  Compare the frames to judge motion: identical frames mean the effect is static; wildly
@@ -131,7 +121,7 @@ caps:
     gate: "build*"
     severity: error
     cap: 0.0
-    note: the shader/program did not compile or render; nothing to score
+    # the shader/program did not compile or render; nothing to score
   - id: lint_error
     when: gate
     gate: "lint*"
@@ -143,7 +133,7 @@ caps:
     severity: error
     kinds: [nan]
     cap: 0.0
-    note: NaN/Inf pixels detected in the float readback
+    # NaN/Inf pixels detected in the float readback
   - id: black_or_blown
     when: gate
     gate: "gl_frames"
@@ -156,7 +146,7 @@ caps:
     severity: warn
     kinds: [static]
     cap: 0.5
-    note: motion was planned but frames do not change over time
+    # motion was planned but frames do not change over time
   - id: flicker
     when: gate
     gate: "gl_frames"
@@ -166,9 +156,8 @@ caps:
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.7
-    note: >
-      planner-written must items are fallible on this track (a stylised wave lost 0.25 to three of
-      them while looking better than anything else in the battery); the cap is 0.7, not 0.6
+    # planner-written must items are fallible on this track (a stylised wave lost 0.25 to three of
+    # them while looking better than anything else in the battery); the cap is 0.7, not 0.6
 
 defects:
   # black_or_blown / static_frames / flicker share their id with the gl_frames cap rule above on

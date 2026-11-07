@@ -190,7 +190,6 @@ class AbOptions(BaseModel):
             max_minutes=self.max_minutes,
             n_samples=self.n_samples,
             resume=self.resume,
-            pairwise=False,
         )
 
 

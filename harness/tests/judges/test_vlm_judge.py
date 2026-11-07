@@ -26,7 +26,7 @@ def test_full_path_single_sample(judge_input, cache_dir, judge_settings):
     assert j.judge_backend == judge_settings.backends().judge == "gemini:gemini-4-argon"
     assert j.rubric == "static_object"
     raw = json.loads(j.raw)
-    assert raw["status"] == "ok" and raw["n_used"] == 1 and raw["rubric_hash"] == R.content_hash()
+    assert raw["status"] == "ok" and raw["rubric_hash"] == R.content_hash()
     assert "[verdict: overall 0.80 vs threshold 0.72 → PASS]" in j.summary
     req = model.requests[0]
     assert req.thinking == "medium"
@@ -50,7 +50,7 @@ def test_n_samples_mean_std_and_view_order(judge_input, cache_dir, fixed_order):
     j = _judge(model, n_samples=3, cache_dir=cache_dir, fixed_order=fixed_order).judge(judge_input)
     assert j.n_samples == 3 and j.overall == pytest.approx(0.8) and j.score_std == pytest.approx(0.0816, abs=1e-3)
     assert j.usage.cost_usd == pytest.approx(0.003) and j.usage.input_tokens == 3000
-    assert json.loads(j.raw)["per_sample_overall"] == [0.7, 0.9, 0.8]
+    assert len(json.loads(j.raw)["samples"]) == 3
     assert j.summary.startswith("A recognisable chair.")  # the representative sample's narrative
     orders = {tuple(p.label for p in image_parts(r)) for r in model.requests}
     assert (len(orders) == 1) if fixed_order else (len(orders) >= 2)

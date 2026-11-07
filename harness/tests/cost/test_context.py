@@ -16,7 +16,6 @@ def test_label_tells_stage_role_and_round():
     c = context_from_label("judge:static_object:r02:s1")
     assert c.stage is Stage.JUDGE and c.role is Role.JUDGE and c.round == 2
     assert context_from_label("planner-retry").stage is Stage.PLAN
-    assert context_from_label("pairwise:0v1:fwd").stage is Stage.PAIRWISE
     assert context_from_label("captioner").role is Role.CAPTIONER
     assert context_from_label("").stage is None
     assert context_from_label("baseline_repair1").stage is Stage.REPAIR  # repair wins

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import quality_tier
-from codeverse3d.addons.dataset.sample import gate_error_summary, telemetry_digest
+from codeverse3d.addons.dataset.sample import gate_error_summary
 from codeverse3d.addons.gallery.model import (
     GalleryIndex,
     RootSection,
@@ -155,7 +155,7 @@ _CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
 
 def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
     try:
-        block = select.round_complexity_block(ws, next((r for r in rec.rounds if r.index == picked), None))
+        block = select.round_complexity_block(next((r for r in rec.rounds if r.index == picked), None))
     except Exception:  # noqa: BLE001
         block = None
     if block is None or block.get("index") is None:
@@ -172,7 +172,6 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
     gates = gate_error_summary(rnd)
     n_err = sum(gates.values())
     minutes = rec.minutes
-    digest = telemetry_digest(ws, rec)
     caps = rec.extra.get("captions") or {}
     hero, hero_label, n_views = hero_view(ws, rec, picked)
     plan = rec.plan
@@ -191,8 +190,6 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
         complexity=cx_index, complexity_band=cx_band, complexity_axes=cx_axes,
         sheet=picked_sheet(ws, rec, picked), hero=hero, hero_label=hero_label, n_views=n_views,
         links=entry_links(ws, rec, picked), round_rows=round_rows(ws, rec),
-        cost_by_stage={k: round(v, 4) for k, v in (digest.get("by_stage") or {}).items()},
-        models=dict(digest.get("models") or {}),
     )
 
 

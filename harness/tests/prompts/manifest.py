@@ -186,7 +186,7 @@ class ManifestServices(FakeServices):
     def chat_model(self, model_id: str) -> Any:
         return self.rig.model
 
-    def judge(self, rubric: str, model_id: str, n_samples: int = 1) -> Any:
+    def judge(self, track: Any, rubric: str, model_id: str, n_samples: int = 1, *, references: bool = False) -> Any:
         self.judges.append(StableJudge(rubric, self.rig.scores, self.rig.targets))
         return self.judges[-1]
 

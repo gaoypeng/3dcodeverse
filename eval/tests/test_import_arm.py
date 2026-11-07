@@ -70,7 +70,7 @@ def test_the_report_names_an_import_arms_assets_without_its_path(tmp_path):
     (src / f"{item.id}.py").write_text(GOOD.format(score=0.7))
     from bench.compare_backends import run_matrix
     run_matrix(BATTERY, tmp_path / "out", [parse_arm(f"import:{src}")],
-               CompareOptions(judge="gemini:x", loop_judge="gemini:x", ids=[item.id], pairwise=False),
+               CompareOptions(judge="gemini:x", loop_judge="gemini:x", ids=[item.id]),
                CompareDeps(FakeEvaluator()))
     assets = list((tmp_path / "out" / "report_assets").glob("*"))
     assert assets and all("/" not in a.name and a.is_file() for a in assets)
