@@ -16,7 +16,7 @@ from typing import Any
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.contracts.plan import BBox, CameraPlan
-from codeverse3d.conventions import SCENE_VIEWS, ViewPreset
+from codeverse3d.conventions import SCENE_TIMES, SCENE_VIEWS, ViewPreset
 from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse3d.spatial.node import (
@@ -164,7 +164,7 @@ def render_scene(
     *,
     cameras: list[CameraPlan] | None = None,
     orbit: bool = True,
-    times: Sequence[float] = (0.0, 1.5),
+    times: Sequence[float] = SCENE_TIMES,
     width: int = 1024,
     height: int = 576,
     sheet: bool = True,

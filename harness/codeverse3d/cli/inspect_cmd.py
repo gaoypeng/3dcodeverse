@@ -53,9 +53,9 @@ def render(
             return
         r = get_settings().render
         if spec.track is Track.SCENE:
+            from codeverse3d.conventions import SCENE_TIMES
             from codeverse3d.languages import get_runtime
             from codeverse3d.spatial.tool_common import load_plan
-            from codeverse3d.tracks.scene import SCENE_TIMES
 
             plan = load_plan(ws.plan_path) if ws.plan_path.is_file() else None
             rs = get_runtime(spec.language).render_scene(

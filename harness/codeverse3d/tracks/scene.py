@@ -19,7 +19,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, TRACK_INFO, Language, Track
 from codeverse3d.contracts.plan import BBox, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.conventions import fmt3, to_authoring_frame, to_snake
+from codeverse3d.conventions import SCENE_TIMES, fmt3, to_authoring_frame, to_snake
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
@@ -47,7 +47,6 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
 
 ENV_TIMEOUT_S = 420

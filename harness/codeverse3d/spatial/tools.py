@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES, BuildResult, GateReport, Measurement
 from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track
-from codeverse3d.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
+from codeverse3d.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK, SCENE_TIMES
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse3d.spatial.contract import check_contract as _check_contract
@@ -436,7 +436,7 @@ def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
 
 class SceneViewsArgs(BaseModel):
     cameras: str = Field(default="authored", description="authored = the plan/scene cameras · orbit = overview rig · all = both")
-    times: list[float] = Field(default=[0.0, 1.5], description="animation times (s) to capture")
+    times: list[float] = Field(default=list(SCENE_TIMES), description="animation times (s) to capture")
 
 
 @tool("scene_views", SceneViewsArgs, "Render the scene from its authored cameras and/or the overview rig at given times (contact sheet + views).",

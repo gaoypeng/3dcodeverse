@@ -176,7 +176,7 @@ def check_prompt(gp: GeneratedPrompt, rung: Rung) -> list[str]:
 
 
 #: The contract's camera line (2026-10-15).  Both scene languages render the AUTHORED cameras as stills
-#: at t = 0 and t = 1.5 s (``scene_blender.TIMES``, ``scene_threejs`` ``times``) — nothing dollies — so a
+#: at t = 0 and t = 1.5 s (``conventions.SCENE_TIMES``, ``scene_threejs`` ``times``) — nothing dollies — so a
 #: brief that asked for a tracking camera was a must-have no run could satisfy: the harness planner turns
 #: every must_have line into a ``must`` acceptance item, and the judge marked it unverified in 5 of
 #: iteration 0's 60 runs ("remains stationary between t=0s and t=1.5s"), which caps the whole score

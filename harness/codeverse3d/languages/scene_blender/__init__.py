@@ -30,6 +30,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.conventions import (
+    SCENE_TIMES,
     ZONE_ROOT_KEY,
     fmt3,
     glb_basis,
@@ -76,11 +77,6 @@ ENTRY_REL = ENTRY_FILE[LANGUAGE]
 GATE = "lint:scene_blender"
 #: the harness frame clock: ``frame(t) = 1 + round(t * FPS)``
 FPS = 30
-TIMES: tuple[float, ...] = (0.0, 1.5)
-
-
-def frame_of(t: float) -> int:
-    return 1 + round(t * FPS)
 
 
 # ===================================================================== layout
@@ -699,7 +695,7 @@ class SceneBlenderRuntime:
         basis = ",".join(f"{v:g}" for row in glb_basis(LANGUAGE.value) for v in row)
         cmd = [blender_binary(self._blender, self._settings), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
                "--scene", str(ws.root / entry), "--out", str(out_dir), "--basis", basis, "--zone-key", ZONE_ROOT_KEY,
-               "--fps", str(FPS), "--frames", f"{frame_of(TIMES[0])},{frame_of(TIMES[-1])}",
+               "--fps", str(FPS), "--times", ",".join(f"{t:g}" for t in SCENE_TIMES),
                "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb), "--seed", "0"]
         if zones is not None:
             cmd += ["--zones", json.dumps(zones)]
@@ -790,7 +786,7 @@ class SceneBlenderRuntime:
         return assemble(self, ws, plan)
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
-                     times: Sequence[float] = TIMES, width: int = 1024, height: int = 576, sheet: bool = True) -> RenderSet:
+                     times: Sequence[float] = SCENE_TIMES, width: int = 1024, height: int = 576, sheet: bool = True) -> RenderSet:
         from codeverse3d.spatial.render_blender import render_blender_scene
 
         return render_blender_scene(ws, out_dir, cameras=cameras, orbit=orbit, times=times, width=width,

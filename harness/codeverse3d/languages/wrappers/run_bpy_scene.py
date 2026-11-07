@@ -2,7 +2,7 @@
 
     blender -b --factory-startup --python run_bpy_scene.py -- \
         --scene /abs/src/scene.py --out /abs/artifacts --basis 1,0,0,0,0,1,0,-1,0 --zone-key c3d_zone \
-        [--fps 30] [--frames 1,46] [--rlimit-gb 12] [--seed 0] [--zones '{"a": "A"}'] [--no-blend]
+        [--fps 30] --times 0,1.5 [--rlimit-gb 12] [--seed 0] [--zones '{"a": "A"}'] [--no-blend]
 
 Clears the factory scene, runs ``src/scene.py``, then builds env, heroes, assets and zones, each
 in its own try/except (a failing zone is reported with ``file:line`` and dropped; the rest still
@@ -55,7 +55,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--out", required=True)
     p.add_argument("--basis", required=True, help="9 numbers, row-major: Blender frame -> GLB frame")
     p.add_argument("--fps", type=int, default=30)
-    p.add_argument("--frames", default="1,46", help="first,last frame of the harness frame range")
+    p.add_argument("--times", required=True, help="the harness frame clock in seconds: first,last (the frame range follows)")
     p.add_argument("--rlimit-gb", type=float, default=12.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--zones", default=None, help='JSON {"snake": "Pascal"} that overrides ZONES')
@@ -442,8 +442,9 @@ def main() -> int:
         report.update(error_type="FileNotFoundError", error_message=f"script not found: {script}")
         write_report(out_dir, report, {}, t0, names=names)
         return 0
-    first, last = (int(v) for v in args.frames.split(","))
-    prepare_scene(bpy, args.fps, (first, last))
+    times = tuple(float(t) for t in args.times.split(","))
+    ctx = SceneContext(bpy.context.scene, args.fps, times)
+    prepare_scene(bpy, args.fps, (ctx.frame(times[0]), ctx.frame(times[-1])))
     seed_everything(args.seed)
     render_before = render_fingerprint(bpy)
     handlers_before = handler_counts(bpy)
@@ -460,7 +461,6 @@ def main() -> int:
     zones: dict[str, str] = dict(g.get("ZONES") or {})
     if args.zones is not None:
         zones = {str(k): str(v) for k, v in json.loads(args.zones).items()}
-    ctx = SceneContext(bpy.context.scene, args.fps, tuple(float(t) for t in g.get("TIMES", (0.0, 1.5))))
     stages = Stages(bpy, script, report)
     stages.claim("src/scene.py", set())
     build_env(bpy, ctx, stages, src)
@@ -482,7 +482,7 @@ def main() -> int:
     if render_fingerprint(bpy) != render_before:
         report["warnings"].append("the scene changed render settings (engine/resolution/filepath/frames): "
                                   "the harness owns them; delete that code")
-    bpy.context.scene.frame_set(first)
+    bpy.context.scene.frame_set(ctx.frame(times[0]))
 
     facts = scene_facts(bpy, handlers_before)
     basis = [[float(v) for v in args.basis.split(",")[i * 3:i * 3 + 3]] for i in range(3)]

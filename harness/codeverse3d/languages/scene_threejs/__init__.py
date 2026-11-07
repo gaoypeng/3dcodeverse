@@ -20,7 +20,13 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
-from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ZONE_ROOT_KEY, to_pascal, to_snake
+from codeverse3d.conventions import (
+    OBJECT_VIEWS_QUICK,
+    SCENE_TIMES,
+    ZONE_ROOT_KEY,
+    to_pascal,
+    to_snake,
+)
 from codeverse3d.languages._common import line_of, missing_entry, target_file, target_line, ws_rel
 from codeverse3d.languages._js_lint import (
     ExportsCache,
@@ -700,7 +706,7 @@ class SceneThreeJsRuntime:
         return probe_scene(ws, timeout_s=timeout_s)
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
-                     times: Sequence[float] = (0.0, 1.5), width: int = 1024, height: int = 576,
+                     times: Sequence[float] = SCENE_TIMES, width: int = 1024, height: int = 576,
                      sheet: bool = True) -> RenderSet:
         from codeverse3d.spatial.render_scene import render_scene
 

@@ -20,6 +20,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import RenderSet
 from codeverse3d.contracts.plan import BBox, CameraPlan
 from codeverse3d.conventions import (
+    SCENE_TIMES,
     SCENE_VIEWS,
     ViewPreset,
     from_authoring_frame,
@@ -168,7 +169,7 @@ def render_blender_scene(
     *,
     cameras: list[CameraPlan] | None = None,
     orbit: bool = True,
-    times: Sequence[float] = (0.0, 1.5),
+    times: Sequence[float] = SCENE_TIMES,
     width: int = 1024,
     height: int = 576,
     sheet: bool = True,

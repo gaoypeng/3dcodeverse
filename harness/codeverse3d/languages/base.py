@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan
-from codeverse3d.conventions import to_snake
+from codeverse3d.conventions import SCENE_TIMES, to_snake
 from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
@@ -86,7 +86,7 @@ class SceneRuntime(LanguageRuntime, Protocol):
         ...
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
-                     times: Sequence[float] = (0.0, 1.5), width: int = 1024, height: int = 576,
+                     times: Sequence[float] = SCENE_TIMES, width: int = 1024, height: int = 576,
                      sheet: bool = True) -> RenderSet:
         """Authored cameras (+ the orbit rig) × ``times`` → views, metrics.json, the contact sheet."""
         ...
