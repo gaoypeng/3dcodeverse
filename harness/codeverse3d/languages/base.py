@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet
 from codeverse3d.contracts.common import ENTRY_FILE, Language
@@ -17,6 +17,15 @@ from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
     from codeverse3d.spatial.probes import SceneProbeResult
+
+
+class AssembleResult(BaseModel):
+    scene_path: str
+    zones_included: list[str] = Field(default_factory=list)
+    zones_failed: dict[str, str] = Field(default_factory=dict)
+    env_ok: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    census: dict[str, Any] = Field(default_factory=dict)
 
 
 @runtime_checkable

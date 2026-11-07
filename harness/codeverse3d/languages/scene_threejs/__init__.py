@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import re
 import time
 from collections.abc import Sequence
@@ -35,7 +34,7 @@ from codeverse3d.languages._js_lint import (
     node_check_syntax,
     strip_js,
 )
-from codeverse3d.languages.base import scene_files_for
+from codeverse3d.languages.base import AssembleResult, scene_files_for
 from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
@@ -386,7 +385,6 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
 # ===================================================================== assemble
 PROBE_REL = "src/_c3v_assemble_probe.js"
 _PREFIX = "[3dcode-assemble]"
-_SUN_RE = re.compile(r"export\s+const\s+SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)")
 
 
 class ZoneProbe(BaseModel):
@@ -394,9 +392,6 @@ class ZoneProbe(BaseModel):
     file: str
     ok: bool
     error: str = ""
-    bbox: dict[str, Any] | None = None
-    meshes: int = 0
-    triangles: int = 0
 
 
 class ZoneProbeReport(BaseModel):
@@ -404,17 +399,6 @@ class ZoneProbeReport(BaseModel):
     probes: dict[str, ZoneProbe] = Field(default_factory=dict)
     census: dict[str, Any] = Field(default_factory=dict)
     other_errors: list[str] = Field(default_factory=list)
-    camera_specs: dict[str, Any] = Field(default_factory=dict)
-
-
-class AssembleResult(BaseModel):
-    scene_path: str
-    zones_included: list[str] = Field(default_factory=list)
-    zones_failed: dict[str, str] = Field(default_factory=dict)
-    env_ok: bool = True
-    cameras: list[CameraPlan] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    census: dict[str, Any] = Field(default_factory=dict)
 
 
 def zone_files(ws: Workspace) -> list[Path]:
@@ -425,15 +409,6 @@ def zone_files(ws: Workspace) -> list[Path]:
 def glb_assets(ws: Workspace) -> list[str]:
     d = ws.public / "assets"
     return sorted(p.stem for p in d.glob("*.glb")) if d.is_dir() else []
-
-
-def sun_azimuth(ws: Workspace, default: float = 45.0) -> float:
-    env = ws.src / "env.js"
-    if env.is_file():
-        m = _SUN_RE.search(env.read_text(errors="replace"))
-        if m:
-            return float(m.group(1))
-    return default
 
 
 #: How a Blender-built asset is preloaded in every assembled entry point.  The loaded root is
@@ -513,20 +488,16 @@ export async function createScene({{ renderer, loaders }}) {{
 """
 
 
-def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_deg: float | None = None) -> ZoneProbeReport:
+def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0) -> ZoneProbeReport:
     from codeverse3d.spatial.render_scene import run_scene_script
 
     zones = zone_files(ws)
     probe_path = ws.root / PROBE_REL
     probe_path.write_text(_probe_module(zones, glb_assets(ws)))
-    from codeverse3d.spatial.render_scene import _bounds_json, plan_bounds, probe_env_args
+    from codeverse3d.spatial.render_scene import probe_env_args
 
     args = ["--ws", str(ws.root), "--scene", PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000))]
     args += probe_env_args()
-    if sun_azimuth_deg is not None:
-        args += ["--sun-azimuth", str(sun_azimuth_deg)]
-        if (bounds := plan_bounds(ws)) is not None:
-            args += ["--bounds", _bounds_json(bounds)]
     try:
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     finally:
@@ -554,9 +525,8 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
             probes[name] = ZoneProbe(name=name, file=f"src/zones/{p.name}", ok=False,
                                      error=failed.get(name, "zone not present after probe (build returned nothing visible?)"))
         else:
-            probes[name] = ZoneProbe(name=name, file=f"src/zones/{p.name}", ok=True, bbox=g.get("bbox"),
-                                     meshes=g.get("meshes", 0), triangles=g.get("triangles", 0))
-    return ZoneProbeReport(probes=probes, census=census, other_errors=other, camera_specs=s.get("fitted_cameras") or {})
+            probes[name] = ZoneProbe(name=name, file=f"src/zones/{p.name}", ok=True)
+    return ZoneProbeReport(probes=probes, census=census, other_errors=other)
 
 
 # --------------------------------------------------------------------------- the env module alone
@@ -610,42 +580,6 @@ def check_env(ws: Workspace, *, timeout_s: float = 90.0) -> str:
         return "\n".join(e[:900] for e in errors[:3])
     dark = unlit(s.get("census") or {}, offline=False)
     return f"{rel}: {dark.message}" if dark is not None else ""
-
-
-# --------------------------------------------------------------------------- cameras
-def fallback_camera(plan: ScenePlan | None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> CameraPlan:
-    if plan is None:
-        c, r = (0.0, 0.0, 0.0), 30.0
-    else:
-        c = tuple(float(v) for v in plan.bounds.center)
-        r = max(float(plan.bounds.extents[0]), float(plan.bounds.extents[2]), 10.0)
-    a = math.radians(azimuth_deg)
-    return CameraPlan(name="overview", position=(c[0] + 0.9 * r * math.cos(a), c[1] + 0.45 * r, c[2] + 0.9 * r * math.sin(a)),
-                      look_at=(c[0], c[1] + 1.0, c[2]), fov=50.0, purpose="fallback: no measurable zones")
-
-
-def _plan_from_spec(spec: dict[str, Any], *, name: str, purpose: str) -> CameraPlan:
-    return CameraPlan(name=name, position=tuple(spec["position"]), look_at=tuple(spec["lookAt"]),
-                      fov=float(spec.get("fov", 50.0)), purpose=purpose)
-
-
-def cameras_from_specs(specs: dict[str, Any], probes: dict[str, ZoneProbe], *, max_cameras: int = 6,
-                       plan: ScenePlan | None = None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> list[CameraPlan]:
-    """Convert driver-fitted camera specs into CameraPlans (overview first, then zones by footprint);
-    falls back to a fixed overview when nothing was measurable."""
-    healthy = [p for p in probes.values() if p.ok and p.bbox]
-    overview = (specs or {}).get("overview")
-    if not healthy or not overview:
-        return [fallback_camera(plan, azimuth_deg)]
-    cams = [_plan_from_spec(overview, name="overview", purpose="fallback: fitted to the measured content (the plan named no camera)")]
-    by_zone = {str(z.get("group", "")).removeprefix("__zone__"): z for z in (specs or {}).get("zones", [])}
-    by_area = sorted(healthy, key=lambda p: -(p.bbox["size"][0] * p.bbox["size"][2]))
-    for p in by_area[: max_cameras - 1]:
-        spec = by_zone.get(p.name)
-        if spec:
-            cams.append(_plan_from_spec(spec, name=f"{to_snake(p.name)}_view",
-                                        purpose=f"fallback: zone {to_pascal(p.name)} fitted to its measured bbox (the plan named no camera)"))
-    return cams
 
 
 # --------------------------------------------------------------------------- scene.js
@@ -714,8 +648,7 @@ export async function createScene({{ renderer, loaders }}) {{
 """
 
 
-def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "derive", probe: bool = True,
-             timeout_s: float = 90.0) -> AssembleResult:
+def assemble(ws: Workspace, plan: ScenePlan, *, timeout_s: float = 90.0) -> AssembleResult:
     warnings: list[str] = []
     zones = zone_files(ws)
     if not zones:
@@ -723,34 +656,23 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
     env_ok = (ws.src / "env.js").is_file()
     if not env_ok:
         warnings.append("src/env.js missing: scene assembled without env (flat ground at y=0, no lights unless zones add them)")
-    probes: dict[str, ZoneProbe] = {}
-    census: dict[str, Any] = {}
-    camera_specs: dict[str, Any] = {}
-    if probe:
-        report = probe_zone_modules(ws, timeout_s=timeout_s, sun_azimuth_deg=sun_azimuth(ws))
-        probes, census, camera_specs = report.probes, report.census, report.camera_specs
-        for o in report.other_errors:
-            if _PREFIX in o and "env failed" in o:
-                env_ok = False
-                warnings.append(f"env.js failed in probe; assembled without it: {o[:300]}")
-            else:
-                warnings.append(o[:300])
-    else:
-        probes = {to_snake(p.stem): ZoneProbe(name=to_snake(p.stem), file=f"src/zones/{p.name}", ok=True) for p in zones}
-    healthy = [n for n, p in probes.items() if p.ok]
-    failed = {n: p.error for n, p in probes.items() if not p.ok}
+    report = probe_zone_modules(ws, timeout_s=timeout_s)
+    for o in report.other_errors:
+        if _PREFIX in o and "env failed" in o:
+            env_ok = False
+            warnings.append(f"env.js failed in probe; assembled without it: {o[:300]}")
+        else:
+            warnings.append(o[:300])
+    healthy = [n for n, p in report.probes.items() if p.ok]
+    failed = {n: p.error for n, p in report.probes.items() if not p.ok}
     if not healthy:
         warnings.append("no zone module survived probing; scene.js assembled with zero zones")
-    if cameras == "plan" and plan is not None and plan.cameras:
-        cams = list(plan.cameras[:6])
-    else:
-        cams = cameras_from_specs(camera_specs, probes, plan=plan, azimuth_deg=sun_azimuth(ws))
-    text = render_scene_js(healthy, cams, glb_assets(ws), env_ok=env_ok)
+    text = render_scene_js(healthy, list(plan.cameras[:6]), glb_assets(ws), env_ok=env_ok)
     out = ws.src / "scene.js"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text)
     result = AssembleResult(scene_path=str(out), zones_included=healthy, zones_failed=failed, env_ok=env_ok,
-                            cameras=cams, warnings=warnings, census=census)
+                            warnings=warnings, census=report.census)
     ws.write_json(ws.artifacts / "assemble.json", result)
     return result
 
@@ -770,7 +692,7 @@ class SceneThreeJsRuntime:
         return list(SCENE_FILES)
 
     def assemble(self, ws: Workspace, plan: ScenePlan) -> AssembleResult:
-        return assemble(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
+        return assemble(ws, plan)
 
     def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
         from codeverse3d.spatial.probes import probe_scene

@@ -10,7 +10,6 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import math
 import re
 import time
 from collections.abc import Sequence
@@ -53,7 +52,7 @@ from codeverse3d.languages._common import (
     target_line,
     ws_rel,
 )
-from codeverse3d.languages.base import scene_files_for
+from codeverse3d.languages.base import AssembleResult, scene_files_for
 from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BpyCollector,
@@ -625,39 +624,6 @@ class WrapperRun(BaseModel):
     facts: dict[str, Any] = Field(default_factory=dict)
 
 
-_SUN_RE = re.compile(r"^SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)", re.M)
-
-
-def _fallback_camera(plan: ScenePlan | None, ws: Workspace | None = None) -> CameraPlan:
-    """An overview camera (PLAN frame) on the lit side at the bounds' span, for a plan with no camera."""
-    from codeverse3d.languages.scene_threejs import SUN_AZIMUTH_GUESS_DEG
-
-    azimuth = SUN_AZIMUTH_GUESS_DEG
-    env = (ws.src / "env.py") if ws is not None else None
-    if env is not None and env.is_file():
-        m = _SUN_RE.search(env.read_text(errors="replace"))
-        if m:
-            azimuth = float(m.group(1))
-    if plan is None:
-        c, r = (0.0, 0.0, 0.0), 30.0
-    else:
-        c = tuple(float(v) for v in plan.bounds.center)
-        r = max(float(plan.bounds.extents[0]), float(plan.bounds.extents[2]), 10.0)
-    a = math.radians(azimuth)
-    return CameraPlan(name="overview", position=(c[0] + 0.9 * r * math.cos(a), c[1] + 0.45 * r, c[2] - 0.9 * r * math.sin(a)),
-                      look_at=(c[0], c[1] + 1.0, c[2]), fov=50.0, purpose="fallback: the plan names no camera")
-
-
-class AssembleResult(BaseModel):
-    scene_path: str
-    zones_included: list[str] = Field(default_factory=list)
-    zones_failed: dict[str, str] = Field(default_factory=dict)
-    env_ok: bool = True
-    cameras: list[CameraPlan] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    census: dict[str, Any] = Field(default_factory=dict)
-
-
 class SceneBlenderRuntime:
 
     language = LANGUAGE
@@ -871,14 +837,13 @@ def stage_findings(report: dict[str, Any]) -> list[GateFinding]:
 _ASSEMBLE_OUT = "assemble_probe"
 
 
-def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan | None, *, probe: bool = True,
-             timeout_s: float | None = None) -> AssembleResult:
+def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan, *, timeout_s: float | None = None) -> AssembleResult:
     zones = [p.stem for p in module_files(ws, "zones")]
     if not zones:
         raise FileNotFoundError(f"no zone modules under {ws.src / 'zones'}")
     assets = [p.stem for p in module_files(ws, "assets")]
     heroes = [p.stem for p in hero_files(ws)]
-    cams = list(plan.cameras[:6]) if plan is not None and plan.cameras else [_fallback_camera(plan, ws)]
+    cams = list(plan.cameras[:6])
     warnings: list[str] = []
     env_ok = (ws.src / "env.py").is_file()
     if not env_ok:
@@ -886,28 +851,27 @@ def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan | None
     healthy, failed = list(zones), {}
     census: dict[str, Any] = {}
     out = ws.root / ENTRY_REL
-    if probe:
-        # the probe run's entry lists every asset and hero; zones come from --zones
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_scene_py([], assets, heroes, cams))
-        run = runtime.run_wrapper(ws, ws.artifacts / _ASSEMBLE_OUT, zones={z: to_pascal(z) for z in zones}, blend=False,
-                                  timeout_s=timeout_s)
-        if run.result.ok or run.report.get("zones_ok") is not None:
-            healthy = [z for z in zones if z in set(run.report.get("zones_ok") or [])]
-            failed = {z: str(m) for z, m in (run.report.get("zones_failed") or {}).items()}
-        else:
-            warnings.append(f"assembler probe did not run: {run.result.error_type}: {run.result.error_message}"[:300])
-        for e in run.report.get("errors") or []:
-            if e.get("stage") == "env":
-                env_ok = False
-                warnings.append(f"env.py failed in probe: {e.get('error_type')}: {e.get('error_message')}"[:300])
-        census = {k: run.facts[k] for k in ("lights", "fog", "background", "unique_tris", "instanced_tris") if k in run.facts}
+    # the probe run's entry lists every asset and hero; zones come from --zones
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_scene_py([], assets, heroes, cams))
+    run = runtime.run_wrapper(ws, ws.artifacts / _ASSEMBLE_OUT, zones={z: to_pascal(z) for z in zones}, blend=False,
+                              timeout_s=timeout_s)
+    if run.result.ok or run.report.get("zones_ok") is not None:
+        healthy = [z for z in zones if z in set(run.report.get("zones_ok") or [])]
+        failed = {z: str(m) for z, m in (run.report.get("zones_failed") or {}).items()}
+    else:
+        warnings.append(f"assembler probe did not run: {run.result.error_type}: {run.result.error_message}"[:300])
+    for e in run.report.get("errors") or []:
+        if e.get("stage") == "env":
+            env_ok = False
+            warnings.append(f"env.py failed in probe: {e.get('error_type')}: {e.get('error_message')}"[:300])
+    census = {k: run.facts[k] for k in ("lights", "fog", "background", "unique_tris", "instanced_tris") if k in run.facts}
     if not healthy:
         warnings.append("no zone module survived probing; scene.py assembled with zero zones")
-    out.write_text(render_scene_py(healthy, assets, heroes, cams, title=getattr(plan, "title", ""),
-                                   summary=getattr(plan, "summary", "")))
+    out.write_text(render_scene_py(healthy, assets, heroes, cams, title=plan.title,
+                                   summary=plan.summary))
     result = AssembleResult(scene_path=str(out), zones_included=healthy, zones_failed=failed, env_ok=env_ok,
-                            cameras=cams, warnings=warnings, census=census)
+                            warnings=warnings, census=census)
     ws.write_json(ws.artifacts / "assemble.json", result)
     return result
 
