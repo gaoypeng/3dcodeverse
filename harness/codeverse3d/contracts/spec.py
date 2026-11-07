@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -42,6 +43,18 @@ class FixedPart(BaseModel):
     note: str = Field(default="", description="one line for the planner and the agent")
 
 
+class ProjectCheck(BaseModel):
+    """A deterministic check the PROJECT registers (``Spec.checks``): ``entry`` names a function
+    (``package.module:function``, importable where the harness runs) that measures each round's GLB against
+    what the project knows — survey geometry, catalogue dimensions — and returns ``GateReport``s.  They take part
+    exactly like the built-in gates under the name ``project:<name>``: ERRORs become refine tasks, the judge reads
+    them, and a rubric ``CapRule(when="gate", gate="project:*")`` caps on them (``tracks/project_checks.py``)."""
+
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_]*$", description="gate suffix: reports are named project:<name>")
+    entry: str = Field(pattern=r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$", description="'package.module:function'")
+    args: dict[str, Any] = Field(default_factory=dict, description="keyword data passed to the check as args=")
+
+
 class RunOptions(BaseModel):
     """Run-shape options frozen on the spec (distinct from Budget and Backends).
 
@@ -65,6 +78,8 @@ class Spec(BaseModel):
     # left out of spec.json while empty, so every spec without one serialises exactly as before
     fixed_parts: list[FixedPart] = Field(default_factory=list, exclude_if=lambda v: not v,
                                          description="project-seeded files no session may rewrite (FixedPart)")
+    checks: list[ProjectCheck] = Field(default_factory=list, exclude_if=lambda v: not v,
+                                       description="project checks run on every round's GLB (ProjectCheck)")
     budget: Budget = Field(default_factory=Budget)
     backends: Backends = Field(default_factory=Backends)
     options: RunOptions = Field(default_factory=RunOptions)

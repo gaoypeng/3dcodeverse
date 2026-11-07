@@ -56,6 +56,7 @@ from codeverse3d.contracts.run import RunRecord  # noqa: E402
 from codeverse3d.contracts.spec import (  # noqa: E402
     Constraints,
     FixedPart,
+    ProjectCheck,
     ReferenceImage,
     RunOptions,
     Spec,
@@ -90,6 +91,8 @@ class BenchPrompt(BaseModel):
         default_factory=list, exclude_if=lambda v: not v,
         description="project-seeded src/ files the run must keep (Spec.fixed_parts); the project seeds them into "
         "runs/<id>/src/ before the battery runs")
+    checks: list[ProjectCheck] = Field(default_factory=list, exclude_if=lambda v: not v,
+                                       description="project checks run every round (Spec.checks)")
 
 
 class Battery(BaseModel):
@@ -203,6 +206,7 @@ def build_spec(
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
         options=RunOptions(variant=variant),
         fixed_parts=list(item.fixed_parts),
+        checks=list(item.checks),
     )
 
 
