@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from codeverse3d.config import Settings
 
-GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
-                                                 "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF"})
+GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF"})
 NODE_SIDE_ENV: frozenset[str] = frozenset({"C3D_BROWSER_REUSE", "C3D_PAGE_TTL_MS"})
 
 

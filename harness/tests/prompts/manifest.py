@@ -401,9 +401,6 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
     "scene.scene_threejs.agent.fresh": (SC, Language.SCENE_THREEJS, {"plan": small_scene(), "broken_assets": frozenset({"Bollard"})},
                                         _two_runs(1, 2)),
     "scene.scene_threejs.agent.no_layouts": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _switched("C3D_ZONE_LAYOUTS", "off", 0)),
-    # the argon variant (D105) ships EMPTY overlays: every payload equals the fresh scene's, only the
-    # plan stage key carries the variant name — iteration 0 of the loop measures exactly this
-    "scene.scene_threejs.agent.variant_argon": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _switched("C3D_VARIANT", "argon", 1)),
     "scene.scene_threejs.agent.hero": (SC, Language.SCENE_THREEJS, {"scores": (0.6, 0.7)}, lambda r: r.run(rounds=0)),
     # the zones never build again: repairs and the rebuild own scene.js/env.js, not the zone files
     "scene.scene_threejs.agent.rebuild": (SC, Language.SCENE_THREEJS, {"plan": small_scene(), "fail": frozenset({"zones_quay_water"})},

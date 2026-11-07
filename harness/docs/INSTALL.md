@@ -378,7 +378,6 @@ export C3D_LIMITS__AGENT_TIMEOUT_S=900
 export C3D_DEFAULT_CANDIDATES=2
 export C3D_DEFAULT_JUDGE=gemini:gemini-4-argon
 export C3D_JUDGE__THINKING=medium
-export C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'   # per-model prompt/skill variant by exact generator id; C3D_VARIANT=argon names one for every run
 ```
 
 Every knob the harness reads is a `Settings` field (`codeverse3d/config.py`, one description
@@ -411,7 +410,7 @@ rows name what is optional or busy.
 | `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
 | `python deps` | WARN | only optional-extra modules missing (`shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
 | `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export C3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
-| `blender cycles` | WARN | Cycles sees no CUDA device | scene_blender's judged frames render on the CPU (a few times slower) — fine without an NVIDIA GPU; on WSL2 install the vendor WSL GPU driver.  The row also names the judged-frame engine / samples / device (`C3D_RENDER__BLENDER_*`) |
+| `blender cycles` | WARN | Cycles sees no CUDA device | scene_blender's judged frames render on the CPU (a few times slower) — fine without an NVIDIA GPU; on WSL2 install the vendor WSL GPU driver.  The row also names the judged-frame engine / samples / device (`C3D_RENDER__BLENDER_ENGINE` / `_SAMPLES` / `_DEVICE`) |
 | `blender eevee` | WARN / FAIL | the EEVEE smoke frame ran on llvmpipe (software GL), or did not render | only matters with `C3D_RENDER__BLENDER_ENGINE=eevee`: the harness runs EEVEE under the Mesa d3d12 env (`spatial/gl_render.GPU_ENV`); llvmpipe here means that env found no GPU.  `--no-gpu` skips the smoke frame |
 | `blender render` | FAIL / SKIP | the render probe could not run Blender (or there is none) | see the `blender` row |
 | `blender gpu slots` | WARN | every machine-wide GPU Blender render slot is held right now | other renders are on the GPU; a render waits `C3D_RENDER__BLENDER_GPU_WAIT_S` for a slot and then renders on the CPU — nothing to fix unless it stays full.  `C3D_RENDER__BLENDER_GPU_SLOTS` sizes it |

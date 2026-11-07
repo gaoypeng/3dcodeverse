@@ -35,7 +35,6 @@ import sys
 import traceback
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from time import sleep
@@ -59,7 +58,6 @@ from codeverse3d.contracts.spec import (  # noqa: E402
     FixedPart,
     ProjectCheck,
     ReferenceImage,
-    RunOptions,
     Spec,
 )
 from codeverse3d.cost import run_ledger  # noqa: E402
@@ -156,8 +154,6 @@ class BenchOptions(BaseModel):
     redo_status: list[str] = Field(default_factory=list,
                                    description="re-run prompts already recorded with one of these statuses "
                                                "(the point of `infra_failed`: retry what the weather lost)")
-    variant: str = Field(default="", description="the per-model prompt/skill variant every run is created with "
-                                                 "(RunOptions.variant, D105); '' = resolve from Settings like `3dcodeverse make`")
 
 
 REFS_DIR = Path(__file__).resolve().parent / "refs"
@@ -194,56 +190,25 @@ def discover_references(item: BenchPrompt, track: Track, *, battery_dir: Path | 
 
 def build_spec(
     battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int,
-    max_minutes: float, tag0: str, extra_tags: Sequence[str] = (), variant: str = "",
+    max_minutes: float, tag0: str, extra_tags: Sequence[str] = (),
 ) -> Spec:
     """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
-    Drivers resolve their own ``Backends`` and pass their leading tag; ``variant`` is frozen on
-    ``RunOptions.variant`` the way ``3dcodeverse make --variant`` freezes it (the track activates it)."""
+    Drivers resolve their own ``Backends`` and pass their leading tag."""
     return Spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
         references=discover_references(item, battery.track, battery_dir=battery.source_dir),
         budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
-        options=RunOptions(variant=variant),
         fixed_parts=list(item.fixed_parts),
         checks=list(item.checks),
     )
 
 
-def resolve_variant(name: str, generator_id: str) -> str:
-    """The variant a bench run is created with: ``name`` when stated (``--variant``), else what the
-    settings resolve for the generator (``prompts.variants.resolve_variant`` — the same rule as
-    ``3dcodeverse make``), else the base.  A tree without the variant layer (pre-D105) resolves to the base
-    unless a name was stated, which it cannot honour."""
-    if name:
-        return name
-    try:
-        from codeverse3d.prompts.variants import resolve_variant as _resolve
-    except ImportError:
-        return ""
-    return str(_resolve(get_settings(), generator_id) or "")
-
-
-def activate_variant(name: str) -> AbstractContextManager[Any]:
-    """``prompts.variants.activate(name)`` for the block (prompt / skill loads of THIS thread read the
-    overlay) — a no-op for the base.  A stated name on a tree without the layer is an error, never a
-    silent base run: that would be an A/B comparing a tree against itself."""
-    if not name:
-        return nullcontext()
-    try:
-        from codeverse3d.prompts.variants import activate
-    except ImportError as e:
-        raise RuntimeError(f"--variant {name!r} needs codeverse3d.prompts.variants (D105), which this tree "
-                           f"does not have: {e}") from e
-    return activate(name)
-
-
 def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
     backends = get_settings().backends(generator=opts.generator, planner=opts.planner, judge=opts.judge)
     return build_spec(battery, item, backends=backends, rounds=opts.rounds,
-                      max_minutes=opts.max_minutes, tag0="bench",
-                      variant=resolve_variant(opts.variant, backends.generator))
+                      max_minutes=opts.max_minutes, tag0="bench")
 
 
 def record_minutes(run_dir: Path) -> float:
@@ -333,13 +298,8 @@ def run_battery(
     battery_path: Path | str, out_dir: Path | str, opts: BenchOptions | None = None, *,
     run_fn: RunFn | None = None, on_result: Callable[[BenchItemResult], None] | None = None,
 ) -> list[BenchItemResult]:
-    """Run (or resume) a battery; returns every result (previous + new).  A stated ``opts.variant``
-    is active for the whole battery (``activate_variant``) and frozen on every spec, which is what
-    the worker threads' runs read (``BaseTrack.run`` activates ``spec.options.variant`` — a
-    ContextVar does not cross into a pool thread by itself)."""
-    opts = opts or BenchOptions()
-    with activate_variant(opts.variant):
-        return _run_battery(battery_path, out_dir, opts, run_fn=run_fn, on_result=on_result)
+    """Run (or resume) a battery; returns every result (previous + new)."""
+    return _run_battery(battery_path, out_dir, opts or BenchOptions(), run_fn=run_fn, on_result=on_result)
 
 
 def _run_battery(
@@ -454,9 +414,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="comma list of recorded statuses to re-run, e.g. infra_failed once the provider recovers")
     ap.add_argument("--report", action=argparse.BooleanOptionalAction, default=True,
                     help="write report.md + report.html when the battery ends")
-    ap.add_argument("--variant", default="",
-                    help="per-model prompt/skill variant for every run (codeverse3d/prompts/variants/<name>, D105); "
-                         "default: what the settings resolve for the generator, like `3dcodeverse make`")
     ns = ap.parse_args(argv)
     if not ns.battery.is_file():
         ap.error(f"battery not found: {ns.battery}")
@@ -469,12 +426,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # one source of truth for the worker count and the stagger: BenchOptions (the measured knee; none)
     opts = BenchOptions(generator=ns.generator, planner=ns.planner, judge=ns.judge, rounds=ns.rounds,
                         max_minutes=ns.max_minutes, limit=ns.limit, ids=ns.ids, tiers=ns.tiers,
-                        redo_status=[x for x in ns.redo_status.split(",") if x], variant=ns.variant,
+                        redo_status=[x for x in ns.redo_status.split(",") if x],
                         **({} if ns.parallel is None else {"parallel": ns.parallel}),
                         **({} if ns.stagger is None else {"stagger_s": ns.stagger}))
     out = ns.out or Path(__file__).resolve().parent / "out" / ns.battery.stem
     print(f"battery={ns.battery} out={out} generator={ns.generator or 'default'} judge={ns.judge or 'default'}"
-          + (f" variant={ns.variant}" if ns.variant else ""), flush=True)
+, flush=True)
 
     def _on(res: BenchItemResult) -> None:
         print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} picked={res.score_picked} "

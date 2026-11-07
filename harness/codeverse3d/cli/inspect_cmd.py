@@ -113,8 +113,7 @@ def judge(
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
     rubric_name = J.rubric_for(rec, rnd, rubric)
-    with C.replay_variant(rec):
-        inp = J.build_judge_input(ws, rec, rnd)
+    inp = J.build_judge_input(ws, rec, rnd)
     missing = [v.path for v in inp.renders.views if not Path(v.path).is_file()]
     if missing:
         raise C.CliError(f"round {idx}: {len(missing)} of its {len(inp.renders.views)} judged renders are not on disk "
@@ -125,8 +124,8 @@ def judge(
     except ValueError as e:
         raise C.CliError(str(e), code=2) from e
     n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
-    # writes into the run: one writer per run dir; judged under the run's variant
-    with C.mutating(ws, what=f"3dcodeverse judge {ws.root.name}", action="judge"), C.replay_variant(rec):
+    # writes into the run: one writer per run dir
+    with C.mutating(ws, what=f"3dcodeverse judge {ws.root.name}", action="judge"):
         try:
             with join_post_run(ws):
                 verdict = judge_obj.judge(inp)

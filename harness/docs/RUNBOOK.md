@@ -50,15 +50,10 @@ Useful flags (`3dcodeverse make --help`):
 * `--max-minutes`, `--dim height=0.45`, `--must`, `--must-not`, `--style`, `--tag`, `--seed` (a
   label: it re-keys the plan, nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
   `--no-run` (workspace + spec.json only).
-* `--variant NAME` — a per-model prompt/skill overlay (`codeverse3d/prompts/variants/<name>/` +
-  `codeverse3d/skills/variants/<name>/`), frozen on `spec.options.variant` so `resume` and
-  `judge` read the same files; default `C3D_VARIANT`, else `C3D_VARIANTS` keyed by the exact
-  generator id, else the base prompts.
 
-Expected cost/time with gemini-3.8-flash: object tracks ≈ $0.7–0.9 and 12–36 min for baseline +
-1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot ≈ $0.05 / 2 min per judged
-round; scenes ≈ $2.3 and 30 min before the first judged round, then ≈ $0.36 / ~7 min per refine
-(give scenes `--max-minutes 60`).  Actual spend: `3dcodeverse cost <slug>`.
+Expected cost with the default `agy:gemini-4-argon` generator (median `total_usage` over the recorded
+Oct-Nov runs, mixed round counts): static_object ≈ $2.2, articulated ≈ $4.2, graphics ≈ $4.4, scene ≈
+$10.4; give scenes `--max-minutes 60` or more.  Actual spend: `3dcodeverse cost <slug>`.
 
 ## 3. Backends
 
@@ -232,17 +227,6 @@ storm's rows (`--redo-status error,infra_failed,budget`) rather than reading the
   (`tests/prompts/test_files.py`); a new language or track adds its scenario to `SCENARIOS`.
   Every new template variable is guarded `{% if name is defined and name %}` for at least one
   wave: templates are read at render time, so a live worker on old python renders the new file.
-* **A per-model variant**: `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]` name =
-  the directory name, version, generators, description) beside the prompt
-  files that shadow the base ones by relative path (a template there may `include` a base
-  file), and `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name,
-  their `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]`
-  extra typed rows with fresh ids).  Nothing else changes: `prompts.load_text` / `render` /
-  `catalog.language_text` and `skills.all_skills` resolve through the active variant, the record
-  carries `extra.variant` {name, version, hash} + `prompt_hashes.variant`.  An overlay starts
-  EMPTY (the shipped `argon` is) so its first iteration measures the base; the manifest gets one
-  scenario per variant.  Selection is explicit — `--variant`, `C3D_VARIANT`, `C3D_VARIANTS` —
-  never a pattern over the model id.
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…), languages=(…),
   cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.  Update
   `tests/spatial_tools` EXPECTED_TOOLS.

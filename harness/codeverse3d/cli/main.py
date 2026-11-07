@@ -182,7 +182,7 @@ app = typer.Typer(
     help="3dcodeverse: LLMs write raw 3D code; the harness builds, judges, refines, records.",
     pretty_exceptions_enable=False,
 )
-app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / captions.")
+app.add_typer(flywheel_app, name="flywheel", help="Dataset export / pairs / refine / captions.")
 app.add_typer(
     gallery_app,
     name="gallery",
@@ -244,15 +244,6 @@ def make(
     planner: Annotated[str | None, typer.Option()] = None,
     judge: Annotated[str | None, typer.Option()] = None,
     image: Annotated[list[Path] | None, typer.Option("--image", help="reference image(s)")] = None,
-    variant: Annotated[
-        str,
-        typer.Option(
-            "--variant",
-            help="per-model prompt/skill variant (an overlay under codeverse3d/prompts/variants/<name>/ "
-            "and codeverse3d/skills/variants/<name>/, frozen on the spec); default: C3D_VARIANT, else "
-            "C3D_VARIANTS[<generator>] by the id as typed and then by its served model, else the base",
-        ),
-    ] = "",
     rounds: Annotated[
         int | None,
         typer.Option(
@@ -329,8 +320,6 @@ def make(
         raise _no_best_of_n(track)
     backends = settings.backends(generator=generator, planner=planner, judge=judge)
     C.check_backends(backends)
-    # resolved once here and frozen on the spec
-    chosen = C.resolve_variant(settings, backends.generator, variant)
     # validate the whole Spec before touching the filesystem (no orphan run directory)
     try:
         spec = Spec(
@@ -348,7 +337,7 @@ def make(
             budget=Budget(**{k: v for k, v in
                              {"max_rounds": rounds, "max_minutes": max_minutes}.items() if v is not None}),
             backends=backends,
-            options=RunOptions(candidates=candidates, variant=chosen.name),
+            options=RunOptions(candidates=candidates),
             seed=seed,
             tags=tag,
         )
@@ -372,7 +361,6 @@ def make(
                     f"({settings.judge.max_px}px/{settings.judge.detail_crops}crop)",
                     "rounds": spec.budget.max_rounds,
                     "candidates": candidates,
-                    "variant": chosen.label,
                 },
             )
         )

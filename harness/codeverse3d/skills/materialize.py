@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.config import get_settings
-from codeverse3d.prompts.variants import active_variant
 from codeverse3d.skills.model import Selection, Skill, SkillsMaterialized
 from codeverse3d.skills.prompting import (
     AGENTS_SKILL_ROOT,
@@ -26,7 +25,7 @@ from codeverse3d.skills.prompting import (
     index_tokens,
     inline_body,
 )
-from codeverse3d.skills.registry import ROUTES, plan_signals, select
+from codeverse3d.skills.registry import plan_signals, select
 
 log = logging.getLogger(__name__)
 
@@ -139,8 +138,6 @@ def attach_skills(
     findings: Any = (),
     single_shot: bool = False,
     library: dict[str, Skill] | None = None,
-    max_skills: int | None = None,
-    allow_unverified: bool | None = None,
     only: frozenset[str] | None = None,
 ) -> SkillsMaterialized:
     """Route → write → return what a session will see.  The one entry point tracks call.
@@ -158,18 +155,10 @@ def attach_skills(
         if not library:
             log.warning("C3D_SKILLS_ONLY=%s matches no bundle in the library; this session attaches nothing",
                         ",".join(sorted(picked)))
-    # the active variant's overlay bundles are already in all_skills(); its routes.toml extends the table
-    variant = active_variant()
-    table = _routes_table(variant)
     sel: list[Selection] = select(
-        track, language, kind,
-        signals=plan_signals(plan), findings=findings, library=library,
-        max_skills=cfg.skills_max if max_skills is None else max_skills,
-        allow_unverified=cfg.skills_unverified if allow_unverified is None else allow_unverified,
-        routes=(*ROUTES, *table.routes), boosts=table.boost_map, disabled=table.disabled,
-    )
+        track, language, kind, signals=plan_signals(plan), findings=findings, library=library)
     out = SkillsMaterialized(listed=[s.name for s in sel], selections=list(sel),
-                             reasons={s.name: s.reason for s in sel}, attached_at=time.time(), variant=variant)
+                             reasons={s.name: s.reason for s in sel}, attached_at=time.time())
     if not sel or single_shot:
         # an empty selection must still sweep, or last round's bundles stay discoverable
         with suppress(OSError):
@@ -196,17 +185,6 @@ def attach_skills(
     out.index_tokens = index_tokens(sel)
     write_index(ws_root, index_block(sel))
     return out
-
-
-def _routes_table(variant: str) -> Any:
-    """The variant's ``routes.toml`` as typed rows; an invalid overlay falls back to the base table."""
-    from codeverse3d.skills import VariantRoutes, variants_table
-
-    try:
-        return variants_table(variant)
-    except (ValueError, OSError) as e:
-        log.warning("variant %r: routes.toml rejected (%s); this session routes with the base table", variant, e)
-        return VariantRoutes(variant=variant)
 
 
 __all__ = ["BODY_FILES", "CONTROL_NAME", "MARK_BEGIN", "MARK_END", "SKILL_ROOTS",

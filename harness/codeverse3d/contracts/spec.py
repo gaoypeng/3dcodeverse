@@ -69,9 +69,6 @@ class RunOptions(BaseModel):
     """
 
     candidates: int | None = Field(default=None, ge=1, description="best-of-N baseline candidates")
-    variant: str = Field(default="", description="per-model prompt/skill variant this run was created with "
-                         "(codeverse3d/prompts/variants/<name>/, D105); '' = the base prompts and skills; "
-                         "frozen here so a resume and the record name the same overlay")
 
 
 class Spec(BaseModel):

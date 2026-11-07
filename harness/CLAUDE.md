@@ -13,7 +13,7 @@ It does not implement an agent loop: the in-process `api-agent` was deleted
 2026-08-28 (owner's call — reimplementing what the vendors already ship was never
 this project's job).  Plus a data-flywheel record per run.
 
-Read `docs/ARCHITECTURE.md` (design, package map, authoring contracts, what a run
+Read `docs/ARCHITECTURE.md` (design, package map, what a run
 really does, known limits), `docs/RUNBOOK.md` (how to run / resume / extend), `eval/docs/EVAL.md`
 (evaluation protocol + judge calibration) and `eval/docs/COMPLEXITY.md` (the objective
 complexity vector + the score-vs-complexity corpus study) before changing anything.
@@ -97,7 +97,6 @@ cd harness
 # Every track states REQUIREMENTS, never templates (D106 scene, D107 the rest, 2026-10-15): no language ships a cookbook, no inlined
 # recipes, placeholder skeletons; a prompt / skill keeps only interface, sandbox rules and measured thresholds, each contract.md ONE
 # executable interface example (tests/prompts/test_snippets_run.py), the craft as short optional practices in the skills (fences ≤ ~12 lines).
-3dcodeverse make "..." --variant argon      # per-model prompt/skill overlay: prompts/variants/<name>/ + skills/variants/<name>/ (D105; C3D_VARIANT, C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}')
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
@@ -111,7 +110,6 @@ cd harness
 3dcodeverse gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcodeverse gallery build --out gallery.html [--embed]
 (cd ../eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-4-argon)   # report: python -m bench.report bench/out/<battery>
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-4-argon --n 3 --out out/
-(cd ../eval && python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon --languages scene_threejs,scene_blender --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 && python -m bench.loop generate --iter 0 && python -m bench.loop run --iter 0 && python -m bench.loop diagnose --iter 0)   # the argon loop (eval/docs/EVAL.md §10): then compare --iter N --against M · judge-calib --iter N · accept|rollback --iter N · status
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:agy:gemini-4-argon,oneshot:claude-code --judge gemini:gemini-4-argon --out ../eval/bench/out/compare_v1
 python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §7): bless only a change a model is MEANT to see

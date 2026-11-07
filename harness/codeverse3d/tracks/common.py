@@ -141,7 +141,6 @@ class RunContext:
     tool_cards: str = ""
     prompt_hashes: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
-    variant: str = ""
 
     @property
     def language(self) -> Language:

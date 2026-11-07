@@ -43,8 +43,7 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str, findings: Sequen
     for sel in got.selections:
         ctx.record_prompt(f"skill:{sel.name}", sel.skill.body)
     ctx.events.emit("skills.attached", round=index, kind=kind, skills=got.listed,
-                    index_tokens=got.index_tokens, inlined=got.inlined or None, reasons=got.reasons,
-                    variant=got.variant)
+                    index_tokens=got.index_tokens, inlined=got.inlined or None, reasons=got.reasons)
     return got
 
 
@@ -84,7 +83,7 @@ def record_usage(ctx: RunContext, *, index: int, kind: str) -> SkillsUsage | Non
         usage = probe_reads(ctx.ws.root, got)
         append_usage(ctx.ws.root, usage, round=index, kind=kind, agent=ctx.agent_id,
                      track=ctx.spec.track.value if hasattr(ctx.spec.track, "value") else str(ctx.spec.track),
-                     language=ctx.language.value, variant=got.variant)
+                     language=ctx.language.value)
     except Exception as e:  # noqa: BLE001 — telemetry never costs a round
         log.warning("skills telemetry failed for round %d: %s", index, e)
         return None

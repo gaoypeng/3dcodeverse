@@ -288,59 +288,15 @@ def test_the_first_wave_is_staggered_and_later_cells_are_not(tmp_path: Path, mon
     assert naps == [(7.0, False)] and (out / "runs" / f"{ids[1]}.attempt1").is_dir()
 
 
-def test_a_variant_is_frozen_on_every_spec_and_active_for_the_battery(tmp_path: Path, monkeypatch):
-    """``--variant NAME`` (D105): ``RunOptions.variant`` on each spec — what the track activates in its
-    worker thread — and ``prompts.variants.activate`` around the battery; a stated name on a tree
-    without the layer is an error, never a silent base run."""
-    import sys
-    import types
-    from contextlib import contextmanager
-
+def test_the_launcher_installs_the_stop_handlers(tmp_path: Path, monkeypatch):
     import bench.run_bench as rb
 
-    fake = types.ModuleType("codeverse3d.prompts.variants")
-    fake.active = ""
-    fake.seen: list[str] = []
-
-    @contextmanager
-    def activate(name: str):
-        fake.active = name
-        try:
-            yield
-        finally:
-            fake.active = ""
-
-    fake.activate = activate
-    fake.resolve_variant = lambda settings, generator_id: {"agy:gemini-4-argon": "argon"}.get(generator_id, "")
-    monkeypatch.setitem(sys.modules, "codeverse3d.prompts.variants", fake)
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
-    inner = _fake_run_fn({})
-
-    def run(spec, ws, resume):
-        fake.seen.append(f"{spec.options.variant}/{fake.active}")
-        return inner(spec, ws, resume)
-
-    run_battery(battery, tmp_path / "a", BenchOptions(parallel=1, limit=2, variant="argon", generator="g"), run_fn=run)
-    assert fake.seen == ["argon/argon"] * 2 and fake.active == "", "frozen on the spec, active for the block, released"
-    spec = json.loads((tmp_path / "a" / "runs" / "furn_easy_stool" / "spec.json").read_text())
-    assert spec["options"]["variant"] == "argon"
-    # no --variant: the settings resolve it for the generator, as `3dcodeverse make` does — frozen, not activated
-    fake.seen.clear()
-    run_battery(battery, tmp_path / "b", BenchOptions(parallel=1, limit=1, generator="agy:gemini-4-argon"), run_fn=run)
-    assert fake.seen == ["argon/"]
-    run_battery(battery, tmp_path / "c", BenchOptions(parallel=1, limit=1, generator="codex:gpt-6.1-sol"), run_fn=run)
-    assert fake.seen[-1] == "/"
-    # the launcher hands the flag over and installs the stop handlers
     seen: dict = {}
     monkeypatch.setattr(rb, "run_battery", lambda battery, out, opts, *, on_result=None: seen.update(opts=opts) or [])
     monkeypatch.setattr(rb, "install_stop_handlers", lambda: seen.update(handlers=True))
-    assert rb.main([str(battery), "--out", str(tmp_path / "d"), "--variant", "argon", "--no-report"]) == 0
-    assert seen["opts"].variant == "argon" and seen["handlers"] is True
-    # a tree without the layer: the base resolves silently, a stated name does not
-    monkeypatch.setitem(sys.modules, "codeverse3d.prompts.variants", None)
-    assert rb.resolve_variant("", "agy:gemini-4-argon") == ""
-    with pytest.raises(RuntimeError, match="prompts.variants"):
-        run_battery(battery, tmp_path / "e", BenchOptions(parallel=1, limit=1, variant="argon"), run_fn=inner)
+    assert rb.main([str(battery), "--out", str(tmp_path / "d"), "--no-report"]) == 0
+    assert seen["handlers"] is True
 
 
 def test_the_report_command_rebuilds_the_report(tmp_path: Path, capsys):

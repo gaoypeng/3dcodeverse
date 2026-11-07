@@ -37,12 +37,6 @@ from codeverse3d.orchestrator import (
 from codeverse3d.proc import EventLog, fan_out, read_json_or_none
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_text
-from codeverse3d.prompts.variants import (
-    activate,
-    active_variant,
-    resolve_variant,
-    variant_block,
-)
 from codeverse3d.record.record import previous_verdict
 from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
@@ -87,11 +81,7 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
 
 
 def plan_stage_key(spec: Spec, track: Track) -> dict[str, Any]:
-    key: dict[str, Any] = {"spec": plan_stage_inputs(spec), "track": track.value}
-    variant = spec.options.variant or active_variant()
-    if variant:
-        key["variant"] = variant
-    return key
+    return {"spec": plan_stage_inputs(spec), "track": track.value}
 
 
 def spec_fingerprint(spec: Spec) -> str:
@@ -283,8 +273,7 @@ class BaseTrack:
     # ------------------------------------------------------------------ public API
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
-        variant = self.variant_for(spec)
-        with activate(variant), run_ledger(ws.root, run=run_binding().run or ws.root.name):
+        with run_ledger(ws.root, run=run_binding().run or ws.root.name):
             if not ws.spec_path.is_file() or not resume:
                 ws.write_json(ws.spec_path, spec)
             events = EventLog(ws.events_path)
@@ -293,10 +282,7 @@ class BaseTrack:
             ctx = self.build_context(spec, ws, events, state)
             runner = StageRunner(ws, events, state, frozen=bool(rounds))
             events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
-                        agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge,
-                        variant=variant)
-            if variant:
-                events.emit("variant.active", **variant_block(variant))
+                        agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
             stop = RunStatus.FAILED
             error = ""
             try:
@@ -320,12 +306,6 @@ class BaseTrack:
                 self.services.finalize_record(ws, rec)
                 raise
             return self.finalise(ctx, rounds, stop, error=error)
-
-    # ------------------------------------------------------------------ the variant
-    @staticmethod
-    def variant_for(spec: Spec) -> str:
-        """The variant this run activates: the spec's frozen choice, else the one resolved for its generator."""
-        return spec.options.variant or resolve_variant(get_settings(), spec.backends.generator)
 
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
@@ -407,8 +387,7 @@ class BaseTrack:
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,
                          services=self.services, state=state, policy=policy, track=self.track, rubric=rubric,
                          agent_id=spec.backends.generator,
-                         agent=metered_agent(self._agent), model=metered_chat_model(self._model),
-                         variant=active_variant())
+                         agent=metered_agent(self._agent), model=metered_chat_model(self._model))
         ctx.contract_text = language_text(spec.language, "contract.md")
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
         ctx.record_prompt("contract", ctx.contract_text)
@@ -643,8 +622,6 @@ class BaseTrack:
             extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):
             extra["aborted_rounds"] = ctx.extra["aborted_rounds"]
-        variant = variant_block(ctx.variant)
-        extra["variant"] = variant
         prior_extra, prior_hashes = self._prior_record_fields(ctx.ws)
         if ctx.extra.get("finalise_rebuild_failed", None) == "":
             prior_extra.pop("finalise_rebuild_failed", None)
@@ -656,15 +633,11 @@ class BaseTrack:
             extra["aborted_rounds"] = prior_aborted + [a for a in ctx.extra["aborted_rounds"]
                                                        if a not in prior_aborted]
         hashes = {**prior_hashes, **dict(ctx.prompt_hashes)}
-        if ctx.variant and variant["hash"]:
-            hashes["variant"] = variant["hash"]
-        elif not ctx.variant:
-            hashes.pop("variant", None)
         return RunRecord(
             spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds,
             total_usage=ledger_usage(load_ledger(ctx.ws.root)), steps=list(ctx.state.steps),
             environment={"python": platform.python_version(), "host": platform.node(), "track": self.track.value,
-                         "language": ctx.language.value, "generator": ctx.agent_id, "variant": ctx.variant},
+                         "language": ctx.language.value, "generator": ctx.agent_id},
             prompt_hashes=hashes, started_at=ctx.state.started_at,
             finished_at=datetime.now(UTC), error=error,
             extra=extra,
