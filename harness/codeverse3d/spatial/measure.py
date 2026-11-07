@@ -142,7 +142,7 @@ def _node_has_geometry(scene: trimesh.Scene, node: str) -> bool:
 
 def effective_top_nodes(scene: trimesh.Scene) -> list[str]:
     """Direct children of the scene root, descending through single wrapper nodes that carry no
-    geometry themselves (a three.js root Group, a URDF ``<robot>`` node) so that parts are"""
+    geometry themselves (a three.js root Group, a URDF ``<robot>`` node) so that parts are the top nodes."""
     tops = _children(scene, scene.graph.base_frame)
     seen = 0
     while len(tops) == 1 and not _node_has_geometry(scene, tops[0]) and _children(scene, tops[0]) and seen < 4:

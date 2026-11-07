@@ -23,8 +23,8 @@ def test_rest_penetration_and_floating(tmp_path):
     urdf.write_text(text)
     r = load_urdf(urdf, meshes)
     rep = sweep_collisions(r, [{}])
-    assert 0.028 < rep.summary.rest_max_penetration_m < 0.032
-    assert rep.summary.floating_at_rest == ["handle"]
+    assert 0.028 < rep.rest_max_penetration_m < 0.032
+    assert [f.link for f in rep.per_pose[0].floating] == ["handle"]
     fl = rep.per_pose[0].floating[0]
     # attachment is judged against the PARENT link (door), not the grounded body
     assert fl.nearest == "door" and fl.joint_type == "fixed" and 0.03 < fl.gap_m < 0.06

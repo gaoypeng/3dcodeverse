@@ -41,7 +41,11 @@ from codeverse3d.spatial.joints_model import (
     parse_joint,
     parse_origin,
 )
-from codeverse3d.spatial.joints_sweep import sweep_collisions, sweep_findings
+from codeverse3d.spatial.joints_sweep import (
+    REST_PENETRATION_MAX_M,
+    sweep_collisions,
+    sweep_findings,
+)
 from codeverse3d.workspace import ArtifactStage, Workspace
 
 # ===================================================================== consistency
@@ -621,7 +625,6 @@ def write_skeleton(ws: Workspace, plan: ArticulatedPlan) -> list[Path]:
 
 # ===================================================================== runtime
 WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_bpy_links.py"
-REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001
 
 #: every canonical artifact this build owns, staged together
@@ -722,12 +725,12 @@ class UrdfBlenderRuntime(RuntimeLayout):
         res = BuildResult(ok=True, language=self.language.value, glb_path=str(art / "object.glb"), extra_paths=extra,
                           stdout_tail=wrapped.stdout_tail, stderr_tail=wrapped.stderr_tail,
                           duration_ms=int((time.time() - t0) * 1000), census=census)
-        if report.summary.rest_max_penetration_m > REST_PENETRATION_MAX_M:
+        if report.rest_max_penetration_m > REST_PENETRATION_MAX_M:
             worst = [f for f in findings if f.severity == "error"]
             res.ok = False
             res.error_type = "RestPenetration"
             res.error_file = "src/model.py"
-            res.error_message = (f"links interpenetrate by {report.summary.rest_max_penetration_m*1000:.1f} mm at the rest pose "
+            res.error_message = (f"links interpenetrate by {report.rest_max_penetration_m*1000:.1f} mm at the rest pose "
                                  f"(max {REST_PENETRATION_MAX_M*1000:.0f} mm):\n" +
                                  "\n".join(f"- {f.as_line()}" for f in worst[:8]))
             res.glb_path = None      # the fresh GLB is NOT published on a failed build
