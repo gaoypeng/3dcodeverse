@@ -16,4 +16,5 @@ Training-data preparation and LLM fine-tuning for 3DCodeVerse. Read `README.md` 
 - Workstation paths remain in `env.sh`, launchers, configs, and data tools. Inspect them before running;
   editing `env.sh` alone is insufficient. Current local training recipes also require external data
   registries not fully represented by `data_specs/dataset_info.json`.
-- Keep historical reports and experiment records intact when reorganizing code.
+- Keep `docs/REPORT.md` and `llm_finetune_exps.md` (the historical conclusions and run log) intact when
+  reorganizing code. Docs are in English; the original study notes (`docs/REPORT_FULL.md`) are in git history.

@@ -18,7 +18,7 @@ tools; it is not a copy or fork of the LLaMA-Factory framework.
 | `data_specs/` | recorded dataset registry and data statistics; each run must also have the registry and datasets named by its own `dataset_dir` |
 | `env/requirements-{llmft,lf,vllm}.txt` | snapshots of the original data/eval, LLaMA-Factory training, and vLLM inference environments |
 | `env.sh` | original workstation shell setup for environments, caches, and a local secrets file |
-| [`docs/REPORT.md`](docs/REPORT.md) | experiment conclusions; `REPORT_FULL.md`, `PROJECT_README.md`, and `llm_finetune_exps.md` preserve the historical study and run log |
+| [`docs/REPORT.md`](docs/REPORT.md) | experiment conclusions; `llm_finetune_exps.md` is the per-run log |
 
 Configs, environments, and training launchers keep their existing locations. General corpus curation
 and the contributor CLI remain in [`../toolkits/`](../toolkits/).
@@ -35,8 +35,8 @@ python llamafactory/sample_mix.py --src /path/to/md_max --out /path/to/mix \
 ```
 
 The study's ShareGPT data is published as
-**[`3dcodeverse/3dcodeverse-llamafactory`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-llamafactory)**
-(private; see the dataset card for its non-commercial terms). `llamafactory/build_hf_dataset.py`
+**[`3dcodeverse/3dcodeverse-2m`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m/tree/main/finetune)** under `finetune/`
+(see the dataset card for its non-commercial terms; formerly the private repo `3dcodeverse/3dcodeverse-llamafactory`). `llamafactory/build_hf_dataset.py`
 packages the corpus, historical preference sets, held-out tests, and mix descriptions from prepared
 local inputs. The published pair datasets are also used by the Hub recipe in `configs/lf/`.
 

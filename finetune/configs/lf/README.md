@@ -16,4 +16,4 @@ Everything else (batch 1, bf16, cosine schedule, 1 epoch for SFT) is the same ac
 
 `export_lora_template.yaml` is the merge template used by `scripts/export_lora.sh`; `ds_z3_offload.json` is the
 ZeRO-3 config (LoRA runs are ~7.8x slower under it than DDP — use it only when the model does not fit).
-Superseded configs are in `archive/configs/`.
+Superseded configs were removed; they remain in git history.

@@ -1,6 +1,6 @@
 # Evaluation protocol — what to run, how to decode, how to report
 
-Distilled from `finetune/docs/REPORT.md` (§5, §11–§13), the 3DCodeBench paper protocol
+Distilled from `finetune/docs/REPORT.md` (§3–§5) and the original study notes ([`REPORT_FULL.md`](https://github.com/gaoypeng/3dcodeverse/blob/943e666926a255888e3e6a37774865d565bcc5ba/finetune/docs/REPORT_FULL.md) §11–§13, in git history), the 3DCodeBench paper protocol
 (`~/nips2026_paper/3dcodebench`, arXiv:2606.01057) and the literature survey (`survey_synthesis.md` §4).
 
 ## 1. The standard battery for one model
@@ -25,7 +25,7 @@ Distilled from `finetune/docs/REPORT.md` (§5, §11–§13), the 3DCodeBench pap
 
 Rationale: greedy decoding on boilerplate-heavy dialects collapses into repetition loops that hit the token
 cap (REPORT §13; ShaderMatch's `incomplete` bucket; survey §2g). Thinking modes raise execution rates on most
-dialects but exhaust the budget on GLSL (REPORT §11.2) — evaluate them as a separate row with a stated budget,
+dialects but exhaust the budget on GLSL ([REPORT_FULL §11.2](https://github.com/gaoypeng/3dcodeverse/blob/943e666926a255888e3e6a37774865d565bcc5ba/finetune/docs/REPORT_FULL.md)) — evaluate them as a separate row with a stated budget,
 never mixed with no-think rows. `--think` keeps the model's reasoning on; the default sets
 `enable_thinking=False` through the chat template.
 

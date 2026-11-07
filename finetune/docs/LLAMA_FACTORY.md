@@ -87,6 +87,6 @@ using these wrappers. Changing `env.sh` alone does not relocate their hardcoded 
   The current `eval/llm/` API uses different filenames/fields, so migrating that pipeline requires a
   schema adapter and validation of its pairing behavior.
 
-Historical runs and their pitfalls remain in [`REPORT.md`](REPORT.md), [`REPORT_FULL.md`](REPORT_FULL.md),
+Historical runs and their pitfalls remain in [`REPORT.md`](REPORT.md)
 and [`../llm_finetune_exps.md`](../llm_finetune_exps.md). Their old paths and recipe names are records
 of those runs, rather than the current entrypoint inventory.

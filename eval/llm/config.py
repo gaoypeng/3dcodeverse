@@ -40,7 +40,7 @@ XLIBS = Path(os.environ.get("C3D_XLIBS", "~/.local/xlibs/usr/lib/x86_64-linux-gn
 
 BENCH_TASKS_DIR = HUB_DIR / "3DCode" / "3DCodeBench"                 # 212 <task>/{<task>.py, prompt_*.txt}
 C3D_HUB = HUB_DIR / "3dcodeverse"                                   # 3dcodeverse/3dcodeverse-2m partial snapshot
-LF_HUB = HUB_DIR / "3dcodeverse-llamafactory"                        # 3dcodeverse/3dcodeverse-llamafactory (test/*.parquet)
+LF_HUB = C3D_HUB / "finetune"                                       # 3dcodeverse/3dcodeverse-2m finetune/ (test/*.parquet)
 
 
 def _first_existing(*cands: str | Path | None) -> Path | None:
