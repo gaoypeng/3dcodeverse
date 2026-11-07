@@ -64,10 +64,10 @@ def _reference_digest(spec: Spec) -> list[dict[str, str]]:
 
 
 def brief_cache_key(spec: Spec, model_id: str) -> str:
-    """Every input to the call must be in the key."""
+    """Every input to the call must be in the key (the call is the same for every track and language)."""
     c = spec.constraints
     payload = json.dumps({
-        "prompt": spec.prompt.strip(), "track": spec.track.value, "language": spec.language.value,
+        "prompt": spec.prompt.strip(),
         "must_have": list(c.must_have), "must_not": list(c.must_not), "style": c.style,
         "dimensions_m": c.dimensions_m or {}, "model": model_id,
         "references": _reference_digest(spec),
@@ -96,7 +96,7 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
             log.warning("brief cache %s unusable (%s); regenerating", path, e)
     if model is None:
         model = get_chat_model(model_id)
-    system = render(BRIEF_TEMPLATE, track=spec.track.value, language=spec.language.value)
+    system = render(BRIEF_TEMPLATE)
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
     user = f"REQUEST: {spec.prompt.strip()}"
     if spec.constraints.must_have:

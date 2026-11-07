@@ -91,7 +91,6 @@ def test_hero_reentry_keeps_the_previous_sessions_src(tmp_ws, settings):
     ctx, hero = _scene(tmp_ws, settings, services=CardedServices(), agent=agent)
     assert SA.build_blender_asset(ctx, hero, judge=False).ok
     snake = SA.to_snake(hero.name)
-    (tmp_ws.public / "assets" / f"{snake}.glb").unlink()          # the reuse guard cannot fire
     silent = FakeAgent(lambda job, ws: None)                       # this session writes nothing
     ctx2 = SA.replace(ctx, agent=silent)
     res = SA.build_blender_asset(ctx2, hero, judge=False)

@@ -5,21 +5,29 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan
-from codeverse3d.conventions import to_snake
+from codeverse3d.conventions import SCENE_TIMES, to_snake
 from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
     from codeverse3d.spatial.probes import SceneProbeResult
 
 
-@runtime_checkable
+class AssembleResult(BaseModel):
+    scene_path: str
+    zones_included: list[str] = Field(default_factory=list)
+    zones_failed: dict[str, str] = Field(default_factory=dict)
+    env_ok: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    census: dict[str, Any] = Field(default_factory=dict)
+
+
 class LanguageRuntime(Protocol):
     language: Language
     #: files the agent is expected to author (globs relative to workspace root)
@@ -46,7 +54,6 @@ class LanguageRuntime(Protocol):
         ...
 
 
-@runtime_checkable
 class SceneRuntime(LanguageRuntime, Protocol):
     """What the scene track asks of its language: zone / asset locations, entry assembly, probe and render."""
 
@@ -79,7 +86,7 @@ class SceneRuntime(LanguageRuntime, Protocol):
         ...
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
-                     times: Sequence[float] = (0.0, 1.5), width: int = 1024, height: int = 576,
+                     times: Sequence[float] = SCENE_TIMES, width: int = 1024, height: int = 576,
                      sheet: bool = True) -> RenderSet:
         """Authored cameras (+ the orbit rig) × ``times`` → views, metrics.json, the contact sheet."""
         ...
@@ -123,3 +130,26 @@ _RUNTIMES: dict[Language, tuple[str, str]] = {
 def get_runtime(language: Language | str) -> LanguageRuntime:
     module, cls = _RUNTIMES[Language(language)]
     return getattr(import_module(module), cls)()
+
+
+def scene_files_for(plan: Plan | None, target: str, *, zone_file: Callable[[str], str], asset_file: Callable[[AssetPlan], str],
+                    entry: str, env_file: str, env_words: frozenset[str]) -> list[str]:
+    """The files that own a scene refine target: a module asset in its own file, a hero where it is placed, cameras in the
+    entry, env words in the env file, ``Zone/..`` in the zone."""
+    zone_plans = list(getattr(plan, "zones", None) or [])
+    zones = {to_snake(z.name) for z in zone_plans}
+    assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
+    key = to_snake(target)
+    if key in zones:
+        return [zone_file(key)]
+    if key in assets:
+        if asset_file(assets[key]).startswith("src/"):
+            return [asset_file(assets[key])]
+        return [zone_file(z.name) for z in zone_plans if key in {to_snake(c) for c in z.contents}]
+    if key in {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])} or key in ("camera", "cameras", "composition"):
+        return [entry]
+    if key in env_words:
+        return [env_file]
+    if "/" in target and to_snake(target.split("/", 1)[0]) in zones:
+        return [zone_file(target.split("/", 1)[0])]
+    return []

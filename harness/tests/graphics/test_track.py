@@ -35,7 +35,7 @@ class FakeGlRuntime(GlslShaderRuntime):
             Image.fromarray((rgb * 255).astype(np.uint8), "RGB").save(p)
             frames.append(GlFrame(index=i, time=t, path=str(p), judge=i < 5))
         res = GlResult(ok=True, mode="shader", stage="render", renderer="fake-gl", frames=frames)
-        return finish_build(ws, res, language="glsl_shader", census={"convention": "mainImage"})
+        return finish_build(ws, res, language="glsl_shader")
 
 
 def _writer(job, ws):

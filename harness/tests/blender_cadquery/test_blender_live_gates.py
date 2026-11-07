@@ -66,12 +66,12 @@ def test_census_matches_export_and_reports_what_the_export_hides(tmp_ws, blender
     c = r.census
     rec = {o["name"]: o for o in c["objects"]}
     assert rec["InColl"]["in_scene"] and not rec["InColl"]["in_view_layer"] and rec["InColl"]["hidden"]
-    assert c["tri_count"] == 2 * 12 and c["n_mesh_objects"] == 2  # Main + the arm, never InColl
-    assert c["scene_bbox_max"][2] <= 1.0 + 1e-4  # bbox not stretched to (10,10,10)
     warns = c["warnings"]
     assert any("excluded from the view layer" in w and "InColl" in w for w in warns)
     assert not any("no material" in w for w in warns)  # no spurious warning for InColl
     scene = trimesh.load(r.glb_path)
+    assert sum(len(g.faces) for g in scene.geometry.values()) == 2 * 12  # Main + the arm, never InColl
+    assert scene.bounds[1].max() <= 1.0 + 1e-4  # bbox not stretched to (10,10,10)
     # census matches the export (a multi-material mesh loads as one node per material: <name>_<hash>)
     meshes = {"Main", "FlatArm"}
     assert {n if n in meshes else n.rsplit("_", 1)[0] for n in scene.graph.nodes_geometry} == meshes

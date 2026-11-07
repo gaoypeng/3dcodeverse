@@ -75,14 +75,13 @@ def judge_times(duration_s: float | None) -> list[float]:
 
 
 def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str = "", error_line: int | None = None,
-                 error_message: str | None = None, census: dict | None = None, motion_expected: bool = True) -> BuildResult:
+                 error_message: str | None = None, motion_expected: bool = True) -> BuildResult:
     """Write derived artifacts + build.json and return the BuildResult."""
     art = ws.artifacts
     art.mkdir(parents=True, exist_ok=True)
     extras: dict[str, str] = {}
     gates: list[GateReport] = []
-    cen: dict = {"renderer": res.renderer, "gpu": res.gpu, "feedback": res.feedback, "n_frames": len(res.frames),
-                 "gl_duration_ms": res.duration_ms, **(census or {})}
+    cen: dict = {"renderer": res.renderer}
     if res.ok and res.judge_frames:
         frames = res.judge_frames
         extras["frames"] = str(art / "frames")
@@ -97,8 +96,6 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
         metrics = art / METRICS_NAME
         ws.write_json(metrics, {"stats": seq.model_dump(mode="json"), "gate": gate.model_dump(mode="json")})
         extras["metrics"] = str(metrics)
-        cen["frame_stats"] = {"mean_lum": seq.mean_lum, "mean_diff": seq.mean_diff, "static": seq.static, "any_nan": seq.any_nan,
-                              "colourfulness": seq.mean_colourfulness, "edge_density": seq.mean_edge_density}
     result = BuildResult(
         ok=bool(res.ok and res.judge_frames), language=language, glb_path=None, extra_paths=extras,
         stdout_tail=res.stdout_tail, stderr_tail=(res.traceback or res.stderr_tail)[-4000:],

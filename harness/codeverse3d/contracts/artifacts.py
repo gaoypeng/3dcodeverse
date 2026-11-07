@@ -19,7 +19,8 @@ class Severity(StrEnum):
 
 
 class LintKind(StrEnum):
-    """``data.kind`` of a ``lint:<language>`` finding: routes skills and matches cap rules."""
+    """``data.kind`` of a ``lint:<language>`` finding.  Read by ``skills.registry`` (``lint/*`` skill routing, ``lint/part_not_imported``)
+    and the shader rubric's kind-less ``lint*`` cap; the rest are labels for the agent and the record."""
 
     SYNTAX = "syntax"                        # the file does not parse
     MISSING_FILE = "missing_file"            # an entry / planned part file is absent
@@ -39,7 +40,6 @@ class LintKind(StrEnum):
     MIMIC = "mimic"                          # a <mimic> coupling
     HANG_RISK = "hang_risk"                  # a loop / call that can stall a headless build
     NONDETERMINISM = "nondeterminism"        # an unseeded random source
-    CENSUS = "census"                        # INFO: what the lint saw
 
 
 #: ``GateFinding.data["kind"]`` of a plan part that is still the skeleton's placeholder box;

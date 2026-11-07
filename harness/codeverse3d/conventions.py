@@ -249,3 +249,7 @@ BBOX_TOLERANCE_M = 0.01
 GROUND_TOL_M = 0.01
 #: Parts are "touching" when the surface gap is below this (meters).
 CONTACT_GAP_M = 0.002
+
+
+#: the scene frame clock (seconds): the judged frames, ``ctx.times`` in scene_blender and the render defaults
+SCENE_TIMES: tuple[float, float] = (0.0, 1.5)

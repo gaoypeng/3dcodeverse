@@ -101,13 +101,11 @@ codeverse3d/
   languages/          LanguageRuntime + RuntimeLayout (base.py: every runtime states its file layout —
                       expected_files / files_for — and the tracks ask it); one module per language:
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ scene_blender/ glsl_shader/ opengl_python/
-                      are each a single __init__.py (lint → skeleton → runtime) beside their data (starter/,
+                      are each a single __init__.py (lint → skeleton → runtime) beside their data (starter/ for scene_threejs,
                       opengl_python/wrappers/run_gl.py; the contract text is prompts/<lang>/contract.md); wrappers/
                       holds the python build wrappers (run_bpy, run_bpy_links, run_cq, run_bpy_scene), the
                       scene_blender render driver (render_bpy_scene) and what they share (_wrapper_common,
                       _census, _census_glb, _finite — the NaN / inf check on everything a Blender wrapper writes).
-                      scene_blender/starter/src/ is its example scene (scene.py, env.py, zones/{hamlet, lakeside,
-                      orchard}.py, assets/{crate, lantern_post}.py)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit), render_blender.py (scene_blender:
                       Blender pixels under a GPU slot + CPU fallback, the same metrics.json),
@@ -272,7 +270,7 @@ paste):
 ```stage-graph
 static_object       plan → skeleton → materialize* → round 0
 articulated_object  plan → skeleton → materialize* → round 0
-scene               plan → skeleton → materialize* → (assets ∥ env ∥ layouts?) → asset_api* → zones → clock* → assemble → round 0
+scene               plan → skeleton → materialize* → (assets ∥ env ∥ layouts?) → clock* → asset_api* → zones → clock* → assemble → round 0
 graphics            plan → skeleton → materialize* → round 0
 ```
 

@@ -20,6 +20,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import RenderSet
 from codeverse3d.contracts.plan import BBox, CameraPlan
 from codeverse3d.conventions import (
+    SCENE_TIMES,
     SCENE_VIEWS,
     ViewPreset,
     from_authoring_frame,
@@ -65,20 +66,11 @@ def _to_glb(v: Sequence[float]) -> list[float]:
     return [round(c, 5) for c in from_authoring_frame(v, FRAME_LANGUAGE)]
 
 
-def _blender_env(engine: str, device: str) -> dict[str, str]:
-    """A headless Blender child's env; EEVEE / Workbench on the GPU need the Mesa d3d12 env or they silently use llvmpipe."""
-    from codeverse3d.languages.blender import blender_env
-    from codeverse3d.spatial.gl_render import GPU_ENV
-
-    env = blender_env()
-    if engine != "cycles" and device == "GPU":
-        env.update(GPU_ENV)
-    return env
-
-
 # --------------------------------------------------------------------------- pixels
 def _run_driver(blend: Path, job: dict[str, Any], out_dir: Path, *, device: str, timeout_s: float,
                 settings: Settings) -> tuple[ProcResult, dict[str, Any] | None]:
+    from codeverse3d.languages.blender import blender_env
+
     job = {**job, "device": device}
     job_path = out_dir / JOB_NAME
     result_path = out_dir / RESULT_NAME
@@ -88,7 +80,7 @@ def _run_driver(blend: Path, job: dict[str, Any], out_dir: Path, *, device: str,
     if not blender:
         raise SceneRenderError("no Blender binary (set C3D_BINARIES__BLENDER or put blender-5.2 on PATH)")
     cmd = [blender, "-b", "--factory-startup", str(blend), "--python", str(DRIVER), "--", str(job_path)]
-    proc = run_subprocess(cmd, cwd=out_dir, env=_blender_env(str(job["engine"]), device), timeout_s=timeout_s)
+    proc = run_subprocess(cmd, cwd=out_dir, env=blender_env(), timeout_s=timeout_s)
     result = read_json_or_none(result_path)
     return proc, result if isinstance(result, dict) and proc.returncode == 0 else None
 
@@ -168,7 +160,7 @@ def render_blender_scene(
     *,
     cameras: list[CameraPlan] | None = None,
     orbit: bool = True,
-    times: Sequence[float] = (0.0, 1.5),
+    times: Sequence[float] = SCENE_TIMES,
     width: int = 1024,
     height: int = 576,
     sheet: bool = True,
@@ -178,7 +170,6 @@ def render_blender_scene(
     blend: Path | None = None,
     census: Path | None = None,
     glb: Path | None = None,
-    engine: str | None = None,
     samples: int | None = None,
 ) -> RenderSet:
     """Authored cameras (+ the orbit rig) × ``times`` rendered by Blender → a RenderSet (three.js-schema ``metrics.json``).
@@ -197,7 +188,6 @@ def render_blender_scene(
         return _empty(out_dir, f"no {blend.name}: the build did not save the scene (see build.json)",
                       width=width, height=height, orbit_views=orbit_views)
     # 1. the orbit rig, fitted to the census content (GLB frame)
-    t0 = time.monotonic()
     fit: dict[str, Any] = {}
     if orbit and orbit_views:
         if census.is_file():
@@ -205,7 +195,6 @@ def render_blender_scene(
         else:
             log.warning("no %s: the orbit rig is not rendered", census)
     orbit_specs: list[dict[str, Any]] = list(fit.get("cameras") or [])
-    fit_ms = int((time.monotonic() - t0) * 1000)
     # 2. pixels
     pixel = _pixel_orbit(orbit_specs)
     job_cams = [{"name": c.name, "kind": "authored", "position": _to_blender(c.position), "look_at": _to_blender(c.look_at),
@@ -213,12 +202,9 @@ def render_blender_scene(
     job_cams += [{"name": o["name"], "kind": "orbit", "position": _to_blender(o["position"]),
                   "look_at": _to_blender(o["lookAt"]), "fov": o.get("fov") or 50.0, "no_fog": bool(o.get("noFog")),
                   "times": times[:1]} for o in orbit_specs if o["name"] in pixel]
-    job = {"out": str(out_dir), "result": str(out_dir / RESULT_NAME), "engine": engine or s.render.blender_engine,
-           "samples": int(samples or s.render.blender_samples), "frame_time_limit_s": s.render.blender_frame_time_limit_s,
+    job = {"out": str(out_dir), "result": str(out_dir / RESULT_NAME), "samples": int(samples or s.render.blender_samples), "frame_time_limit_s": s.render.blender_frame_time_limit_s,
            "width": width, "height": height, "times": times, "authored": cameras is None, "cameras": job_cams}
-    t0 = time.monotonic()
     frames = render_frames(blend, out_dir, job, timeout_s=tmo, settings=s)
-    blender_ms = int((time.monotonic() - t0) * 1000)
     views = [_glb_view(f) for f in frames.get("frames") or []]
     write_json_atomic(out_dir / EXTERNAL_NAME, views)
     # 3. geometry: authored cameras as Blender saw them + the whole rig
@@ -226,10 +212,8 @@ def render_blender_scene(
               "lookAt": _to_glb(c["look_at"]), "fov": c.get("fov")}
              for c in frames.get("cameras") or [] if c.get("kind") == "authored"]
     specs += [{**o, "kind": "orbit"} for o in orbit_specs]
-    t0 = time.monotonic()
     metrics, geometry_error = _geometry_pass(ws, out_dir, specs, times=times, width=width, height=height,
                                              timeout_s=tmo, glb=glb)
-    geometry_ms = int((time.monotonic() - t0) * 1000)
     if not metrics.get("views"):
         metrics["views"] = views
     # 4. merge the Blender facts; one schema downstream
@@ -244,22 +228,11 @@ def render_blender_scene(
     if fit.get("framing_bbox") is not None:
         metrics["framing_bbox"] = fit["framing_bbox"]
     warnings = list(metrics.get("host_warnings") or [])
-    if frames.get("engine") in ("eevee", "workbench") and "llvmpipe" in str(frames.get("gl_renderer") or "").lower():
-        warnings.append(f"{frames['engine']} rendered on llvmpipe (software GL): {frames.get('gl_renderer')}")
     if frames.get("fallback"):
         warnings.append(f"rendered on the CPU: {frames['fallback']}")
     metrics["host_warnings"] = warnings
-    metrics["blender"] = {
-        "engine": frames.get("engine"), "device": frames.get("device"), "device_names": frames.get("device_names") or [],
-        "samples": frames.get("samples"), "fallback": frames.get("fallback") or "", "version": frames.get("blender"),
-        "persistent_data": bool(frames.get("persistent_data", False)), "frame_time_limit_s": frames.get("frame_time_limit_s"),
-        "gl_renderer": frames.get("gl_renderer") or "", "n_frames": len(views),
-        "frame_ms": [v["render_ms"] for v in views],
-        "timings_ms": {"fit": fit_ms, "slot_wait": frames.get("slot_wait_ms", 0), "blender": blender_ms,
-                       "blender_setup": frames.get("setup_ms", 0), "geometry": geometry_ms,
-                       "total": int((time.monotonic() - t_all) * 1000)},
-    }
-    metrics["duration_ms"] = metrics["blender"]["timings_ms"]["total"]
+    metrics["blender"] = {"engine": frames.get("engine"), "device": frames.get("device"), "samples": frames.get("samples")}
+    metrics["duration_ms"] = int((time.monotonic() - t_all) * 1000)
     write_json_atomic(out_dir / "metrics.json", metrics)
     write_json_atomic(out_dir / "views.json", metrics["views"])
     for w in warnings:
@@ -282,8 +255,6 @@ def _renderer_line(frames: dict[str, Any]) -> str:
         bits.append("/".join(frames["device_names"]))
     if frames.get("samples"):
         bits.append(f"{frames['samples']} spp")
-    if frames.get("gl_renderer"):
-        bits.append(str(frames["gl_renderer"]))
     return " · ".join(bits)
 
 

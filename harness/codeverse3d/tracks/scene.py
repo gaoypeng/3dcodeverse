@@ -17,7 +17,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, TRACK_INFO, Language, Track
 from codeverse3d.contracts.plan import BBox, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.conventions import fmt3, to_authoring_frame, to_snake
+from codeverse3d.conventions import SCENE_TIMES, fmt3, to_authoring_frame, to_snake
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
@@ -38,7 +38,6 @@ from codeverse3d.tracks.repair import format_error_report
 from codeverse3d.tracks.scene_assets import (
     AssetResult,
     asset_api_summary,
-    read_dedupe_note,
     run_asset_stage,
 )
 from codeverse3d.tracks.zone_layout import layout_block, layout_zones
@@ -46,7 +45,6 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
@@ -162,6 +160,7 @@ class SceneTrack(BaseTrack):
         (StageNode("assets", lambda t, c: run_asset_stage(c), key=_plan_agent),
          StageNode("env", lambda t, c: t._env_stage(c), key=_plan_agent),
          StageNode("layouts", lambda t, c: t._layouts_stage(c), key=_plan_agent, when=lambda s: s.zone_layouts)),
+        CLOCK,   # stage boundary: stop only after the finished assets are cached
         StageNode("asset_api", lambda t, c: t._asset_api(c)),
         StageNode("zones", lambda t, c: t._zones_stage(c), key=lambda c: {
             "plan": c.plan, "asset_api": c.extra["asset_api"], "layouts": c.extra.get("layouts", {}), "agent": c.agent_id}),
@@ -194,9 +193,8 @@ class SceneTrack(BaseTrack):
         """What the zones are told about the assets."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (ctx.extra.get("assets") or {}).items()}
-        alias = read_dedupe_note(ctx.ws)
-        ctx.extra["assets"], ctx.extra["asset_alias"] = assets, alias
-        return asset_api_summary(plan, assets, alias, language=ctx.language)
+        ctx.extra["assets"] = assets
+        return asset_api_summary(plan, assets, language=ctx.language)
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
@@ -418,10 +416,6 @@ class SceneTrack(BaseTrack):
         return []  # generation happened in the stages; round 0 = build → render → judge
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
-    def refine_file_for_target(self, ctx: RunContext) -> Callable[[str], list[str]]:
-        """The runtime's layout, with the dedupe note: a merged asset is fixed in its survivor's factory."""
-        return lambda target: ctx.runtime.files_for(ctx.plan, target, alias=ctx.extra.get("asset_alias"))
-
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)

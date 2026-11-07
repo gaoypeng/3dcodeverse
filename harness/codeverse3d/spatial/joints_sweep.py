@@ -24,6 +24,9 @@ from codeverse3d.workspace import Workspace
 log = logging.getLogger(__name__)
 
 SWEEP_GATE = "joint_sweep"
+#: rest penetration beyond this fails the URDF build; a moving child must be this close to its parent
+REST_PENETRATION_MAX_M = 0.005
+HINGE_CLEARANCE_M = 0.01
 
 
 # ------------------------------------------------------------------ report types
@@ -50,26 +53,13 @@ class PoseReport(BaseModel):
     q: dict[str, float]
     overlaps: list[Overlap] = Field(default_factory=list)
     floating: list[FloatingLink] = Field(default_factory=list)
-    n_contacts: int = 0
-
-
-class SweepSummary(BaseModel):
-    n_poses: int
-    n_links: int
-    max_penetration_m: float = 0.0
-    worst_pose: str = ""
-    rest_max_penetration_m: float = 0.0
-    overlapping_poses: list[str] = Field(default_factory=list)
-    floating_links: list[str] = Field(default_factory=list, description="floating in ANY sampled pose")
-    floating_at_rest: list[str] = Field(default_factory=list)
-    link_islands: dict[str, int] = Field(default_factory=dict)
 
 
 class SweepReport(BaseModel):
     tol_m: float
     contact_gap_m: float
     per_pose: list[PoseReport]
-    summary: SweepSummary
+    rest_max_penetration_m: float = Field(default=0.0, description="deepest rest-pose or rigid (welded) overlap")
 
 
 class MotionCheck(BaseModel):
@@ -89,7 +79,7 @@ def sweep_collisions(
     *,
     tol_m: float = 0.002,
     contact_gap_m: float = CONTACT_GAP_M,
-    hinge_clearance_m: float = 0.01,
+    hinge_clearance_m: float = HINGE_CLEARANCE_M,
 ) -> SweepReport:
     """Collide every link pair in every pose."""
     names = robot.meshed_links()
@@ -97,7 +87,6 @@ def sweep_collisions(
         raise UrdfError("sweep_collisions: robot has no link meshes")
     bodies = {n: collide.LinkBody(n, robot.links[n].mesh) for n in names}  # type: ignore[arg-type]
     per_pose: list[PoseReport] = []
-    islands = {n: len(bodies[n].islands) for n in names}
     comps = collide.components(list(robot.links), {(j.parent, j.child) for j in robot.joints.values() if j.type == "fixed"})
     rigid_group = {n: i for i, comp in enumerate(comps) for n in comp}
     labels = [pose_label(robot, q) for q in poses]
@@ -108,7 +97,6 @@ def sweep_collisions(
         for n, body in bodies.items():
             body.set_pose(T[n])
         overlaps: list[Overlap] = []
-        touching: set[tuple[str, str]] = set()
         nearest: dict[str, dict[str, float]] = {n: {} for n in names}
         for i, a in enumerate(names):
             for b in names[i + 1 :]:
@@ -131,8 +119,6 @@ def sweep_collisions(
                 else:
                     dist = collide.distance(ba, bb)
                 nearest[a][b] = nearest[b][a] = dist
-                if dist <= contact_gap_m:
-                    touching.add((a, b))
         floating: list[FloatingLink] = []
         if pose_label(robot, q) == "rest":
             for n in names:
@@ -151,33 +137,15 @@ def sweep_collisions(
                 if d > thr:
                     floating.append(FloatingLink(link=n, nearest=j.parent, joint_type=j.type,
                                                  gap_m=round(d, 6) if math.isfinite(d) else math.inf))
-        per_pose.append(PoseReport(label=labels[idx], q=dict(q), overlaps=overlaps, floating=floating,
-                                   n_contacts=len(touching)))
+        per_pose.append(PoseReport(label=labels[idx], q=dict(q), overlaps=overlaps, floating=floating))
 
-    summary = _summarise(per_pose, len(names), islands)
-    return SweepReport(tol_m=tol_m, contact_gap_m=contact_gap_m, per_pose=per_pose, summary=summary)
-
-
-def _summarise(per_pose: list[PoseReport], n_links: int, islands: dict[str, int]) -> SweepSummary:
-    s = SweepSummary(n_poses=len(per_pose), n_links=n_links, link_islands=islands)
-    floating_any: set[str] = set()
-    for pr in per_pose:
-        for o in pr.overlaps:
-            if o.depth_m > s.max_penetration_m:
-                s.max_penetration_m, s.worst_pose = o.depth_m, pr.label
-            if pr.label == "rest" or o.rigid:
-                s.rest_max_penetration_m = max(s.rest_max_penetration_m, o.depth_m)
-        if pr.overlaps:
-            s.overlapping_poses.append(pr.label)
-        floating_any.update(f.link for f in pr.floating)
-        if pr.label == "rest":
-            s.floating_at_rest = [f.link for f in pr.floating]
-    s.floating_links = sorted(floating_any)
-    return s
+    rest_max = max((o.depth_m for pr in per_pose for o in pr.overlaps if pr.label == "rest" or o.rigid), default=0.0)
+    return SweepReport(tol_m=tol_m, contact_gap_m=contact_gap_m, per_pose=per_pose, rest_max_penetration_m=rest_max)
 
 
 # ------------------------------------------------------------------ gate findings
-def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clearance_m: float = 0.01) -> list[GateFinding]:
+def sweep_findings(report: SweepReport, *, rest_max_m: float = REST_PENETRATION_MAX_M,
+                   hinge_clearance_m: float = HINGE_CLEARANCE_M) -> list[GateFinding]:
     """Turn a sweep report into gate findings: rest penetration beyond ``rest_max_m``, moved-pose overlaps, and floating links beyond ``hinge_clearance_m``."""
     gate = SWEEP_GATE
     out: list[GateFinding] = []
@@ -339,7 +307,8 @@ _DIRS: dict[str, tuple[float, float, float]] = {
 
 def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: float | None = None) -> MotionCheck:
     """Does the child's centroid move along ``expected`` (``'+z'``, ``'-y'``, ``'up'``,
-    ``'front'``, ``'open_up'`` ...) when ``joint`` moves positively from rest? Revolute joints"""
+    ``'front'``, ``'open_up'`` ...) when ``joint`` moves positively from rest? Revolute joints
+    are judged by the child centroid's swing about the pivot, so a wrong sign is reported with the corrected axis."""
     key = expected.strip().lower()
     if key not in _DIRS:
         raise UrdfError(f"motion_direction_check: unknown direction {expected!r}; use one of {sorted(_DIRS)}")

@@ -30,6 +30,7 @@ from pydantic import (
     ValidationInfo,
     ValidatorFunctionWrapHandler,
     WrapValidator,
+    field_validator,
     model_validator,
 )
 from pydantic_core import PydanticUseDefault
@@ -92,17 +93,13 @@ class Render(BaseModel):
         "the node side reads too)")
     sheet_cols: int = 4
     sheet_tile: int = 384
-    # scene_blender pictures (spatial/render_blender.py).  Cycles CUDA + GPU OIDN is the fast path;
-    # EEVEE needs the Mesa d3d12 env (spatial/gl_render.GPU_ENV) or lands on llvmpipe.
+    # scene_blender pictures (spatial/render_blender.py): Cycles CUDA + GPU OIDN is the fast path.
     # OptiX is unavailable under WSL2 and probing it crashes Blender: CUDA only.
-    blender_engine: Annotated[Literal["cycles", "eevee"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
-        default="cycles", description="judged-frame engine for scene_blender (C3D_RENDER__BLENDER_ENGINE)")
     blender_frame_time_limit_s: float = Field(
         default=20.0, ge=0, description="Cycles time cap per judged frame, seconds (0 = none): a heavy scene stops "
         "sampling early instead of eating the render timeout (C3D_RENDER__BLENDER_FRAME_TIME_LIMIT_S)")
     blender_samples: int = Field(
-        default=32, ge=1, description="Cycles samples (adaptive + OIDN) / EEVEE TAA samples "
-        "(C3D_RENDER__BLENDER_SAMPLES)")
+        default=32, ge=1, description="Cycles samples, adaptive + OIDN (C3D_RENDER__BLENDER_SAMPLES)")
     blender_device: Annotated[Literal["gpu", "cpu"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="gpu", description="'gpu' takes a machine-wide GPU slot and falls back to the CPU when none frees "
         "within blender_gpu_wait_s or the GPU render dies; 'cpu' never touches the GPU")
@@ -160,8 +157,8 @@ class Judge(BaseModel):
 
 class Placement(BaseModel):
     """The scene_placement gate's thresholds (spatial/scene_placement.py), metres / fractions.
-    The JS measurement (host_placement.mjs) keeps its own CONTACT / FLOATING / SUNK constants:
-    these decide severities only."""
+    The JS measurement (host_placement.mjs) keeps its own CONTACT / FLOATING / SUNK constants: Settings refuses a
+    placement whose contact_m / floating_outdoor_m / sunk_m differ from them; the rest decide severities only."""
 
     contact_m: float = Field(default=0.02, ge=0, description="foot within this of a surface = seated")
     floating_outdoor_m: float = Field(default=0.05, ge=0, description="gap above which an outdoor asset floats")
@@ -202,6 +199,16 @@ class Settings(BaseSettings):
                 sub = data.get(section) or {}
                 data[section] = {**(sub.model_dump() if isinstance(sub, BaseModel) else sub), name: raw}
         return data
+
+    @field_validator("placement")
+    @classmethod
+    def _placement_matches_the_probe(cls, v: Placement) -> Placement:
+        """The probe (host_placement.mjs) measures `seated` / `floating` / `sunk` at its own constants: the gate must grade the same numbers."""
+        d = Placement()
+        if (v.contact_m, v.floating_outdoor_m, v.sunk_m) != (d.contact_m, d.floating_outdoor_m, d.sunk_m):
+            raise ValueError("placement.contact_m / floating_outdoor_m / sunk_m are pinned to host_placement.mjs "
+                             "(CONTACT_TOL_M / FLOATING_M / SUNK_M); change both together")
+        return v
 
     runs_dir: Path = Field(default=Path("runs"))
     cache_dir: Path = Field(default=Path.home() / ".cache" / "codeverse3d")

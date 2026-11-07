@@ -30,7 +30,7 @@ from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
 GATE = "lint:cadquery"
-ALLOWED_IMPORTS = {"cadquery", "cq", "math", "random", "numpy", "np", "itertools", "functools", "collections",
+ALLOWED_IMPORTS = {"cadquery", "math", "random", "numpy", "itertools", "functools", "collections",
                    "typing", "dataclasses", "enum", "copy", "statistics", "operator", "__future__"}
 FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {
     "os", "sys", "pathlib",  # no file-system / interpreter access (unlike blender, nothing legitimate needs them)
@@ -89,7 +89,7 @@ def _f(sev: Severity, msg: str, line: int | None = None, hint: str = "", target:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data={"line": line} if line else {})
 
 
-class BpyCollector(ImportCollector):
+class CqCollector(ImportCollector):
     def __init__(self) -> None:
         super().__init__()
         self.calls: list[tuple[str, ast.Call]] = []
@@ -134,7 +134,7 @@ def _top_level_assigned(tree: ast.Module) -> tuple[set[str], set[str]]:
     return top, guarded
 
 
-def _rules(c: BpyCollector, tree: ast.Module, source: str) -> list[GateFinding]:
+def _rules(c: CqCollector, tree: ast.Module, source: str) -> list[GateFinding]:
     E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
     out: list[GateFinding] = []
     if "cadquery" not in c.imports:
@@ -190,7 +190,7 @@ def lint_cadquery_source(source: str, *, target: str = "src/model.py") -> GateRe
         msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
         f = _f(Severity.ERROR, msg, line, hint, target)
         return GateReport.of(GATE, [f], duration_ms=int((time.monotonic() - t0) * 1000))
-    c = BpyCollector()
+    c = CqCollector()
     c.visit(tree)
     findings = _rules(c, tree, source)
     for f in findings:
@@ -317,20 +317,16 @@ class CadQueryRuntime(RuntimeLayout):
     language = Language.CADQUERY
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.CADQUERY],)
 
-    def __init__(self, *, python: str | None = None, settings: Settings | None = None, rlimit_gb: float = 8.0):
+    def __init__(self, *, python: str | None = None, settings: Settings | None = None):
         self._settings = settings or get_settings()
         self._python = python or sys.executable
-        self._rlimit_gb = rlimit_gb
 
     def entry_file(self, ws: Workspace) -> Path:
         return ws.src / "model.py"
 
     def build_command(self, ws: Workspace) -> list[str]:
-        """The wrapper's own tolerance defaults are the tessellation."""
-        return [
-            self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
-            "--rlimit-gb", str(self._rlimit_gb), "--seed", "0",
-        ]
+        """The wrapper's own constants are the tessellation and the seed."""
+        return [self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts)]
 
     # ------------------------------------------------------------------ protocol
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:

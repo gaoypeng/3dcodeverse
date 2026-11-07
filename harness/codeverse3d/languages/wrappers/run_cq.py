@@ -1,7 +1,7 @@
 """CadQuery build wrapper; run by the harness in a subprocess, never imported.
 
     python run_cq.py --script /abs/src/model.py --out /abs/artifacts \
-        [--rlimit-gb 8] [--tolerance 0.001] [--angular-tolerance 0.15] [--seed 0]
+        [--rlimit-gb 8] [--seed 0]
 
 Runs ``model.py``, reads its module-level ``result`` (Assembly, Workplane or Shape), tessellates
 each part and writes ``object.glb`` (Y-up, +Z front), ``.step``, ``.stl``, ``census.json`` and
@@ -31,6 +31,7 @@ from _wrapper_common import (  # noqa: E402
 GLB_NAME, STEP_NAME, STL_NAME = "object.glb", "object.step", "object.stl"
 PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
 DEFAULT_RGBA = (0.7, 0.7, 0.7, 1.0)
+TOLERANCE, ANGULAR_TOLERANCE = 0.001, 0.15   # tessellation
 MEMORY_HINT = "reduce boolean/pattern counts or tessellation density."
 
 
@@ -39,8 +40,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--script", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--rlimit-gb", type=float, default=8.0)
-    p.add_argument("--tolerance", type=float, default=0.001)
-    p.add_argument("--angular-tolerance", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args(argv)
 
@@ -116,19 +115,12 @@ def tessellate(part: dict[str, Any], tol: float, ang: float) -> tuple[list[list[
 
 def part_census(part: dict[str, Any], n_tris: int) -> dict[str, Any]:
     shape = part["shape"]
-    bb = shape.BoundingBox()
-    rec: dict[str, Any] = {
-        "name": part["name"], "path": part["path"], "tri_count": n_tris,
-        "bbox_min": [round(bb.xmin, 5), round(bb.ymin, 5), round(bb.zmin, 5)],
-        "bbox_max": [round(bb.xmax, 5), round(bb.ymax, 5), round(bb.zmax, 5)],
-        "rgba": [round(c, 4) for c in part["rgba"]] if part["rgba"] else None,
-    }
+    rec: dict[str, Any] = {"name": part["name"], "tri_count": n_tris}
     try:
         rec["volume_m3"] = round(float(shape.Volume()), 9)
         rec["n_solids"] = len(shape.Solids())
-        rec["valid"] = bool(shape.isValid())
-    except Exception as e:  # noqa: BLE001
-        rec["census_error"] = str(e)
+    except Exception:  # noqa: BLE001
+        pass   # an unmeasurable shape carries no volume / solid count
     return rec
 
 
@@ -203,7 +195,7 @@ def main() -> int:
         elif ns is None:
             err = {"error_type": "SystemExit", "error_file": entry_relative(script),
                    "error_message": "script called sys.exit() before `result` could be read; remove it"}
-    census: dict[str, Any] = {"parts": [], "tri_count": 0, "warnings": report["warnings"], "frame": "z_up_neg_y_front"}
+    census: dict[str, Any] = {"parts": [], "warnings": report["warnings"]}
     if err is None and ns is not None and "result" not in ns:
         err = {"error_type": "MissingResult", "error_file": entry_relative(script),
                "error_message": "model.py must assign a module-level `result` (cq.Assembly or cq.Workplane); "
@@ -211,12 +203,11 @@ def main() -> int:
     if err is None and ns is not None:
         try:
             parts, kind = collect_parts(cq, ns["result"], report["warnings"])
-            census["result_kind"] = kind
             if kind == "single":
                 report["warnings"].append("result is a bare Workplane/Shape: exported as ONE node 'Object' — prefer cq.Assembly with named, coloured parts")
             meshes = []
             for p in parts:
-                verts, tris = tessellate(p, args.tolerance, args.angular_tolerance)
+                verts, tris = tessellate(p, TOLERANCE, ANGULAR_TOLERANCE)
                 meshes.append((p, verts, tris))
                 rec = part_census(p, len(tris))
                 census["parts"].append(rec)
@@ -227,21 +218,16 @@ def main() -> int:
                 elif rec.get("n_solids") == 0:
                     report["warnings"].append(f"part {p['name']!r} contains no solid (a face/shell/wire set, volume 0) — "
                                               "build it as a solid (.extrude()/.box()/.shell()) so it has thickness")
-            census["tri_count"] = sum(len(m[2]) for m in meshes)
-            if census["parts"]:
-                census["scene_bbox_min"] = [min(p["bbox_min"][i] for p in census["parts"]) for i in range(3)]
-                census["scene_bbox_max"] = [max(p["bbox_max"][i] for p in census["parts"]) for i in range(3)]
             glb = os.path.join(out_dir, GLB_NAME)
             build_glb(meshes, glb)
             report["exported"]["glb"] = glb
-            export_step_stl(cq, ns["result"], parts, out_dir, args.tolerance, args.angular_tolerance, report)
+            export_step_stl(cq, ns["result"], parts, out_dir, TOLERANCE, ANGULAR_TOLERANCE, report)
         except Exception as e:  # noqa: BLE001
             err = script_error(e, script)
             if not err["error_file"]:
                 err["error_type"], err["error_message"] = "ExportError", f"{type(e).__name__}: {e}"
     if err:
         report.update({k: v for k, v in err.items() if k in report})
-    census["n_parts"] = len(census["parts"])
     report["ok"] = not report["error_type"] and "glb" in report["exported"]
     write_report(out_dir, report, census, t0)
     return 0

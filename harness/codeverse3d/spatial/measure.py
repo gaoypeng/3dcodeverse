@@ -140,9 +140,13 @@ def _node_has_geometry(scene: trimesh.Scene, node: str) -> bool:
         return False
 
 
+def count_materials(scene: trimesh.Scene) -> int:
+    return len({id(g.visual.material) for g in scene.geometry.values() if hasattr(g, "visual") and hasattr(g.visual, "material")})
+
+
 def effective_top_nodes(scene: trimesh.Scene) -> list[str]:
     """Direct children of the scene root, descending through single wrapper nodes that carry no
-    geometry themselves (a three.js root Group, a URDF ``<robot>`` node) so that parts are"""
+    geometry themselves (a three.js root Group, a URDF ``<robot>`` node) so that parts are the top nodes."""
     tops = _children(scene, scene.graph.base_frame)
     seen = 0
     while len(tops) == 1 and not _node_has_geometry(scene, tops[0]) and _children(scene, tops[0]) and seen < 4:
@@ -319,8 +323,7 @@ def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | Non
         rows.append(_measure_part(name, mesh))
 
     whole = merged_mesh(parts)
-    materials = len({id(g.visual.material) for g in scene.geometry.values()
-                     if hasattr(g, "visual") and hasattr(g.visual, "material")})
+    materials = count_materials(scene)
     if whole is None or len(whole.faces) == 0:
         findings.append("model has no triangles at all")
         return Measurement(

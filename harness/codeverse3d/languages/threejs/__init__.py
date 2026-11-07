@@ -261,15 +261,15 @@ def render_object(plan: StaticPlan) -> str:
     return OBJECT_HEADER.format(object_name=to_pascal(plan.object_name), imports=imports, adds=adds)
 
 
-def write_skeleton(ws: Workspace, plan: Plan, *, overwrite: bool = False) -> list[Path]:
-    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; existing files are kept unless ``overwrite``."""
+def write_skeleton(ws: Workspace, plan: Plan) -> list[Path]:
+    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; existing files are kept."""
     if not isinstance(plan, StaticPlan):
         raise TypeError(f"threejs skeleton needs a StaticPlan, got {type(plan).__name__}")
     written: list[Path] = []
     (ws.src / "parts").mkdir(parents=True, exist_ok=True)
 
     def _put(path: Path, text: str) -> None:
-        if path.exists() and not overwrite:
+        if path.exists():
             return
         path.write_text(text)
         written.append(path)
@@ -371,7 +371,6 @@ class ThreeJsRuntime(RuntimeLayout):
         result = self._failure(res, str(err.get("type", "Error")), str(err.get("message", "")))
         result.error_file = str(err.get("file", "") or self._part_file(ws, err.get("part")) or ("" if err.get("frames") else ENTRY))
         result.error_line = err.get("line") if isinstance(err.get("line"), int) else None
-        result.census = {"frames": err.get("frames", []), "stack": err.get("stack", ""), "part": str(err.get("part", "") or "")}
         return result
 
     @staticmethod

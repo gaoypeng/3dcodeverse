@@ -53,7 +53,7 @@ PLACEHOLDER_MIN_FILL = 1.0 - 1e-3
 
 # --------------------------------------------------------------------------- frames
 def frame_label(language: str) -> str:
-    """Short frame tag for fix hints, e.g."""
+    """Short frame tag for fix hints, e.g. ``blender frame: Z-up, -Y front``."""
     if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
         return f"{language} frame: Z-up, -Y front"
     return f"{language} frame: Y-up, +Z front" if language else "GLB frame: Y-up, +Z front"

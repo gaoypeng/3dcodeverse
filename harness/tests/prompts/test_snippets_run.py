@@ -75,7 +75,7 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
     (ws.src / "robot.urdf").write_text(urdf)
     res = UrdfBlenderRuntime().build(ws)
     assert res.ok, f"{tag}: {res.error_type}: {res.error_message}"
-    warns = [f["message"] for f in res.census["lint"] if f["severity"] != "info"]
+    warns = [f.message for f in UrdfBlenderRuntime().lint(ws).findings if f.severity != "info"]
     assert warns == [], f"{tag}: lint warnings {warns}"
     gate, _ = sweep_gate(ws)
     assert not gate.findings, f"{tag}: {[f.message for f in gate.findings]}"

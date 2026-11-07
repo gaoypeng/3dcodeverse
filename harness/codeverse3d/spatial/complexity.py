@@ -92,10 +92,7 @@ class ComplexityVector(BaseModel):
     hollowness: float = 0.0
     index: float = 0.0
     band: str = "trivial"
-    components: dict[str, float] = Field(
-        default_factory=dict, description="axis -> normalised 0-1 contribution input"
-    )
-    extra: dict[str, Any] = Field(default_factory=dict, description="descriptors that do not enter the index")
+    extra: dict[str, Any] = Field(default_factory=dict, description="why the vector is empty (no geometry / concatenate failure)")
 
 
 # --------------------------------------------------------------------- silhouette
@@ -246,17 +243,6 @@ def _graph_depth(scene: trimesh.Scene | None, tops: list[str]) -> int:
     return best
 
 
-def _materials(scene: trimesh.Scene | None, fallback: int) -> int:
-    if scene is None:
-        return fallback
-    seen = {
-        id(g.visual.material)
-        for g in scene.geometry.values()
-        if hasattr(g, "visual") and hasattr(g.visual, "material")
-    }
-    return len(seen) or fallback
-
-
 # --------------------------------------------------------------------- front doors
 def complexity_of_parts(
     parts: OrderedDict[str, trimesh.Trimesh | None] | dict[str, trimesh.Trimesh | None],
@@ -273,32 +259,24 @@ def complexity_of_parts(
     except Exception as e:  # pragma: no cover - trimesh raises many types
         return ComplexityVector(part_count=len(solid), extra={"error": f"{type(e).__name__}: {e}"})
 
-    sil, fill, mirror = _silhouette_stats(whole)
-    fdens, fedges = _feature_density(whole)
-    hollow, watertight = _hollowness(solid)
-    groups, repeated = _symmetry_groups(solid)
-    from codeverse3d.spatial.measure import effective_top_nodes
+    sil, _, _ = _silhouette_stats(whole)
+    fdens, _ = _feature_density(whole)
+    hollow, _ = _hollowness(solid)
+    groups, _ = _symmetry_groups(solid)
+    from codeverse3d.spatial.measure import count_materials, effective_top_nodes
 
     tops = effective_top_nodes(scene) if scene is not None else []
     vec = ComplexityVector(
         part_count=len(solid),
         assembly_depth=_graph_depth(scene, [str(t) for t in tops]),
         tri_count=int(len(whole.faces)),
-        materials=_materials(scene, materials),
+        materials=(count_materials(scene) if scene is not None else 0) or materials,
         silhouette=round(sil, 3),
         feature_density=round(fdens, 1),
         symmetry_groups=groups,
         hollowness=round(hollow, 3),
-        extra={
-            "silhouette_fill": round(fill, 3),
-            "mirror_symmetry": round(mirror, 3),
-            "watertight_fraction": round(watertight, 3),
-            "repeated_parts": repeated,
-            "small_sharp_edges": fedges,
-        },
     )
-    vec.components = {axis: round(_norm(axis, getattr(vec, axis)), 4) for axis in COMPLEXITY_WEIGHTS}
-    vec.index = round(sum(COMPLEXITY_WEIGHTS[a] * v for a, v in vec.components.items()), 4)
+    vec.index = round(sum(w * round(_norm(a, getattr(vec, a)), 4) for a, w in COMPLEXITY_WEIGHTS.items()), 4)
     vec.band = band_of(vec.index)
     return vec
 

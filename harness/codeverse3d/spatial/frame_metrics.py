@@ -427,12 +427,12 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
 
 
 def _render_time_findings(metrics: dict[str, Any]) -> list[GateFinding]:
-    """WARN when the median judged Blender frame took longer than ``SLOW_FRAME_S``, naming the heaviest zone; silent for three.js."""
+    """WARN when the median rendered Blender frame took longer than ``SLOW_FRAME_S``, naming the heaviest zone; silent for three.js."""
     b = metrics.get("blender")
     if not isinstance(b, dict):
         return []
     ms = sorted(float(v["render_ms"]) for v in metrics.get("views") or []
-                if isinstance(v, dict) and v.get("judge", True) and isinstance(v.get("render_ms"), int | float))
+                if isinstance(v, dict) and isinstance(v.get("render_ms"), int | float))
     if not ms:
         return []
     median_s = ms[len(ms) // 2] / 1000.0

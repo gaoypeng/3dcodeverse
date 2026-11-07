@@ -66,15 +66,6 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     assert crate_jobs == ["asset_crate", "asset_crate_fix"] and crate.fixed
     assert (tmp_ws.root / "_assets" / "crate" / "src" / "model.py").is_file() and "_assets/" in (tmp_ws.root / ".gitignore").read_text()
     assert results["FishingBoat"].ok and results["FishingBoat"].path == "src/assets/fishing_boat.js"
-    # S2 reuse: a committed GLB and a committed, import-clean module short-circuit the second
-    # stage run without a model call ...
-    n_jobs = len(agent.jobs)
-    again = run_asset_stage(ctx)
-    assert len(agent.jobs) == n_jobs, "a committed passing asset must not be re-paid"
-    assert again["Crate"].strategy == "reused" and again["Crate"].ok
-    boat = results["FishingBoat"]
-    assert again["FishingBoat"].strategy == "reused" and again["FishingBoat"].ok
-    assert again["FishingBoat"].path == boat.path and again["FishingBoat"].size_m is not None
     api = asset_api_summary(plan, results)
     assert "buildFishingBoat" in api and "public/assets/crate.glb" in api
     sub = asset_plan(plan.assets[2])
@@ -100,8 +91,3 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     assert lead in with_lib and "leafSegments" in with_lib and "`lib/rock.js`" not in with_lib
     assert lead not in _asset_prompt(ctx, plan.assets[0], "src/assets/x.js", language=Language.SCENE_THREEJS)
     assert lead not in _asset_prompt(ctx, shrine, "src/model.py", language=Language.BLENDER)
-    # ... but a committed, import-broken module is NOT reused: it goes back through generation
-    (tmp_ws.root / boat.path).write_text("export function nope() {}\n")
-    third = run_asset_stage(ctx)
-    assert len(agent.jobs) > n_jobs and third["FishingBoat"].strategy != "reused"
-

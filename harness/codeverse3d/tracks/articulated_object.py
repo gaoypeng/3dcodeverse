@@ -34,12 +34,12 @@ class ArticulatedPipeline(ObjectPipeline):
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
         out = super().gates(ctx, round_index, build, measurement)
-        repaired = self._axis_repair(ctx)
+        repaired, pre = self._axis_repair(ctx)
         out_dir = ctx.ws.renders_dir(round_index) / "poses"
         report, views = ctx.services.joint_sweep(ctx.ws, ctx.plan, out_dir)
         ctx.extra["pose_views"] = views
         out.append(report)
-        motion = self._motion_gate(ctx)
+        motion = pre if pre is not None and not repaired else self._motion_gate(ctx)   # the file changed only if repaired
         if motion is not None:
             if repaired:
                 motion.findings.append(GateFinding(
@@ -50,18 +50,19 @@ class ArticulatedPipeline(ObjectPipeline):
         return out
 
     @staticmethod
-    def _axis_repair(ctx: RunContext) -> list[str]:
+    def _axis_repair(ctx: RunContext) -> tuple[list[str], GateReport | None]:
+        """(joints repaired, the motion report measured before the repair); ``(…, None)`` when it did not run."""
         if not get_settings().axis_repair:
-            return []
+            return [], None
         try:
             pre = ctx.services.motion_checks(ctx.ws, ctx.plan)
             repaired = repair_motion_axes(ctx.ws, pre)
         except Exception as e:  # noqa: BLE001 — advisory repair; the gate still reports truth
             log.warning("axis repair skipped: %s", e)
-            return []
+            return [], None
         if repaired:
             ctx.events.emit("gate.axis_repaired", joints=repaired)
-        return repaired
+        return repaired, pre
 
     @staticmethod
     def _motion_gate(ctx: RunContext) -> GateReport | None:

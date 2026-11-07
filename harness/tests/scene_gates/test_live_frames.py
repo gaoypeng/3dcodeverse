@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -63,7 +62,7 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     assert m["framing_bbox"]["size"][0] < m["census"]["bbox"]["size"][0]  # content, not the sky dome / ground
     gate = frame_gate_from_renders(rs)
     assert gate.gate == "scene_frames" and gate.passed, [f.message for f in gate.findings]
-    # judge subset: stamped ONCE at render time (RenderView.judge + views.json), sheet built from it only
+    # judge subset: stamped ONCE at render time (RenderView.judge), sheet built from it only
     assert rs.out_dir == str(out)
     assert all(v.judge is not None for v in rs.views)
     stamped = {(v.name, v.time_s) for v in rs.views if v.judge}
@@ -78,9 +77,6 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     a = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 0.0)).convert("L")
     b = Image.open(next(v.path for v in rs.views if v.name == "windmill" and v.time_s == 1.5)).convert("L")
     assert sum(1 for x, y in zip(a.tobytes(), b.tobytes(), strict=True) if abs(x - y) > 12) > 100
-    entries = json.loads((out / "views.json").read_text())
-    assert all("judge" in e for e in entries)
-    assert {(v["name"], v["time_s"]) for v in entries if v["judge"]} == stamped
     assert rs.contact_sheet and Path(rs.contact_sheet).is_file()
     sheet = Image.open(rs.contact_sheet)
     tile_h = Image.open(rs.views[0].path).size[1]

@@ -1,11 +1,11 @@
 """Blender build wrapper; runs inside Blender, never imported by the harness.
 
     blender -b --factory-startup --python run_bpy.py -- \
-        --script /abs/src/model.py --out /abs/artifacts [--stl] [--blend] [--rlimit-gb 12] [--seed 0]
+        --script /abs/src/model.py --out /abs/artifacts [--stl] [--rlimit-gb 12] [--seed 0]
 
 Caps memory, clears the factory scene, seeds RNGs, runs the agent's ``model.py`` with ``<ws>/src``
 on ``sys.path``, collects the census and contract warnings, refuses non-finite geometry, exports
-``object.glb`` (+ optional stl / blend) and writes ``build.json`` + ``census.json``.
+``object.glb`` (+ optional stl) and writes ``build.json`` + ``census.json``.
 Exit 0 = reported (even if the script failed); 2 = wrapper bug."""
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ from _wrapper_common import (  # noqa: E402
 
 GLB_NAME = "object.glb"
 STL_NAME = "object.stl"
-BLEND_NAME = "object.blend"
 EXPORT_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META", "EMPTY"}
 MEMORY_HINT = ("a geometry bomb (tiny remesh voxel_size, huge subdivision/array counts, nested loops "
                "creating millions of faces). Reduce it.")
@@ -45,7 +44,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--script", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--stl", action="store_true")
-    p.add_argument("--blend", action="store_true")
     p.add_argument("--rlimit-gb", type=float, default=12.0)
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args(argv)
@@ -216,13 +214,6 @@ def main() -> int:
                 report["exported"]["stl"] = stl
             except Exception as e:  # noqa: BLE001
                 report["warnings"].append(f"STL export failed: {e}")
-        if args.blend:
-            blend = os.path.join(out_dir, BLEND_NAME)
-            try:
-                report["warnings"].extend(save_blend(bpy, blend))
-                report["exported"]["blend"] = blend
-            except Exception as e:  # noqa: BLE001
-                report["warnings"].append(f".blend save failed: {e}")
     elif not report["error_type"]:
         report.update(error_type="EmptyScene", error_message="the script created no visible mesh objects")
 

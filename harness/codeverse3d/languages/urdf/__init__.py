@@ -41,7 +41,11 @@ from codeverse3d.spatial.joints_model import (
     parse_joint,
     parse_origin,
 )
-from codeverse3d.spatial.joints_sweep import sweep_collisions, sweep_findings
+from codeverse3d.spatial.joints_sweep import (
+    REST_PENETRATION_MAX_M,
+    sweep_collisions,
+    sweep_findings,
+)
 from codeverse3d.workspace import ArtifactStage, Workspace
 
 # ===================================================================== consistency
@@ -621,7 +625,6 @@ def write_skeleton(ws: Workspace, plan: ArticulatedPlan) -> list[Path]:
 
 # ===================================================================== runtime
 WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_bpy_links.py"
-REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001
 
 #: every canonical artifact this build owns, staged together
@@ -677,14 +680,14 @@ class UrdfBlenderRuntime(RuntimeLayout):
         if (missing := missing_entry(ws, self.language, write=False)) is not None:
             return finish(missing)
         lint = self.lint(ws)
-        census: dict[str, Any] = {"lint": [f.model_dump(mode="json") for f in lint.findings]}
+        census: dict[str, Any] = {}
         if not lint.passed:
             errs = lint.errors
             msg = "\n".join(f"- {f.message}" + (f"  → {f.fix_hint}" if f.fix_hint else "") for f in errs[:12])
             return fail("LintError", f"{len(errs)} lint error(s):\n{msg}", file=str(errs[0].target or "src/robot.urdf"),
                         line=errs[0].data.get("line"), census=census)
 
-        # 2. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir),
+        # 1. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir),
         #    read like every other wrapper's report
         blender = settings.resolve_blender()
         if not blender:
@@ -709,12 +712,11 @@ class UrdfBlenderRuntime(RuntimeLayout):
             return fail("UrdfError", str(e), census=census)
 
         fk_findings = check_fk_consistency(robot, census.get("links") or {}, tol_m=FK_TOL_M)
-        census["fk_check"] = [f.model_dump(mode="json") for f in fk_findings]
         if fk_findings:
             msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)
 
-        # 5. the rest pose decides the build; other poses are the joint_sweep gate
+        # 2. the rest pose decides the build; other poses are the joint_sweep gate
         report = sweep_collisions(robot, [{}])
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
 
@@ -723,12 +725,12 @@ class UrdfBlenderRuntime(RuntimeLayout):
         res = BuildResult(ok=True, language=self.language.value, glb_path=str(art / "object.glb"), extra_paths=extra,
                           stdout_tail=wrapped.stdout_tail, stderr_tail=wrapped.stderr_tail,
                           duration_ms=int((time.time() - t0) * 1000), census=census)
-        if report.summary.rest_max_penetration_m > REST_PENETRATION_MAX_M:
+        if report.rest_max_penetration_m > REST_PENETRATION_MAX_M:
             worst = [f for f in findings if f.severity == "error"]
             res.ok = False
             res.error_type = "RestPenetration"
             res.error_file = "src/model.py"
-            res.error_message = (f"links interpenetrate by {report.summary.rest_max_penetration_m*1000:.1f} mm at the rest pose "
+            res.error_message = (f"links interpenetrate by {report.rest_max_penetration_m*1000:.1f} mm at the rest pose "
                                  f"(max {REST_PENETRATION_MAX_M*1000:.0f} mm):\n" +
                                  "\n".join(f"- {f.as_line()}" for f in worst[:8]))
             res.glb_path = None      # the fresh GLB is NOT published on a failed build
@@ -741,7 +743,7 @@ def _run_blender(blender: str, ws: Workspace, art: Path, timeout_s: int, rlimit_
            "--script", str(ws.root / "src" / "model.py"), "--urdf", str(ws.root / "src" / "robot.urdf"),
            "--out", str(art), "--rlimit-gb", str(rlimit_gb)]
     # whitelist env (no inherited PYTHONPATH, user config pinned into artifacts) — deliberately
-    # stricter than blender.runtime.blender_env(); keep it that way
+    # stricter than languages.blender.blender_env(); keep it that way
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", str(ws.root)),
            "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "BLENDER_USER_CONFIG": str(art / ".blender_config")}
     return run_subprocess(cmd, cwd=ws.root, env=env, timeout_s=timeout_s)

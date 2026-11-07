@@ -10,7 +10,6 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import math
 import re
 import time
 from collections.abc import Sequence
@@ -31,6 +30,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.conventions import (
+    SCENE_TIMES,
     ZONE_ROOT_KEY,
     fmt3,
     glb_basis,
@@ -53,9 +53,11 @@ from codeverse3d.languages._common import (
     target_line,
     ws_rel,
 )
+from codeverse3d.languages.base import AssembleResult, scene_files_for
 from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BpyCollector,
+    blender_binary,
     blender_env,
     call_traps,
     finish_for,
@@ -75,11 +77,6 @@ ENTRY_REL = ENTRY_FILE[LANGUAGE]
 GATE = "lint:scene_blender"
 #: the harness frame clock: ``frame(t) = 1 + round(t * FPS)``
 FPS = 30
-TIMES: tuple[float, ...] = (0.0, 1.5)
-
-
-def frame_of(t: float) -> int:
-    return 1 + round(t * FPS)
 
 
 # ===================================================================== layout
@@ -96,28 +93,6 @@ def zone_file(name: str) -> str:
 def asset_file(asset: AssetPlan) -> str:
     snake = to_snake(asset.name)
     return f"public/assets/{snake}.glb" if asset.kind == "blender_glb" else f"src/assets/{snake}.py"
-
-
-def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-    """The files that own a scene refine target (same routing as scene_threejs)."""
-    zone_plans = list(getattr(plan, "zones", None) or [])
-    zones = {to_snake(z.name) for z in zone_plans}
-    assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
-    survivor = {to_snake(k): v for k, v in (alias or {}).items()}
-    key = to_snake(target)
-    if key in zones:
-        return [zone_file(key)]
-    if key in assets:
-        if assets[key].kind != "blender_glb":
-            return [asset_file(assets[key].model_copy(update={"name": survivor.get(key, key)}))]
-        return [zone_file(z.name) for z in zone_plans if key in {to_snake(c) for c in z.contents}]
-    if key in {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])} or key in ("camera", "cameras", "composition"):
-        return [ENTRY_REL]
-    if key in ENV_WORDS:
-        return ["src/env.py"]
-    if "/" in target and to_snake(target.split("/", 1)[0]) in zones:
-        return [zone_file(target.split("/", 1)[0])]
-    return []
 
 
 def module_files(ws: Workspace, sub: str) -> list[Path]:
@@ -389,8 +364,6 @@ def lint(ws: Workspace) -> GateReport:
     return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
-# ===================================================================== starter tree
-STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 ENV_FILE = "src/env.py"
 
 
@@ -420,35 +393,15 @@ def _put(path: Path, text: str, written: list[Path]) -> None:
     written.append(path)
 
 
-def write_example(ws: Workspace) -> list[Path]:
-    """Write the plan-less starter scene (``starter/src/**/*.py``) into ``ws.src``; raises when the
-    starter tree is missing (an rglob over an absent directory would silently write nothing)."""
-    if not STARTER_DIR.is_dir():
-        raise FileNotFoundError(
-            f"scene_blender starter tree missing: {STARTER_DIR} — this install has no package data "
-            f"(a non-editable install needs [tool.setuptools.package-data] to ship languages/**/starter/**/*)")
-    written: list[Path] = []
-    for src in sorted(STARTER_DIR.rglob("*.py")):
-        _put(ws.src / src.relative_to(STARTER_DIR), src.read_text(), written)
-    if not written:
-        raise FileNotFoundError(f"scene_blender starter tree at {STARTER_DIR} contains no .py files")
-    (ws.public / "assets").mkdir(parents=True, exist_ok=True)
-    return written
-
-
 # ===================================================================== skeleton
 def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, float]:
     return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))
 
 
-#: the placeholder plate's side as a multiple of the plan span
-PLACEHOLDER_GROUND_SPANS = 3.0
-
-
 def _env_source(plan: ScenePlan) -> str:
     """``src/env.py`` as an interface stub: the plan's data, the two exports the wrapper calls and a
     placeholder ground plate.  No world, lamp or atmosphere, so it fails the probe until the author writes them."""
-    from codeverse3d.languages.scene_threejs import sun_from_plan
+    from codeverse3d.languages.scene_threejs import PLACEHOLDER_GROUND_SPANS, sun_from_plan
 
     c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
     span = max(e[0], e[1], 1.0)
@@ -630,9 +583,9 @@ CAMERAS = [
 
 
 def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
-    """Starter files for a scene plan; without a plan the complete example scene."""
+    """Starter files for a scene plan; none without one."""
     if plan is None:
-        return write_example(ws)
+        return []
     if not isinstance(plan, ScenePlan):
         raise TypeError(f"scene_blender needs a ScenePlan, got {type(plan).__name__}")
     written: list[Path] = []
@@ -664,39 +617,6 @@ class WrapperRun(BaseModel):
     facts: dict[str, Any] = Field(default_factory=dict)
 
 
-_SUN_RE = re.compile(r"^SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)", re.M)
-
-
-def _fallback_camera(plan: ScenePlan | None, ws: Workspace | None = None) -> CameraPlan:
-    """An overview camera (PLAN frame) on the lit side at the bounds' span, for a plan with no camera."""
-    from codeverse3d.languages.scene_threejs import SUN_AZIMUTH_GUESS_DEG
-
-    azimuth = SUN_AZIMUTH_GUESS_DEG
-    env = (ws.src / "env.py") if ws is not None else None
-    if env is not None and env.is_file():
-        m = _SUN_RE.search(env.read_text(errors="replace"))
-        if m:
-            azimuth = float(m.group(1))
-    if plan is None:
-        c, r = (0.0, 0.0, 0.0), 30.0
-    else:
-        c = tuple(float(v) for v in plan.bounds.center)
-        r = max(float(plan.bounds.extents[0]), float(plan.bounds.extents[2]), 10.0)
-    a = math.radians(azimuth)
-    return CameraPlan(name="overview", position=(c[0] + 0.9 * r * math.cos(a), c[1] + 0.45 * r, c[2] - 0.9 * r * math.sin(a)),
-                      look_at=(c[0], c[1] + 1.0, c[2]), fov=50.0, purpose="fallback: the plan names no camera")
-
-
-class AssembleResult(BaseModel):
-    scene_path: str
-    zones_included: list[str] = Field(default_factory=list)
-    zones_failed: dict[str, str] = Field(default_factory=dict)
-    env_ok: bool = True
-    cameras: list[CameraPlan] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    census: dict[str, Any] = Field(default_factory=dict)
-
-
 class SceneBlenderRuntime:
 
     language = LANGUAGE
@@ -717,8 +637,9 @@ class SceneBlenderRuntime:
     def expected_files(self, plan: Plan | None) -> list[str]:
         return list(SCENE_FILES)
 
-    def files_for(self, plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
-        return scene_files_for(plan, target, alias=alias)
+    def files_for(self, plan: Plan | None, target: str) -> list[str]:
+        return scene_files_for(plan, target, zone_file=zone_file, asset_file=asset_file, entry=ENTRY_REL, env_file="src/env.py",
+                               env_words=ENV_WORDS)
 
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
         return write_skeleton(ws, plan)
@@ -767,20 +688,14 @@ class SceneBlenderRuntime:
         return f"{ENV_FILE}: {dark.message}" if dark is not None else ""
 
     # ------------------------------------------------------------------ the Blender process
-    def blender_binary(self) -> str:
-        b = self._blender or self._settings.resolve_blender()
-        if not b or not Path(b).exists():
-            raise BlenderNotFoundError("Blender binary not found; set C3D_BINARIES__BLENDER=/path/to/blender")
-        return b
-
     def run_wrapper(self, ws: Workspace, out_dir: Path, *, zones: dict[str, str] | None = None, blend: bool = True,
                     timeout_s: float | None = None, entry: str = ENTRY_REL) -> WrapperRun:
         """Build the workspace in Blender into ``out_dir``; ``zones`` overrides ZONES, ``entry`` is another data entry."""
         out_dir.mkdir(parents=True, exist_ok=True)
         basis = ",".join(f"{v:g}" for row in glb_basis(LANGUAGE.value) for v in row)
-        cmd = [self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+        cmd = [blender_binary(self._blender, self._settings), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
                "--scene", str(ws.root / entry), "--out", str(out_dir), "--basis", basis, "--zone-key", ZONE_ROOT_KEY,
-               "--fps", str(FPS), "--frames", f"{frame_of(TIMES[0])},{frame_of(TIMES[-1])}",
+               "--fps", str(FPS), "--times", ",".join(f"{t:g}" for t in SCENE_TIMES),
                "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb), "--seed", "0"]
         if zones is not None:
             cmd += ["--zones", json.dumps(zones)]
@@ -871,7 +786,7 @@ class SceneBlenderRuntime:
         return assemble(self, ws, plan)
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
-                     times: Sequence[float] = TIMES, width: int = 1024, height: int = 576, sheet: bool = True) -> RenderSet:
+                     times: Sequence[float] = SCENE_TIMES, width: int = 1024, height: int = 576, sheet: bool = True) -> RenderSet:
         from codeverse3d.spatial.render_blender import render_blender_scene
 
         return render_blender_scene(ws, out_dir, cameras=cameras, orbit=orbit, times=times, width=width,
@@ -909,14 +824,13 @@ def stage_findings(report: dict[str, Any]) -> list[GateFinding]:
 _ASSEMBLE_OUT = "assemble_probe"
 
 
-def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan | None, *, probe: bool = True,
-             timeout_s: float | None = None) -> AssembleResult:
+def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan, *, timeout_s: float | None = None) -> AssembleResult:
     zones = [p.stem for p in module_files(ws, "zones")]
     if not zones:
         raise FileNotFoundError(f"no zone modules under {ws.src / 'zones'}")
     assets = [p.stem for p in module_files(ws, "assets")]
     heroes = [p.stem for p in hero_files(ws)]
-    cams = list(plan.cameras[:6]) if plan is not None and plan.cameras else [_fallback_camera(plan, ws)]
+    cams = list(plan.cameras[:6])
     warnings: list[str] = []
     env_ok = (ws.src / "env.py").is_file()
     if not env_ok:
@@ -924,28 +838,27 @@ def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan | None
     healthy, failed = list(zones), {}
     census: dict[str, Any] = {}
     out = ws.root / ENTRY_REL
-    if probe:
-        # the probe run's entry lists every asset and hero; zones come from --zones
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_scene_py([], assets, heroes, cams))
-        run = runtime.run_wrapper(ws, ws.artifacts / _ASSEMBLE_OUT, zones={z: to_pascal(z) for z in zones}, blend=False,
-                                  timeout_s=timeout_s)
-        if run.result.ok or run.report.get("zones_ok") is not None:
-            healthy = [z for z in zones if z in set(run.report.get("zones_ok") or [])]
-            failed = {z: str(m) for z, m in (run.report.get("zones_failed") or {}).items()}
-        else:
-            warnings.append(f"assembler probe did not run: {run.result.error_type}: {run.result.error_message}"[:300])
-        for e in run.report.get("errors") or []:
-            if e.get("stage") == "env":
-                env_ok = False
-                warnings.append(f"env.py failed in probe: {e.get('error_type')}: {e.get('error_message')}"[:300])
-        census = {k: run.facts[k] for k in ("lights", "fog", "background", "unique_tris", "instanced_tris") if k in run.facts}
+    # the probe run's entry lists every asset and hero; zones come from --zones
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_scene_py([], assets, heroes, cams))
+    run = runtime.run_wrapper(ws, ws.artifacts / _ASSEMBLE_OUT, zones={z: to_pascal(z) for z in zones}, blend=False,
+                              timeout_s=timeout_s)
+    if run.result.ok or run.report.get("zones_ok") is not None:
+        healthy = [z for z in zones if z in set(run.report.get("zones_ok") or [])]
+        failed = {z: str(m) for z, m in (run.report.get("zones_failed") or {}).items()}
+    else:
+        warnings.append(f"assembler probe did not run: {run.result.error_type}: {run.result.error_message}"[:300])
+    for e in run.report.get("errors") or []:
+        if e.get("stage") == "env":
+            env_ok = False
+            warnings.append(f"env.py failed in probe: {e.get('error_type')}: {e.get('error_message')}"[:300])
+    census = {k: run.facts[k] for k in ("lights", "fog", "background", "unique_tris", "instanced_tris") if k in run.facts}
     if not healthy:
         warnings.append("no zone module survived probing; scene.py assembled with zero zones")
-    out.write_text(render_scene_py(healthy, assets, heroes, cams, title=getattr(plan, "title", ""),
-                                   summary=getattr(plan, "summary", "")))
+    out.write_text(render_scene_py(healthy, assets, heroes, cams, title=plan.title,
+                                   summary=plan.summary))
     result = AssembleResult(scene_path=str(out), zones_included=healthy, zones_failed=failed, env_ok=env_ok,
-                            cameras=cams, warnings=warnings, census=census)
+                            warnings=warnings, census=census)
     ws.write_json(ws.artifacts / "assemble.json", result)
     return result
 
