@@ -94,17 +94,13 @@ class Render(BaseModel):
         "the node side reads too)")
     sheet_cols: int = 4
     sheet_tile: int = 384
-    # scene_blender pictures (spatial/render_blender.py).  Cycles CUDA + GPU OIDN is the fast path;
-    # EEVEE needs the Mesa d3d12 env (spatial/gl_render.GPU_ENV) or lands on llvmpipe.
+    # scene_blender pictures (spatial/render_blender.py): Cycles CUDA + GPU OIDN is the fast path.
     # OptiX is unavailable under WSL2 and probing it crashes Blender: CUDA only.
-    blender_engine: Annotated[Literal["cycles", "eevee"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
-        default="cycles", description="judged-frame engine for scene_blender (C3D_RENDER__BLENDER_ENGINE)")
     blender_frame_time_limit_s: float = Field(
         default=20.0, ge=0, description="Cycles time cap per judged frame, seconds (0 = none): a heavy scene stops "
         "sampling early instead of eating the render timeout (C3D_RENDER__BLENDER_FRAME_TIME_LIMIT_S)")
     blender_samples: int = Field(
-        default=32, ge=1, description="Cycles samples (adaptive + OIDN) / EEVEE TAA samples "
-        "(C3D_RENDER__BLENDER_SAMPLES)")
+        default=32, ge=1, description="Cycles samples, adaptive + OIDN (C3D_RENDER__BLENDER_SAMPLES)")
     blender_device: Annotated[Literal["gpu", "cpu"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="gpu", description="'gpu' takes a machine-wide GPU slot and falls back to the CPU when none frees "
         "within blender_gpu_wait_s or the GPU render dies; 'cpu' never touches the GPU")

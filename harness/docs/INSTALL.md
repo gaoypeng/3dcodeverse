@@ -397,7 +397,7 @@ variable only it reads: `C3D_BROWSER_REUSE=off` disables the shared headless-Chr
 cd harness && 3dcodeverse doctor        # add --live for one tiny Gemini call, --no-gpu to skip the Chrome probe, --json for machine output
 ```
 
-One row per check (`python`, `python deps`, `blender`, `blender cycles`, `blender eevee`,
+One row per check (`python`, `python deps`, `blender`, `blender cycles`,
 `blender gpu slots`, `node`, `three`, `puppeteer`, `chrome webgl`, `gemini keys`, `in-flight
 slots`, `anthropic key`, `openai key`, `agy`, `claude`, `codex`, `git`, `agy gemini keys`,
 `mcp`; `--live` adds `gemini live call` and `gemini pool`); any FAIL row makes it exit 1, WARN
@@ -411,8 +411,7 @@ rows name what is optional or busy.
 | `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
 | `python deps` | WARN | only optional-extra modules missing (`shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
 | `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export C3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
-| `blender cycles` | WARN | Cycles sees no CUDA device | scene_blender's judged frames render on the CPU (a few times slower) — fine without an NVIDIA GPU; on WSL2 install the vendor WSL GPU driver.  The row also names the judged-frame engine / samples / device (`C3D_RENDER__BLENDER_*`) |
-| `blender eevee` | WARN / FAIL | the EEVEE smoke frame ran on llvmpipe (software GL), or did not render | only matters with `C3D_RENDER__BLENDER_ENGINE=eevee`: the harness runs EEVEE under the Mesa d3d12 env (`spatial/gl_render.GPU_ENV`); llvmpipe here means that env found no GPU.  `--no-gpu` skips the smoke frame |
+| `blender cycles` | WARN | Cycles sees no CUDA device | scene_blender's judged frames render on the CPU (a few times slower) — fine without an NVIDIA GPU; on WSL2 install the vendor WSL GPU driver.  The row also names the judged-frame samples / device (`C3D_RENDER__BLENDER_*`) |
 | `blender render` | FAIL / SKIP | the render probe could not run Blender (or there is none) | see the `blender` row |
 | `blender gpu slots` | WARN | every machine-wide GPU Blender render slot is held right now | other renders are on the GPU; a render waits `C3D_RENDER__BLENDER_GPU_WAIT_S` for a slot and then renders on the CPU — nothing to fix unless it stays full.  `C3D_RENDER__BLENDER_GPU_SLOTS` sizes it |
 | `node` | FAIL | node missing or older than 20.6.0 (§2.1) | install a newer node (`nvm install --lts`) or point `binaries.node` / `C3D_BINARIES__NODE` at one.  The same check fires from every node workload (`codeverse3d.spatial.node.run_node`), so a too-old node cannot fail obscurely mid-render |

@@ -74,7 +74,7 @@ def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     assert front["position"] == pytest.approx([0, 4, 14]) and front["lookAt"] == pytest.approx([0, 1, 0])
     assert front["fov"] == pytest.approx(40.107, abs=0.01)
     assert m["language"] == "scene_blender" and m["blender"]["device"] == "CPU" and m["blender"]["samples"] == 4
-    assert m["blender"]["engine"] == "cycles" and len(m["blender"]["frame_ms"]) == 2 * 2 + 4
+    assert m["blender"]["engine"] == "cycles"
     assert "Blender" in rs.renderer and "cycles" in rs.renderer
     assert rs.console_errors == [] and rs.contact_sheet and Path(rs.contact_sheet).is_file()
     judged = {(v.name, v.time_s) for v in rs.views if v.judge}

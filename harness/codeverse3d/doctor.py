@@ -66,11 +66,10 @@ def check_blender() -> list[Row]:
     return [("blender", "OK" if okk else "FAIL", f"{v} @ {b}")]
 
 
-#: one headless Blender run: the Cycles CUDA device list, a timed Cycles frame, and (with EEVEE) a
-#: tiny EEVEE frame whose GL renderer says GPU or llvmpipe.  OptiX is never probed (it crashes
-#: Blender under WSL2).
+#: one headless Blender run: the Cycles CUDA device list and a timed Cycles frame.  OptiX is never
+#: probed (it crashes Blender under WSL2).
 _BLENDER_RENDER_PROBE = """
-import json, sys, time
+import json, time
 import bpy
 out = {}
 p = bpy.context.preferences.addons["cycles"].preferences
@@ -99,36 +98,24 @@ if out["cuda"]:
         out["cycles_ms"] = int((time.perf_counter() - t) * 1000)
     except Exception as e:
         out["cycles_error"] = str(e)[:200]
-if "--eevee" in sys.argv:
-    try:
-        sc = bpy.context.scene
-        sc.render.engine = "BLENDER_EEVEE"
-        sc.render.resolution_x, sc.render.resolution_y = 32, 18
-        sc.eevee.taa_render_samples = 1
-        bpy.ops.render.render()
-        import gpu
-        out["gl"] = gpu.platform.renderer_get()
-    except Exception as e:
-        out["gl_error"] = str(e)[:200]
 print("C3D_DOCTOR " + json.dumps(out))
 """
 
 
-def check_blender_render(*, eevee: bool = True, timeout_s: int = 120) -> list[Row]:
-    """What scene_blender's judged frames render on: Cycles CUDA / CPU, EEVEE GPU / llvmpipe, GPU slots."""
+def check_blender_render(*, timeout_s: int = 120) -> list[Row]:
+    """What scene_blender's judged frames render on: Cycles CUDA / CPU, GPU slots."""
     import json
 
     from codeverse3d.languages.blender import blender_env
-    from codeverse3d.spatial.gl_render import GPU_ENV
     from codeverse3d.spatial.render_blender import gpu_slots
 
     s = get_settings()
     b = s.resolve_blender()
     if not b:
         return [("blender render", "SKIP", "no Blender binary")]
-    cmd = [b, "-b", "--factory-startup", "--python-expr", _BLENDER_RENDER_PROBE, "--"] + (["--eevee"] if eevee else [])
+    cmd = [b, "-b", "--factory-startup", "--python-expr", _BLENDER_RENDER_PROBE, "--"]
     try:
-        proc = run_subprocess(cmd, cwd=Path.cwd(), env={**blender_env(), **GPU_ENV}, timeout_s=timeout_s)
+        proc = run_subprocess(cmd, cwd=Path.cwd(), env=blender_env(), timeout_s=timeout_s)
     except OSError as e:
         return [("blender render", "FAIL", f"could not run {b}: {e}")]
     line = next((ln for ln in reversed(proc.stdout.splitlines()) if ln.startswith("C3D_DOCTOR ")), "")
@@ -144,17 +131,8 @@ def check_blender_render(*, eevee: bool = True, timeout_s: int = 120) -> list[Ro
         "blender cycles", "OK" if cuda and not res.get("cycles_error") else "WARN",
         (f"CUDA: {', '.join(cuda)}{timed}" if cuda else f"no CUDA device{' (' + res['cuda_error'] + ')' if res.get('cuda_error') else ''}"
          " — scene_blender frames render on the CPU (~4x slower)")
-        + f"; judged frames: {r.blender_engine} {r.blender_samples} spp, device {r.blender_device}, "
+        + f"; judged frames: {r.blender_samples} spp, device {r.blender_device}, "
           f"frame cap {r.blender_frame_time_limit_s:g}s")]
-    if eevee:
-        gl = str(res.get("gl") or "")
-        if res.get("gl_error") or not gl:
-            rows.append(("blender eevee", "FAIL", f"EEVEE smoke frame failed: {res.get('gl_error', 'no GL renderer')}"))
-        else:
-            soft = "llvmpipe" in gl.lower()
-            rows.append(("blender eevee", "WARN" if soft else "OK",
-                         f"{gl} — software GL: EEVEE would be ~10x slower (the Cycles default is unaffected)" if soft
-                         else f"GPU (Mesa d3d12 env): {gl}"))
     slots = gpu_slots(s)
     busy = slots.busy()
     rows.append(("blender gpu slots", "WARN" if busy >= slots.n else "OK",
@@ -304,7 +282,7 @@ def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     rows: list[Row] = []
     rows += check_python_deps()
     rows += check_blender()
-    rows += check_blender_render(eevee=gpu)
+    rows += check_blender_render()
     rows += check_node()
     if gpu:
         rows += check_gpu_probe()

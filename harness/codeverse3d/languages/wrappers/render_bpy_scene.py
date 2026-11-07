@@ -28,7 +28,6 @@ from _wrapper_common import (  # noqa: E402
 )
 from mathutils import Vector  # noqa: E402
 
-ENGINES = {"cycles": "CYCLES", "eevee": "BLENDER_EEVEE", "workbench": "BLENDER_WORKBENCH"}
 #: harness-camera clip range; the far plane is simply out of the way
 CLIP_START, CLIP_END = 0.05, 20000.0
 LOOK_AHEAD_M = 10.0
@@ -51,12 +50,11 @@ def frame_of(t: float, scene: Any) -> int:
 
 # --------------------------------------------------------------------------- settings
 def setup_render(scene: Any, job: dict[str, Any]) -> dict[str, Any]:
-    engine = str(job.get("engine") or "cycles")
     samples = int(job.get("samples") or 32)
     want = str(job.get("device") or "GPU").upper()
-    info: dict[str, Any] = {"engine": engine, "samples": samples, "device": "CPU", "device_names": [], "device_fallback": ""}
+    info: dict[str, Any] = {"engine": "cycles", "samples": samples, "device": "CPU", "device_names": [], "device_fallback": ""}
     r = scene.render
-    r.engine = ENGINES[engine]
+    r.engine = "CYCLES"
     r.resolution_x, r.resolution_y = int(job["width"]), int(job["height"])
     r.resolution_percentage = 100
     r.film_transparent = False
@@ -75,43 +73,34 @@ def setup_render(scene: Any, job: dict[str, Any]) -> dict[str, Any]:
         vs.use_curve_mapping = False
     except (TypeError, AttributeError) as e:
         info["colour_warning"] = str(e)[:200]
-    if engine == "cycles":
-        c = scene.cycles
-        if want == "GPU":
-            # CUDA only: OptiX is never probed (setting compute_device_type to OPTIX crashes Blender under WSL2)
-            prefs = bpy.context.preferences.addons["cycles"].preferences
-            try:
-                prefs.compute_device_type = "CUDA"
-                prefs.refresh_devices()
-                gpus = [d for d in prefs.devices if d.type == "CUDA"]
-            except (TypeError, AttributeError, RuntimeError):
-                gpus = []
-            for d in prefs.devices:
-                d.use = d.type == "CUDA"
-            if gpus:
-                info["device"] = "GPU"
-                info["device_names"] = [d.name for d in gpus]
-            else:
-                info["device_fallback"] = "no CUDA device"
-        c.device = info["device"]
-        c.samples = samples
-        c.use_adaptive_sampling = True
-        c.use_denoising = True
-        c.denoiser = "OPENIMAGEDENOISE"
-        c.denoising_use_gpu = info["device"] == "GPU"
-        c.seed = 0
-        c.use_animated_seed = False
-        # persistent data keeps the synced scene across a job's cameras; the per-frame time cap bounds sampling (0 = none)
-        r.use_persistent_data = True
-        c.time_limit = max(0.0, float(job.get("frame_time_limit_s") or 0.0))
-        info["persistent_data"] = True
-        info["frame_time_limit_s"] = c.time_limit
-    elif engine == "eevee":
-        scene.eevee.taa_render_samples = samples
-        info["device"] = want
-    else:
-        info["samples"] = 0
-        info["device"] = want
+    c = scene.cycles
+    if want == "GPU":
+        # CUDA only: OptiX is never probed (setting compute_device_type to OPTIX crashes Blender under WSL2)
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+        try:
+            prefs.compute_device_type = "CUDA"
+            prefs.refresh_devices()
+            gpus = [d for d in prefs.devices if d.type == "CUDA"]
+        except (TypeError, AttributeError, RuntimeError):
+            gpus = []
+        for d in prefs.devices:
+            d.use = d.type == "CUDA"
+        if gpus:
+            info["device"] = "GPU"
+            info["device_names"] = [d.name for d in gpus]
+        else:
+            info["device_fallback"] = "no CUDA device"
+    c.device = info["device"]
+    c.samples = samples
+    c.use_adaptive_sampling = True
+    c.use_denoising = True
+    c.denoiser = "OPENIMAGEDENOISE"
+    c.denoising_use_gpu = info["device"] == "GPU"
+    c.seed = 0
+    c.use_animated_seed = False
+    # persistent data keeps the synced scene across a job's cameras; the per-frame time cap bounds sampling (0 = none)
+    r.use_persistent_data = True
+    c.time_limit = max(0.0, float(job.get("frame_time_limit_s") or 0.0))
     return info
 
 
@@ -235,15 +224,6 @@ def lift_lids(scene: Any, camera: Any) -> list[Any]:
     return lids
 
 
-def gl_renderer() -> str:
-    try:
-        import gpu
-
-        return f"{gpu.platform.vendor_get()} {gpu.platform.renderer_get()}".strip()
-    except Exception:  # noqa: BLE001
-        return ""
-
-
 # --------------------------------------------------------------------------- main
 def main() -> int:
     job_path = wrapper_argv()[0]
@@ -276,7 +256,6 @@ def main() -> int:
     for s in unique:
         if s["object"] is None:
             s["object"] = harness_camera(s)
-    result["setup_ms"] = int((time.perf_counter() - t_start) * 1000)
     all_times = sorted({t for s in unique for t in s["times"]})
     for t in all_times:
         frame = frame_of(t, scene)
@@ -311,8 +290,6 @@ def main() -> int:
                 "no_fog": bool(s.get("no_fog")), "hidden": sorted(ob.name for ob in lids),
                 "fog_hidden": sorted(ob.name for ob in hazes), "render_ms": ms,
             })
-    if result["engine"] in ("eevee", "workbench"):
-        result["gl_renderer"] = gl_renderer()
     result["cameras"] = [{k: v for k, v in s.items() if k not in ("object", "file_stem")} for s in unique]
     result["ok"] = bool(result["frames"]) and not result["errors"]
     result["duration_ms"] = int((time.perf_counter() - t_start) * 1000)
