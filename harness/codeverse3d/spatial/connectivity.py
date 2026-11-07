@@ -326,10 +326,6 @@ def _ledger(
 def check_connectivity(
     glb: Path | str,
     *,
-    gap_m: float = CONTACT_GAP_M,
-    min_part_size_m: float = MIN_PART_SIZE_M,
-    penetration_warn_m: float = PENETRATION_WARN_M,
-    penetration_error_m: float = PENETRATION_ERROR_M,
     language: str = "",
     planned_edges: Sequence[PlannedEdge] = (),
 ) -> GateReport:
@@ -349,7 +345,7 @@ def check_connectivity(
 
     names = list(parts)
     sizes = {n: float(np.max(parts[n].extents)) for n in names}
-    big = [n for n in names if sizes[n] >= min_part_size_m]
+    big = [n for n in names if sizes[n] >= MIN_PART_SIZE_M]
     for n in names:
         if n not in big:
             findings.append(GateFinding(gate=GATE, severity=Severity.INFO, target=n,
@@ -361,11 +357,11 @@ def check_connectivity(
     cache = _PartCache(parts)
     for a, b in itertools.combinations(big, 2):
         lower = _aabb_gap(parts[a].bounds, parts[b].bounds)
-        if lower > gap_m:
+        if lower > CONTACT_GAP_M:
             continue
         pd = pair_distance(a, parts[a], b, parts[b], obj_a=cache.fcl(a), obj_b=cache.fcl(b))
         exact[(a, b)] = pd
-        if pd.distance <= gap_m:
+        if pd.distance <= CONTACT_GAP_M:
             edges.add((a, b))
         if lower == 0.0:  # AABBs overlap → possible penetration
             seeds = np.array([pd.point_a, pd.point_b], dtype=float) if pd.distance <= 0.0 else None
@@ -376,11 +372,11 @@ def check_connectivity(
             if pen.depth_m > 0.0:
                 overlaps.append((a, b, pen))
             dense = pen.inside_count >= PENETRATION_MIN_INSIDE and pen.local_fraction >= PENETRATION_MIN_LOCAL_FRACTION
-            if pen.depth_m > penetration_warn_m and (pen.fraction_inside >= PENETRATION_MIN_FRACTION or dense):
-                findings.append(_penetration_finding(a, b, pen, penetration_warn_m, penetration_error_m))
+            if pen.depth_m > PENETRATION_WARN_M and (pen.fraction_inside >= PENETRATION_MIN_FRACTION or dense):
+                findings.append(_penetration_finding(a, b, pen, PENETRATION_WARN_M, PENETRATION_ERROR_M))
     # ---- components → floating parts
     comps = collide.components(big, edges)
-    grounded = {n for n in big if abs(float(parts[n].bounds[0][1])) <= gap_m}
+    grounded = {n for n in big if abs(float(parts[n].bounds[0][1])) <= CONTACT_GAP_M}
     support_sets = [c for c in comps if c & grounded]
     if support_sets:
         support = set(max(support_sets, key=lambda c: sum(len(parts[n].faces) for n in c)))
@@ -438,13 +434,13 @@ def check_connectivity(
             if pd is None:
                 pd = pair_distance(a, parts[a], b, parts[b], obj_a=cache.fcl(a), obj_b=cache.fcl(b))
                 exact[(a, b)] = pd
-            rows.append([a, b, _mm(pd.distance), "contact" if pd.distance <= gap_m else "open"])
+            rows.append([a, b, _mm(pd.distance), "contact" if pd.distance <= CONTACT_GAP_M else "open"])
         contacts = [r for r in rows if r[3] == "contact"]
         planned.extend(contacts if contacts else rows[:1] if len(rows) <= 1 else [min(rows, key=lambda r: r[2])])
     if len(big) > 1 and not any(f.severity == Severity.ERROR for f in findings):
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO,
-                                    message=f"all {len(big)} parts are connected ({len(edges)} contacts, gap ≤ {gap_m * 1000:.0f} mm)"))
-    findings.append(_ledger(names, parts, edges, exact, overlaps, planned, unresolved, gap_m))
+                                    message=f"all {len(big)} parts are connected ({len(edges)} contacts, gap ≤ {CONTACT_GAP_M * 1000:.0f} mm)"))
+    findings.append(_ledger(names, parts, edges, exact, overlaps, planned, unresolved, CONTACT_GAP_M))
     return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
