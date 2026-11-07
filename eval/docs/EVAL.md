@@ -7,7 +7,7 @@
 How we decide whether the harness (plan → generate → gate → render → judge →
 refine) beats raw generation, and whether one backend beats another, without
 fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
-`codeverse3d.judges.{vlm_judge, pairwise, calibration, metrics}`.
+`codeverse3d.judges.{vlm_judge, calibration, metrics}`.
 
 ## 1. Principles
 
@@ -28,9 +28,8 @@ fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
    counted.
 4. **Stratified batteries.**  Prompts are fixed YAML with ids, tiers (easy/medium/hard)
    and categories; report per tier, never only the mean.
-5. **Pairwise for preferences.**  Absolute scores are coarse; `PairwiseJudge` runs
-   both orderings and returns `tie` on disagreement; report win/tie/loss counts with
-   confidence.
+5. **Side by side for preferences.**  Absolute scores are coarse; the owner compares two
+   arms' renders side by side by hand (`bench/ab_view.py`); there is no pairwise judge.
 6. **Cost and time are part of the result.**  Every cell records `Usage` (USD, tokens)
    and wall time; compare at equal budget where possible.
 7. **Reproducibility.**  `record.prompt_hashes` (contract/generate/refine; `cookbook` before D107),
@@ -113,7 +112,7 @@ python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
     --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-4-argon,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.8-flash,oneshot+repair:gemini:gemini-3.8-flash \
     --judge gemini:gemini-4-argon --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
     [--rounds 3] [--loop-judge gemini:gemini-4-argon] [--repair-attempts 2] [--gen-timeout 900]
-    [--no-pairwise] [--no-resume] [--report-only]
+    [--no-resume] [--report-only]
 ```
 Arms:
 * `harness:<generator-id>` — the full static_object track (rounds ≤ `--rounds`);
@@ -142,18 +141,16 @@ is the harness's `round_input` (`_fixed_eval.fixed_input`), so it is the in-run 
 same round — clay montage, the GLB for the D48 slice channel, connectivity in the author's frame —
 except the checklist, the brief's `must_have`.  (N83, 2026-09-24: before that it was hand-built
 without clay views or GLB; a fixed-judge score from before then is not comparable with one after —
-re-judge a baseline before comparing.)  Then a pairwise
-arena runs every harness arm against every one-shot arm per prompt (both orderings).
+re-judge a baseline before comparing.)
 Output under `--out`: `matrix.json`, `results.jsonl` (cells, resume source),
-`pairwise.jsonl`, `cells/<prompt>/<arm>/{run,gen,eval}`, `report.md`, `report.html`.
+`cells/<prompt>/<arm>/{run,gen,eval}`, `report.md`, `report.html`.
 `--no-resume` archives a harness cell's `run/` as `run.attempt<N>` and regenerates it
 (2026-08-30; before that it dropped the recorded row and then resumed the finished
 workspace anyway, so the "fresh" cell re-reported its old score).
 
 Report per arm: mean/median score, pass rate, build-failure rate, per-tier breakdown,
-cost and wall time per prompt; arena: wins/ties/losses with mean confidence.  Claim a
-harness advantage only when (a) the fixed-judge mean and pass rate are higher **and**
-(b) the pairwise arena agrees, at comparable or lower cost.
+cost and wall time per prompt.  Claim a harness advantage only when the fixed-judge mean
+and pass rate are higher at comparable or lower cost.
 
 Subscription-backed arms (`claude-code`, `codex`) bill no dollars: their USD is a
 notional API-rate estimate from the tokens the CLI reports, so report tokens and
@@ -193,9 +190,7 @@ Pending: rerun the parked sol battery, then terra, then luna, then the claude-co
 Same battery, same `--judge`, different `--generator` (`single-shot:*`,
 `claude-code:*`, `codex:*`, `agy:*`; `gemini-cli:*` was deleted in D103, 2026-10-13 —
 Google's models run as `agy:gemini-*`).  Report baseline, picked, delta,
-cost, time per tier; optionally feed the picked rounds of two arms through
-`PairwiseJudge.compare(spec, renders_a, renders_b)` (`flywheel pairs` already emits
-cross-backend candidate pairs keyed by prompt hash).
+cost, time per tier; `flywheel pairs` emits cross-backend candidate pairs keyed by prompt hash.
 
 ## 6. Judge calibration
 
@@ -423,7 +418,7 @@ Rules that follow from it:
   another did not, re-run the affected cells before putting the two in one table;
 * `budget_exhausted` is deliberately *not* excused on the build rate: the provider is
   not at fault for a model that cannot finish inside the cap;
-* every journal (`results.jsonl`, `pairwise.jsonl`, the plan-stage rows) is append-only and
+* every journal (`results.jsonl`, the plan-stage rows) is append-only and
   read ONE way: `bench/_jsonl.read_jsonl` skips a half-written line with a warning (a killed
   driver costs that row, not the file) and `bench/_jsonl.latest` keeps the LAST row per
   (prompt, arm) — a resumed or redone cell supersedes its earlier row in every report.
@@ -751,7 +746,7 @@ harness-only `normalisations` field (2542f92).
 
 battery name + git sha of prompts; judge id, rubric name + hash, `n_samples`; per-arm
 generator/planner ids; rounds and budget caps; per-tier table (n, mean ± std, pass
-rate, build-fail rate, cost, minutes); pairwise table; number of degraded verdicts
+rate, build-fail rate, cost, minutes); number of degraded verdicts
 re-run; **cells dropped as `infra_failed` and `budget_exhausted`, per arm** (§7 — an
 omitted drop count is an unreadable table); links to `record.json` / `report.html`
 under `bench/out/`.

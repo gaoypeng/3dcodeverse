@@ -15,7 +15,7 @@ renders, judges, refines and records every run as data-flywheel material.
   the list is `docs/ARCHITECTURE.md` §5.
 * **Judging:** rubric VLM judge (default `gemini:gemini-4-argon`, thinking `medium`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
-  deterministic gates; pairwise, reference and likeness judges; best-of-N candidates;
+  deterministic gates; reference and likeness judges; best-of-N candidates;
   a calibration harness (`addons/calibration.py`).
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
   quality tiers + dedupe (+ parquet, tar locators), preference/repair/cross-backend
@@ -48,8 +48,8 @@ codeverse3d/
   models/          ChatModel + gemini/anthropic/openai adapters; key-pool retry machine,
                    streaming with stall detection, IPv4-pinned transport, pricing, health
   spatial/         the measurement/render toolbox behind every gate and MCP tool
-  judges/          rubric VLM judge on labelled montages, pairwise, reference/likeness
-  reference.py     a user `--image` against the render: proportion check, mismatch diff
+  judges/          rubric VLM judge on labelled montages, reference/likeness
+  reference.py     a user `--image` against the render: proportion check
   cost/            append-only ledger, metering, per-block tallies, pre-call estimates
   skills/          typed skill routes + materialisation + read telemetry
   record/          what every run writes: record.json, deliverable/, telemetry
@@ -86,7 +86,7 @@ python -m pytest tests -q -m "not live"
 ```
 
 Expected cost and time per track: `docs/RUNBOOK.md` §2. Inspect actual run costs with
-`3dcodeverse cost <slug>` and a call's expected price with `3dcodeverse cost estimate`.
+`3dcodeverse cost <slug>`.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/RUNBOOK.md` (operate / extend) ·
