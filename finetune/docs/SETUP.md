@@ -33,7 +33,7 @@ conda create -y -n vllm python=3.12 && conda activate vllm
 pip install vllm==0.27.1            # brings torch 2.13.0+cu129; runs on the 12.8 driver via CUDA minor-version compatibility
 pip install flash-linear-attention==0.5.2 triton==3.7.1
 ```
-Use with `export VLLM_CACHE_ROOT=$WORKSPACE/cache/vllm` (torch.compile cache; default is `~/.cache`). Qwen3.5 needs `limit_mm_per_prompt={"image":0,"video":0}` and `chat_template_kwargs={"enable_thinking": False}` — both are set in `eval/generate_vllm.py`.
+Use with `export VLLM_CACHE_ROOT=$WORKSPACE/cache/vllm` (torch.compile cache; default is `~/.cache`). Qwen3.5 needs `limit_mm_per_prompt={"image":0,"video":0}` and `chat_template_kwargs={"enable_thinking": False}` — thinking is turned off in `../eval/llm/generate.py`.
 
 ### `llmft` — data building, HF-side checks, executors, metrics
 ```bash
@@ -51,12 +51,12 @@ pip uninstall -y torchaudio                        # a mismatched torchaudio bre
 ## 2. External tools (called by absolute path from `eval/`)
 | tool | how | path key |
 |---|---|---|
-| Blender 5.2.2 LTS (headless; executes generated bpy code, exports GLB) | `wget https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz && tar xf … -C $WORKSPACE/tools` — **then `blender-5.2.2-linux-x64/5.0/python/bin/python3.11 -m pip install scipy`**: 15 of the 212 3DCodeBench reference scripts import scipy, and without it any model that writes the same idiom is scored as a failure (this cost the tuned 27B 8.1 points before we caught it) | `BLENDER` in `eval/run_bench.py`, `eval/blender_dialect_eval.py`, `scripts/*dpo*.sh` |
-| OpenSCAD (nightly AppImage, extracted so it runs without FUSE) | `wget …/OpenSCAD-2026.08.19-x86_64.AppImage && ./OpenSCAD-*.AppImage --appimage-extract` → `squashfs-root/AppRun` | `OPENSCAD` in `eval/dialect_runners.py` |
-| glslangValidator | conda-forge `glslang` (in `llmft`) | `GLSLANG` in `eval/dialect_runners.py` |
+| Blender 5.2.2 LTS (headless; executes generated bpy code, exports GLB) | `wget https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz && tar xf … -C $WORKSPACE/tools` — **then `blender-5.2.2-linux-x64/5.0/python/bin/python3.11 -m pip install scipy`**: 15 of the 212 3DCodeBench reference scripts import scipy, and without it any model that writes the same idiom is scored as a failure (this cost the tuned 27B 8.1 points before we caught it) | `C3D_BLENDER` / `C3D_TOOLS` (`../eval/llm/config.py`) |
+| OpenSCAD (nightly AppImage, extracted so it runs without FUSE) | `wget …/OpenSCAD-2026.08.19-x86_64.AppImage && ./OpenSCAD-*.AppImage --appimage-extract` → `squashfs-root/AppRun` | `C3D_OPENSCAD` / `C3D_TOOLS` (`../eval/llm/config.py`) |
+| glslangValidator | conda-forge `glslang` (in `llmft`) | `C3D_GLSLANG` (`../eval/llm/config.py`) |
 | Chromium (Playwright) | see `llmft` above | `PLAYWRIGHT_BROWSERS_PATH` |
 | Models | `hf download Qwen/Qwen3.5-9B --local-dir $WORKSPACE/models/Qwen3.5-9B` (also used: Qwen3.5-4B, Qwen3-8B, Qwen2.5-Coder-7B-Instruct) | `model_name_or_path` in `configs/lf/*.yaml` |
-| Data | only `metadata.parquet` of each 3DCodeVerse subset (`3dcodeverse/3dcodeverse-2m` on the HF Hub) + the 3DCodeBench tarball; `scripts/fetch_hf_files.py` is more robust than `hf download` for many small files on a network FS | `scripts/prep_data.py`, `scripts/build_multidialect.py` |
+| Data | only `metadata.parquet` of each 3DCodeVerse subset (`3dcodeverse/3dcodeverse-2m` on the HF Hub) + the 3DCodeBench tarball; `llamafactory/fetch_hf_files.py` is more robust than `hf download` for many small files on a network FS | `llamafactory/build_md_max.py` |
 
 Secrets: `env.sh` sources `$WORKSPACE/.secrets/hf.env` (`export HF_TOKEN=...`, chmod 600). Never put tokens in configs or scripts.
 
@@ -75,5 +75,5 @@ conda activate vllm && python -c "import vllm; print(vllm.__version__)"
 $WORKSPACE/tools/blender-5.2.2-linux-x64/blender -b --version | head -1
 $WORKSPACE/tools/openscad/squashfs-root/AppRun --version
 # 1-GPU LoRA dry run (tiny dataset), then merge, then a 5-prompt generation:
-GPUS=0 scripts/lf_train.sh configs/lf/lora_v1.yaml num_train_epochs=0.01
+GPUS=0 scripts/lf_train.sh configs/lf/sft_9b_lora64_lr1e-4_len8k_hub-remote.yaml num_train_epochs=0.01
 ```

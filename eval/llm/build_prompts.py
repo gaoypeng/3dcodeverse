@@ -18,7 +18,7 @@ Suites built here (sizes are what the assets give):
   3dcodebench_img1/img4   212  Blender  1 / 4 GT reference views (image→code, VLM)
   3dcodebench_img4text    212  Blender  4 views + description
   heldout_blender         103, heldout_cadquery 200, heldout_openscad 50, heldout_glsl 200, heldout_threejs 40
-                               (3dcodeverse/3dcodeverse-llamafactory/test/*.parquet, never trained on)
+                               (3dcodeverse/3dcodeverse-2m finetune/test/*.parquet, never trained on)
   harness_<battery>       rubric-judged batteries copied from harness/bench/prompts (no GT; scored by
                                execution + optional VLM judge), one suite per YAML
 
@@ -179,7 +179,7 @@ def build_heldout() -> None:
             rows.append({"id": tid, "suite": f"heldout_{dialect}", "dialect": dialect,
                          "messages": [{"role": "system", "content": r["system"]}, {"role": "user", "content": r["prompt"]}],
                          "reference": {"code": code, "mesh": rel(ref_mesh) if ref_mesh and ref_mesh.exists() else None, "renders": []},
-                         "meta": {"source_id": r["id"], "source": "3dcodeverse/3dcodeverse-llamafactory/test"}})
+                         "meta": {"source_id": r["id"], "source": "3dcodeverse/3dcodeverse-2m/finetune/test"}})
         write_jsonl(rows, f"heldout_{dialect}")
 
 

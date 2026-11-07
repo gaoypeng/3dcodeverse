@@ -12,7 +12,7 @@ remain comparable; §4–§6 are additions.
 | statuses | OK / EMPTY / FAIL / CRASH / TIMEOUT / MISSING | EMPTY = ran but produced nothing; CRASH = host died; MISSING = no generation for the task (counts in the denominator) |
 | **render_rate** (GLSL only) | `#(compiled AND rendered non-uniform image) / n` | rendered in WebGL2 (headless Chromium) at t=0 and t=1.7 s: `distinct colours > 3` and `std > 2`; `STATIC` = compiles but paints a constant colour. Stricter than compile rate; the historical GLSL numbers are compile-only |
 | truncated | `#(finish_reason == length)` | every reasoning/long-output failure shows up here first — report it next to exec_rate |
-| extraction diagnostics | `no_fence`, `multi_block`, `chosen_not_last`, `from_think_fallback`, `syntax_valid`, `no_dialect_marker` | from `extract.py`; separates *format* failures from *capability* failures (REPORT §11.2) |
+| extraction diagnostics | `no_fence`, `multi_block`, `chosen_not_last`, `from_think_fallback`, `syntax_valid`, `no_dialect_marker` | from `extract.py`; separates *format* failures from *capability* failures ([REPORT_FULL §11.2](https://github.com/gaoypeng/3dcodeverse/blob/943e666926a255888e3e6a37774865d565bcc5ba/finetune/docs/REPORT_FULL.md)) |
 
 ## 2. Geometry (suites with a reference mesh)
 
@@ -82,7 +82,7 @@ Same executor and geometry metrics as the text suites (same GT), so `3dcodebench
 is directly comparable. Reference views are the official 4 GT renders (`Image_005/015/025/035`), sent as
 768-px JPEG data-URLs, image parts before the text.
 
-## 6. Noise floor and reporting rules (from REPORT §12.7, §13.4, §13.7)
+## 6. Noise floor and reporting rules (from [REPORT_FULL](https://github.com/gaoypeng/3dcodeverse/blob/943e666926a255888e3e6a37774865d565bcc5ba/finetune/docs/REPORT_FULL.md) §12.7, §13.4, §13.7; summarized in `finetune/docs/REPORT.md` §4)
 
 - Within one session with one engine config, greedy runs repeat to 0.0 pp on Blender suites, 0.5 pp CadQuery,
   1.5 pp GLSL, 2.0 pp OpenSCAD, 5.0 pp three.js (n = 40). Across sessions / engine configs drift can reach

@@ -1,54 +1,67 @@
-# 3D 代码生成微调：结果与经验
+# Fine-tuning for 3D code generation: results and lessons
 
-Qwen3.5-9B / Qwen3.8-27B 在 3DCodeVerse 上的微调记录。评测全部是**执行式**的——生成的代码真的跑一遍（Blender 5.0.1 / CadQuery / OpenSCAD / glslangValidator / 无头 WebGL2），不看文本相似度。
+Fine-tuning Qwen3.5-9B and Qwen3.8-27B on 3DCodeVerse. Every evaluation is **execution-based**: the generated
+code is actually run (Blender 5.0.1 / CadQuery / OpenSCAD / glslangValidator / headless WebGL2); text
+similarity is never used.
 
-逐次实验的完整过程见 [`REPORT_FULL.md`](REPORT_FULL.md)；本文只保留**改变了做法的结论**。
+This document keeps only the **conclusions that changed how we work**. The per-run log is
+[`../llm_finetune_exps.md`](../llm_finetune_exps.md); the original day-by-day study notes (in Chinese) are in
+git history as
+[`REPORT_FULL.md`](https://github.com/gaoypeng/3dcodeverse/blob/943e666926a255888e3e6a37774865d565bcc5ba/finetune/docs/REPORT_FULL.md).
 
 ---
 
-## 1. 最好的模型
+## 1. Best models
 
-| 模型 | bench | blender | cadquery | openscad | glsl | threejs |
+| model | bench | blender | cadquery | openscad | glsl | threejs |
 |---|---|---|---|---|---|---|
-| **best+stopDPO**（贪心） | 95.8% | 92.2% | 39.5% | 82.0% | 49.5% | 57.5% |
-| **md_9b_plus+stopDPO**（贪心） | 85.9% | 93.2% | 99.0% | 74.0% | 79.5% | 75.0% |
-| **md_9b_plus+stopDPO**（采样） | 86.8% | 91.3% | 98.0% | 82.0% | 85.0% | 42.5% |
-| **stopDPO_r2**（采样） | 89.1% | 92.2% | 97.5% | 94.0% | 87.0% | 60.0% |
-| mmmix2（纯 SFT，未修复） | 93.9% | 92.2% | 94.5% | 6.0% | 60.0% | 45.0% |
-| 基座 Qwen3.5-9B（未微调） | 0.0% | 1.0% | 10.0% | 46.0% | 39.0% | 77.5% |
+| **best+stopDPO** (greedy) | 95.8% | 92.2% | 39.5% | 82.0% | 49.5% | 57.5% |
+| **md_9b_plus+stopDPO** (greedy) | 85.9% | 93.2% | 99.0% | 74.0% | 79.5% | 75.0% |
+| **md_9b_plus+stopDPO** (sampled) | 86.8% | 91.3% | 98.0% | 82.0% | 85.0% | 42.5% |
+| **stopDPO_r2** (sampled) | 89.1% | 92.2% | 97.5% | 94.0% | 87.0% | 60.0% |
+| mmmix2 (SFT only, before the fix) | 93.9% | 92.2% | 94.5% | 6.0% | 60.0% | 45.0% |
+| base Qwen3.5-9B (not fine-tuned) | 0.0% | 1.0% | 10.0% | 46.0% | 39.0% | 77.5% |
 
-没有单一模型在所有方言上最好：`best+stopDPO` 的 3DCodeBench 最高，`stopDPO_r2` 的方言覆盖最好，`md_9b_plus+stopDPO` 最均衡。
+No single model is best on every dialect: `best+stopDPO` has the highest 3DCodeBench score, `stopDPO_r2`
+the best dialect coverage, and `md_9b_plus+stopDPO` is the most balanced.
 
-每一个带 stopDPO 的模型都比它自己的 SFT 底座在四到五个方言上更好——第 3 节说明了为什么。
+Every model with stop-DPO beats its own SFT base on four to five dialects — §3 explains why.
 
 ---
 
-## 2. 三条数据规律
+## 2. Three data regularities
 
-### 2.1 起作用的是**不同的可执行代码数量**，不是样本行数
+### 2.1 What matters is the number of **distinct runnable programs**, not the number of rows
 
-同一算力预算下三次独立对照：把一份代码配三个 caption 变体（行数 ×3）不涨分；换成三倍数量的不同程序才涨。语料里 27 万段不同代码撑出的 109 万行，有三分之二对训练没有增量。
+Three independent controls at the same compute budget: pairing one program with three caption variants
+(3× the rows) does not raise the score; three times as many distinct programs does. Of the 1.09M rows built
+from 270k distinct programs in the corpus, two thirds add nothing to training.
 
-### 2.2 某方言的表现主要由**该方言的样本数**决定，但占比仍有残余影响
+### 2.2 A dialect's score is driven mainly by **its own sample count**, but its share still matters
 
-四次实验，只改数据构成（等效 batch、epoch、cutoff 全部固定）：
+Four runs that change only the data mix (effective batch, epochs and cutoff all fixed):
 
-| 实验 | Blender 样本 | Blender 占比 | 总样本 | bench | bench 输出长度 |
+| run | Blender samples | Blender share | total samples | bench | bench output length |
 |---|---|---|---|---|---|
-| 重新配比 | 6,590 | 23.6% | 2.8 万 | 46.2% | 9,771 |
-| full9b | 6,590 | 2.6% | **27.1 万** | 58.5% | 10,054 |
-| md_9b_plus | **21,012** | 7.1% | **29.6 万** | 79.2% | 3,746 |
-| mmmix2 | **21,012** | 11.0% | 19.2 万 | **93.9%** | **1,266** |
+| rebalanced | 6,590 | 23.6% | 28k | 46.2% | 9,771 |
+| full9b | 6,590 | 2.6% | **271k** | 58.5% | 10,054 |
+| md_9b_plus | **21,012** | 7.1% | **296k** | 79.2% | 3,746 |
+| mmmix2 | **21,012** | 11.0% | 192k | **93.9%** | **1,266** |
 
-**总量不是杠杆**：从 2.8 万到 27.1 万（十倍）只带来 12pp。**样本数是主要杠杆**：Blender 从 6.6k 恢复到 21k 带来 20.7pp。**但占比还有残余作用**：同样 21,012 条 Blender，占比 11% 时是 93.9%，被 10.4 万条其它方言稀释到 7.1% 时只有 79.2%。
+**Total size is not the lever**: going from 28k to 271k samples (10×) buys 12 pp. **Sample count is the main
+lever**: restoring Blender from 6.6k to 21k samples buys 20.7 pp. **Share still has a residual effect**: the same
+21,012 Blender samples score 93.9% at an 11% share but only 79.2% when 104k samples of other dialects dilute
+them to 7.1%.
 
-输出长度同步变化（1,266 → 3,746 → 10,054），说明稀释不只是降低正确率，还会**诱发失控生成**——两者是同一个现象的两面。
+Output length moves with it (1,266 → 3,746 → 10,054 tokens): dilution does not just lower accuracy, it also
+**triggers runaway generation** — two sides of the same effect.
 
-一个反直觉的推论：**"把所有数据都用上"会损害目标方言**。按全语料比例取样时，Blender 只占语料的 2.6%，于是 27.1 万条数据训出的模型比 19.2 万条的差 35pp。
+A counter-intuitive corollary: **"use all the data" hurts the target dialect**. Sampling at corpus proportions
+leaves Blender at 2.6% of the mix, so a model trained on 271k rows is 35 pp worse than one trained on 192k.
 
-### 2.3 语料的方言分布极不均衡，这是能力上限的来源
+### 2.3 The corpus is extremely unbalanced across dialects, and that caps capability
 
-| 方言 | 不同程序数 | 占比 |
+| dialect | distinct programs | share |
 |---|---|---|
 | CadQuery | 141,204 | 49% |
 | GLSL | 117,096 | 40% |
@@ -56,147 +69,211 @@ Qwen3.5-9B / Qwen3.8-27B 在 3DCodeVerse 上的微调记录。评测全部是**�
 | **OpenSCAD** | **1,191** | **0.4%** |
 | **three.js** | **340** | **0.1%** |
 
-OpenSCAD 和 three.js 的问题不是训练方法，是**语料里只有一千多段和三百多段代码**。
+The problem with OpenSCAD and three.js is not the training method: **the corpus holds only about a thousand and
+a few hundred programs** for them.
 
 ---
 
-## 3. 最重要的发现：问题是行为，不是知识
+## 3. The key finding: the problem is behaviour, not knowledge
 
-微调后 OpenSCAD 只有 6%，而**未微调的基座有 46%**。看起来像灾难性遗忘——不是。
+After fine-tuning, OpenSCAD scored 6% while **the untuned base scored 46%**. It looks like catastrophic
+forgetting — it is not.
 
-**证据**：同一份权重，贪心 6% / 采样 44%；贪心平均输出 30,166 token，而它的训练答案中位数只有 884，且 cutoff 8192 保证它从没见过超过 8k 的样本。最长那份"程序"206 KB、576 行，其中 146 行不重复，主体是一句注释重复几百遍：
+**Evidence**: the same weights score 6% greedy and 44% sampled. Greedy outputs average 30,166 tokens, while the
+median training answer is 884 tokens and the 8,192 cutoff guarantees the model never saw a sample longer than 8k.
+The longest "program" is 206 KB and 576 lines, of which 146 are distinct; most of it is one comment repeated
+hundreds of times:
 
 ```
 //The case is designed to be printed at 0.4mm gap between hinges and pencil
    holder holder holder holder holder holder holder holder holder ...
 ```
 
-**一行几何代码都没有。** 这是贪心退化循环，不是不会写 OpenSCAD。
+**Not a single line of geometry.** This is a greedy degeneration loop, not an inability to write OpenSCAD.
 
-### 修复：让模型自己生成负样本
+### The fix: let the model produce its own negatives
 
-* 负样本 = 模型贪心跑出的失控输出（未终止，或超过它训练里见过的任何长度）
-* 正样本 = 同一 prompt 下采样得到的、能正常终止的输出
-* **只用训练集 prompt**（测试套件绝不进训练）
+* negative = the model's greedy runaway output (never terminates, or is longer than anything it saw in training)
+* positive = a sampled output for the same prompt that terminates normally
+* **training-set prompts only** (evaluation suites never enter training)
 
-3,687 个 prompt 产出 1,605 对，负样本中位数 46,202 字符 / 正样本 1,210 字符（35 倍）。单卡训一小时：
+3,687 prompts yielded 1,605 pairs; negatives have a median of 46,202 characters and positives 1,210 (35×).
+One hour on one GPU:
 
 | | bench | cadquery | openscad | glsl | threejs |
 |---|---|---|---|---|---|
-| 修复前 | 93.9% | 94.5% | **6.0%** | 60.0% | 45.0% |
-| 第一轮 | 92.5% | 98.5% | 40.0% | 79.5% | 80.0% |
-| **第二轮（采样）** | 89.1% | **97.5%** | **94.0%** | **87.0%** | 60.0% |
+| before | 93.9% | 94.5% | **6.0%** | 60.0% | 45.0% |
+| round 1 | 92.5% | 98.5% | 40.0% | 79.5% | 80.0% |
+| **round 2 (sampled)** | 89.1% | **97.5%** | **94.0%** | **87.0%** | 60.0% |
 
-输出长度同步坍缩：OpenSCAD 从 30,166 token 降到 410。
+Output length collapses with it: OpenSCAD drops from 30,166 tokens to 410.
 
-**四条延伸结论：**
-1. **可迁移，而且自己生成不划算。** 同一批 mmmix2 产出的 1,605 对，在三个不同模型上都有效：
+**Three follow-on conclusions:**
+1. **The pairs transfer, and generating your own is not worth it.** The same 1,605 pairs produced by mmmix2 work
+   on three different models:
 
-   | 被训练的模型 | OpenSCAD | bench |
+   | model trained | OpenSCAD | bench |
    |---|---|---|
-   | mmmix2（自产） | 6% → 94% | 93.9% → 89.1% |
-   | dpo_exec_v2（迁移） | 44% → 82% | 94.3% → 95.8% |
-   | md_9b_plus（迁移） | 8% → 70% | 79.2% → 85.9% |
+   | mmmix2 (own pairs) | 6% → 94% | 93.9% → 89.1% |
+   | dpo_exec_v2 (transferred) | 44% → 82% | 94.3% → 95.8% |
+   | md_9b_plus (transferred) | 8% → 70% | 79.2% → 85.9% |
 
-   在 md_9b_plus 上做了单变量对照——同一基座、同样超参数，只换配对来源：迁移版 bench 85.9 / OpenSCAD 70.0 / three.js 75.0，自产版 85.4 / 50.0 / 72.5，**迁移赢四项自产赢两项，差距都在噪声量级**。而自产要多花 2.5 小时生成。所以正确用法是**用一个健康模型产出一批终止样本，当作可复用资产分发**
-2. **训练后贪心优于采样**（82.0% vs 76.0%）——说明是真修好了，不是换解码绕过去
-3. **回头解释了旧现象** — 此前执行反馈 DPO 带来的大幅提升（93.9% → 96.2%），很可能有一半功劳是它顺带教会了终止：在 dpo_exec_v2 上跑配对生成，3,687 个 prompt 里 3,247 个贪心本来就正常，**产出 0 对**
+   A single-variable control on md_9b_plus (same base, same hyperparameters, only the pair source changed):
+   transferred pairs give bench 85.9 / OpenSCAD 70.0 / three.js 75.0, self-generated pairs 85.4 / 50.0 / 72.5.
+   **Transferred wins four metrics, self-generated two, all within noise** — and self-generation costs an extra
+   2.5 hours. The right use is to **produce one batch of terminating samples with a healthy model and ship it as a
+   reusable asset**.
+2. **After training, greedy beats sampling** (82.0% vs 76.0%) — the behaviour is actually fixed, not bypassed by
+   a different decoding.
+3. **It explains an older result.** Much of the earlier gain from execution-feedback DPO (93.9% → 96.2%) was
+   probably that it also taught the model to stop: running pair generation on dpo_exec_v2, 3,247 of 3,687 prompts
+   already terminated under greedy, and **it produced 0 pairs**.
 
 ---
 
-## 4. 评测：我们错了四次
+## 4. Evaluation: we were wrong four times
 
-**4.1 产出为空被记成 0%。** 引擎没起来 → 空目录 → 打分器报 0%。真实的 0% 和启动失败长得一模一样。两个健康模型曾因此被记成全套件 0/200。现在空目录**拒绝打分**。
+**4.1 Empty output scored as 0%.** The engine failed to start → empty directory → the scorer reported 0%. A real
+0% and a failed launch look identical. Two healthy models were once recorded as 0/200 on every suite. An empty
+directory is now **refused** by the scorer.
 
-**4.2 输出上限把"没写完"记成"写错了"。** 6144 的上限让 212 题中 72 题被截断，其中 36 题报错是 `'(' was never closed`。但放开到 131k 后**分数反而降了**（69.3% → 64.6%，输出长度涨 14 倍）——低预算原来在**逼模型收敛**。去掉硬编码上限是对的，但结论和预期相反。
+**4.2 The output cap scored "not finished" as "wrong".** A 6,144-token cap truncated 72 of 212 tasks, 36 of which
+failed with `'(' was never closed`. But raising the cap to 131k **lowered** the score (69.3% → 64.6%, with 14×
+longer outputs) — the small budget had been **forcing the model to converge**. Removing the hard-coded cap was
+right, but the conclusion was the opposite of what we expected.
 
-**4.3 噪声底要实测，不能估。** 同模型同入口同批次连跑三次：
+**4.3 Measure the noise floor, don't estimate it.** Same model, same entry point, three back-to-back runs in one
+batch:
 
 | bench | blender | cadquery | glsl | openscad | threejs |
 |---|---|---|---|---|---|
-| 0.0pp | 0.0pp | 0.5pp | 1.5pp | 2.0pp | **5.0pp** |
+| 0.0 pp | 0.0 pp | 0.5 pp | 1.5 pp | 2.0 pp | **5.0 pp** |
 
-跨批次（隔几小时）可达 6–8pp。**可比的条件是同一次会话内连续跑完**，不只是"同一个脚本"。我曾用一个没验证的 ±2pp 猜测把真实信号也否掉了。
+Across batches (hours apart) it reaches 6–8 pp. **Runs are comparable only when they finish back to back in one
+session**, not merely "with the same script". An unverified ±2 pp guess once led us to dismiss a real signal.
 
-**4.4 长输出方言必须同时报贪心和采样——但两者的优劣会随修复而反转。** 只报贪心正是让第 3 节那个缺陷藏了整个项目的原因，此前所有 OpenSCAD/GLSL/three.js 的贪心数字都系统性低估了真实能力。
+**4.4 Long-output dialects need both greedy and sampled numbers — and which is better flips once the fix is in.**
+Reporting greedy only is exactly what hid the §3 defect for the whole project; every earlier OpenSCAD / GLSL /
+three.js greedy number systematically understated the real capability.
 
-但 stop-DPO 之后情况变了：三个修复过的模型在 three.js 上**贪心明显好于采样**（75.0% vs 42.5%、72.5% vs 52.5%），而 OpenSCAD 仍是采样更好。所以准确的建议是——**失控未修时用采样绕过，修好之后用贪心**；采样对一个不会失控的方言只是引入噪声。这也是"修好了"与"绕过去了"之间可观测的区别。
+After stop-DPO the picture changes: the three fixed models are **clearly better greedy than sampled on three.js**
+(75.0% vs 42.5%, 72.5% vs 52.5%), while OpenSCAD is still better sampled. The accurate advice is: **sample to work
+around runaway generation while it is unfixed; use greedy once it is fixed** — on a dialect that no longer runs
+away, sampling only adds noise. This is also the observable difference between "fixed" and "worked around".
 
 ---
 
-## 5. 先怀疑测量工具，再怀疑数据
+## 5. Suspect the measuring tool before the data
 
-这条规律在项目里出现了六次，每次都省下大量返工：
+This pattern came up six times in the project, and each time it saved a large amount of rework:
 
-| 现象 | 真实原因 |
+| symptom | actual cause |
 |---|---|
-| 4,192 个 shader"编译失败" | 只有 588 个真需要改；其余是验证器缺陷（用正则猜 iChannel 是 2D 还是 cubemap，而这是**绑定属性不是语法属性**；漏了 `iFrameRate`；用了 ES 3.10 而 Shadertoy 是 ES 3.00） |
-| three.js 全部"渲染空白" | `gl.readPixels` 读的是已清空的缓冲区；改成截图分析后 40/40 参考代码全部通过 |
-| Blender 一半样本执行失败 | Blender 自带的 Python 没有 scipy，而 15/212 参考脚本 import 它。装上后 27B 从 49.5% → 57.6% |
-| 渲染验证器报告"所有 shader 全黑" | 截图失败时把有效测量一起丢弃了 |
-| 图像评测产出 0 结果 | `multi_modal_data=` 不是 `llm.chat()` 的参数 |
-| OpenSCAD 微调后 6% | 贪心退化循环（见第 3 节）——在三个独立模型上复现：6%→44%、8%→46%、34%→80% |
+| 4,192 shaders "fail to compile" | only 588 really needed changes; the rest were validator bugs (guessing with a regex whether iChannel is 2D or a cubemap, which is a **binding property, not a syntax property**; missing `iFrameRate`; using ES 3.10 while Shadertoy is ES 3.00) |
+| every three.js output "renders blank" | `gl.readPixels` read an already-cleared buffer; after switching to screenshot analysis, 40/40 reference programs pass |
+| half of the Blender samples fail to execute | Blender's bundled Python has no scipy, and 15/212 reference scripts import it. With it installed, 27B goes from 49.5% → 57.6% |
+| render validator reports "every shader is black" | a failed screenshot discarded the valid measurement along with it |
+| image evaluation produces 0 results | `multi_modal_data=` is not a parameter of `llm.chat()` |
+| OpenSCAD at 6% after fine-tuning | greedy degeneration loop (§3) — reproduced on three independent models: 6%→44%, 8%→46%, 34%→80% |
 
 ---
 
-## 6. 训练与推理的实际约束
+## 6. Practical constraints in training and inference
 
-* **LoRA 用 ZeRO-3 比 DDP 慢 7.8 倍**（142 s/步 vs 18 s/步）。LoRA 的优化器状态本来就极小，ZeRO-3 省的显存换来每步全量参数 all-gather，不划算。但 27B 在 80 GB 卡上做 cutoff 8192 会 OOM，折中是 **DDP + cutoff 4096**。
-* **27B 多模态恰好只能塞进一张全空的 80 GB H100**（78.2/79.6 GB，cutoff 4096 + `image_max_pixels: 200704`）。任何别人碰过的卡都会失败——四次多卡尝试全部差 1–4 GB。而它的成绩（47.2%）并不比 9B（48.6%）好。
-* **vLLM 的 `gpu_memory_utilization` 是总显存的比例，不是空闲显存的比例。** 共用机器上写死 0.88 等于向一张别人占了 12 GB 的卡索要 70 GB。要按实际空闲反算，且余量需随模型体积放大（51 GB 的模型留 4 GB 不够，KV cache 探测阶段会 OOM）。
-* **Qwen3.5/3.8 有线性注意力层**，vLLM 每个并发序列要一个 Mamba cache block。27B 只剩 179 块而默认 `max_num_seqs` 是 1024，必须显式调小，否则引擎起不来——而报错信息和显存不足完全不同。
-* **多模态混合数据集时，图像数据必须排在文本前面。** HuggingFace 按第一个数据集确定 schema，文本在前会把 `images` 列推断成 null 类型，后面的图像数据 cast 不进去。
-* **超过 2 GB 的数据集必须存成 parquet，不能用 JSON。** Arrow 读单个大 JSON 会抛 `OverflowError: value too large to convert to int32_t`，报错完全看不出是文件体积问题。3.05 GB 的 JSON 转 parquet 后是 1.04 GB，问题消失。
-* **共用机器上的五个坑**，每一个在独占机器上都不存在：(1) 别人常驻的占位进程可以吃掉 135 GB，而且声明 16 GiB 实占 33.8 GB；(2) `gpu_memory_utilization` 是总显存的比例，不是空闲的；(3) 27B 的四次 OOM 全部发生在与他人共享的那张卡上，换到全空的卡就能跑；(4) 选卡脚本硬编码只看前四张，扩到八卡后一直看不见后四张；(5) **选卡与用卡之间存在竞态**——卡在选中时空闲、启动引擎时已被占满，引擎死掉且不产生任何输出。评测入口现在会在启动前重新确认并换卡重试。
-* **绝不修改正在运行的脚本。** bash 按字节偏移读取文件，改动会让它执行到错位的字节。这在项目里发生过两次。
+* **LoRA under ZeRO-3 is 7.8× slower than DDP** (142 s/step vs 18 s/step). LoRA optimizer state is tiny to begin
+  with, so the memory ZeRO-3 saves is paid for with a full-parameter all-gather every step. But 27B at cutoff 8192
+  OOMs on an 80 GB card; the compromise is **DDP + cutoff 4096**.
+* **27B multimodal only just fits on one completely empty 80 GB H100** (78.2/79.6 GB, cutoff 4096 +
+  `image_max_pixels: 200704`). Any card someone else has touched fails — four multi-GPU attempts all came up 1–4 GB
+  short. And its score (47.2%) is no better than 9B (48.6%).
+* **vLLM's `gpu_memory_utilization` is a fraction of total memory, not of free memory.** On a shared machine a
+  hard-coded 0.88 asks a card with 12 GB already taken for 70 GB. Derive it from the actual free memory, and scale the
+  headroom with model size (4 GB of headroom is not enough for a 51 GB model; the KV-cache probe OOMs).
+* **Qwen3.5/3.8 have linear-attention layers**, and vLLM needs one Mamba cache block per concurrent sequence. 27B has
+  only 179 blocks left while the default `max_num_seqs` is 1024, so it must be lowered explicitly or the engine will
+  not start — with an error message that looks nothing like out-of-memory.
+* **When mixing multimodal datasets, image datasets must come before text datasets.** HuggingFace takes the schema
+  from the first dataset; with text first, the `images` column is inferred as null and the image data cannot be cast
+  into it.
+* **Datasets over 2 GB must be stored as parquet, not JSON.** Arrow reading one large JSON raises
+  `OverflowError: value too large to convert to int32_t`, which gives no hint that file size is the problem. A
+  3.05 GB JSON becomes 1.04 GB as parquet and the problem disappears.
+* **Five traps of a shared machine**, none of which exist on a dedicated one: (1) someone else's resident
+  placeholder process can eat 135 GB, and one that declares 16 GiB actually used 33.8 GB; (2)
+  `gpu_memory_utilization` is a fraction of total, not free, memory; (3) all four 27B OOMs happened on the card
+  shared with someone else, and the run works on an empty card; (4) the GPU picker was hard-coded to look at the
+  first four cards and never saw the other four after the machine grew to eight; (5) **there is a race between
+  picking a GPU and using it** — a card that was free when picked is full when the engine starts, and the engine dies
+  without producing any output. The evaluation entry point now re-checks before launch and retries on another card.
+* **Never edit a script while it is running.** bash reads the file by byte offset, and an edit makes it execute
+  misaligned bytes. This happened twice in the project.
 
 ---
 
-## 7. 数据集：`3dcodeverse/3dcodeverse-2m`
+## 7. Dataset: `3dcodeverse/3dcodeverse-2m`
 
-九个来源、**290,480 段不同的可执行代码**、**1,932,722 条训练配对**（文本→代码 / 图像→代码 / 图像+文本→代码 × 全部 caption 变体）、545,397 张训练分辨率渲染图。
+Figures below are as of the end of this study (2026-08); the current numbers are on the
+[dataset card](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m).
 
-根目录的 `dataset_info.json` 注册了 **609 个子集**，配合 `dataset_dir: REMOTE:3dcodeverse/3dcodeverse-2m` 可直接按名训练，无需预先下载或转换。格式经 LLaMA-Factory 实跑训练验证。
+Nine sources, **290,480 distinct runnable programs**, **1,932,722 training pairs** (text→code / image→code /
+image+text→code × every caption variant), and 545,397 renders at training resolution.
 
-### 构建过程中修掉的五个"静默失败"
+The root `dataset_info.json` registers **609 subsets**; with `dataset_dir: REMOTE:3dcodeverse/3dcodeverse-2m` you can
+train on any of them by name, without downloading or converting anything first. The format was verified with real
+LLaMA-Factory training runs.
 
-它们的共同点是**都不报错，只是安静地给出看起来合理的结果**：
+### Five silent failures fixed while building it
 
-| 缺陷 | 后果 |
+What they share is that **none of them raised an error; each quietly produced a plausible-looking result**:
+
+| defect | consequence |
 |---|---|
-| 元数据字节偏移整体失效（1,953 个里只有 577 个指向真正的 tar 头，因为归档在元数据写好后被重新打包） | 丢掉 **70% 的图像配对** |
-| 文件树来源用目录名做索引 key，340 个样本塌成 240 个 | **100 个样本配上了别人的渲染图**（代码图片对不上比缺图更有害） |
-| 长度检查发生在代码替换之前，而 URDF 的 `code` 列本来就是空的 | 丢掉 **6,146 条** |
-| 三个文件树来源的渲染图就地读取、从未进入压缩流程 | 三个来源的图像数据集**完全不可用**（6,616 张图路径指向不存在的文件） |
-| 空产出被打分器记成 0% | 健康模型被记成全零 |
+| metadata byte offsets were stale across the board (only 577 of 1,953 pointed at a real tar header, because the archives were repacked after the metadata was written) | **70% of the image pairs** lost |
+| a file-tree source keyed samples by directory name, collapsing 340 samples into 240 | **100 samples paired with someone else's renders** (a mismatched code–image pair is worse than a missing image) |
+| the length check ran before the code substitution, and the URDF `code` column is empty to begin with | **6,146 rows** lost |
+| renders of three file-tree sources were read in place and never went through the compression step | the image datasets of three sources were **completely unusable** (6,616 image paths pointing at files that do not exist) |
+| empty output scored as 0% by the scorer | healthy models recorded as all-zero |
 
-前四个都是**实际打开数据检查**才发现的，不是靠推理。
+The first four were found by **actually opening the data and looking**, not by reasoning about it.
 
-### 用法（实测，不是照文档推断）
+### Usage (tested, not inferred from documentation)
 
-三份索引：`dataset_info_text.json`（342 个，纯文本）、`dataset_info_image.json`（276 个，带图）、`dataset_info.json`（618 个，全部）。
+Three registries: `dataset_info_text.json` (342 subsets, text only), `dataset_info_image.json` (276, with images),
+`dataset_info.json` (618, all).
 
-**纯文本可以直接从 Hub 训**，什么都不用下载：
+**Text-only data trains straight from the Hub** with nothing downloaded:
 
 ```yaml
 dataset_dir: REMOTE:3dcodeverse/3dcodeverse-2m
 dataset: 3dcv_shadertoy__33_text
 ```
 
-**带图必须先下载再指向本地。** `REMOTE:` 对图像数据集不适用——LLaMA-Factory 只在数据来自本地文件时才把 `media_dir` 拼到相对路径上（`converter.py` 把这个逻辑限定在 `load_from in ["script","file"]`），从 Hub 加载会把相对路径直接丢给文件系统并抛 `FileNotFoundError`。两条路径都跑过。渲染图是 448px JPEG，九个来源共约 13 GB，**不需要下载 337 GB 的 tar**。
+**Image data must be downloaded first and pointed at locally.** `REMOTE:` does not work for image datasets:
+LLaMA-Factory only joins `media_dir` onto relative paths when the data comes from local files (`converter.py`
+restricts that logic to `load_from in ["script","file"]`); loading from the Hub hands the relative path straight to
+the filesystem and raises `FileNotFoundError`. Both paths were run. The renders are 448 px JPEGs, about 13 GB across
+the nine sources — **there is no need to download the 337 GB of tars**.
 
-### 两条设计原则
+### Two design principles
 
-**转换器不能替使用者决定基准边界。** 原先只要样本与 3DCodeBench 的 212 个 factory 重叠就丢弃，结果把两个文件夹整个清空（它们 100% 都是重叠样本）。现在改为在 `qc.json` 里**计数**而保留数据——划分是训练时的决定，不是转换时的。
+**A converter must not decide benchmark boundaries for its users.** Originally any sample overlapping one of the
+212 3DCodeBench factories was dropped, which emptied two folders entirely (they were 100% overlapping samples). Now
+the overlap is **counted** in `qc.json` and the data is kept — the split is a training-time decision, not a
+conversion-time one.
 
-**抽样能证伪，不能证实。** 抽查四个数据集说"路径都是相对的"；全量扫描 411 个发现**其中三个有 36,964 个绝对路径**，是当天一次重建引入的回归（复用已抽取的图片时走了另一条分支）。对全局不变量必须全扫——`audit_pairs.py` 就是为此存在，退出码可接 CI。
+**Spot checks can falsify, not verify.** Spot-checking four datasets said "all paths are relative"; a full scan of
+411 found **36,964 absolute paths in three of them**, a regression introduced by a rebuild that same day (reusing
+already-extracted images went through a different branch). Global invariants need a full scan — that is why
+`audit_pairs.py` exists, and its exit code can gate CI.
 
-而这个审计脚本的第一版把全部 194 万行都报成结构错误，因为 parquet 返回 numpy 数组而 `isinstance(x, list)` 判否。**第 5 节那条规律对你刚写的检查器同样适用。**
+And the first version of that audit script reported all 1.94M rows as structurally invalid, because parquet returns
+numpy arrays and `isinstance(x, list)` is false. **§5 applies to the checker you just wrote, too.**
 
 ---
 
-## 8. 仍未解决
+## 8. Still open
 
-* **OpenSCAD / three.js 的能力上限**受限于语料（1,191 和 340 段代码）。stop-DPO 能把 OpenSCAD 从 6% 救到 94%，但那是修行为；要真正提升上限需要更多不同的程序。
-* **没有单一模型在所有方言上最好**，方言间存在此消彼长。
-* **27B 相对 9B 没有体现优势**（多模态 47.2% vs 48.6%），而成本高得多。
+* **The capability ceiling for OpenSCAD and three.js** is set by the corpus (1,191 and 340 programs). Stop-DPO
+  rescues OpenSCAD from 6% to 94%, but that fixes behaviour; raising the ceiling needs more distinct programs.
+* **No single model is best on every dialect**; gains on one dialect trade off against another.
+* **27B shows no advantage over 9B** (multimodal 47.2% vs 48.6%) at a much higher cost.

@@ -4,7 +4,7 @@ A *suite* is one prompt file under data/prompts/<name>.jsonl plus how to run and
 runner needs is derived from the rows themselves (dialect, images, reference), so adding a suite = adding a
 JSONL; the table below only pins per-suite decoding defaults and which metrics apply.
 
-Decoding defaults follow finetune/docs/REPORT.md §13.4: greedy for Blender/CadQuery, and for the
+Decoding defaults follow finetune/docs/REPORT.md §4.4 (REPORT_FULL.md §13.4 in git history): greedy for Blender/CadQuery, and for the
 long-output dialects (OpenSCAD / GLSL / three.js) sampling at T=0.7 is the *primary* protocol because
 greedy decoding degenerates into runaway loops there; run both when you can afford it.
 """

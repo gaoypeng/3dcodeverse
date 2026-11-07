@@ -12,7 +12,7 @@ regenerates any of them from a one-line budget spec).
   mixes.json                        the exact budget spec of every mix used in the report
   README.md                         dataset card
 
-usage: python llamafactory/build_hf_dataset.py [--out /wekafs/ict/hx_624/hf_ds] [--push 3dcodeverse/3dcodeverse-llamafactory] [--private]
+usage: python llamafactory/build_hf_dataset.py [--out /wekafs/ict/hx_624/hf_ds] [--push 3dcodeverse/3dcodeverse-2m]  (published under finetune/)
 """
 import argparse
 import collections
@@ -66,7 +66,7 @@ def write_parquet(rows, path_prefix, cols=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="/wekafs/ict/hx_624/hf_ds")
-    ap.add_argument("--push", default=None, help="repo id, e.g. 3dcodeverse/3dcodeverse-llamafactory")
+    ap.add_argument("--push", default=None, help="repo id, e.g. 3dcodeverse/3dcodeverse-2m (uploads under finetune/)")
     ap.add_argument("--private", action="store_true")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -183,9 +183,8 @@ Total SFT pairs: **{total:,}** (one row per prompt variant; each source sample h
 ## How to use with LLaMA-Factory
 
 ```bash
-huggingface-cli download 3dcodeverse/3dcodeverse-llamafactory --repo-type dataset --local-dir data/3dcv
-cp data/3dcv/dataset_info.json data/3dcv/   # already there; point dataset_dir at data/3dcv
-llamafactory-cli train your_config.yaml     # with: dataset_dir: data/3dcv, dataset: 3dcv_blender,3dcv_cadquery,...
+huggingface-cli download 3dcodeverse/3dcodeverse-2m --repo-type dataset --local-dir data/3dcv --include "finetune/*"
+llamafactory-cli train your_config.yaml     # with: dataset_dir: data/3dcv/finetune, dataset: 3dcv_blender,3dcv_cadquery,...
 ```
 
 `dataset_info.json` registers every subset (`3dcv_<dialect>`, `3dcv_blender_bootstrapped`, `3dcv_dpo_<name>`).
@@ -222,9 +221,9 @@ reference scripts import it.
         tok = os.environ.get("HF_TOKEN")
         api = HfApi(token=tok)
         api.create_repo(a.push, repo_type="dataset", private=a.private, exist_ok=True)
-        api.upload_folder(folder_path=a.out, repo_id=a.push, repo_type="dataset",
+        api.upload_folder(folder_path=a.out, repo_id=a.push, repo_type="dataset", path_in_repo="finetune",
                           commit_message="3DCodeVerse in LLaMA-Factory format: SFT corpus by dialect, bootstrapped Blender set, DPO preference sets, held-out tests")
-        print(f"[hf] pushed to https://huggingface.co/datasets/{a.push}")
+        print(f"[hf] pushed to https://huggingface.co/datasets/{a.push}/tree/main/finetune")
 
 
 if __name__ == "__main__":

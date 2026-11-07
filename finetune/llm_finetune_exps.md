@@ -4,7 +4,7 @@ Full log of every experiment run on dgx03 (4×H100 80GB, GPUs 0–3), 2026-08-21
 Narrative report with the reasoning behind each step: [`docs/REPORT.md`](docs/REPORT.md). Environment: [`docs/SETUP.md`](docs/SETUP.md).
 
 **Task** — given a text description, generate code that builds a 3D asset, in six dialects: Blender-Python (bpy), CadQuery, OpenSCAD, GLSL (Shadertoy), three.js, and animated web pages.
-**Evaluation is execution-based** — every generated program is actually run (Blender 5.0.1 headless / CadQuery / OpenSCAD AppImage / glslangValidator / headless Chromium), and the resulting mesh is compared to the ground-truth mesh with Chamfer distance and F-score at 5% / 10% of the object's largest dimension (`eval/metrics.py`). "exec rate" = fraction of tasks whose code runs and produces a non-empty result; `F@0.05 (all)` counts failures as 0.
+**Evaluation is execution-based** — every generated program is actually run (Blender 5.0.1 headless / CadQuery / OpenSCAD AppImage / glslangValidator / headless Chromium), and the resulting mesh is compared to the ground-truth mesh with Chamfer distance and F-score at 5% / 10% of the object's largest dimension (`../eval/llm/metrics.py`). "exec rate" = fraction of tasks whose code runs and produces a non-empty result; `F@0.05 (all)` counts failures as 0.
 **Training** — unmodified LLaMA-Factory (upstream `c4e09c7`, 0.9.6.dev0); every run is one YAML in `configs/lf/`.
 
 ## 0. Headline results
@@ -42,9 +42,9 @@ Best per objective: **executability on the main benchmark** → 9B + execution-f
 
 ## 2. Data
 
-Corpus audit (`scripts/build_md_max.py`): **768,596 prompt→code pairs / 891M tokens** from every usable 3DCodeVerse source — CadQuery 390k (deepcad + articraft), GLSL 353k (shadertoy), Blender 19.6k (bioinspired3d + 3dcodebench factories + blender_distill), OpenSCAD 3.3k (thingiverse), web 1.6k (animation2code), three.js 549 — each sample expanded over its 3 caption variants.
+Corpus audit (`llamafactory/build_md_max.py`): **768,596 prompt→code pairs / 891M tokens** from every usable 3DCodeVerse source — CadQuery 390k (deepcad + articraft), GLSL 353k (shadertoy), Blender 19.6k (bioinspired3d + 3dcodebench factories + blender_distill), OpenSCAD 3.3k (thingiverse), web 1.6k (animation2code), three.js 549 — each sample expanded over its 3 caption variants.
 Excluded on purpose: `3dcodebench/instances_*` (3,904 rows — 100% re-seeded instances of the 212 benchmark factories = test leakage), `articraft/urdf_*` (code column empty in the metadata), `threejs_repos` (multi-file projects), and every id in the held-out test sets.
-Training mixes are sampled from it with `scripts/sample_mix.py` (per-dialect token budget, captions-per-sample cap). The most valuable single subset is the **15.7k execution-verified bootstrapped Blender samples** (`scripts/self_train_round*.sh`): removing them costs ~50 points on 3DCodeBench, and adding them back is what took the 27B from 57.6% to 93.4%.
+Training mixes are sampled from it with `llamafactory/sample_mix.py` (per-dialect token budget, captions-per-sample cap). The most valuable single subset is the **15.7k execution-verified bootstrapped Blender samples** (`scripts/self_train_round*.sh`): removing them costs ~50 points on 3DCodeBench, and adding them back is what took the 27B from 57.6% to 93.4%.
 
 ## 3. Throughput (4×H100, LoRA r64, cutoff 8192 + packing unless noted)
 
@@ -54,11 +54,11 @@ Training mixes are sampled from it with `scripts/sample_mix.py` (per-dialect tok
 | 9B full FT, 4 GPUs ZeRO-3 | ~14,000 | |
 | 27B LoRA, 4 GPUs DDP, cutoff 4096 | ~6,200 | 104k pairs / 75M tok = 3h36m |
 | 27B LoRA, 4 GPUs ZeRO-3, cutoff 8192 | ~460 | 7.8× slower than DDP — LoRA's optimizer state is tiny, so sharding parameters only buys all-gather traffic |
-| 27B inference, vLLM TP=2 | 2,500–4,100 | engine load 3.5–12 min; one engine per evaluation, not per suite (`eval/generate_multi.py`) |
+| 27B inference, vLLM TP=2 | 2,500–4,100 | engine load 3.5–12 min; one engine per evaluation, not per suite (now `../eval/llm/run_eval.py`) |
 
 ## 4. Evaluating models whose native output is not just code
 
-Reasoning/instruct models answer with prose + one or more code blocks. `eval/extract.py` strips `<think>` blocks, collects every fenced block (plus an unterminated trailing one, plus a no-fence fallback), and scores candidates by dialect markers (`import bpy`, `cq.Workplane`, `void mainImage`, `THREE.`, `module …`), fence language, and syntax validity — ties go to the *last* high-scoring block. On the 27B with thinking enabled this matters a lot: 52/212 answers had no fence at all, 103/212 had multiple blocks, and in 74/212 the best block was not the last one. On finetuned models it is a no-op (verified identical to the old rule on 702 stored generations), so no historical number changed.
+Reasoning/instruct models answer with prose + one or more code blocks. `../eval/llm/extract.py` strips `<think>` blocks, collects every fenced block (plus an unterminated trailing one, plus a no-fence fallback), and scores candidates by dialect markers (`import bpy`, `cq.Workplane`, `void mainImage`, `THREE.`, `module …`), fence language, and syntax validity — ties go to the *last* high-scoring block. On the 27B with thinking enabled this matters a lot: 52/212 answers had no fence at all, 103/212 had multiple blocks, and in 74/212 the best block was not the last one. On finetuned models it is a no-op (verified identical to the old rule on 702 stored generations), so no historical number changed.
 Thinking mode costs 10× the tokens: at a 12k budget 204/212 of the 27B's answers were truncated (33.5% exec); at 32k it recovers to 60.8% with *better* geometry than greedy (F@0.1 0.718 vs 0.646) — i.e. thinking buys fidelity, not executability, and only if you pay for the budget.
 
 ---
