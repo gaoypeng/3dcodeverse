@@ -375,8 +375,8 @@ then max_rounds refine rounds, EACH built on the round before it — a FIXED cou
 stop reasons: max_rounds | budget (the wall clock — BudgetGuard / max_minutes) | agent_quota | no_change |
               no_refine_tasks | judge_unavailable | failed
 finalise: the workspace ENDS AT THE LAST ROUND; finalize_record → record.json.  No best round, no deliverable/
-after the run (`3dcodeverse make`, unless --no-pick): addons/select.pick(by="score") — highest effective score, ties →
-          fewer gate errors → the earlier round — then package(): deliverable/ + selection.json
+after the run (`3dcodeverse make`, unless --no-pick): addons/select.pick(by="score") — rounds without a project:* /
+          contract_fixed ERROR first, then highest effective score, ties → fewer gate errors → the earlier round — then package(): deliverable/ + selection.json
 ```
 
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`); articulated

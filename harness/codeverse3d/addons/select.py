@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord, RunRecord
+from codeverse3d.contracts.spec import FIXED_PARTS_GATE, PROJECT_GATE_PREFIX
 from codeverse3d.cost.context import call_context
 from codeverse3d.cost.types import Role, Stage
 from codeverse3d.judges.base import judged_subset, resolve_paths
@@ -104,12 +105,6 @@ def round_rows(run_dir: Path | str, *, record: RunRecord | None = None) -> list[
     return rows
 
 
-#: the gates that measure the project's own truth: its registered checks (tracks/project_checks.py) and its
-#: fixed parts (spatial/contract.py); named here so the pick never imports a track
-PROJECT_GATE_PREFIX = "project:"
-FIXED_PARTS_GATE = "contract_fixed"
-
-
 def is_project_gate(name: str) -> bool:
     """A gate that measures the project's own truth: its registered checks (``project:*``) or its fixed parts."""
     return name.startswith(PROJECT_GATE_PREFIX) or name == FIXED_PARTS_GATE
@@ -141,7 +136,8 @@ def pick(run_dir: Path | str, *, by: PickBy = "score", pairwise_model: str | Non
     if not ranked:
         return None
     top = ranked[0]
-    if by != "pairwise" or len(ranked) < 2 or (top.score or 0.0) - (ranked[1].score or 0.0) > PAIRWISE_MARGIN:
+    if (by != "pairwise" or len(ranked) < 2 or (ranked[1].project_errors > 0) != (top.project_errors > 0)
+            or (top.score or 0.0) - (ranked[1].score or 0.0) > PAIRWISE_MARGIN):
         return top.index
     note = pairwise_verdict(Workspace(run_dir), rec, top.index, ranked[1].index,
                             model=pairwise_model or rec.spec.backends.judge, judge=judge)

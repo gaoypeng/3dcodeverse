@@ -252,3 +252,18 @@ def test_a_round_failing_the_projects_own_checks_loses_to_one_that_passes(tmp_pa
     assert select.pick(ws.root) == want
     rows = select.round_rows(ws.root)
     assert [r.project_errors for r in rows] == ([e for _, e in rounds] if gate != "contract" else [0] * len(rounds))
+
+
+def test_pairwise_never_overturns_the_project_tier(tmp_path):
+    """Within the pairwise margin, a round failing a project check is never asked against a clean one."""
+    ws = _run(tmp_path / "r", [(0.70, 0), (0.71, 0)])
+    rec = json.loads(ws.record_path.read_text())
+    rec["rounds"][1]["gates"].append({"gate": "project:survey", "passed": False, "findings": [
+        {"gate": "project:survey", "severity": "error", "message": "eaves 0.9 m off"}]})
+    ws.record_path.write_text(json.dumps(rec))
+
+    class Never:
+        def judge(self, *a, **k):
+            raise AssertionError("pairwise asked across tiers")
+
+    assert select.pick(ws.root, by="pairwise", judge=Never()) == 0

@@ -147,9 +147,10 @@ pick with Argon, use `3dcodeverse pick <slug> --by pairwise --judge gemini:gemin
                                         # it archives the round journal + record.json to rounds/pre_force/ and the
                                         # run starts again at round 0
 3dcodeverse pick <slug> [--by score|pairwise] [--round N] [--judge MODEL]
-                                        # hand over a round: deliverable/ + selection.json.  score = highest
+                                        # hand over a round: deliverable/ + selection.json.  score = rounds
+                                        # without a project:* / contract_fixed ERROR first, then highest
                                         # effective score, ties → fewer gate errors → the earlier round; pairwise =
-                                        # the pairwise judge between the top two when within 0.03; --round N = that
+                                        # the pairwise judge between the top two when within 0.03 (same tier); --round N = that
                                         # round.  `make`/`resume` run `pick --by score` for you
 3dcodeverse render <slug> [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcodeverse judge <slug> [--round N] [--rubric static_object] [--model gemini:gemini-4-argon] [--n 3] [--thinking off|low|medium|high]

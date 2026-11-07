@@ -159,6 +159,7 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "output_format": SINGLE_SHOT_OUTPUT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt,
         "constraints": constraints_text(ctx.spec),
+        "fixed_parts": "\n".join(fixed_parts_lines(ctx.spec)),
         "object_name": object_name,
         "plan_summary": getattr(plan, "summary", "") if plan else "",
         "style_notes": getattr(plan, "style_notes", "") if plan else "",

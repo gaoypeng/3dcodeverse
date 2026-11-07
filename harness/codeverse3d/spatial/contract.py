@@ -17,6 +17,7 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
+from codeverse3d.contracts.spec import FIXED_PARTS_GATE as FIXED_GATE
 from codeverse3d.contracts.spec import FixedPart
 from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
@@ -340,7 +341,6 @@ def check_contract(measurement: Measurement, plan: StaticPlan, *, language: str,
 
 
 # --------------------------------------------------------------------------- fixed parts
-FIXED_GATE = "contract_fixed"
 #: a fixed part is built by code the agent may not change, so its box must come out as declared: any face of
 #: it further than this from the declared box is an ERROR
 FIXED_TOL_M = 0.05

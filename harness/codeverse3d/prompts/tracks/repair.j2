@@ -5,6 +5,10 @@ material exactly as they are. Do not refactor, do not "simplify" the model, do n
 
 ## Error report
 {{ error_report }}
+{% if fixed_parts %}
+
+{{ fixed_parts }}
+{% endif %}
 {% if repeats > 0 %}
 
 THIS IS THE SAME ERROR AS THE PREVIOUS ATTEMPT ({{ repeats }}× repeated). Your last edit did not

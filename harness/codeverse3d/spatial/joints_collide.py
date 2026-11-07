@@ -76,13 +76,13 @@ def inside_island(island: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
 
 
 def _intersector(mesh: trimesh.Trimesh) -> object:
-    """The ray engine of the parity test: trimesh's own ray-triangle intersector, or Embree (``mesh.ray`` when
-    embreex is installed) only if ``Settings.ray_engine`` asks for it: a segfault in embreex cannot be caught."""
+    """The ray engine of the parity test: Embree (``mesh.ray``), or trimesh's own intersector under
+    ``C3D_RAY_ENGINE=numpy`` for a GLB on which embreex segfaults (a segfault cannot be caught)."""
     from codeverse3d.config import get_settings
 
-    if get_settings().ray_engine == "embree":
-        return mesh.ray
-    return RayMeshIntersector(mesh)
+    if get_settings().ray_engine == "numpy":
+        return RayMeshIntersector(mesh)
+    return mesh.ray
 
 
 class LinkBody:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,6 +42,11 @@ class FixedPart(BaseModel):
     bbox_min: Vec3 | None = Field(default=None, description="the built part's box, GLB frame (Y-up, +Z front), m")
     bbox_max: Vec3 | None = None
     note: str = Field(default="", description="one line for the planner and the agent")
+
+
+#: the gates that measure the project's own truth: Spec.checks report as project:<name>, Spec.fixed_parts as contract_fixed
+PROJECT_GATE_PREFIX = "project:"
+FIXED_PARTS_GATE = "contract_fixed"
 
 
 class ProjectCheck(BaseModel):
@@ -89,8 +95,11 @@ class Spec(BaseModel):
 
     @model_validator(mode="after")
     def _fixed_parts_are_sources(self) -> Spec:
+        if (self.fixed_parts or self.checks) and self.track not in (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT):
+            raise ValueError(f"fixed_parts and checks are measured on the object tracks only, not {self.track.value}")
         for f in self.fixed_parts:
-            parts = f.path.replace("\\", "/").split("/")
+            f.path = posixpath.normpath(f.path.replace("\\", "/"))
+            parts = f.path.split("/")
             if parts[0] != "src" or ".." in parts or len(parts) < 2:
                 raise ValueError(f"fixed part {f.path!r}: must be a file under src/")
             if (f.bbox_min is None) != (f.bbox_max is None):

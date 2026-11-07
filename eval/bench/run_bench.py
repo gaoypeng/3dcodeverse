@@ -30,6 +30,7 @@ import argparse
 import csv
 import json
 import logging
+import shutil
 import sys
 import traceback
 from collections.abc import Callable, Sequence
@@ -375,7 +376,11 @@ def _run_battery(
             # was over budget before its first round (measured 2026-08-26: clock_q4 and
             # lighthouse_1 came back `budget`, 0 rounds, 60.3 / 76.7 min "elapsed").
             # The old tree is kept beside it as <id>.attempt<N>, the way ab_plan does.
-            archive_attempt(ws.root)
+            prev = archive_attempt(ws.root)
+            for f in item.fixed_parts:  # the project's seeds went with the archived attempt
+                if (prev / f.path).is_file():
+                    (ws.root / f.path).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(prev / f.path, ws.root / f.path)
         resume = ws.exists()
         if not resume:
             ws.create()

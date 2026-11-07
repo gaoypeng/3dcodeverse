@@ -247,10 +247,10 @@ class Settings(BaseSettings):
     default_captioner: str = Field(default_factory=lambda: Backends().captioner)
     default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
     ray_engine: Literal["numpy", "embree"] = Field(
-        default="numpy",
-        description="ray engine of the deterministic inside tests (connectivity penetration, pose sweep): trimesh's "
-        "own ray-triangle intersector, or Embree via embreex when installed.  numpy by default: embreex 4 can "
-        "segfault on large multi-part GLBs, which kills every parallel run of the process.  C3D_RAY_ENGINE.",
+        default="embree",
+        description="ray engine of the deterministic inside tests (connectivity penetration, pose sweep): Embree via "
+        "embreex, or trimesh's own ray-triangle intersector (numpy: ~100x slower, memory grows with rays x "
+        "triangles) for a GLB on which embreex 4 segfaults.  C3D_RAY_ENGINE.",
     )
 
     model_timeout_s: float = Field(

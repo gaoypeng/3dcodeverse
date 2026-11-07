@@ -20,6 +20,7 @@ from codeverse3d.contracts.artifacts import PLACEHOLDER_PART, GateReport, Judgme
 from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, RunStatus, StepTime
+from codeverse3d.contracts.spec import PROJECT_GATE_PREFIX
 from codeverse3d.conventions import split_instance, to_snake
 from codeverse3d.cost.tally import timed
 from codeverse3d.proc import EventLog
@@ -248,7 +249,8 @@ def build_refine_instructions(
     errors.sort(key=lambda gf: gf[1].data.get("kind") != PLACEHOLDER_PART)   # stable: placeholders first
     for g, f in errors:
         _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=f.as_line(),
-                        priority=0, source="gate"), str(f.data.get("kind") or ""))
+                        priority=0, source="gate"),
+             str(f.data.get("kind") or (f.message if g.gate.startswith(PROJECT_GATE_PREFIX) else "")))
     for t in extra:
         _add(t.model_copy())
     for a in acceptance_failures:

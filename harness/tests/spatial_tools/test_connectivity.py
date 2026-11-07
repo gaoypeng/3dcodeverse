@@ -213,8 +213,9 @@ def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool
     assert sorted(d["parts"]) == ["Leg_0", "Leg_1", "Leg_2", "Leg_3", "Seat"]
     assert len(d["contacts"]) == 4 and all(c[1] == "Seat" or c[0] == "Seat" for c in d["contacts"])
 
-def test_inside_test_uses_trimesh_rays_unless_embree_is_asked_for(switch) -> None:
-    """The default ray engine is trimesh's own intersector, Embree only by ``C3D_RAY_ENGINE=embree``."""
+
+def test_inside_test_uses_embree_unless_numpy_is_asked_for(switch) -> None:
+    """The default ray engine is Embree (``mesh.ray``); trimesh's own intersector only by ``C3D_RAY_ENGINE=numpy``."""
     from trimesh.ray.ray_triangle import RayMeshIntersector
 
     from codeverse3d.spatial import joints_collide
@@ -222,7 +223,7 @@ def test_inside_test_uses_trimesh_rays_unless_embree_is_asked_for(switch) -> Non
     box = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
     points = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
     switch("C3D_RAY_ENGINE", None)
+    assert joints_collide._intersector(box) is box.ray
+    switch("C3D_RAY_ENGINE", "numpy")
     assert isinstance(joints_collide._intersector(box), RayMeshIntersector)
     assert joints_collide.inside_island(box, points).tolist() == [True, False]
-    switch("C3D_RAY_ENGINE", "embree")
-    assert joints_collide._intersector(box) is box.ray

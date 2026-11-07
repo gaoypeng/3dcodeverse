@@ -120,3 +120,16 @@ def test_the_skeleton_keeps_a_fixed_part_and_stops_without_one(tmp_path: Path) -
     ctx.spec = _spec(SHELL, FixedPart(path="src/missing.js"))
     with pytest.raises(FileNotFoundError, match="src/missing.js"):
         _skeleton(None, ctx)  # type: ignore[arg-type]
+
+
+def test_fixed_parts_are_object_track_only_and_stored_canonical() -> None:
+    assert _spec(FixedPart(path="src//parts/./a.js")).fixed_parts[0].path == "src/parts/a.js"
+    with pytest.raises(ValueError, match="object tracks only"):
+        Spec(id="x", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="p", fixed_parts=[DATA])
+
+
+def test_refine_and_repair_prompts_carry_the_fixed_parts() -> None:
+    from codeverse3d.prompts import load_text
+
+    for name in ("tracks/refine_object.j2", "tracks/repair.j2"):
+        assert "{% if fixed_parts %}" in load_text(name)

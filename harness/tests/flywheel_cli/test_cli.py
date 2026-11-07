@@ -65,7 +65,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     assert (ws / "src").is_dir() and (ws / "artifacts" / "renders").is_dir()
     # same prompt again → same slug → refuse without --force
     r2 = runner.invoke(app, ["make", "a wooden dining chair", "--runs-dir", str(runs), "--no-run"])
-    assert r2.exit_code == 1 and "already exists" in (r2.output + str(r2.stderr if hasattr(r2, "stderr") else ""))
+    assert r2.exit_code == 1 and "already exists" in " ".join(r2.output.split())  # the console wraps long paths
     r3 = runner.invoke(app, ["make", "a wooden dining chair", "--runs-dir", str(runs), "--no-run", "--force"])
     assert r3.exit_code == 0
 

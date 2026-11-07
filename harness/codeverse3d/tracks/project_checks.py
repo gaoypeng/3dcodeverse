@@ -21,11 +21,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Measurement, Severity
+from codeverse3d.contracts.spec import PROJECT_GATE_PREFIX as PREFIX
 from codeverse3d.contracts.spec import ProjectCheck, Spec
 
 log = logging.getLogger(__name__)
 
-PREFIX = "project:"
 
 
 class CheckFn(Protocol):
