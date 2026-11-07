@@ -430,7 +430,6 @@ rows name what is optional or busy.
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `in-flight slots` | WARN | every machine-wide slot is held right now (`busy n/n`), or `max_in_flight=0` switched the cap off | busy: other harness processes are mid-call and new calls wait for a slot — nothing to fix unless it stays full; a slot is held only while a call is out and a killed process frees its slots at once.  Off: unset `C3D_MAX_IN_FLIGHT` |
-| `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight and this process's 429/5xx counts |
 
 ---
 
