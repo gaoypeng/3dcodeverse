@@ -45,6 +45,8 @@ class RoundRow(BaseModel):
     score: float | None = Field(default=None, description="effective judged score; None = unjudged or a degraded verdict")
     passed: bool | None = Field(default=None, description="the judge's own verdict for THIS round (None = unjudged)")
     gate_errors: int = 0
+    project_errors: int = Field(default=0, description="ERRORs of the project's own measurements: its checks "
+                                "(project:*, Spec.checks) and fixed parts (contract_fixed, Spec.fixed_parts)")
     build_ok: bool | None = None
     commit: str = ""
     cost_usd: float = 0.0
@@ -96,13 +98,27 @@ def round_rows(run_dir: Path | str, *, record: RunRecord | None = None) -> list[
         j = effective_judgment(r)
         rows.append(RoundRow(index=r.index, kind=r.kind, score=j.overall if j else None, passed=j.passed if j else None,
                              gate_errors=sum(len(g.errors) for g in r.gates),
+                             project_errors=sum(len(g.errors) for g in r.gates if is_project_gate(g.gate)),
                              build_ok=None if r.build is None else r.build.ok, commit=r.commit,
                              cost_usd=round(r.usage.cost_usd, 6), minutes=round(r.minutes, 2)))
     return rows
 
 
+#: the gates that measure the project's own truth: its registered checks (tracks/project_checks.py) and its
+#: fixed parts (spatial/contract.py); named here so the pick never imports a track
+PROJECT_GATE_PREFIX = "project:"
+FIXED_PARTS_GATE = "contract_fixed"
+
+
+def is_project_gate(name: str) -> bool:
+    """A gate that measures the project's own truth: its registered checks (``project:*``) or its fixed parts."""
+    return name.startswith(PROJECT_GATE_PREFIX) or name == FIXED_PARTS_GATE
+
+
 def _ranked(rows: list[RoundRow]) -> list[RoundRow]:
-    return sorted((r for r in rows if r.score is not None), key=lambda r: (-(r.score or 0.0), r.gate_errors, r.index))
+    """Judged rounds, best first: no project-check errors, then score, fewer gate errors, earlier round."""
+    return sorted((r for r in rows if r.score is not None),
+                  key=lambda r: (r.project_errors > 0, -(r.score or 0.0), r.gate_errors, r.index))
 
 
 # --------------------------------------------------------------------------- a round's own outputs
