@@ -359,7 +359,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
         write_blender_skeleton(sub_ws, sub.plan, ground_tol_m=HERO_GROUND_TOL_M)
         sub_ws.commit("skeleton")
     if not ctx.single_shot:
-        # language contract alone: harness_contract.md's ±1 cm bbox acceptance contradicts the prop sheet's ±5 %
+        # language contract alone: harness_contract.md's acceptance list (overall bbox within max(10 mm, 10 %)) is not the asset prop-sheet's tolerance
         ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text)
     files = sub.runtime.expected_files(sub.plan)
     timeout_s = asset_timeout_s(ctx, 180)

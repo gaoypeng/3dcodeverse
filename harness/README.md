@@ -29,40 +29,9 @@ renders, judges, refines and records every run as data-flywheel material.
 ## Architecture
 
 Every run is **spec → plan → skeleton → [scene stages] → baseline round (best-of-N
-optional) → refine rounds → finalise → record**.  The package tree:
+optional) → refine rounds → finalise → record**.  The package tree is `docs/ARCHITECTURE.md` §2.
 
-```
-codeverse3d/
-  contracts/       typed pydantic contracts: Track/Language/Usage/Budget/Backends,
-                   Spec, plans, artifacts, run record, AgentJob
-  conventions.py   frames, units, views, naming, tolerances (THE constants source)
-  config.py        Settings (C3D_* env + config.yaml) · workspace.py  run-dir layout + git snapshots
-  proc.py          stdlib-only subprocess/JSON/JSONL primitives, run lock, fan-out (a leaf)
-  orchestrator.py  the round loop's library: stage runner + resume state, round knobs, the clock
-  tracks/          the four track pipelines + the round loop, the one planner loop, generation strategies
-                   (vendor-CLI agent / single-shot), repair, best-of-N, skills hook
-  languages/       one merged module per language (lint → skeleton → runtime) beside its
-                   data dirs: blender cadquery threejs urdf scene_threejs scene_blender glsl_shader opengl_python
-  agents/          CodingAgent protocol + the vendor-CLI backends (claude-code,
-                   codex, antigravity): sessions, watchdog clocks, transcripts
-  models/          ChatModel + gemini/anthropic/openai adapters; key-pool retry machine,
-                   streaming with stall detection, IPv4-pinned transport, pricing, health
-  spatial/         the measurement/render toolbox behind every gate and MCP tool
-  judges/          rubric VLM judge on labelled montages, pairwise, reference/likeness
-  reference.py     a user `--image` against the render: proportion check, mismatch diff
-  cost/            append-only ledger, metering, per-block tallies, pre-call estimates
-  skills/          typed skill routes + materialisation + read telemetry
-  record/          what every run writes: record.json, deliverable/, telemetry
-  addons/          optional tools that READ finished runs — nothing a run needs:
-                   gallery (the runs browser), dataset (export, tiers, preference/repair pairs,
-                   captions), costreport (`3dcodeverse cost`), calibration, skill_targets
-  cli/             the typer CLI · doctor.py  the environment checks behind `3dcodeverse doctor`
-../eval/bench/     the evaluation harness around the harness: run_bench, compare_backends
-                   (A/B matrix), ab_plan, infra-failure classification
-runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
-```
-
-Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.md`.
+Design laws and what each stage does: `docs/ARCHITECTURE.md`.
 
 **Supported versions:** python **3.13** and node **20.6+** (Linux x86_64; Blender
 5.2 LTS optional).  Developed and measured on python 3.13 / node 24; there is no CI — the offline suite and

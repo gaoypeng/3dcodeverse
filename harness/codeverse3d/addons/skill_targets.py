@@ -19,7 +19,6 @@ SRC_BUILD = "build"
 SRC_GLB = "glb"
 SRC_FRAMES = "frames"
 SRC_ARTIFACT = "artifact"
-SOURCES = (SRC_GATE, SRC_BUILD, SRC_GLB, SRC_FRAMES, SRC_ARTIFACT)
 
 
 @dataclass(frozen=True)
@@ -49,8 +48,7 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_GATE,
         kinds=("connectivity/penetration",),
         languages=OBJECT_LANGS,
-        why="the plain count of penetrating pairs is the strongest single predictor of "
-            "assembly_fit (r = -0.258, eval/docs/COMPLEXITY.md §6) and the bundle exists to lower it",
+        why="the penetrating-pair count is the strongest single predictor of assembly_fit (r = -0.258, eval/docs/COMPLEXITY.md §6)",
     ),
     Target(
         skill="c3d-bbox-contract",
@@ -61,13 +59,8 @@ TARGETS: tuple[Target, ...] = (
         kinds=("contract/part_bbox", "contract/overall_bbox", "contract/footprint_offset",
                "contract/ground_gap"),
         languages=OBJECT_LANGS,
-        why="the bundle is the contract gate's own tolerance arithmetic: a part that IS there "
-            "and is the wrong size or in the wrong place",
-        caveat="two contract kinds are deliberately somebody else's. contract/instance_* is "
-               "c3d-repeats-and-mirrors; contract/missing_part is a part that never reached the "
-               "GLB at all, which is a language-API failure (c3d-threejs-forms owns it for "
-               "threejs; for blender its upstream signal is lint/part_not_imported, counted by "
-               "c3d-blender-forms) rather than a tolerance failure.",
+        why="the bundle is the contract gate's own tolerance arithmetic: a part that is there at the wrong size or place",
+        caveat="contract/instance_* is c3d-repeats-and-mirrors; contract/missing_part is a language-API failure, not a tolerance one.",
     ),
     Target(
         skill="c3d-repeats-and-mirrors",
@@ -98,8 +91,7 @@ TARGETS: tuple[Target, ...] = (
         kinds=("joint_sweep/penetration", "joint_sweep/unattached"),
         severities=("error",),
         languages=("urdf_blender",),
-        why="metadata.owns names joint_sweep; 653 of 691 sweep findings in the corpus are "
-            "moved-pose ERRORs, which is exactly what the clearance rule targets",
+        why="653 of 691 joint_sweep findings in the corpus are moved-pose ERRORs, which the clearance rule targets",
     ),
     Target(
         skill="c3d-cadquery-forms",
@@ -108,8 +100,7 @@ TARGETS: tuple[Target, ...] = (
         unit="fraction of rounds whose build failed",
         source=SRC_BUILD,
         languages=("cadquery",),
-        why="the bundle's own framing is 'the kernel rules that decide whether the script "
-            "builds at all'; an OCC kernel refusal is a build failure, not a gate finding",
+        why="an OCC kernel refusal is a build failure, not a gate finding",
         caveat="no baseline exists: eval/bench/out holds zero graded cadquery runs.",
     ),
     Target(
@@ -120,8 +111,7 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_GATE,
         kinds=("contract/missing_part",),
         languages=("threejs",),
-        why="the bundle's distinct claim is the traps that make a threejs part silently ship "
-            "nothing (bevel_depth 0, no computeVertexNormals); the contract gate calls that a missing part",
+        why="the traps that make a threejs part silently ship nothing count as a missing part",
         caveat="no baseline exists: eval/bench/out holds zero graded threejs runs.",
     ),
     Target(
@@ -132,10 +122,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_GATE,
         kinds=("scene_frames/camera_*",),
         languages=("scene_threejs",),
-        why="cameras below ground or inside geometry are arithmetic failures, and the bundle's "
-            "whole method is deriving them from measured bounds",
-        caveat="frame coverage (content_small, hero_*) is the bundle's other half and routes it "
-               "too (R15), but is not in this count.",
+        why="cameras below ground or inside geometry are arithmetic failures the bundle derives from measured bounds",
+        caveat="frame coverage (content_small, hero_*) also routes the bundle (R15) but is not in this count.",
     ),
     Target(
         skill="c3d-scene-lighting",
@@ -145,8 +133,7 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_GATE,
         kinds=("scene_frames/dark_frame", "scene_frames/flat_frame", "scene_frames/blown_frame"),
         languages=("scene_threejs",),
-        why="the bundle is the exposure thresholds of frame_metrics.py restated with a recipe; "
-            "the gate counts exactly the frames it failed to light",
+        why="the bundle is the exposure thresholds of frame_metrics.py with a recipe",
     ),
     Target(
         skill="c3d-scene-motion",
@@ -157,12 +144,7 @@ TARGETS: tuple[Target, ...] = (
         languages=("scene_threejs",),
         measurable=False,
         why="reported as a regression guard only",
-        caveat="NOT a target. The bundle says so itself: re-measuring all 8 recorded rounds, every "
-               "authored camera cleared the 0.4 % bar by 5-12x while animation_life averaged 0.431. "
-               "The claim is per-plan-item ('the water and the leaves are static'), and no "
-               "deterministic instrument attributes motion to a named plan item. Raising this "
-               "number is not evidence the bundle worked; a drop below MOVING_FRAC still is a "
-               "regression worth catching.",
+        caveat="NOT a target: no deterministic instrument attributes motion to a named plan item; a drop below MOVING_FRAC is still a regression.",
     ),
     Target(
         skill="c3d-threejs-shader-traps",
@@ -172,12 +154,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_ARTIFACT,
         kinds=("shader_preflight/*",),
         languages=("scene_threejs", "threejs"),
-        why="every trap the bundle teaches lands "
-            "in the one shader_preflight report",
-        caveat="zero headroom in today's corpus: all 4 recorded scene runs are clean, so this can "
-               "only detect a regression until a battery makes it fire. Runs recorded before "
-               "2026-09-22 have shader_preflight only beside the run (artifacts/), their final state; "
-               "since then every round's gates carry it (BuildResult.gates).",
+        why="every trap the bundle teaches lands in the one shader_preflight report",
+        caveat="zero headroom in today's corpus (all 4 recorded scene runs are clean): detects a regression only.",
     ),
     Target(
         skill="c3d-glsl-craft",
@@ -186,9 +164,7 @@ TARGETS: tuple[Target, ...] = (
         unit="mean edge density over the 5 sampled frames (frame_stats)",
         source=SRC_FRAMES,
         languages=("glsl_shader",),
-        why="the gl_frames gate fired zero findings on all 9 graded glsl runs, so its finding "
-            "count has no headroom; edge density is the continuous quantity that gate thresholds "
-            "and the quantity its own fix hint asks the agent to raise",
+        why="the gl_frames gate fired zero findings on 9 graded glsl runs; edge density is the continuous quantity it thresholds",
     ),
     Target(
         skill="c3d-opengl-pipeline",
@@ -198,8 +174,7 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_GATE,
         kinds=("gl_frames/*",),
         languages=("opengl_python",),
-        why="every gl_frames finding in the whole graphics corpus (3 flicker, 1 low detail) came "
-            "from opengl_python, and flicker is trap 1 (a sampled solver) showing up in pixels",
+        why="every gl_frames finding in the graphics corpus came from opengl_python",
     ),
     # ------------------------------------------------------------- recipe port
     Target(
@@ -210,9 +185,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_ARTIFACT,
         languages=("scene_threejs",),
         measurable=False,
-        why="the sky bake IS the scene's light source; the reference audit found the bake "
-            "inverted in 4 of 9 delivered scenes and every reflective surface went dark",
-        caveat="ported claim: reference-harness evidence, our own A/B pending (sceneloop).",
+        why="the reference audit found the sky bake inverted in 4 of 9 delivered scenes",
+        caveat="ported claim: reference-harness evidence, our own A/B pending.",
     ),
     Target(
         skill="c3d-scene-water",
@@ -222,10 +196,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_ARTIFACT,
         languages=("scene_threejs",),
         measurable=False,
-        why="dielectric water against a live environment bake is the reference's most-shipped "
-            "material fix; no deterministic gate measures water quality yet",
-        caveat="NOT yet measurable here: judged quality only. The sceneloop A/B attaches numbers; "
-               "a water-specific instrument (fresnel/metalness census) is a candidate follow-up.",
+        why="dielectric water against a live environment bake is the reference's most-shipped material fix",
+        caveat="NOT yet measurable here: judged quality only; a fresnel/metalness census is the candidate instrument.",
     ),
     Target(
         skill="c3d-scene-night",
@@ -235,9 +207,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_ARTIFACT,
         languages=("scene_threejs",),
         measurable=False,
-        why="night briefs are the dark_or_flat gate's richest source; the bundle is the "
-            "reference's measured shaft/emissive discipline plus our linear-luminance table",
-        caveat="ported claim: reference-harness evidence, our own A/B pending (sceneloop).",
+        why="night briefs are the dark_or_flat gate's richest source",
+        caveat="ported claim: reference-harness evidence, our own A/B pending.",
     ),
     Target(
         skill="c3d-scene-materials",
@@ -247,10 +218,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_ARTIFACT,
         languages=("scene_threejs",),
         measurable=False,
-        why="flat albedo and identical twins are the reference audit's most-cited surface "
-            "defects; no deterministic gate measures material variance yet",
-        caveat="NOT yet measurable here: judged quality only. A variance census (per-material "
-               "value spread over sampled texels) is the candidate instrument.",
+        why="flat albedo and identical twins are the reference audit's most-cited surface defects",
+        caveat="NOT yet measurable here: judged quality only; a per-material value-spread census is the candidate instrument.",
     ),
     # ------------------------------------------------------------- scene_blender
     Target(
@@ -263,12 +232,8 @@ TARGETS: tuple[Target, ...] = (
                "scene_placement/interpenetration"),
         severities=("error",),
         languages=("scene_blender",),
-        why="the bundle's whole method is seating every placed row on height_at or its support; the loop's "
-            "own accept rule vetoes an iteration whose floating+sunken+interpenetration ERROR count per run "
-            "rises, so the bundle is measured by the number the loop already reads",
-        caveat="unsupported is a WARN-only kind in scene_placement.py today, so it contributes zero until the "
-               "gate escalates it; cantilevered and free_exempt route the bundle (R30) but are not counted — "
-               "cantilevered is WARN-only and free_exempt is one finding per report, not per asset.",
+        why="the bundle seats every placed row on height_at or its support; the floating+sunken+interpenetration ERROR count is the number to move",
+        caveat="unsupported, cantilevered and free_exempt route the bundle (R30) but are WARN-only or per-report, so they add nothing to the count.",
     ),
     Target(
         skill="c3d-bpy-scene-lighting",
@@ -278,11 +243,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_GATE,
         kinds=("scene_frames/dark_frame", "scene_frames/flat_frame", "scene_frames/blown_frame"),
         languages=("scene_blender",),
-        why="the bundle is the exposure thresholds of frame_metrics.py restated with the Cycles/AgX bands "
-            "measured under them; the gate counts exactly the frames it failed to light",
-        caveat="the same three kinds as c3d-scene-lighting, over a disjoint language: a run is scene_threejs "
-               "or scene_blender, never both, so each A/B still names one owner. The uniqueness test must key "
-               "on (kind, language), not on the kind alone.",
+        why="the bundle is the exposure thresholds of frame_metrics.py with the Cycles/AgX bands",
+        caveat="the same three kinds as c3d-scene-lighting over a disjoint language; the uniqueness test keys on (kind, language).",
     ),
     Target(
         skill="c3d-bpy-scene-materials",
@@ -292,12 +254,8 @@ TARGETS: tuple[Target, ...] = (
         source=SRC_ARTIFACT,
         languages=("scene_blender",),
         measurable=False,
-        why="placeholder_material, flat_ground and monotonous_vegetation are judge defects with no deterministic "
-            "twin; the census GLB reads three Principled default values and a linked socket exports as its default",
-        caveat="NOT yet measurable here: judged quality only. The candidate instrument is one census field per "
-               "material — which of Base Color / Roughness / Metallic / Normal are linked — written by "
-               "wrappers/_census_glb.py next to the values it already reads; until it exists this row is a "
-               "finding about the bundle, not a number.",
+        why="placeholder_material, flat_ground and monotonous_vegetation are judge defects with no deterministic twin",
+        caveat="NOT yet measurable here: judged quality only; a census of linked Principled sockets is the candidate instrument.",
     ),
 )
 
