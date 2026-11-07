@@ -1,7 +1,7 @@
 """Run records: finalise / load / iterate.
 
 ``finalize_record`` fills the environment, reads the run's total off its cost ledger, writes
-``telemetry/`` and ``record.json`` atomically.  Telemetry is best-effort and never fails a run.
+``record.json`` (telemetry included) atomically.  Telemetry is best-effort and never fails a run.
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-_VERSION_TIMEOUT_S = 30
-
 
 class RecordError(RuntimeError):
     """A record.json is missing or invalid."""
@@ -36,7 +34,7 @@ class RecordError(RuntimeError):
 
 # --------------------------------------------------------------------------- environment
 def _cmd_first_line(cmd: list[str]) -> str:
-    rc, line = version_line(cmd, timeout=_VERSION_TIMEOUT_S)
+    rc, line = version_line(cmd)
     return line or f"exit {rc}"
 
 
@@ -202,7 +200,7 @@ def complexity_block(record: RunRecord) -> dict[str, Any] | None:
 
 # --------------------------------------------------------------------------- io
 def package_run(ws: Workspace, record: RunRecord) -> None:
-    """Read the run's total off its ledger (``record.total_usage`` = its sum at list price), write ``telemetry/``.
+    """Read the run's total off its ledger (``record.total_usage`` = its sum at list price).
 
     Best-effort: a failure is logged and the run still gets its ``record.json``."""
     from codeverse3d.record.telemetry import build_telemetry
@@ -247,7 +245,7 @@ def join_post_run(ws: Workspace) -> Iterator[None]:
 
 
 def finalize_record(ws: Workspace, record: RunRecord) -> Path:
-    """Fill derived fields + environment, write ``telemetry/`` and ``record.json``."""
+    """Fill derived fields + environment, build the telemetry block and write ``record.json``."""
     record.workspace = record.workspace or str(ws.root)
     fill_derived(record)
     package_run(ws, record)

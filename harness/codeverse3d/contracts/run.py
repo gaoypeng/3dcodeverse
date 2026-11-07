@@ -31,7 +31,6 @@ class SkillRead(BaseModel):
     deep: bool = Field(default=False, description="transcript: the agent opened a file under its references/ (or "
                        "its atime says so while the control's references/ are untouched — a shell read the "
                        "trace cannot parse); atime fallback: a references/*.md atime > mtime")
-    deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
     reason: str = Field(default="", description="which route attached it, and which finding")
 
@@ -109,29 +108,6 @@ class RunId(BaseModel):
         if not meaningful:
             meaningful = [parts[-1]]
         return "__".join(meaningful)
-
-    @property
-    def cell(self) -> str | None:
-        """The ``cells/<cell>/…`` segment, when the layout has one."""
-        parts = self._parts()
-        if "cells" in parts:
-            i = parts.index("cells")
-            if i + 1 < len(parts):
-                return parts[i + 1]
-        return None
-
-    @property
-    def arm(self) -> str | None:
-        """The ``arms/<arm>/…`` segment, or the directory between the cell and its ``run``."""
-        parts = self._parts()
-        if "arms" in parts:
-            i = parts.index("arms")
-            return parts[i + 1] if i + 1 < len(parts) else None
-        if "cells" in parts:
-            i = parts.index("cells")
-            if i + 2 < len(parts) and parts[i + 2] != "run":
-                return parts[i + 2]
-        return None
 
 
 class RunStatus(StrEnum):
@@ -214,7 +190,6 @@ class RoleSettings(BaseModel):
 class SettingsSnapshot(BaseModel):
     """Everything that decided how the run ran."""
 
-    schema_version: int = 1
     roles: list[RoleSettings] = Field(default_factory=list)
     budget: dict[str, Any] = Field(default_factory=dict, description="max_rounds / max_minutes / max_repair_attempts")
     candidates: int | None = Field(default=None, description="best-of-N baseline width, resolved")
@@ -228,10 +203,6 @@ class SettingsSnapshot(BaseModel):
     key_pool_size: int = Field(default=0, description="number of API keys in the rotating pool")
     price_table_version: str = Field(default="", description="content hash of codeverse3d.models.pricing.PRICES")
     render: dict[str, Any] = Field(default_factory=dict, description="resolved render settings (size, gpu, sheet)")
-    limits: dict[str, Any] = Field(default_factory=dict, description="resolved timeouts / parallelism")
-    variant: str = Field(default="", description="per-model prompt/skill variant the run used ('' = base; D105)")
-    variant_version: int = Field(default=0, description="the variant's version from its variant.toml (0 = base)")
-    variant_hash: str = Field(default="", description="sha256[:12] over the variant overlay's files (name, text), '' = base")
 
 
 class StageCost(BaseModel):
@@ -247,9 +218,8 @@ class StageCost(BaseModel):
 
 
 class CostSummary(BaseModel):
-    """``telemetry/cost.json``: the run's ledger rows summarised."""
+    """The run's ledger rows summarised (``record.telemetry.cost``)."""
 
-    schema_version: int = 1
     total_usd: float = Field(default=0.0, description="the ledger's sum at list price = record.total_usage")
     minutes: float | None = Field(default=None, description="RunRecord.minutes when the record was written")
     max_minutes: float = 0.0
@@ -263,7 +233,6 @@ class CostSummary(BaseModel):
 
 class RunTelemetry(BaseModel):
 
-    schema_version: int = 1
     settings: SettingsSnapshot | None = None
     cost: CostSummary | None = None
 
@@ -280,18 +249,10 @@ class DeliverableFile(BaseModel):
 class RunDeliverable(BaseModel):
     """``deliverable/manifest.json``: the handed-over round as paths + hashes + sizes."""
 
-    schema_version: int = 1
-    dir: str = "deliverable"
     round: int | None = Field(default=None, description="the packaged round")
     commit: str = ""
-    code_source: str = Field(default="", description="commit | working_tree")
     entry: str = Field(default="", description="run-relative entry file of the code snapshot")
     files: list[DeliverableFile] = Field(default_factory=list)
-    total_bytes: int = 0
-    generated_at: datetime | None = None
-
-    def by_role(self, role: str) -> list[DeliverableFile]:
-        return [f for f in self.files if f.role == role]
 
 
 class RunRecord(BaseModel):

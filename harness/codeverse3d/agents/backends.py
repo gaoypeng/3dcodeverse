@@ -185,12 +185,30 @@ def primary_served_model(env: dict[str, Any], model: str) -> str:
     return max(served, key=lambda n: float((served[n] or {}).get("costUSD") or 0.0))
 
 
+def _stream_errors(stdout: str) -> tuple[str, ...]:
+    """What the CLI itself reported as failing: ``error`` / ``error_status`` of its events (``api_retry`` among
+    them) and a ``result`` event's text.  Never the tool results and model text that fill the rest of the stream."""
+    out: list[str] = []
+    for line in stdout.splitlines():
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(ev, dict):
+            out += [str(ev[k]) for k in ("error", "error_status") if ev.get(k)]
+            if ev.get("type") == "result" and ev.get("result"):
+                out.append(str(ev["result"]))
+    return tuple(out)
+
+
 def claude_end(proc: CompletedProc, env: dict[str, Any] | None, text: str) -> SessionEnd:
     sub = str((env or {}).get("subtype", ""))
     if proc.timed_out:
         return classify_end(proc, ok=False, text=text)
     if env is None or proc.rc != 0:
-        return classify_end(proc, ok=False, text=text, said=(proc.stderr, proc.stdout))
+        return classify_end(proc, ok=False, text=text, said=(proc.stderr, *_stream_errors(proc.stdout)))
     if env.get("is_error") or sub.startswith("error"):
         return SessionEnd("budget") if "max_turns" in sub else classify_end(proc, ok=False, text=text, said=(text,))
     return classify_end(proc, ok=True, text=text)

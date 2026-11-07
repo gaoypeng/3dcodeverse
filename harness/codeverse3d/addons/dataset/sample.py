@@ -102,7 +102,7 @@ class SampleMeta(BaseModel):
     prompt_hashes: dict[str, str] = Field(default_factory=dict)
     telemetry: dict[str, Any] = Field(
         default_factory=dict,
-        description="compact accounting digest from record.telemetry / telemetry/cost.json ({} when absent)")
+        description="compact accounting digest from record.telemetry ({} when absent)")
 
 
 def sample_key(ws: Workspace) -> str:
@@ -295,14 +295,12 @@ def build_meta(
         has_captions=bool(caps.get("detailed")),
         captioner=str((caps.get("provenance") or {}).get("captioner", "")),
         prompt_hashes=dict(record.prompt_hashes),
-        telemetry=telemetry_digest(ws, record),
+        telemetry=telemetry_digest(record),
     )
 
 
-def telemetry_digest(ws: Workspace, record: RunRecord) -> dict[str, Any]:
-    from codeverse3d.record.telemetry import load_telemetry
-
-    tele = load_telemetry(ws, record)
+def telemetry_digest(record: RunRecord) -> dict[str, Any]:
+    tele = record.telemetry
     if tele is None:
         return {}
     out: dict[str, Any] = {}

@@ -356,7 +356,11 @@ def sha256_file(path: Path | str) -> str:
     return h.hexdigest()
 
 
-def version_line(cmd: Sequence[str], *, timeout: float) -> tuple[int | None, str]:
+#: the one timeout of every ``--version`` probe (a cold Blender start is the slow one)
+VERSION_TIMEOUT_S = 60.0
+
+
+def version_line(cmd: Sequence[str], *, timeout: float = VERSION_TIMEOUT_S) -> tuple[int | None, str]:
     """``(returncode, first output line)`` of a ``--version``-style probe.
 
     ``returncode`` is None when the binary could not be run at all (missing, timed out)
@@ -458,7 +462,7 @@ class EventLog:
         append_jsonl_line(self.path, {"t": round(time.time(), 3), "event": event, **data}, self._lock)
 
     def read(self) -> list[dict[str, Any]]:
-        return read_jsonl_lenient(self.path, log=log)
+        return read_jsonl_lenient(self.path, log=log, dicts_only=True)
 
 
 class _NullEvents:

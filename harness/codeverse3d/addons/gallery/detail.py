@@ -241,11 +241,8 @@ def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
                   anchor="renders", extra_head=sheet)
 
 
-def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
-    from codeverse3d.record.telemetry import load_telemetry
-
-    tele = load_telemetry(ws, rec)
-    cost = tele.cost if tele is not None else None
+def _cost_panel(entry: RunEntry, rec: RunRecord) -> str:
+    cost = rec.telemetry.cost if rec.telemetry is not None else None
     if cost is None:
         rows = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(entry.cost_by_stage.items(), key=lambda kv: -kv[1]))
         u = rec.total_usage
@@ -351,7 +348,7 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
         + _complexity_panel(entry, rec)
         + _measurement_panel(entry, rec)
         + _renders_panel(entry, urls, rec)
-        + _cost_panel(entry, ws, rec)
+        + _cost_panel(entry, rec)
         + _code_panel(entry, urls, rec)
         + (_foot_nav(urls, prev, nxt) if urls.has_detail else "")
         + "</main>"

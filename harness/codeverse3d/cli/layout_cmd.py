@@ -131,8 +131,8 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
     head: dict[str, Any] = {"picked round": f"{s.picked_round} (by {s.method})", "score": fmt_score(s.picked_score)}
     d = load_deliverable(ws)
     if d is not None:
-        head["code"] = f"{d.entry or 'deliverable/src/'} @ {d.commit[:12] or '-'} ({d.code_source})"
-        head["total"] = f"{len(d.files)} files, {_human_bytes(d.total_bytes)}"
+        head["code"] = f"{d.entry or 'deliverable/src/'} @ {d.commit[:12] or '-'}"
+        head["total"] = f"{len(d.files)} files, {_human_bytes(sum(f.bytes for f in d.files))}"
     console.print(kv_table("deliverable", head))
     if d is not None:
         console.print(_deliverable_table(d))
@@ -199,14 +199,13 @@ def _roles_table(settings: SettingsSnapshot) -> Table:
 
 
 def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
-    from codeverse3d.record.telemetry import build_telemetry, load_telemetry
+    from codeverse3d.record.telemetry import build_telemetry
 
     _section("COST & SETTINGS — token price and the key step settings")
-    tele = load_telemetry(ws, record)
-    computed = False
-    if tele is None or tele.cost is None:
-        tele = build_telemetry(ws, record, write=False)
-        computed = True
+    tele = record.telemetry
+    computed = tele is None or tele.cost is None
+    if computed:
+        tele = build_telemetry(ws, record)
     cost, settings = tele.cost, tele.settings
     if cost is not None:
         u = cost.tokens
@@ -237,9 +236,9 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
             "render": " · ".join(f"{k}={v}" for k, v in settings.render.items()),
         }))
     if computed:
-        console.print("[dim]computed on the fly (no telemetry/ in this run)[/dim]")
+        console.print("[dim]computed on the fly (no telemetry in this record)[/dim]")
     else:
-        console.print(f"[dim]telemetry: {ws.cost_path} · {ws.telemetry / 'cost.jsonl'} · {ws.settings_path}[/dim]")
+        console.print(f"[dim]ledger: {ws.telemetry / 'cost.jsonl'}[/dim]")
 
 
 # --------------------------------------------------------------------------- command

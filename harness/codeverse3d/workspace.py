@@ -138,14 +138,6 @@ class Workspace:
         return self.root / TELEMETRY_DIR
 
     @property
-    def cost_path(self) -> Path:
-        return self.telemetry / "cost.json"
-
-    @property
-    def settings_path(self) -> Path:
-        return self.telemetry / "settings.json"
-
-    @property
     def deliverable_manifest_path(self) -> Path:
         return self.deliverable / "manifest.json"
 

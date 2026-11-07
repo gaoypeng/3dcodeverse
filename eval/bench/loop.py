@@ -333,7 +333,7 @@ class VariantPaths:
 
     def ledger_hash(self) -> str:
         """THE hash of this overlay: ``prompts.variants.variant_hash`` — what every run record of the
-        iteration carries (``extra.variant.hash``, ``SettingsSnapshot.variant_hash``) — whenever these
+        iteration carries (``extra.variant.hash``) — whenever these
         paths are the real overlay; :meth:`overlay_hash` only for a tmp tree.  The ledger row and the
         snapshot both write this one, so a snapshot can be paired with the runs it was measured on."""
         api = _variants_api_or_none()

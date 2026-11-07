@@ -137,8 +137,6 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
         links.append(RunLink(label="frames/", rel=frames_rel, kind="dir"))
     if (run / "public" / "assets").is_dir():
         links.append(RunLink(label="assets/", rel="public/assets", kind="dir"))
-    if (run / "telemetry" / "cost.json").is_file():
-        links.append(RunLink(label="cost.json", rel="telemetry/cost.json"))
     return links
 
 
@@ -172,7 +170,7 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
     gates = gate_error_summary(rnd)
     n_err = sum(gates.values())
     minutes = rec.minutes
-    digest = telemetry_digest(ws, rec)
+    digest = telemetry_digest(rec)
     caps = rec.extra.get("captions") or {}
     hero, hero_label, n_views = hero_view(ws, rec, picked)
     plan = rec.plan

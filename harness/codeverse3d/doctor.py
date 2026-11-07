@@ -21,13 +21,12 @@ _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", 
 _OPTIONAL_DEPS = {"shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
                   "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
                   "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
-_CLI_TIMEOUT = 25
 
 
-def _ver(cmd: list[str], timeout: int = _CLI_TIMEOUT) -> tuple[bool, str]:
+def _ver(cmd: list[str]) -> tuple[bool, str]:
     if not shutil.which(cmd[0]) and not Path(cmd[0]).is_file():
         return False, "not found"
-    rc, first = version_line(cmd, timeout=timeout)
+    rc, first = version_line(cmd)
     if rc is None:
         return False, first
     return rc == 0, first[:100] or f"exit {rc}"
@@ -59,7 +58,7 @@ def check_blender() -> list[Row]:
     if not b:
         return [("blender", "FAIL", f"C3D_BINARIES__BLENDER={s.binaries.blender} is not an executable"
                  if s.binaries.blender else "no binary (set C3D_BINARIES__BLENDER or put blender-5.2 on PATH)")]
-    okk, v = _ver([b, "--version"], timeout=60)
+    okk, v = _ver([b, "--version"])
     m = re.search(r"Blender (\d+)\.(\d+)", v)
     if okk and m and (int(m[1]), int(m[2])) < BLENDER_MIN:
         return [("blender", "FAIL", f"{v} @ {b} — too old, need >= {'.'.join(map(str, BLENDER_MIN))}")]
