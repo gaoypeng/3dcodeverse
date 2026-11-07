@@ -303,7 +303,7 @@ def source_traps(c: BpyCollector, source: str) -> list[GateFinding]:
 
 def _rules(c: BpyCollector, source: str, *, target: str, expect_names: bool, expect_bpy: bool) -> list[GateFinding]:
     out: list[GateFinding] = []
-    E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
+    E, W = Severity.ERROR, Severity.WARN
     if expect_bpy and "bpy" not in c.imports:
         out.append(_f(LintKind.UNDEFINED_NAME, E, f"{target} never imports bpy", 1, "start the file with `import bpy`"))
 
@@ -332,9 +332,7 @@ def _rules(c: BpyCollector, source: str, *, target: str, expect_names: bool, exp
         out.extend(use_nodes_trap(target, line))
     out.extend(source_traps(c, source))
     pascal = [n for n in c.names_assigned if PASCAL_RE.match(n) and n not in ("Cube", "Cylinder", "Sphere", "Plane")]
-    if pascal:
-        out.append(_f(LintKind.CENSUS, I, f"named objects: {sorted(set(pascal))[:12]}", None, ""))
-    elif expect_names:
+    if expect_names and not pascal:
         out.append(_f(LintKind.NAMING, W, "no PascalCase object names found (e.g. obj.name = 'SeatCushion')", None,
                       "name every visible mesh after its part: `obj.name = 'SeatCushion'`; instances `Leg_0..Leg_3`"))
     return out

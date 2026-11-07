@@ -56,7 +56,6 @@ def test_shader_skeleton_builds_and_writes_artifacts(tmp_ws, host):
     metrics = json.loads((ws.artifacts / "metrics.json").read_text())
     assert metrics["stats"]["mean_lum"] > 0.1 and not metrics["stats"]["any_nan"] and metrics["stats"]["static"]
     assert any(f["data"]["kind"] == "static" for f in metrics["gate"]["findings"])
-    assert br.census["convention"] == "mainImage" and br.census["feedback"] is False
 
 
 def test_feedback_starts_black_even_when_allocated_texture_memory_is_dirty(tmp_path, monkeypatch):
@@ -129,7 +128,7 @@ def test_feedback_and_nan_detection(tmp_ws, host):
         "    float bad = uv.x > 0.9 ? sqrt(-1.0) : 0.0;\n    fragColor = vec4(max(prev, vec3(d)) + bad, 1.0);\n}\n")
     rt = GlslShaderRuntime(host=host)
     br = rt.build(ws, **SMALL)
-    assert br.ok and br.census["feedback"] is True
+    assert br.ok
     metrics = json.loads((ws.artifacts / "metrics.json").read_text())
     assert metrics["stats"]["any_nan"] is True
     assert any(f["data"]["kind"] == "nan" for f in metrics["gate"]["findings"]) and not metrics["gate"]["passed"]

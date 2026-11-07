@@ -29,9 +29,9 @@ def test_skeleton_builds_named_coloured_glb(tmp_ws, table_plan) -> None:
     top = scene.geometry[scene.graph["TableTop"][1]]
     assert top.visual.material.baseColorFactor[0] > top.visual.material.baseColorFactor[2]
     c = r.census
-    assert c["result_kind"] == "assembly" and c["n_parts"] == 6 and c["tri_count"] == 6 * 12
+    assert len(c["parts"]) == 6 and sum(p["tri_count"] for p in c["parts"]) == 6 * 12
     leg = next(p for p in c["parts"] if p["name"] == "Leg_1")
-    assert leg["valid"] and abs(leg["volume_m3"] - 0.04 * 0.04 * 0.56) < 1e-9 and leg["bbox_min"][2] == 0.0
+    assert abs(leg["volume_m3"] - 0.04 * 0.04 * 0.56) < 1e-9
 
 
 @needs_cq
@@ -73,7 +73,7 @@ result.add(f, name='Sheet')
     # bare-Workplane result with a trailing selector → single node 'Object' + warning, parent solid exported
     (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z')\n")
     r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok and r.census["result_kind"] == "single" and r.census["parts"][0]["n_solids"] == 1
+    assert r.ok and r.census["parts"][0]["n_solids"] == 1
     assert trimesh.load(r.glb_path).graph.nodes_geometry == ["Object"]
     # no solid anywhere in the chain (2D wires only) → a typed error naming the stack, not a silent sheet
     (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').rect(0.1, 0.1)\n")

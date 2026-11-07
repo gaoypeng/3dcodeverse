@@ -303,7 +303,6 @@ class OpenGLPythonRuntime(RuntimeLayout):
                 res.error_type = "GlslCompileError"
                 err_msg += "\n(GLSL line numbers refer to the shader STRING inside program.py: " + \
                            "; ".join(f"line {m.line}: {m.message}" for m in glsl[:8]) + ")"
-        census = {"resolution": [w, h]}
         motion_expected = bool(plan.motion.strip()) if plan else True
         return finish_build(ws, res, language=self.language.value, error_file=err_file, error_line=err_line,
-                            error_message=err_msg, census=census, motion_expected=motion_expected)
+                            error_message=err_msg, motion_expected=motion_expected)

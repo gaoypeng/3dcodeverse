@@ -1,7 +1,7 @@
 """Scene census for the Blender build wrappers; runs inside Blender, never imported by the harness.
 
 Imported by run_bpy.py / run_bpy_links.py as a sibling, so it stays standalone.  Reports
-evaluated triangle counts, bboxes, materials, parents and contract warnings."""
+the objects (visibility, materials) and the contract warnings."""
 
 from __future__ import annotations
 
@@ -33,41 +33,28 @@ def is_hidden(obj: Any, vl_names: set[str] | None = None) -> bool:
         return True
 
 
-def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str], Vector: Any) -> dict[str, Any]:
+def _object_record(obj: Any, dg: Any, scene_objects: set[str], vl_names: set[str]) -> dict[str, Any]:
     rec: dict[str, Any] = {
         "name": obj.name,
         "type": obj.type,
-        "parent": obj.parent.name if obj.parent else None,
         "in_scene": obj.name in scene_objects,
         "in_view_layer": obj.name in vl_names,
         "hidden": is_hidden(obj, vl_names),
         "materials": [s.material.name for s in obj.material_slots if s.material],
         "n_material_slots": len(obj.material_slots),
-        "modifiers": [m.type for m in obj.modifiers],
-        "location": [round(v, 5) for v in obj.matrix_world.translation],
     }
-    if obj.type in MEASURABLE_TYPES:
+    if obj.type in MEASURABLE_TYPES and rec["n_material_slots"]:
         try:
             ob_eval = obj.evaluated_get(dg)
             me = ob_eval.to_mesh()
-            me.calc_loop_triangles()
-            rec["tri_count"] = len(me.loop_triangles)
-            rec["vert_count"] = len(me.vertices)
-            rec["has_uv"] = bool(me.uv_layers)
-            rec["has_vertex_colors"] = bool(me.color_attributes)
-            if rec["n_material_slots"] and len(me.polygons):
+            if len(me.polygons):
                 # modifiers can add slot indices the mesh never had; export clamps out-of-range ones
                 per_poly = [0] * len(me.polygons)
                 me.polygons.foreach_get("material_index", per_poly)
                 rec["material_indices_used"] = sorted(set(per_poly))
-            bb = world_bbox(ob_eval, Vector)
             ob_eval.to_mesh_clear()
-        except RuntimeError as e:
-            rec["tri_count"] = 0
-            rec["census_error"] = str(e)
-            bb = None
-        if bb:
-            rec["bbox_min"], rec["bbox_max"] = bb
+        except RuntimeError:
+            pass   # an object that cannot be evaluated has no slot census
     return rec
 
 
@@ -142,40 +129,15 @@ def _warnings(bpy: Any, objects: list[dict[str, Any]], boolean_operands: dict[st
 
 
 def collect_census(bpy: Any) -> dict[str, Any]:
-    from mathutils import Vector
-
     bpy.context.view_layer.update()
     dg = bpy.context.evaluated_depsgraph_get()
     scene_objects = set(bpy.context.scene.objects.keys())
     vl_names = set(bpy.context.view_layer.objects.keys())
     boolean_operands: dict[str, list[str]] = {}
     objects: list[dict[str, Any]] = []
-    total_tris = 0
-    mins: list[list[float]] = []
-    maxs: list[list[float]] = []
     for obj in bpy.data.objects:
         for m in obj.modifiers:
             if m.type == "BOOLEAN" and getattr(m, "object", None) is not None:
                 boolean_operands.setdefault(m.object.name, []).append(obj.name)
-        rec = _object_record(obj, dg, scene_objects, vl_names, Vector)
-        if rec["in_scene"] and not rec["hidden"] and obj.type in MEASURABLE_TYPES:
-            total_tris += rec["tri_count"]
-            if "bbox_min" in rec:
-                mins.append(rec["bbox_min"])
-                maxs.append(rec["bbox_max"])
-        objects.append(rec)
-    visible = [o for o in objects if o["in_scene"] and not o["hidden"] and o["type"] == "MESH"]
-    census = {
-        "objects": objects,
-        "n_mesh_objects": len(visible),
-        "tri_count": total_tris,
-        "materials": [m.name for m in bpy.data.materials],
-        "cameras": [o.name for o in bpy.data.objects if o.type == "CAMERA"],
-        "lights": [o.name for o in bpy.data.objects if o.type == "LIGHT"],
-        "warnings": _warnings(bpy, objects, boolean_operands, scene_objects, vl_names),
-        "frame": "z_up_neg_y_front",
-    }
-    if mins:
-        census["scene_bbox_min"] = [round(min(m[i] for m in mins), 5) for i in range(3)]
-        census["scene_bbox_max"] = [round(max(m[i] for m in maxs), 5) for i in range(3)]
-    return census
+        objects.append(_object_record(obj, dg, scene_objects, vl_names))
+    return {"objects": objects, "warnings": _warnings(bpy, objects, boolean_operands, scene_objects, vl_names)}

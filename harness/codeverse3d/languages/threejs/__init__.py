@@ -371,7 +371,6 @@ class ThreeJsRuntime(RuntimeLayout):
         result = self._failure(res, str(err.get("type", "Error")), str(err.get("message", "")))
         result.error_file = str(err.get("file", "") or self._part_file(ws, err.get("part")) or ("" if err.get("frames") else ENTRY))
         result.error_line = err.get("line") if isinstance(err.get("line"), int) else None
-        result.census = {"frames": err.get("frames", []), "stack": err.get("stack", ""), "part": str(err.get("part", "") or "")}
         return result
 
     @staticmethod

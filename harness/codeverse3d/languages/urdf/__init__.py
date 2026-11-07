@@ -677,7 +677,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
         if (missing := missing_entry(ws, self.language, write=False)) is not None:
             return finish(missing)
         lint = self.lint(ws)
-        census: dict[str, Any] = {"lint": [f.model_dump(mode="json") for f in lint.findings]}
+        census: dict[str, Any] = {}
         if not lint.passed:
             errs = lint.errors
             msg = "\n".join(f"- {f.message}" + (f"  → {f.fix_hint}" if f.fix_hint else "") for f in errs[:12])
@@ -709,7 +709,6 @@ class UrdfBlenderRuntime(RuntimeLayout):
             return fail("UrdfError", str(e), census=census)
 
         fk_findings = check_fk_consistency(robot, census.get("links") or {}, tol_m=FK_TOL_M)
-        census["fk_check"] = [f.model_dump(mode="json") for f in fk_findings]
         if fk_findings:
             msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)

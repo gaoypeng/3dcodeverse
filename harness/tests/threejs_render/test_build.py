@@ -114,7 +114,6 @@ def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
     assert not res.ok and res.error_type == "ContractError"
     assert "'LegMesh'" in res.error_message and "part 'Legs'" in res.error_message and "NaN" in res.error_message
     assert res.error_file == "src/parts/legs.js"
-    assert res.census["part"] == "Legs"
     rec = json.loads((stool_ws.artifacts / "export_error.json").read_text())
     assert rec["error"]["part"] == "Legs"
 

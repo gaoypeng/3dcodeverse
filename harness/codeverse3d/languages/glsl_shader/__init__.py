@@ -362,8 +362,6 @@ class GlslShaderRuntime(RuntimeLayout):
             buffer_a_src=buffer_a.source if buffer_a else None, feedback=image.uses_feedback or buffer_a is not None,
             extra_times=gif_times(duration or 8.0) if preview else (),
         )
-        census = {"convention": image.convention, "has_common": (ws.root / COMMON).is_file(), "has_buffer_a": buffer_a is not None,
-                  "resolution": [w, h]}
         err_file, err_line, err_msg = "", None, None
         if not res.ok and res.stage in ("compile", "compile_buffer_a"):
             comp = buffer_a if res.stage == "compile_buffer_a" and buffer_a else image
@@ -376,4 +374,4 @@ class GlslShaderRuntime(RuntimeLayout):
             res.error_type = "GlslCompileError"
         motion_expected = bool(plan.motion.strip()) if plan else True
         return finish_build(ws, res, language=self.language.value, error_file=err_file, error_line=err_line,
-                            error_message=err_msg, census=census, motion_expected=motion_expected)
+                            error_message=err_msg, motion_expected=motion_expected)

@@ -221,7 +221,7 @@ def gl_runtime(language: Language) -> Any:
                 Image.fromarray(np.stack([x, 255 - x, np.full_like(x, 96)], -1).astype(np.uint8), "RGB").save(p)
                 frames.append(GlFrame(index=i, time=t, path=str(p), judge=i < 5))
             return finish_build(ws, GlResult(ok=True, mode="shader", stage="render", renderer="fake-gl", frames=frames),
-                                language=language.value, census={"convention": "mainImage"})
+                                language=language.value)
 
     return FakeGl()
 
