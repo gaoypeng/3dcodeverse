@@ -1,12 +1,6 @@
 name: asset
 version: 1
 pass_threshold: 0.70
-description: >
-  Per-asset rubric used inside scenes: ONE asset (a building, a tree, a boat, a lamp
-  post...) isolated and rendered on the object rig.  Stricter on silhouette / all-sides
-  completeness than the static-object rubric, lighter on the brief because the asset
-  is only described by a one-line plan entry.
-
 extra_instructions: >
   The asset is judged as a scene ingredient: it must read correctly at a distance
   (silhouette) AND be finished on every side because cameras will see it from
@@ -141,7 +135,7 @@ caps:
     when: acceptance
     cap: 0.6
     graded: true
-    note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object); pass/fail unchanged
+    # 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object); pass/fail unchanged
 
 # Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
 defects:

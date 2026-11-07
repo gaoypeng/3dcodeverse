@@ -247,9 +247,8 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
     tele = load_telemetry(ws, rec)
     cost = tele.cost if tele is not None else None
     if cost is None:
-        rows = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(entry.cost_by_stage.items(), key=lambda kv: -kv[1]))
         u = rec.total_usage
-        rows += "".join([_kv("total", f"${u.cost_usd:.4f}"),
+        rows = "".join([_kv("total", f"${u.cost_usd:.4f}"),
                          _kv("input tokens", f"{u.input_tokens:,}"), _kv("output tokens", f"{u.output_tokens:,}")])
         per_round = "".join(_kv(f"r{r.index} {r.kind}", f"${r.usage.cost_usd:.4f} · {r.minutes:.1f} min")
                             for r in rec.rounds)

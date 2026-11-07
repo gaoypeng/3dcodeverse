@@ -86,8 +86,6 @@ class DefectItem(BaseModel):
     text: str = Field(description="concrete, visually checkable statement of the defect")
     penalty: float = Field(default=0.0, ge=0.0, le=1.0)
     cap: float | None = Field(default=None, ge=0.0, le=1.0)
-    note: str = ""
-
     @field_validator("id")
     @classmethod
     def _ident(cls, v: str) -> str:
@@ -124,8 +122,6 @@ class CapRule(BaseModel):
                     "{depth_m: VETO_PENETRATION_DEPTH_M}.  scene states {gap_m: 0.02} / {sunk_m: 0.10} / "
                     "{overlap: 0.20}; 0.0 = any WARN of the kind that carries the key",
     )
-    note: str = ""
-
     @model_validator(mode="after")
     def _default_measures(self) -> CapRule:
         if not self.measures:
@@ -141,7 +137,6 @@ class Rubric(BaseModel):
     caps: list[CapRule] = Field(default_factory=list)
     defects: list[DefectItem] = Field(default_factory=list, description="binary checklist scored in code")
     extra_instructions: str = ""
-    description: str = ""
 
     @model_validator(mode="after")
     def _consistent(self) -> Rubric:
@@ -308,57 +303,22 @@ def wire_schema(rubric: Rubric, acceptance_ids: list[str]) -> dict[str, Any]:
     return build_wire_model(rubric, acceptance_ids).model_json_schema(by_alias=True)
 
 
-def _records_to_dict(value: Any, key_names: tuple[str, ...]) -> dict[str, Any]:
-    """Accept ``{id: {...}}`` or ``[{id: ..., ...}, ...]`` and return ``{id: {...}}``."""
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, list):
-        out: dict[str, Any] = {}
-        for rec in value:
-            if not isinstance(rec, dict):
-                raise JudgeParseError(f"record is not an object: {rec!r}")
-            key = next((rec[k] for k in key_names if k in rec), None)
-            if key is None:
-                raise JudgeParseError(f"record lacks an id field {key_names}: {rec!r}")
-            out[str(key)] = {k: v for k, v in rec.items() if k not in key_names}
-        return out
-    raise JudgeParseError(f"expected object or list, got {type(value).__name__}")
+def _object(value: Any, what: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise JudgeParseError(f"{what} is not an object: {type(value).__name__}")
+    return value
 
 
-def _coerce_acceptance(value: Any) -> dict[str, Any]:
-    recs = _records_to_dict(value, ("id", "item_id", "item"))
-    out: dict[str, Any] = {}
-    for k, v in recs.items():
-        if isinstance(v, bool):
-            out[k] = {"verified": v, "evidence": ""}
-        elif isinstance(v, dict):
-            vv = dict(v)
-            if "verified" not in vv and "passed" in vv:
-                vv["verified"] = vv.pop("passed")
-            out[k] = vv
-        else:
-            raise JudgeParseError(f"acceptance item {k!r}: unexpected value {v!r}")
-    return out
-
-
-def _coerce_defects(value: Any) -> tuple[dict[str, bool], dict[str, str]]:
-    """``{id: bool}`` or ``{id: {present, evidence}}`` or a list of records → (present, evidence)."""
-    if value is None:
-        return {}, {}
-    recs = _records_to_dict(value, ("id", "defect", "item"))
+def _flatten_defects(value: Any) -> tuple[dict[str, bool], dict[str, str]]:
+    """``{id: {present, evidence}}`` (the wire shape) → (present, evidence); ``present`` must be a real boolean."""
     present: dict[str, bool] = {}
     evidence: dict[str, str] = {}
-    for k, v in recs.items():
-        if isinstance(v, bool):
-            present[k] = v
-        elif isinstance(v, dict):
-            flag = v.get("present", v.get("value", v.get("verified")))
-            if not isinstance(flag, bool):
-                raise JudgeParseError(f"defect {k!r}: 'present' must be a boolean, got {flag!r}")
-            present[k] = flag
-            evidence[k] = str(v.get("evidence", "") or "")
-        else:
-            raise JudgeParseError(f"defect item {k!r}: unexpected value {v!r}")
+    for k, v in _object(value, "defects").items():
+        flag = v.get("present") if isinstance(v, dict) else None
+        if not isinstance(flag, bool):
+            raise JudgeParseError(f"defect {k!r}: 'present' must be a boolean, got {v!r}")
+        present[k] = flag
+        evidence[k] = str(v.get("evidence", "") or "")
     return present, evidence
 
 
@@ -373,23 +333,16 @@ def parse_judge_output(
             raise JudgeParseError(f"no JSON object in reply: {e}") from e
     if not isinstance(payload, dict):
         raise JudgeParseError(f"reply is not a JSON object: {type(payload).__name__}")
-    data = dict(payload)
-    if "criteria" not in data and "per_criterion" in data:
-        data["criteria"] = data.pop("per_criterion")
+    data = payload
     try:
-        criteria = _records_to_dict(data.get("criteria", {}), ("id", "criterion", "name"))
-        criteria = {
-            k: ({"score": v, "evidence": ""} if isinstance(v, (int, float)) else v) for k, v in criteria.items()
-        }
-        acceptance = _coerce_acceptance(data.get("acceptance", {}))
-        defects, defect_evidence = _coerce_defects(data.get("defects", {}))
+        defects, defect_evidence = _flatten_defects(data.get("defects") or {})
         out = JudgeOutput(
-            criteria=criteria,
+            criteria=_object(data.get("criteria", {}), "criteria"),
             summary=str(data.get("summary", "") or ""),
             strengths=[str(s) for s in data.get("strengths", []) or []],
             issues=data.get("issues", []) or [],
             improvement_plan=data.get("improvement_plan", []) or [],
-            acceptance=acceptance,
+            acceptance=_object(data.get("acceptance", {}), "acceptance"),
             defects=defects,
             defect_evidence=defect_evidence,
         )
@@ -404,9 +357,8 @@ def parse_judge_output(
     extra = [k for k in out.criteria if k not in rubric.weights]
     for k in extra:
         out.criteria.pop(k)
-    missing_acc = [a for a in acceptance_ids if a not in out.acceptance]
-    for a in missing_acc:
-        out.acceptance[a] = AcceptanceVerdict(verified=False, evidence="not answered by judge")
+    out.acceptance = {a: out.acceptance.get(a) or AcceptanceVerdict(verified=False, evidence="not answered by judge")
+                      for a in acceptance_ids}
     known = {d.id for d in rubric.defects}
     for k in [k for k in out.defects if k not in known]:
         out.defects.pop(k)
@@ -611,22 +563,10 @@ A stored verdict is reproducible from its samples only under the version that wr
 it (``eval/bench/rejudge_offline.py --identity`` compares nothing else); an older stamp is
 drift to report, not a fault.
 
-0 — before 2026-08-26 (no stamp on disk): majority vote, penalties, the cap ladder.
-1 — 2026-08-26, 7a9b6d3: ``veto_measured_defects`` — a checklist defect a passed gate
-    measured absent neither penalises nor caps.  (Unstamped; 41 corpus verdicts predate
-    it and move on replay.)
-2 — 2026-08-30: ``CapRule.measures`` (the veto reaches ``interpenetration``), the object
-    rubrics' floating/penetration rules watch ``connectivity`` alone, a defect vote tie
-    is absent, ``missing_must_acceptance`` is graded, ``overridden`` + this stamp in raw.
-3 — 2026-09-24: a gate cap rule's ``kinds`` match the finding's typed ``data.kind`` /
-    ``data.code``; the message only when it has neither, the target never (N50).  A replay
-    of the 1 229 recorded judged rounds moved no cap and no veto.
-4 — 2026-10-14 (scene): the measured-absent veto is scoped to the rule's ``kinds`` — a
-    watched report that failed on an unrelated kind no longer cancels it — and the WARN
-    magnitude that keeps a claim alive is the rule's ``veto_warn_keys`` (the object rubrics
-    keep the ``depth_m`` ≥ 8 mm default, so their verdicts replay unchanged unless the
-    connectivity report failed on a penetration while the judge claimed floating, or the
-    reverse).
+Versions: 1 veto of checklist defects a passed gate measured absent · 2 ``CapRule.measures``, a defect
+vote tie is absent, graded ``missing_must_acceptance`` · 3 cap ``kinds`` match the typed ``data.kind`` /
+``data.code`` (a replay of 1 229 judged rounds moved no cap and no veto) · 4 the veto is scoped to the
+rule's ``kinds`` and its WARN magnitude is ``veto_warn_keys`` (history: ``eval/docs/EVAL.md``).
 """
 
 
@@ -635,32 +575,20 @@ class ScoreBreakdown(BaseModel):
 
     status: str = Field(default="ok", description="ok | degraded")
     scoring_version: int = Field(default=0, description="SCORING_VERSION that produced this breakdown")
-    per_criterion_mean: dict[str, float]
     per_criterion_std: dict[str, float]
-    per_sample_overall: list[float]
     overall_uncapped: float = Field(
         description="rubric-weighted mean of the per-criterion means, before defects/caps"
     )
-    overall_after_defects: float = Field(
-        default=0.0, description="overall_uncapped minus defect penalties"
-    )
     overall: float
-    floors_hit: list[dict[str, Any]] = Field(default_factory=list)
     caps: CapResult
-    must_missing: list[str] = Field(default_factory=list)
-    acceptance_votes: dict[str, list[bool]] = Field(default_factory=dict)
     defects: dict[str, bool] = Field(
         default_factory=dict, description="checklist id → present (majority vote)"
     )
-    defect_votes: dict[str, list[bool]] = Field(default_factory=dict)
     overridden: list[str] = Field(default_factory=list,
                                   description="checklist defects the vote marked present that a passed gate measured absent (veto_measured_defects)")
     defect_penalty: float = 0.0
     n_requested: int
-    n_used: int
     sample_errors: list[str] = Field(default_factory=list)
-    tie_broken: list[str] = Field(default_factory=list,
-                                  description="ids an exact vote tie decided: acceptance → the representative sample, defect → absent")
     rubric_hash: str = ""
     judge_prompt_hash: str = Field(default="", description="hash of everything the judge is told that is constant per rubric: "
                                                            "role prompt + view-rig rules + wire schema (prompt_builder.judge_prompt_hash)")
@@ -676,17 +604,15 @@ def _representative(samples: list[JudgeOutput], overalls: list[float]) -> JudgeO
     return min(zip(samples, overalls, strict=True), key=lambda so: abs(so[1] - mean))[0]
 
 
-def _vote(votes: list[bool], tie_break: bool) -> tuple[bool, bool]:
-    """Majority of ``votes``; an exact tie takes ``tie_break``.  Returns (decision, was_tie).
+def _vote(votes: list[bool], tie_break: bool) -> bool:
+    """Majority of ``votes``; an exact tie takes ``tie_break``.
 
     Acceptance ties take the representative sample; defect ties take ``False`` (the defect bears the burden).
     """
     if not votes:
-        return False, False
+        return False
     yes = sum(1 for v in votes if v)
-    if yes * 2 == len(votes):
-        return bool(tie_break), True
-    return yes * 2 > len(votes), False
+    return bool(tie_break) if yes * 2 == len(votes) else yes * 2 > len(votes)
 
 
 def aggregate_samples(
@@ -722,7 +648,6 @@ def aggregate_samples(
         for cid, sc, fl in rubric.floors_hit(mean_scores)
     ]
     rep = _representative(samples, overalls)
-    tie_broken: list[str] = []
     votes: dict[str, list[bool]] = {}
     for s in samples:
         for aid, ok in s.acceptance_bools.items():
@@ -731,9 +656,7 @@ def aggregate_samples(
         votes.setdefault(a.id, [False])
     acceptance: dict[str, bool] = {}
     for aid, v in votes.items():
-        acceptance[aid], tied = _vote(v, bool(rep.acceptance_bools.get(aid, False)))
-        if tied:
-            tie_broken.append(aid)
+        acceptance[aid] = _vote(v, bool(rep.acceptance_bools.get(aid, False)))
     must_missing = missing_must_items(acceptance_items, acceptance)
 
     d_votes: dict[str, list[bool]] = {d.id: [] for d in rubric.defects}
@@ -742,9 +665,7 @@ def aggregate_samples(
             d_votes.setdefault(did, []).append(bool(flag))
     defects: dict[str, bool] = {}
     for did, v in d_votes.items():
-        defects[did], tied = _vote(v, False)
-        if tied:
-            tie_broken.append(did)
+        defects[did] = _vote(v, False)
     # a defect a passed gate measured as absent neither penalises nor caps (``veto_measured_defects``)
     defects, overridden = veto_measured_defects(rubric, defects, gates)
     penalty = round(sum(rubric.defect(did).penalty for did, on in defects.items() if on), 4)
@@ -780,24 +701,15 @@ def aggregate_samples(
 
     breakdown = ScoreBreakdown(
         scoring_version=SCORING_VERSION,
-        per_criterion_mean=mean_scores,
         per_criterion_std=std_scores,
-        per_sample_overall=[round(o, 4) for o in overalls],
         overall_uncapped=round(overall_uncapped, 4),
-        overall_after_defects=round(after_defects, 4),
         overall=round(overall, 4),
-        floors_hit=floors,
         caps=caps,
-        must_missing=must_missing,
-        acceptance_votes=votes,
         defects=defects,
-        defect_votes=d_votes,
         overridden=overridden,
         defect_penalty=penalty,
         n_requested=n_requested or len(samples),
-        n_used=len(samples),
         sample_errors=sample_errors or [],
-        tie_broken=tie_broken,
         rubric_hash=rubric.content_hash(),
         judge_prompt_hash=judge_prompt_hash,
         samples=[s.model_dump(mode="json") for s in samples],
@@ -866,7 +778,6 @@ def degraded_judgment(
         "scoring_version": SCORING_VERSION,
         "error": error,
         "n_requested": n_requested,
-        "n_used": 0,
         "rubric_hash": rubric.content_hash(),
         "judge_prompt_hash": judge_prompt_hash,
     }

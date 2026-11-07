@@ -533,7 +533,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
 
     events = ctx.events
     try:
-        judge = ctx.services.judge(ASSET_RUBRIC, ctx.spec.backends.judge, n_samples=1)
+        judge = ctx.services.judge(ctx.track, ASSET_RUBRIC, ctx.spec.backends.judge, n_samples=1)
     except Exception as e:  # noqa: BLE001 — asset judging is optional polish
         events.emit("asset.judge_unavailable", asset=asset.name, error=str(e))
         return result

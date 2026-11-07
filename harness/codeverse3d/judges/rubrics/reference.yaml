@@ -1,12 +1,6 @@
 name: reference
 version: 1
 pass_threshold: 0.70
-description: >
-  Image-conditioned rubric: the object must match one or more REFERENCE images.  The
-  silhouette criterion is MEASURED in code (IoU of the front render vs the target
-  reference) and shown to the judge; the judge scores the perceptual criteria by
-  comparing reference images to renders side by side.
-
 extra_instructions: >
   Images labelled REFERENCE are the target the object must reproduce; images labelled
   VIEW are renders of the generated object.  Compare like with like (the front render
@@ -126,19 +120,19 @@ caps:
     gate: "contract_fixed"
     severity: error
     cap: 0.6
-    note: a project-fixed part is missing or not as declared
+    # a project-fixed part is missing or not as declared
   # a deterministic check the project registered (Spec.checks, tracks/project_checks.py) measured an error
   - id: project_check
     when: gate
     gate: "project:*"
     severity: error
     cap: 0.6
-    note: the project's own measurement of the object failed
+    # the project's own measurement of the object failed
   - id: missing_must_acceptance
     when: acceptance
     cap: 0.6
     graded: true
-    note: 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object); pass/fail unchanged
+    # 0.6 + 0.4 * verified/total must items (2026-08-30, as static_object); pass/fail unchanged
 
 # Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
 defects:

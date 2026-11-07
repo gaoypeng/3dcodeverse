@@ -429,15 +429,9 @@ class BaseTrack:
         """The main judge: the injected one, else an instance of the class ``judge_for`` picks for this track."""
         if self._judge is not None:
             return self._judge
-        from codeverse3d.judges.vlm_judge import LikenessJudge, ReferenceJudge, judge_for
-
-        n_samples = ctx.policy.judge_samples if n_samples is None else n_samples
-        cls = judge_for(ctx.track, ctx.rubric, references=bool(ctx.spec.references))
-        if cls is LikenessJudge:
-            return self.services.likeness_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
-        if cls is ReferenceJudge:
-            return self.services.reference_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
-        return self.services.judge(ctx.rubric, ctx.spec.backends.judge, n_samples=n_samples)
+        return self.services.judge(ctx.track, ctx.rubric, ctx.spec.backends.judge,
+                                   ctx.policy.judge_samples if n_samples is None else n_samples,
+                                   references=bool(ctx.spec.references))
 
     def after_plan(self, ctx: RunContext) -> None:
         """Bind judge / generator backends once the plan exists."""
