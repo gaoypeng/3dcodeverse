@@ -645,19 +645,13 @@ def _truncated(exc: Exception) -> bool:
     """Did this model error mean 'the answer did not fit'?"""
     return "MAX_TOKENS" in str(exc)
 
-PLAN_TEMPLATES: dict[tuple[Track, Language | None], str] = {
-    (Track.STATIC_OBJECT, None): "tracks/plan_static.j2",
-    (Track.ARTICULATED_OBJECT, None): "tracks/plan_articulated.j2",
-    (Track.SCENE, None): "tracks/plan_scene.j2",
-    (Track.SCENE, Language.SCENE_BLENDER): "tracks/plan_scene_bpy.j2",
-    (Track.GRAPHICS, None): "tracks/plan_graphics.j2",
+PLAN_TEMPLATES: dict[Track, str] = {
+    Track.STATIC_OBJECT: "tracks/plan_static.j2",
+    Track.ARTICULATED_OBJECT: "tracks/plan_articulated.j2",
+    Track.SCENE: "tracks/plan_scene.j2",
+    Track.GRAPHICS: "tracks/plan_graphics.j2",
 }
 PLAN_OUTPUT_FLOOR = 24_000
-
-
-def plan_template(track: Track, language: Language | None = None) -> str:
-    """The planner template for ``(track, language)``: the language's own row, else the track's."""
-    return PLAN_TEMPLATES.get((track, language)) or PLAN_TEMPLATES[(track, None)]
 
 
 def plan_schema(spec: Spec, plan_model: type[BaseModel]) -> dict[str, Any]:
@@ -820,7 +814,7 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, budget: Plan
     lang: Language = spec.language
     budget = budget or plan_budget(spec)
     return render(
-        plan_template(spec.track, lang),
+        PLAN_TEMPLATES[spec.track],
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),

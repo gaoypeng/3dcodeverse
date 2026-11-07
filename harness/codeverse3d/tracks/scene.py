@@ -63,20 +63,18 @@ REFINE_TIMEOUT_S = 900
 
 @dataclass(frozen=True)
 class SceneTemplates:
-    """The four prompt templates a scene language's sessions read (``prompts/tracks/``)."""
+    """The per-language prompt templates a scene session reads (``prompts/tracks/``); the plan and refine ones serve both."""
 
     env: str
     zone: str
-    refine: str
     asset: str
 
 
 
+REFINE_TEMPLATE = "tracks/scene_refine.j2"
 SCENE_TEMPLATES: dict[Language, SceneTemplates] = {
-    Language.SCENE_THREEJS: SceneTemplates("tracks/scene_env.j2", "tracks/scene_zone.j2", "tracks/scene_refine.j2",
-                                           "tracks/scene_asset.j2"),
-    Language.SCENE_BLENDER: SceneTemplates("tracks/scene_env_bpy.j2", "tracks/scene_zone_bpy.j2", "tracks/scene_refine_bpy.j2",
-                                           "tracks/scene_asset_bpy.j2"),
+    Language.SCENE_THREEJS: SceneTemplates("tracks/scene_env.j2", "tracks/scene_zone.j2", "tracks/scene_asset.j2"),
+    Language.SCENE_BLENDER: SceneTemplates("tracks/scene_env_bpy.j2", "tracks/scene_zone_bpy.j2", "tracks/scene_asset_bpy.j2"),
 }
 #: fallback for a runtime that does not state ``SceneRuntime.env_file``
 ENV_FILES: dict[Language, str] = {Language.SCENE_THREEJS: "src/env.js", Language.SCENE_BLENDER: "src/env.py"}
@@ -435,7 +433,7 @@ class SceneTrack(BaseTrack):
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
-        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, round_index=index, tasks=lines,
+        prompt = render(REFINE_TEMPLATE, **self._ctx(ctx, round_index=index, tasks=lines,
                                                                           targets=group.targets, files=files, edit_only_these=parallel,
                                                                           judge_summary=judge_digest(last),
                                                                           current_files=refine_inline_files(ctx, files)))
@@ -455,7 +453,7 @@ class SceneTrack(BaseTrack):
             if (ctx.ws.root / rel).is_file():
                 files = [rel]
         files = files or ctx.runtime.expected_files(ctx.plan)
-        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, round_index=index, tasks=[report], targets=["build"],
+        prompt = render(REFINE_TEMPLATE, **self._ctx(ctx, round_index=index, tasks=[report], targets=["build"],
                                                                           files=files, edit_only_these=False,
                                                                           judge_summary="(no judgment: the scene did not build — fix the errors above first)",
                                                                           current_files=refine_inline_files(ctx, files)))
