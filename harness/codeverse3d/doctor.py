@@ -1,26 +1,26 @@
-"""Environment checks behind ``3dcodeverse doctor`` — python deps, Blender, node/three/
-puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP.
+"""Environment checks behind ``3dcode doctor`` / ``python -m codeverse3d.doctor``: python deps, Blender (+ Cycles),
+node / three / puppeteer, the headless-Chrome GPU probe.  No keys, no model calls.
 """
 
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import shutil
+import sys
 from pathlib import Path
 
 from codeverse3d.config import BLENDER_MIN, get_settings
 from codeverse3d.proc import read_json_or_none, run_subprocess, version_line
 
 Row = tuple[str, str, str]
-_PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
-            "scipy", "shapely", "networkx", "matplotlib", "google.genai", "anthropic", "openai",
-            "yourdfpy", "mcp", "moderngl", "cadquery")
+_PY_DEPS = ("pydantic", "pydantic_settings", "yaml", "numpy", "trimesh", "fcl", "PIL",
+            "scipy", "shapely", "networkx", "matplotlib", "yourdfpy", "moderngl", "cadquery")
 #: modules from an OPTIONAL extra: missing is a WARN naming the extra, not a broken install.
 #: Every module of every extra must be listed here or the base install misreports itself.
 _OPTIONAL_DEPS = {"shapely": "mesh", "networkx": "mesh", "matplotlib": "mesh",
-                  "yourdfpy": "urdf", "scipy": "urdf", "mcp": "mcp",
-                  "moderngl": "graphics", "cadquery": "cad", "pyarrow": "flywheel"}
+                  "yourdfpy": "urdf", "scipy": "urdf", "moderngl": "graphics", "cadquery": "cad"}
 
 
 def _ver(cmd: list[str]) -> tuple[bool, str]:
@@ -40,8 +40,6 @@ def check_python_deps() -> list[Row]:
             present.append(mod)
         except Exception:  # ImportError or a broken native lib
             missing.append(mod)
-    import sys
-
     rows: list[Row] = [("python", "OK", sys.version.split()[0] + f" ({sys.executable})")]
     status = "OK" if not missing else ("WARN" if set(missing) <= set(_OPTIONAL_DEPS) else "FAIL")
     detail = f"{len(present)}/{len(_PY_DEPS)} importable" + (f"; missing: {', '.join(missing)}" if missing else "")
@@ -103,8 +101,6 @@ print("C3D_DOCTOR " + json.dumps(out))
 
 def check_blender_render(*, timeout_s: int = 120) -> list[Row]:
     """What scene_blender's judged frames render on: Cycles CUDA / CPU, GPU slots."""
-    import json
-
     from codeverse3d.languages.blender import blender_env
     from codeverse3d.spatial.render_blender import gpu_slots
 
@@ -210,55 +206,7 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
              f"{'GPU' if res.get('gpu') else 'CPU/software'}: {renderer[:120]}")]
 
 
-def check_keys(live: bool) -> list[Row]:
-    s = get_settings()
-    n = len(s.gemini_api_keys)
-    rows: list[Row] = [("gemini keys", "OK" if n else "FAIL", f"{n} key(s)")]
-    if n:
-        from c3d_flywheel.models.gemini import shared_pool
-
-        slots = shared_pool(list(s.gemini_api_keys)).slots
-        if slots is None:
-            rows.append(("in-flight slots", "WARN", "max_in_flight=0: no cap on concurrent model calls"))
-        else:
-            busy = slots.busy()
-            rows.append(("in-flight slots", "WARN" if busy >= slots.n else "OK",
-                         f"{busy}/{slots.n} busy machine-wide ({slots.root}; docs/COST.md §23)"))
-    rows.append(("anthropic key", "OK" if s.anthropic_api_key else "WARN", "set" if s.anthropic_api_key else "not set (anthropic:* backends unavailable)"))
-    rows.append(("openai key", "OK" if s.openai_api_key else "WARN", "set" if s.openai_api_key else "not set (openai:* backends unavailable)"))
-    if live and n:
-        from c3d_flywheel.models.health import probe
-
-        h = probe(sample=1)   # one workload-sized call, no retries; never raises
-        rows.append(("gemini live call", "OK" if h.ok else "FAIL", str(h)))
-    return rows
-
-
-def check_clis() -> list[Row]:
-    s = get_settings()
-    rows: list[Row] = []
-    for name, binary in (("agy", s.binaries.agy_cli), ("claude", s.binaries.claude_cli),
-                         ("codex", s.binaries.codex_cli)):
-        okk, v = _ver([binary, "--version"])
-        rows.append((name, "OK" if okk else "WARN", v if okk else f"{v} (backend {name} unavailable)"))
-    okk, v = _ver(["git", "--version"])
-    rows.append(("git", "OK" if okk else "FAIL", v))
-    return rows
-
-
-def check_mcp() -> list[Row]:
-    try:
-        importlib.import_module("mcp")
-    except ImportError:
-        return [("mcp", "WARN", "python package `mcp` missing (MCP server for CLIs unavailable)")]
-    try:
-        importlib.import_module("codeverse3d.spatial.mcp_server")
-        return [("mcp", "OK", "mcp + codeverse3d.spatial.mcp_server importable")]
-    except ImportError as e:
-        return [("mcp", "WARN", f"codeverse3d.spatial.mcp_server not importable ({e})")]
-
-
-def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
+def run_doctor(*, gpu: bool = True) -> list[Row]:
     rows: list[Row] = []
     rows += check_python_deps()
     rows += check_blender()
@@ -266,7 +214,27 @@ def run_doctor(*, live: bool = False, gpu: bool = True) -> list[Row]:
     rows += check_node()
     if gpu:
         rows += check_gpu_probe()
-    rows += check_keys(live)
-    rows += check_clis()
-    rows += check_mcp()
+    okk, v = _ver(["git", "--version"])
+    rows.append(("git", "OK" if okk else "WARN", v))
     return rows
+
+
+def format_rows(rows: list[Row]) -> str:
+    width = max(len(c) for c, _, _ in rows)
+    return "\n".join(f"{c.ljust(width)}  {s:<4}  {d}" for c, s, d in rows)
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="python -m codeverse3d.doctor", description=__doc__)
+    ap.add_argument("--gpu", action=argparse.BooleanOptionalAction, default=True, help="probe headless Chrome WebGL")
+    ap.add_argument("--json", dest="as_json", action="store_true")
+    ns = ap.parse_args(argv)
+    rows = run_doctor(gpu=ns.gpu)
+    print(json.dumps([{"check": c, "status": s, "detail": d} for c, s, d in rows], indent=1) if ns.as_json else format_rows(rows))
+    return 1 if any(s == "FAIL" for _, s, _ in rows) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

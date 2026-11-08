@@ -1,4 +1,4 @@
-"""The Spec: everything the user asked for, frozen at run start."""
+"""The Spec: what the project asks for (``spec.json``, written by ``3dcode init``)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from codeverse3d.contracts.common import TRACK_LANGUAGES, Backends, Budget, Language, Track, Vec3
+from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track, Vec3
 
 
 class ReferenceImage(BaseModel):
@@ -19,7 +19,7 @@ class ReferenceImage(BaseModel):
 
 class Constraints(BaseModel):
     """Optional hard requirements the user states up front.  Each becomes an
-    acceptance item the planner must carry and a gate can verify."""
+    acceptance item the plan must carry and a gate can verify."""
 
     dimensions_m: dict[str, float] | None = Field(
         default=None, description="e.g. {'width': 1.2, 'depth': 0.6, 'height': 0.75}"
@@ -30,10 +30,9 @@ class Constraints(BaseModel):
 
 
 class FixedPart(BaseModel):
-    """A file the PROJECT seeds into ``src/`` that no session may rewrite: measured geometry (a survey shell), the
-    data it reads, a shared library.  The planner is told it is given and does not plan it; the agent imports it
-    unchanged (an edit is reverted, like a language's ``HARNESS_OWNED_SRC``); the skeleton keeps it; and when it
-    builds a part, the ``contract_fixed`` gate measures that part against ``bbox_min``/``bbox_max``."""
+    """A file the PROJECT seeds into ``src/`` that the agent may not rewrite: measured geometry (a survey shell), the
+    data it reads, a shared library.  ``validate_plan`` refuses a plan that lists it as a part of its own, and when it
+    builds a part the ``contract_fixed`` gate measures that part against ``bbox_min``/``bbox_max``."""
 
     path: str = Field(description="workspace-relative file under src/, e.g. 'src/parts/survey_shell.js'")
     name: str = Field(default="", description="the GLB part it builds (a child of the root, e.g. 'SurveyShell'); "
@@ -51,10 +50,10 @@ FIXED_PARTS_GATE = "contract_fixed"
 
 class ProjectCheck(BaseModel):
     """A deterministic check the PROJECT registers (``Spec.checks``): ``entry`` names a function
-    (``package.module:function``, importable where the harness runs) that measures each round's GLB against
+    (``package.module:function``, importable where ``3dcode`` runs) that measures the built GLB against
     what the project knows — survey geometry, catalogue dimensions — and returns ``GateReport``s.  They take part
-    exactly like the built-in gates under the name ``project:<name>``: ERRORs become refine tasks, the judge reads
-    them, and a rubric ``CapRule(when="gate", gate="project:*")`` caps on them (``tracks/project_checks.py``)."""
+    exactly like the built-in gates under the name ``project:<name>``: the judge reads them and a rubric
+    ``CapRule(when="gate", gate="project:*")`` caps on them (``gates.run_project_checks``)."""
 
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_]*$", description="gate suffix: reports are named project:<name>")
     entry: str = Field(pattern=r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$", description="'package.module:function'")
@@ -62,20 +61,17 @@ class ProjectCheck(BaseModel):
 
 
 class Spec(BaseModel):
-    id: str
+    id: str = ""
     track: Track
     language: Language
     prompt: str
     references: list[ReferenceImage] = Field(default_factory=list)
     constraints: Constraints = Field(default_factory=Constraints)
-    # left out of spec.json while empty, so every spec without one serialises exactly as before
+    # left out of spec.json while empty
     fixed_parts: list[FixedPart] = Field(default_factory=list, exclude_if=lambda v: not v,
-                                         description="project-seeded files no session may rewrite (FixedPart)")
+                                         description="project-seeded files the agent may not rewrite (FixedPart)")
     checks: list[ProjectCheck] = Field(default_factory=list, exclude_if=lambda v: not v,
-                                       description="project checks run on every round's GLB (ProjectCheck)")
-    budget: Budget = Field(default_factory=Budget)
-    backends: Backends = Field(default_factory=Backends)
-    tags: list[str] = Field(default_factory=list)
+                                       description="project checks run on every check's GLB (ProjectCheck)")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="after")

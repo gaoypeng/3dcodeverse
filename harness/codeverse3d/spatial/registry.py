@@ -1,4 +1,4 @@
-"""Tool registry: one ``@tool(name, ArgsModel, description)`` definition → python fn + JSON schema + MCP + prompt card.
+"""Tool registry: one ``@tool(name, ArgsModel, description)`` definition → python fn + typed args + a ``3dcode`` subcommand.
 
 ``ToolDef.call`` is the one error boundary: tool bodies never need try/except.
 """
@@ -22,7 +22,7 @@ class NoArgs(BaseModel):
 class Observation(BaseModel):
     """A tool's answer: ``ok`` is the VERDICT, ``failed`` says the tool could not run.
 
-    Only ``failed`` becomes MCP ``is_error``; a negative verdict is a result, not a broken call.
+    Only ``failed`` makes ``3dcode`` exit non-zero; a negative verdict is a result, not a broken call.
     """
 
     # validate_assignment: the failed-implies-not-ok invariant must hold on later assignment too
@@ -31,9 +31,9 @@ class Observation(BaseModel):
     ok: bool = True
     failed: bool = Field(default=False, description="the tool could not run: exception, missing "
                                                     "artefact, unusable arguments (NOT a negative verdict)")
-    text: str = Field(description="human/LLM-readable summary (≤ ~2k chars)")
+    text: str = Field(description="human/LLM-readable summary (verdict first)")
     numbers: dict[str, Any] = Field(default_factory=dict)
-    images: list[str] = Field(default_factory=list, description="PNG paths (small, labelled)")
+    images: list[str] = Field(default_factory=list, description="PNG paths the agent opens with its own viewer")
     duration_ms: int = 0
 
     @model_validator(mode="after")
@@ -84,18 +84,6 @@ class ToolDef:
         s.pop("title", None)
         return s
 
-    def card(self) -> str:
-        """Prompt card: name, purpose, args with descriptions."""
-        props = self.schema().get("properties", {})
-        req = set(self.schema().get("required", []))
-        lines = [f"- `{self.name}` ({self.cost_hint}): {self.description}"]
-        for k, v in props.items():
-            typ = v.get("type", "any")
-            d = v.get("description", "")
-            mark = "required" if k in req else f"default={v.get('default')!r}"
-            lines.append(f"    · {k}: {typ} — {d} ({mark})")
-        return "\n".join(lines)
-
     def call(self, ctx: ToolContext, arguments: dict[str, Any] | BaseModel | None = None) -> Observation:
         import time
 
@@ -108,7 +96,7 @@ class ToolDef:
             obs = self.fn(ctx, args)
         except ToolUsageError as e:
             obs = Observation.error(f"{self.name}: {e}" + (f"\nExample: {e.fix_example}" if e.fix_example else ""))
-        except Exception as e:  # never crash the agent loop
+        except Exception as e:  # the CLI reports it; it never tracebacks at the agent
             obs = Observation.error(f"{self.name} failed: {type(e).__name__}: {e}")
         obs.duration_ms = int((time.time() - t0) * 1000)
         return obs
@@ -157,10 +145,7 @@ def list_tools(*, track: str = "", language: str = "") -> list[ToolDef]:
     return sorted(out, key=lambda t: t.name)
 
 
-def tool_cards(*, track: str = "", language: str = "") -> str:
-    return "\n".join(t.card() for t in list_tools(track=track, language=language))
-
-
 def _ensure_loaded() -> None:
-    """Import the module that registers every tool."""
+    """Import the modules that register every tool."""
     import codeverse3d.spatial.tools  # noqa: F401 — its @tool decorators fill _REGISTRY
+    import codeverse3d.workflow  # noqa: F401 — init / validate_plan / check / judge_pack / score

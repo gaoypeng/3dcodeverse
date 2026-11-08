@@ -36,7 +36,6 @@ from codeverse3d.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.jsonparse import JsonParseError, parse_json_lenient
 
@@ -560,13 +559,11 @@ SCORING_VERSION = 4
 """The arithmetic downstream of the model, stamped into every ``ScoreBreakdown``.
 
 A stored verdict is reproducible from its samples only under the version that wrote
-it (``eval/bench/rejudge_offline.py --identity`` compares nothing else); an older stamp is
-drift to report, not a fault.
+it; an older stamp is drift to report, not a fault.
 
 Versions: 1 veto of checklist defects a passed gate measured absent · 2 ``CapRule.measures``, a defect
 vote tie is absent, graded ``missing_must_acceptance`` · 3 cap ``kinds`` match the typed ``data.kind`` /
-``data.code`` (a replay of 1 229 judged rounds moved no cap and no veto) · 4 the veto is scoped to the
-rule's ``kinds`` and its WARN magnitude is ``veto_warn_keys`` (history: ``eval/docs/EVAL.md``).
+``data.code`` · 4 the veto is scoped to the rule's ``kinds`` and its WARN magnitude is ``veto_warn_keys``.
 """
 
 
@@ -623,7 +620,6 @@ def aggregate_samples(
     acceptance_items: list[AcceptanceItem],
     console_errors: list[str] | None = None,
     views: list[RenderView] | None = None,
-    usage: Usage | None = None,
     judge_backend: str = "",
     n_requested: int | None = None,
     sample_errors: list[str] | None = None,
@@ -727,7 +723,6 @@ def aggregate_samples(
         acceptance_results=acceptance,
         n_samples=len(samples),
         score_std=round(_std(overalls), 4),
-        usage=usage or Usage(),
         raw=json.dumps(breakdown.model_dump(mode="json"), ensure_ascii=False),
     )
 
@@ -767,28 +762,3 @@ def _verdict_tail(
     if must_missing:
         bits.append("must items unverified: " + ", ".join(must_missing))
     return " | ".join(bits) + "]"
-
-
-def degraded_judgment(
-    rubric: Rubric, error: str, *, usage: Usage, judge_backend: str, n_requested: int, judge_prompt_hash: str = ""
-) -> Judgment:
-    """A verdict the orchestrator must treat as a GLITCH (not a score): ``raw.status == 'degraded'``."""
-    breakdown = {
-        "status": "degraded",
-        "scoring_version": SCORING_VERSION,
-        "error": error,
-        "n_requested": n_requested,
-        "rubric_hash": rubric.content_hash(),
-        "judge_prompt_hash": judge_prompt_hash,
-    }
-    return Judgment(
-        rubric=rubric.name,
-        judge_backend=judge_backend,
-        scores={c.id: 0.0 for c in rubric.criteria},
-        overall=0.0,
-        passed=False,
-        summary=f"judge_error: {error}",
-        n_samples=0,
-        usage=usage,
-        raw=json.dumps(breakdown, ensure_ascii=False),
-    )

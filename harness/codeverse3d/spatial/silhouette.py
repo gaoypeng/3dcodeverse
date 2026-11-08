@@ -231,8 +231,6 @@ def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: Com
     """:class:`ReferenceMatch` of ``renders`` against ``spec``'s target reference, or ``None``
     when the spec has no readable reference or no render view could be compared.  ``conflict`` is
     the caller's own :func:`dimension_conflict` of the same reference, when it already has it."""
-    from codeverse3d.reference import dimension_conflict  # reference.py imports this module
-
     ref = target_reference(spec.references)
     if ref is None:
         return None
@@ -242,3 +240,46 @@ def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: Com
     num = {k: float(res[k]) for k in ("ref_fill", "render_fill", "aspect_ratio_err", "ref_aspect", "render_aspect") if isinstance(res.get(k), int | float)}
     return ReferenceMatch(iou=float(res["iou"]), view=str(res.get("view", "")), reference=ref, reliable=bool(res.get("reliable", True)),
                           conflict=bool((conflict if conflict is not None else dimension_conflict(spec, ref)).get("conflict")), per_view=res.get("per_view") or {}, **num)
+
+
+# ===================================================================== brief vs picture
+#: relative aspect disagreement above which the picture's proportions are not a target
+ASPECT_TOL = 0.25
+#: brief keys that describe a HORIZONTAL extent of the object
+_WIDTH_KEYS = ("width", "length", "depth", "diameter")
+
+
+def expected_aspect_range(spec: Spec) -> tuple[float, float] | None:
+    """The width/height band any straight-on elevation of the brief could show (a RANGE, since the
+    brief does not say which face a photograph shows)."""
+    dims = spec.constraints.dimensions_m or {}
+    height = dims.get("height")
+    if not height or height <= 0:
+        return None
+    widths = [float(dims[k]) for k in _WIDTH_KEYS if dims.get(k) and float(dims[k]) > 0]
+    if not widths:
+        return None
+    return min(widths) / float(height), max(widths) / float(height)
+
+
+def dimension_conflict(spec: Spec, image: Path | str) -> dict[str, Any]:
+    """``{conflict, expected_range, image_aspect, error}`` — never raises; conflict only when the
+    image's silhouette aspect is off the brief's band by more than :data:`ASPECT_TOL` (the BRIEF wins)."""
+    rng = expected_aspect_range(spec)
+    out: dict[str, Any] = {"conflict": False, "expected_range": list(rng) if rng else None, "image_aspect": None, "error": ""}
+    if rng is None:
+        return out
+    low, high = rng
+    try:
+        got = float(silhouette_aspect(image))
+    except Exception as e:  # noqa: BLE001 — an advisory check must never fail a verdict
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
+    out["image_aspect"] = round(got, 4)
+    if got <= 0:
+        out["error"] = "empty foreground mask"
+        return out
+    off = 0.0 if low <= got <= high else (low - got) / low if got < low else (got - high) / high
+    out["relative_error"] = round(off, 4)
+    out["conflict"] = off > ASPECT_TOL
+    return out

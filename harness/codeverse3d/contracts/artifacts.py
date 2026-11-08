@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse3d.contracts.common import Usage, Vec3
+from codeverse3d.contracts.common import Vec3
 
 
 class Severity(StrEnum):
@@ -19,8 +19,7 @@ class Severity(StrEnum):
 
 
 class LintKind(StrEnum):
-    """``data.kind`` of a ``lint:<language>`` finding.  Read by ``skills.registry`` (``lint/*`` skill routing, ``lint/part_not_imported``)
-    and the shader rubric's kind-less ``lint*`` cap; the rest are labels for the agent and the record."""
+    """``data.kind`` of a ``lint:<language>`` finding (the shader rubric's kind-less ``lint*`` cap reads them; the rest are labels)."""
 
     SYNTAX = "syntax"                        # the file does not parse
     MISSING_FILE = "missing_file"            # an entry / planned part file is absent
@@ -42,8 +41,7 @@ class LintKind(StrEnum):
     NONDETERMINISM = "nondeterminism"        # an unseeded random source
 
 
-#: ``GateFinding.data["kind"]`` of a plan part that is still the skeleton's placeholder box;
-#: the next refine round puts it ahead of every other gate error.
+#: ``GateFinding.data["kind"]`` of a plan part that is still a placeholder box.
 PLACEHOLDER_PART = "placeholder_part"
 
 
@@ -111,12 +109,12 @@ class BuildResult(BaseModel):
     gates: list[GateReport] = Field(
         default_factory=list,
         description="the build's own gate reports (scene_threejs: scene_probe + shader_preflight; the graphics "
-                    "languages: gl_frames) — tracks/steps appends them to the round's gates, built or not",
+                    "languages: gl_frames) — ``check`` appends them to the gates, built or not",
     )
     harness_failure: bool = Field(
         default=False,
-        description="the build did not fail on the model's code — the harness could not run it "
-                    "(driver output lost, browser gone). Never handed to the agent as a repair.",
+        description="the build did not fail on the agent's code — the instrument could not run it "
+                    "(driver output lost, browser gone).",
     )
 
 
@@ -164,7 +162,7 @@ class RenderView(BaseModel):
     time_s: float | None = Field(default=None, description="animation time for scenes")
     judge: bool | None = Field(
         default=None,
-        description="True/False once the judge subset is stamped at render time; None = not stamped (legacy rounds)",
+        description="True/False once the judge subset is stamped at render time; None = not stamped",
     )
 
 
@@ -175,7 +173,7 @@ class RenderSet(BaseModel):
     duration_ms: int = 0
     console_errors: list[str] = Field(default_factory=list, description="(scenes) JS/WebGL errors seen")
     fps: float | None = Field(default=None, description="(scenes) measured frame rate: a record only — it swings with "
-                              "the machine's load and renderer, so no gate or judge reads it (D99)")
+                              "the machine's load and renderer, so no gate or judge reads it")
     out_dir: str = Field(default="", description="directory the views (+ views.json/metrics.json) were written to")
 
 # ===================================================================== judgment
@@ -211,12 +209,11 @@ class Judgment(BaseModel):
     acceptance_results: dict[str, bool] = Field(default_factory=dict, description="acceptance item id → verified")
     n_samples: int = 1
     score_std: float = 0.0
-    usage: Usage = Field(default_factory=Usage)
     raw: str = ""
 
     @property
     def degraded(self) -> bool:
-        """A judge glitch (outage, unparseable verdict), never a score: must not reach a pick or refine plan."""
+        """A judge glitch (unparseable verdict), never a score."""
         if self.summary.startswith("judge_error:"):
             return True
         try:

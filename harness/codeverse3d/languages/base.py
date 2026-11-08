@@ -1,41 +1,26 @@
-"""LanguageRuntime protocol + registry: starter files, static lint, sandboxed build, file ownership."""
+"""LanguageRuntime protocol + registry: static lint, sandboxed build, the files a language expects."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
-
-from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING, Protocol
 
 from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan
-from codeverse3d.conventions import SCENE_TIMES, to_snake
+from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan
+from codeverse3d.conventions import SCENE_TIMES
 from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
     from codeverse3d.spatial.probes import SceneProbeResult
 
 
-class AssembleResult(BaseModel):
-    scene_path: str
-    zones_included: list[str] = Field(default_factory=list)
-    zones_failed: dict[str, str] = Field(default_factory=dict)
-    env_ok: bool = True
-    warnings: list[str] = Field(default_factory=list)
-    census: dict[str, Any] = Field(default_factory=dict)
-
-
 class LanguageRuntime(Protocol):
     language: Language
     #: files the agent is expected to author (globs relative to workspace root)
     entry_globs: tuple[str, ...]
-
-    def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
-        """Write starter files (contract comments, stubs) into ws.src; return paths."""
-        ...
 
     def lint(self, ws: Workspace) -> GateReport:
         """Static checks (syntax, forbidden APIs, known pitfalls, missing entry points)."""
@@ -46,18 +31,14 @@ class LanguageRuntime(Protocol):
         ...
 
     def expected_files(self, plan: Plan | None) -> list[str]:
-        """The files a whole-artifact session writes for ``plan``, entry first."""
-        ...
-
-    def files_for(self, plan: Plan | None, target: str) -> list[str]:
-        """The files that own a refine target (part, zone, asset, camera, env word); ``[]`` leaves the task whole-artifact."""
+        """The files the agent writes for ``plan``, entry first."""
         ...
 
 
 class SceneRuntime(LanguageRuntime, Protocol):
-    """What the scene track asks of its language: zone / asset locations, entry assembly, probe and render."""
+    """What the scene track asks of its language: zone / asset locations, probe and render."""
 
-#: the environment module the env stage writes (``src/env.js`` / ``src/env.py``)
+    #: the environment module (``src/env.js`` / ``src/env.py``)
     env_file: str
 
     def zone_file(self, name: str) -> str:
@@ -66,19 +47,6 @@ class SceneRuntime(LanguageRuntime, Protocol):
 
     def asset_file(self, asset: AssetPlan) -> str:
         """The file an asset ships as: its factory module, or a hero's GLB."""
-        ...
-
-    def assemble(self, ws: Workspace, plan: ScenePlan) -> BaseModel:
-        """Write the entry file from the zones that load (the plan's cameras, else derived ones);
-        the result lands in ``artifacts/assemble.json``."""
-        ...
-
-    def lib_interface(self, ws: Workspace) -> str:
-        """The harness-owned ``src/lib/`` as one fact line per module (exports and parameters); ``""`` if none."""
-        ...
-
-    def check_env(self, ws: Workspace) -> str:
-        """The env module alone: ``""`` when it lints, builds and lights clean; else the failure, quoted for a repair prompt."""
         ...
 
     def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
@@ -93,10 +61,10 @@ class SceneRuntime(LanguageRuntime, Protocol):
 
 
 class RuntimeLayout:
-    """``expected_files`` / ``files_for`` for a runtime whose entry file (+ ``extra_files``) owns the whole artifact."""
+    """``expected_files`` for a runtime whose entry file (+ ``extra_files``) owns the whole artifact."""
 
     language: Language
-    #: files a whole-artifact session owns besides the entry (urdf: robot.urdf; glsl_shader: common.glsl)
+    #: files the agent owns besides the entry (urdf: robot.urdf; glsl_shader: common.glsl)
     extra_files: tuple[str, ...] = ()
     #: plan part name → the file that builds it, in a language with one file per part (blender, three.js)
     part_file: Callable[[str], str] | None = None
@@ -104,14 +72,6 @@ class RuntimeLayout:
     def expected_files(self, plan: Plan | None) -> list[str]:
         parts = [self.part_file(p.name) for p in getattr(plan, "parts", None) or ()] if self.part_file else []
         return [ENTRY_FILE[self.language], *self.extra_files, *parts]
-
-    def files_for(self, plan: Plan | None, target: str) -> list[str]:
-        if self.part_file is None:
-            return []
-        key = to_snake(target)
-        if key in {to_snake(p.name) for p in getattr(plan, "parts", None) or ()}:
-            return [self.part_file(target)]
-        return [ENTRY_FILE[self.language]] if key in ("overall", "assembly", "object", "") else []
 
 
 #: Language → (module, class); the import is lazy.
@@ -130,26 +90,3 @@ _RUNTIMES: dict[Language, tuple[str, str]] = {
 def get_runtime(language: Language | str) -> LanguageRuntime:
     module, cls = _RUNTIMES[Language(language)]
     return getattr(import_module(module), cls)()
-
-
-def scene_files_for(plan: Plan | None, target: str, *, zone_file: Callable[[str], str], asset_file: Callable[[AssetPlan], str],
-                    entry: str, env_file: str, env_words: frozenset[str]) -> list[str]:
-    """The files that own a scene refine target: a module asset in its own file, a hero where it is placed, cameras in the
-    entry, env words in the env file, ``Zone/..`` in the zone."""
-    zone_plans = list(getattr(plan, "zones", None) or [])
-    zones = {to_snake(z.name) for z in zone_plans}
-    assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
-    key = to_snake(target)
-    if key in zones:
-        return [zone_file(key)]
-    if key in assets:
-        if asset_file(assets[key]).startswith("src/"):
-            return [asset_file(assets[key])]
-        return [zone_file(z.name) for z in zone_plans if key in {to_snake(c) for c in z.contents}]
-    if key in {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])} or key in ("camera", "cameras", "composition"):
-        return [entry]
-    if key in env_words:
-        return [env_file]
-    if "/" in target and to_snake(target.split("/", 1)[0]) in zones:
-        return [zone_file(target.split("/", 1)[0])]
-    return []

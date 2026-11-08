@@ -41,24 +41,12 @@ TRACK_LANGUAGES: dict[Track, tuple[Language, ...]] = {
     Track.GRAPHICS: (Language.GLSL_SHADER, Language.OPENGL_PYTHON),
 }
 
-
-class TrackInfo(BaseModel):
-    """Per-track registry row: default judge rubric + human label."""
-
-    model_config = ConfigDict(frozen=True)
-
-    rubric: str = Field(description="rubric name under judges/rubrics/, e.g. 'static_object'")
-    label: str = Field(description="human label for galleries / captions / reports")
-    likeness_refs: bool = Field(default=False, description="reference images are a look to match (LikenessJudge, "
-                                "the likeness prompt note), not a silhouette to measure")
-
-
-#: one registry row per track
-TRACK_INFO: dict[Track, TrackInfo] = {
-    Track.STATIC_OBJECT: TrackInfo(rubric="static_object", label="3D Objects"),
-    Track.ARTICULATED_OBJECT: TrackInfo(rubric="articulated", label="Articulated Objects"),
-    Track.SCENE: TrackInfo(rubric="scene", label="3D Scenes", likeness_refs=True),
-    Track.GRAPHICS: TrackInfo(rubric="shader", label="Procedural Graphics", likeness_refs=True),
+#: the rubric (``judges/rubrics/<name>.yaml``) each track is judged on
+TRACK_RUBRIC: dict[Track, str] = {
+    Track.STATIC_OBJECT: "static_object",
+    Track.ARTICULATED_OBJECT: "articulated",
+    Track.SCENE: "scene",
+    Track.GRAPHICS: "shader",
 }
 
 #: entry file inside the workspace per language — the file a build starts from.
@@ -72,97 +60,6 @@ ENTRY_FILE: dict[Language, str] = {
     Language.GLSL_SHADER: "src/shader.frag",
     Language.OPENGL_PYTHON: "src/program.py",
 }
-
-#: source files the HARNESS writes under ``src/``: the agent reads and calls them, never writes them.
-#: An entry ending in ``/`` is a directory prefix; otherwise an exact file.
-HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
-    Language.SCENE_THREEJS: ("src/lib/",),
-}
-
-
-def is_harness_owned(rel: str, owned: Collection[str]) -> bool:
-    """Is ``rel`` a harness-owned source file, given a language's ``HARNESS_OWNED_SRC``?
-
-    Exact match, or under a directory entry (one ending in ``/``).
-    """
-    return any(rel == o or (o.endswith("/") and rel.startswith(o)) for o in owned)
-
-#: human label per language (galleries, captions, reports)
-LANGUAGE_LABEL: dict[Language, str] = {
-    Language.BLENDER: "Blender Python",
-    Language.CADQUERY: "CadQuery (Python)",
-    Language.URDF_BLENDER: "URDF + Blender Python",
-    Language.THREEJS: "Three.js (ESM)",
-    Language.SCENE_THREEJS: "Three.js scene (multi-file ESM + GLSL)",
-    Language.SCENE_BLENDER: "Blender scene (multi-file bpy)",
-    Language.GLSL_SHADER: "GLSL fragment shader",
-    Language.OPENGL_PYTHON: "OpenGL (moderngl Python + GLSL)",
-}
-
-
-def code_file(language: Language) -> str:
-    """Top-level flywheel copy of the entry file: ``code`` + the entry suffix."""
-    entry = ENTRY_FILE[language]
-    return "code" + entry[entry.rfind(".") :]
-
-
-class Usage(BaseModel):
-    """Normalised token/cost accounting for ONE model or agent call."""
-
-    backend: str = ""
-    model: str = ""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cached_tokens: int = 0
-    thoughts_tokens: int = 0
-    tool_calls: int = 0
-    cost_usd: float = 0.0
-    latency_ms: int = 0
-
-    def __add__(self, other: Usage) -> Usage:
-        return Usage(
-            backend=self.backend or other.backend,
-            model=self.model if self.model == other.model else (self.model or other.model),
-            input_tokens=self.input_tokens + other.input_tokens,
-            output_tokens=self.output_tokens + other.output_tokens,
-            cached_tokens=self.cached_tokens + other.cached_tokens,
-            thoughts_tokens=self.thoughts_tokens + other.thoughts_tokens,
-            tool_calls=self.tool_calls + other.tool_calls,
-            cost_usd=self.cost_usd + other.cost_usd,
-            latency_ms=self.latency_ms + other.latency_ms,
-        )
-
-
-class Budget(BaseModel):
-    """Hard ceilings for a run (rounds, minutes); the orchestrator stops cleanly when one is hit.
-
-    Ceilings are non-negative by construction (a negative one is an unrunnable budget).
-    Cost is recorded but never gates anything.  ``extra="forbid"`` makes unknown keys raise.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_rounds: int = Field(default=4, ge=0)
-    max_minutes: float = Field(default=60.0, ge=0, allow_inf_nan=False)
-    max_repair_attempts: int = Field(default=3, ge=0)  # per build failure before escalating
-
-
-class Backends(BaseModel):
-    """Which model/agent does which job.  Ids are ``<kind>:<model>``:
-
-    * API chat models:  ``gemini:gemini-4-argon`` · ``anthropic:claude-opus-5-5``
-      · ``openai:gpt-6.1-sol``
-    * Coding agents:    ``agy:gemini-4-argon`` (``-low``/``-medium``/``-high``; Gemini models only) · ``claude-code:sonnet``
-      · ``codex:gpt-6.1-sol``
-
-    The coding agent is always a vendor agent: the harness supplies the workspace, prompt
-    and 3D tools (over MCP) and reads the result.
-    """
-
-    planner: str = "gemini:gemini-4-argon"
-    generator: str = "agy:gemini-4-argon"
-    judge: str = "gemini:gemini-4-argon"
-    captioner: str = "gemini:gemini-4-argon"
 
 
 # ------------------------------------------------------------------ joint coupling

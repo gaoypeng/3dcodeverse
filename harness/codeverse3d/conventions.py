@@ -1,4 +1,4 @@
-"""Single source of truth for 3D conventions used by prompts, tools and gates.
+"""Single source of truth for 3D conventions used by the instruments, gates and skills.
 
 Everything that talks about axes, units, frames, view presets or naming imports
 from here — never restate a convention inline.
@@ -236,7 +236,7 @@ def fmt3(vec: Sequence[float]) -> str:
 
 
 # --------------------------------------------------------------------------- limits
-#: Triangle ceilings; the object one is the depth gate's upper clamp (``tracks/depth.budget_gate``).
+#: Triangle ceilings; the object one is the depth gate's upper clamp (``gates.budget_gate``).
 MAX_TRIS_OBJECT = 600_000
 MAX_TRIS_SCENE = 3_000_000
 #: Scene draw budget on the probe census's ``totals.draws``: ``scene_probe`` WARNs above the
