@@ -196,7 +196,7 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
         "free": '{name}["placement"] = "free"',
         "no_fog_msg": "the scene has no atmosphere: no world Volume, bounded fog volume or mist — frames read as thin_atmosphere",
         "no_fog": ("in build_env link a Volume Scatter / Principled Volume to the World Output's Volume (density "
-                   "0.002-0.02, tinted like the sky horizon) or place a bounded fog volume over the play area"),
+                   "0.003-0.008, tinted like the sky horizon) or place a bounded fog volume over the play area"),
         "no_background_msg": "the world has no sky: no Sky Texture or Background colour on the world output",
         "no_background": "in build_env give scene.world a Sky Texture (or the plan's sky colour on its Background node)",
         "fog_far": ("thin the fog so 1/density >= {need:.0f} m ({spans:g} x the plan span; measured from the world volume) "

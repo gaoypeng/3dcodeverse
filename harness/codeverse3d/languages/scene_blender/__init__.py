@@ -398,8 +398,8 @@ def render_scene_py(zones: Sequence[str], assets: Sequence[str], heroes: Sequenc
         return "{\n" + "".join(f'    "{k}": "{to_pascal(k)}",\n' for k in keys) + "}" if keys else "{}"
 
     plan_line = f"PLAN: {title} — {summary.strip()}\n" if title else ""
-    return f'''"""src/scene.py — ASSEMBLED BY THE HARNESS (codeverse3d assembler).  Edit env / zones / assets
-instead; re-assembly overwrites this file.
+    return f'''"""src/scene.py — written by `3dcode validate-plan` from plan.json.  Edit env / zones / assets
+instead; the next validate-plan overwrites this file.
 {plan_line}
 The harness builds the scene in one Blender process: env.build_env(ctx); every hero GLB and asset
 module (build_<snake>(ctx)); then every zone's build(ctx) — each on its own (a zone that raises is
