@@ -210,7 +210,10 @@ modules); a lint error → the construct the fix hint names; a syntax error → 
 timeout or memory blow-up → fewer segments or loop counts.  Keep every part, name and
 dimension.  The same error twice means the edit missed the cause: change a different call,
 not different arguments — check the name and signature against the language skill's API facts
-first.  Never finish a round on a broken build.
+first.  Never finish a round on a broken build.  A gate ERROR (the build is fine) still listed
+after THREE fixes: take its fix hint literally once more (a joint_sweep hint may name the exact
+limit that clears), and if it is still there, judge anyway — run `3dcode judge` again with src/
+unchanged; the ERROR caps the score and the judge's list carries it into the next round.
 
 ## Honesty
 

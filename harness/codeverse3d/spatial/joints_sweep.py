@@ -223,6 +223,58 @@ def aggregate_findings(findings: list[GateFinding]) -> list[GateFinding]:
     return errors + warns
 
 
+def _pair_depth(robot: Robot, bodies: dict[str, Any], a: str, b: str, q: dict[str, float]) -> float:
+    T = fk(robot, q)
+    bodies[a].set_pose(T[a])
+    bodies[b].set_pose(T[b])
+    ba, bb = bodies[a], bodies[b]
+    if collide.aabb_gap(ba.aabb, bb.aabb) > 0.0 or not (collide.collide(ba, bb) or collide.contained(ba, bb)):
+        return 0.0
+    return collide.penetration(ba, bb)[0]
+
+
+def _clear_travel(clear_at: Any, lim: float, steps: int) -> float:
+    """The joint value nearest ``lim`` (from rest, 0) with the pair clear at it and at 8 points before it."""
+    ok, bad = 0.0, lim
+    for _ in range(steps):
+        mid = 0.5 * (ok + bad)
+        ok, bad = (mid, bad) if clear_at(mid) else (ok, mid)
+    while abs(ok) > 1e-6 and not all(clear_at(ok * k / 8) for k in range(1, 9)):
+        ok *= 0.9
+    return math.trunc(ok * 100) / 100  # inward to a round number
+
+
+def name_clearing_limits(robot: Robot, findings: list[GateFinding], *, tol_m: float, steps: int = 10) -> None:
+    """A moving overlap between the two links of ONE joint depends on that joint alone: bisect how far it can travel
+    before they meet and put that limit in the fix hint, so one robot.urdf edit clears the ERROR."""
+    for f in findings:
+        if f.severity != Severity.ERROR or f.data.get("kind") != "penetration" or not f.data.get("pose") or "|" not in str(f.target):
+            continue
+        a, b = str(f.target).split("|", 1)
+        j = next((j for j in robot.joints.values() if {j.parent, j.child} == {a, b} and j.type in ("revolute", "prismatic")
+                  and j.mimic is None and j.lower is not None and j.upper is not None and j.lower <= 0.0 <= j.upper), None)
+        if j is None or robot.links[a].mesh is None or robot.links[b].mesh is None:
+            continue
+        bodies = {n: collide.LinkBody(n, robot.links[n].mesh) for n in (a, b)}
+        rest = _pair_depth(robot, bodies, a, b, {})
+        if rest > tol_m:
+            continue
+        thr = 0.5 * (rest + tol_m)  # the sampled depth is noisy near tol_m: aim halfway between rest contact and tol_m
+        clear: dict[str, float] = {}
+        for side, lim in (("lower", j.lower), ("upper", j.upper)):
+            assert lim is not None
+            if abs(lim) < 1e-9 or _pair_depth(robot, bodies, a, b, {j.name: lim}) <= tol_m:
+                continue
+            clear[side] = _clear_travel(lambda v, j=j, a=a, b=b, bodies=bodies, thr=thr:
+                                        _pair_depth(robot, bodies, a, b, {j.name: v}) <= thr, lim, steps)
+        if clear:
+            limits = " and ".join(f'{side}="{v:.2f}"' for side, v in clear.items())
+            f.fix_hint = (f"Fastest sure fix: in robot.urdf set '{j.name}' {limits} — measured: the pair is clear over that "
+                          f"whole range (every pose of this pair depends on that joint alone). Or carve the clearance in "
+                          f"model.py if the full range matters to the brief.")
+            f.data["clear_limits"] = {j.name: clear}
+
+
 BURIED_FRACTION = 0.98
 BURIED_SAMPLES = 200
 
@@ -290,6 +342,10 @@ def sweep_gate(ws: Workspace) -> tuple[GateReport, Robot | None]:
             gate=SWEEP_GATE, severity=Severity.ERROR, target="robot.urdf", message=f"URDF sweep failed: {e}",
             fix_hint="fix robot.urdf so every link has a mesh under meshes/<link>.glb and joints form one tree")]), None
     findings = aggregate_findings(sweep_findings(report))
+    try:
+        name_clearing_limits(robot, findings, tol_m=report.tol_m)
+    except Exception as e:  # noqa: BLE001 — a hint never fails the gate
+        log.warning("limit bisection failed: %s", e)
     try:
         findings += buried_links(robot)
     except Exception as e:  # noqa: BLE001 — an extra check never fails the gate

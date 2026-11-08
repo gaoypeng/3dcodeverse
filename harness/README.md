@@ -1,6 +1,6 @@
 # 3dcodeverse
 
-**Version 0.0.7** · plugin for Claude Code, Codex and Antigravity
+**Version 0.0.8** · plugin for Claude Code, Codex and Antigravity
 
 A plugin for **Claude Code, Codex and Antigravity (`agy`)** that makes the host coding agent
 good at real 3D: it writes **raw, executable 3D code** — Blender `bpy`, CadQuery, Three.js,

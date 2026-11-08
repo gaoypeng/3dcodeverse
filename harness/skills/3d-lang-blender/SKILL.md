@@ -108,6 +108,7 @@ build owns the scene setup, the export and the cameras: never save, render or ad
 * Modifiers may stay unapplied (the exporter applies them); `modifier_apply` needs
   `temp_override` and a single-user mesh (`obj.data = obj.data.copy()` first).  Boolean solvers `MANIFOLD` / `EXACT` / `FLOAT`
   (`'FAST'` raises); a cutter coplanar with the face it cuts fails silently.
+* bmesh faces smooth with `face.smooth = True` (a `BMFace` has no `use_smooth`; that is the mesh `polygon`'s).
 * Removed (lint ERROR): `use_auto_smooth` / `auto_smooth_angle` (use `polygon.use_smooth` or
   `shade_smooth_by_angle`), `Mesh.calc_normals()`, `mod["Socket_2"] = v`
   (`getattr(mod.properties.inputs, "Socket_2").value = v`).  Removed and NOT linted:
