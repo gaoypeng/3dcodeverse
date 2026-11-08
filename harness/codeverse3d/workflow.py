@@ -220,10 +220,11 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
     lines = [f"{head}: {model.__name__}, {len(units)} {unit}, {len(plan.acceptance)} acceptance items"]
     lines += [f"- ERROR: {h}" for h in hard]
     lines += [f"- WARN: {s}" for s in soft]
-    if notes:
-        lines.append("normalised and written back: " + "; ".join(notes))
     if rewritten:
-        lines.append("plan.json rewritten (normalised) — re-read before editing it")
+        changed = "; ".join(notes) if notes else "formatting and default fields only, nothing you wrote"
+        lines.append(f"plan.json written back — changed: {changed} — no need to re-read plan.json unless you edit it")
+    elif notes:
+        lines.append("normalised: " + "; ".join(notes))
     lines.append(f"files to write ({spec.language.value}): " + ", ".join(files[:16]) + (" …" if len(files) > 16 else ""))
     lines.append("acceptance: " + "; ".join(f"{a.id} [{a.priority}/{a.how}] {a.text}"[:160] for a in plan.acceptance[:12]))
     return text_observation(lines, ok=not hard,
@@ -469,7 +470,7 @@ def judge_pack(ctx: ToolContext, args: NoArgs) -> Observation:
     judgment_path = out / JUDGMENT_NAME
     brief = pb.build_brief(spec=spec, plan=plan, rubric=rubric, renders=jr.renders, measurement=check.measurement,
                            gates=gates, round_index=ctx.round_index, previous=_previous_verdict(ws, ctx.round_index),
-                           extra_context=jr.extra_context, extra_text=ref_text, geometry_views=jr.geometry,
+                           extra_context=jr.extra_context, extra_text=ref_text,
                            images=images, montages=montages, extra_images=ref_images, slice_images=slices,
                            judgment_path=judgment_path)
     (out / "brief.md").write_text(brief)
@@ -666,7 +667,7 @@ def score(ctx: ToolContext, args: NoArgs) -> Observation:
         lines += [f"{i}. {t}" for i, t in enumerate(improve[:12], 1)]
     paths = [str(i.get("path", "")) for i in pack.get("images") or [] if i.get("path")]
     if paths:
-        lines.append("the round's images (open these to confirm an item; never list or guess names):")
+        lines.append("the round's montages, for your report only (the items above name their tile and evidence; nothing to open):")
         lines += [f"  {p}" for p in paths]
     lines.append(f"written: {rel_path(out / SCORE_NAME, ws.root)}")
     return text_observation(lines, ok=judgment.passed,

@@ -517,7 +517,20 @@ BRIEF_MAX_BYTES = 40_000
 GATES_MAX_CHARS = 5_000
 MAX_PX = 1024
 MONTAGE_TILE_PX = 512
-SLICE_MAX_PX = 1024
+#: STRUCTURE clips: contacts and planned joins are cut with an "… n more"
+LEDGER_MAX_CONTACTS = 24
+LEDGER_MAX_JOINS = 20
+#: parts whose lowest vertex is within this of the object's lowest point are the ground-contact candidates
+GROUND_BAND_MM = 10.0
+#: a near-floor gap at or under this is a hairline
+GROUND_GAP_REPORT_MM = 0.5
+#: the order the scene gates are listed in; a gate not named lands in the tail
+SCENE_GATE_ORDER: dict[str, int] = {PLACEMENT_GATE: 0, "scene_frames": 1}
+#: the per-kind magnitude a PLACEMENT line reports as "worst"
+PLACEMENT_WORST: dict[str, tuple[str, str]] = {
+    "floating": ("gap_m", "{:.2f} m"), "sunken": ("sunk_m", "{:.2f} m"), "unsupported": ("gap_m", "{:.2f} m"),
+    "interpenetration": ("overlap", "{:.0%} of the smaller box"), "cantilevered": ("gap_max_m", "{:.2f} m"),
+}
 
 
 def _rubric_block(rubric: Rubric) -> str:
@@ -553,240 +566,107 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 12].rstrip() + " …[clipped]"
 
 
+def _more(n: int, shown: int, sep: str = ";") -> str:
+    return f"{sep} … {n - shown} more" if n > shown else ""
+
+
+def _num(v: object) -> float | None:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
 def brief_section(spec: Spec) -> str:
-    lines = [f"BRIEF (track {spec.track.value}, language {spec.language.value}):", _clip(spec.prompt, 3000)]
     c = spec.constraints
-    cons = []
-    if c.dimensions_m:
-        cons.append("dimensions_m: " + ", ".join(f"{k}={v:g}" for k, v in c.dimensions_m.items()))
-    if c.style:
-        cons.append(f"style: {c.style}")
-    if c.must_have:
-        cons.append("must_have: " + "; ".join(c.must_have))
-    if c.must_not:
-        cons.append("must_not: " + "; ".join(c.must_not))
-    if cons:
-        lines.append("CONSTRAINTS: " + " | ".join(cons))
-    return "\n".join(lines)
+    rows = [("dimensions_m", ", ".join(f"{k}={v:g}" for k, v in c.dimensions_m.items())), ("style", c.style),
+            ("must_have", "; ".join(c.must_have)), ("must_not", "; ".join(c.must_not))]
+    return "\n".join([f"BRIEF (track {spec.track.value}, language {spec.language.value}): {_clip(spec.prompt, 3000)}",
+                      *(f"- {k}: {v}" for k, v in rows if v)])
 
 
 def acceptance_section(items: list[AcceptanceItem]) -> str:
     if not items:
-        return "ACCEPTANCE CHECKLIST: (none)"
-    lines = ["ACCEPTANCE CHECKLIST (answer every id):"]
-    for a in items[:40]:
-        lines.append(f"- {a.id} [{a.priority}, via {a.how}]: {_clip(a.text, 240)}")
-    if len(items) > 40:
-        lines.append(f"- … {len(items) - 40} more items omitted")
-    return "\n".join(lines)
+        return "ACCEPTANCE ITEMS: (none)"
+    return "\n".join(["ACCEPTANCE ITEMS:", *(f"- {a.id} [{a.priority}, via {a.how}]: {_clip(a.text, 240)}" for a in items[:40])]) \
+        + _more(len(items), 40, "\n-")
 
 
 def measurement_section(m: Measurement | None) -> str:
-    if m is None:
-        return "MEASUREMENTS: (none available)"
-    return "MEASUREMENTS (measured, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
-
-
-#: MEASURED STRUCTURE clips: contacts and planned joins are cut with an "… n more"
-LEDGER_MAX_CONTACTS = 24
-LEDGER_MAX_JOINS = 20
-#: parts whose lowest vertex is within this of the object's lowest point are the ground-contact candidates
-GROUND_BAND_MM = 10.0
-#: a near-floor gap at or under this is a hairline: the number is printed instead of the adjective
-GROUND_GAP_REPORT_MM = 0.5
-
-_PASSED_FLOATING = (
-    "CONNECTIVITY PASSED: every part is in measured contact with its neighbour (gap <= 2 mm). "
-    "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
-    "part as floating, hovering or disconnected, and do not mark the floating-part defect present; "
-    "if a joint looks visually ugly, say so under craftsmanship."
-)
+    return "MEASUREMENTS (Y-up, metres):\n" + _clip(str(measure_summary_table(m)), 6000) if m is not None else "MEASUREMENTS: (none)"
 
 
 def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | None:
     """The connectivity gate's per-pair table (one INFO finding) with its report; ``None`` if absent."""
-    for g in gates:
-        if g.gate != "connectivity":
-            continue
-        for f in g.findings:
-            if f.severity == Severity.INFO and f.data.get("kind") == "ledger":
-                return g, f
-    return None
+    return next(((g, f) for g in gates if g.gate == "connectivity" for f in g.findings
+                 if f.severity == Severity.INFO and f.data.get("kind") == "ledger"), None)
 
 
 def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8, scene: bool = False) -> str:
-    """The judge's gate facts.  ERRORs are listed as recorded; with a contact ledger the connectivity WARNs
-    become one measured line plus a MEASURED STRUCTURE block, without one the plain text.  ``scene`` has
-    its own branch (``_scene_gates_section``)."""
+    """The judge's gate facts: the pass/FAIL roll, ERRORs as recorded, the STRUCTURE (object) or PLACEMENT (scene)
+    fact list, and the WARNs grouped by (gate, kind) — with a contact ledger its overlap line replaces the
+    connectivity penetration WARNs."""
     if not gates:
-        return "GATE FINDINGS: (no gates run)"
-    if scene:
-        return _scene_gates_section(gates, max_errors=max_errors, max_warns=max_warns)
-    status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)
-    lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
-    errs = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.ERROR]
-    found = contact_ledger(gates)
-    if found is None:
-        warns = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.WARN]
-        lines += _capped("errors", errs, max_errors) + _capped("warnings", warns, max_warns)
-        if not errs and not warns:
-            lines.append("no errors or warnings — parts are connected and contracts hold.")
-        if any(g.gate == "connectivity" and g.passed for g in gates):
-            # the connectivity gate measures contact; a VLM reads shading, so a measured contact outranks a shadow
-            lines.append(_PASSED_FLOATING)
-        return "\n".join(lines)
-    conn, ledger = found
-    d = ledger.data
-    lines += _capped("errors", errs, max_errors)
-    lines += _structure_block(conn, d)
-    overlap = _overlap_line(conn, d)
-    if overlap:
-        lines.append(overlap)
-    rest = [(g, f) for g in gates for f in g.findings
-            if f.severity == Severity.WARN and not (g.gate == "connectivity" and f.data.get("kind") == "penetration")]
-    lines += _grouped_warnings(rest, max_warns)
-    if not errs and not any(f.severity == Severity.WARN for g in gates for f in g.findings):
-        lines.append("no errors or warnings — parts are connected and contracts hold.")
-    n_parts = len(d.get("parts") or [])
-    if conn.passed and n_parts >= 2:
-        lines.append(_passed_paragraph(n_parts, len(d.get("contacts") or []), float(d.get("contact_gap_mm") or 0.0),
-                                       list(d.get("overlaps") or [])))
-    return "\n".join(lines)
-
-
-#: the order the scene gates are listed in; a gate not named lands in the tail
-SCENE_GATE_ORDER: dict[str, int] = {PLACEMENT_GATE: 0, "scene_frames": 1}
-#: the per-kind magnitude a MEASURED PLACEMENT line reports as "worst"
-PLACEMENT_WORST: dict[str, tuple[str, str]] = {
-    "floating": ("gap_m", "{:.2f} m"), "sunken": ("sunk_m", "{:.2f} m"), "unsupported": ("gap_m", "{:.2f} m"),
-    "interpenetration": ("overlap", "{:.0%} of the smaller box"), "cantilevered": ("gap_max_m", "{:.2f} m"),
-}
-
-
-def _scene_gates_section(gates: list[GateReport], *, max_errors: int, max_warns: int) -> str:
-    """The scene judge's gate facts: reports in ``SCENE_GATE_ORDER``, ERRORs as recorded, one MEASURED
-    PLACEMENT line, and the WARNs grouped by (gate, kind)."""
-    ordered = sorted(gates, key=lambda g: SCENE_GATE_ORDER.get(g.gate, len(SCENE_GATE_ORDER)))
-    status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in ordered)
-    lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
+        return "GATES: (none run)"
+    ordered = sorted(gates, key=lambda g: SCENE_GATE_ORDER.get(g.gate, len(SCENE_GATE_ORDER))) if scene else gates
+    lines = ["GATES (measured facts): " + ", ".join(f"{g.gate} {'pass' if g.passed else 'FAIL'}" for g in ordered)]
     errs = [_finding_line(g, f) for g in ordered for f in g.findings if f.severity == Severity.ERROR]
     lines += _capped("errors", errs, max_errors)
-    block = placement_block(gates)
-    if block:
-        lines.append(block)
-    warns = [(g, f) for g in ordered for f in g.findings if f.severity == Severity.WARN]
+    found = None if scene else contact_ledger(gates)
+    lines += placement_block(gates) if scene else _structure_block(*found) if found else []
+    warns = [(g, f) for g in ordered for f in g.findings if f.severity == Severity.WARN
+             and not (found and g.gate == "connectivity" and f.data.get("kind") == "penetration")]
     lines += _grouped_warnings(warns, max_warns)
-    if not errs and not warns:
-        lines.append("no errors or warnings — every checked asset is seated, the frames are exposed and the contracts hold.")
+    if not errs and not any(f.severity == Severity.WARN for g in gates for f in g.findings):
+        lines.append("no errors, no warnings")
     return "\n".join(lines)
 
 
-def placement_report(gates: Sequence[GateReport]) -> GateReport | None:
-    return next((g for g in gates if g.gate == PLACEMENT_GATE), None)
-
-
-def placement_block(gates: Sequence[GateReport]) -> str:
-    """MEASURED PLACEMENT: the scene_placement gate's summary with the worst magnitude per kind, its thresholds,
-    and on a clean report the sentence naming the checklist items already answered.  Empty without the gate."""
-    rep = placement_report(gates)
-    if rep is None:
-        return ""
-    summary = next((f for f in rep.findings if f.severity == Severity.INFO and f.data.get("kind") == "summary"), None)
-    if summary is None:
-        return ""
+def placement_block(gates: Sequence[GateReport]) -> list[str]:
+    """PLACEMENT: the scene_placement gate's counts with the worst magnitude per kind, its thresholds, the verdict."""
+    rep = next((g for g in gates if g.gate == PLACEMENT_GATE), None)
+    summary = next((f for f in rep.findings if f.severity == Severity.INFO and f.data.get("kind") == "summary"), None) if rep else None
+    if rep is None or summary is None:
+        return []
     d = summary.data
-    counts = {k: int(v) for k, v in (d.get("counts") or {}).items() if isinstance(v, (int, float))}
-    exempt = {str(k): int(v) for k, v in (d.get("exempt") or {}).items() if isinstance(v, (int, float))}
+    counts = {k: int(v) for k, v in (d.get("counts") or {}).items() if _num(v) is not None}
+    exempt = {str(k): int(v) for k, v in (d.get("exempt") or {}).items() if _num(v) is not None}
     worst: dict[str, float] = {}
     for f in rep.findings:
         kind = str(f.data.get("kind") or "")
-        if f.severity == Severity.INFO or kind not in PLACEMENT_WORST:
-            continue
-        v = f.data.get(PLACEMENT_WORST[kind][0])
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            worst[kind] = max(worst.get(kind, 0.0), float(v))
-    free = sum(1 for g in gates if g.gate == PLACEMENT_GATE for f in g.findings if f.data.get("kind") == "free_exempt")
-    head = (f"MEASURED PLACEMENT (scene_placement gate: every placed asset's foot columns against what is under it, "
-            f"every pair's box overlap): {int(d.get('checked') or 0)} assets checked of {int(d.get('total') or 0)} placed, "
-            f"{sum(exempt.values())} exempt ({exempt.get('free', 0)} tagged free)")
+        v = _num(f.data.get(PLACEMENT_WORST[kind][0])) if f.severity != Severity.INFO and kind in PLACEMENT_WORST else None
+        if v is not None:
+            worst[kind] = max(worst.get(kind, 0.0), v)
     kinds = [k for k in PLACEMENT_WORST if k in counts] + [k for k in worst if k not in counts]
-    parts = []
-    for kind in kinds:
-        text = f"{counts.get(kind, 0) or sum(1 for f in rep.findings if f.data.get('kind') == kind)} "
-        text += "interpenetrating" if kind == "interpenetration" else kind
-        if kind in worst:
-            text += f" (worst {PLACEMENT_WORST[kind][1].format(worst[kind])})"
-        parts.append(text)
-    head += ": " + ", ".join(parts) + "."
-    if free:
-        head += " The share of assets tagged placement='free' is over the line (see the free_exempt finding): an author hiding from the gate."
+    tally = [f"{counts.get(k, 0) or sum(1 for f in rep.findings if f.data.get('kind') == k)} "
+             f"{'interpenetrating' if k == 'interpenetration' else k}" + (f" (worst {PLACEMENT_WORST[k][1].format(worst[k])})" if k in worst else "")
+             for k in kinds]
+    lines = [f"PLACEMENT (scene_placement: foot columns against what is under each asset, box overlap per pair): "
+             f"{int(d.get('checked') or 0)} of {int(d.get('total') or 0)} placed assets checked, {sum(exempt.values())} exempt "
+             f"({exempt.get('free', 0)} tagged free): {', '.join(tally)}"]
+    if any(f.data.get("kind") == "free_exempt" for f in rep.findings):
+        lines.append("- free_exempt: the share of assets tagged placement='free' is over the line (see the finding)")
     thresholds = d.get("thresholds")
     if isinstance(thresholds, dict) and thresholds:
-        head += " Thresholds: " + ", ".join(f"{k} {float(v):g}" for k, v in sorted(thresholds.items())
-                                             if isinstance(v, (int, float)) and not isinstance(v, bool)) + "."
+        lines.append("- thresholds: " + ", ".join(f"{k} {t:g}" for k, v in sorted(thresholds.items()) if (t := _num(v)) is not None))
     if rep.passed and not any(counts.get(k, 0) for k in kinds) and not worst:
-        head += (" PLACEMENT PASSED: no checked asset floats, sinks or overlaps another beyond the thresholds. A dark seam "
-                 "under a base is contact, not daylight: mark floating_asset / sunken_asset / interpenetration present only "
-                 "where a render VISIBLY shows it, and name the view.")
-    return head
+        lines.append("- verdict: PLACEMENT PASSED — no checked asset floats, sinks or overlaps beyond the thresholds; a dark seam "
+                     "under a base is contact: floating_asset / sunken_asset / interpenetration only where a render shows it")
+    return lines
 
 
 def connectivity_error_pairs(gates: list[GateReport]) -> list[tuple[str, str]]:
     """The connectivity gate's ERROR-level penetration part pairs (the slice channel's hatch targets): ``target``
     against ``data.other``, falling back to ``data.entering`` / ``data.container``."""
-    pairs: set[frozenset[str]] = set()
-    for g in gates:
-        if g.gate != "connectivity":
-            continue
-        for f in g.findings:
-            if f.severity != Severity.ERROR or f.data.get("kind") != "penetration":
-                continue
-            a = f.target or f.data.get("entering")
-            b = f.data.get("other") or f.data.get("container")
-            if a and b and a != b:
-                pairs.add(frozenset((str(a), str(b))))
+    pairs = {frozenset((str(a), str(b))) for g in gates if g.gate == "connectivity" for f in g.findings
+             if f.severity == Severity.ERROR and f.data.get("kind") == "penetration"
+             for a, b in [(f.target or f.data.get("entering"), f.data.get("other") or f.data.get("container"))] if a and b and a != b}
     return [tuple(sorted(p)) for p in sorted(pairs, key=sorted)]
 
 
 def _finding_line(g: GateReport, f: GateFinding) -> str:
-    tgt = f" [{f.target}]" if f.target else ""
-    return f"- {g.gate}{tgt}: {_clip(f.message, 220)}"
+    return f"- {g.gate}{f' [{f.target}]' if f.target else ''}: {_clip(f.message, 220)}"
 
 
 def _capped(label: str, items: list[str], cap: int) -> list[str]:
-    if not items:
-        return []
-    out = [f"{label} ({len(items)}):", *items[:cap]]
-    if len(items) > cap:
-        out.append(f"- … {len(items) - cap} more {label}")
-    return out
-
-
-def _structure_block(conn: GateReport, d: dict) -> list[str]:
-    """N parts / E contacts / floating / overlaps, the contact graph, planned joins, and floor gaps."""
-    parts = list(d.get("parts") or [])
-    contacts = list(d.get("contacts") or [])
-    gap = float(d.get("contact_gap_mm") or 0.0)
-    floating = sum(1 for f in conn.findings if f.severity == Severity.ERROR and f.data.get("kind") == "floating")
-    lines = [
-        f"MEASURED STRUCTURE (connectivity gate, exact mesh-to-mesh distances): {len(parts)} part{'s' if len(parts) != 1 else ''}, "
-        f"{len(contacts)} contacts (gap ≤ {gap:g} mm), {floating} floating, {len(d.get('overlaps') or [])} overlapping pairs."
-    ]
-    planned = list(d.get("planned") or [])
-    if planned:
-        lines.append("- " + _planned_line(planned, gap))
-    planned_pairs = {frozenset((str(a), str(b))) for a, b, _g, st in planned if st == "contact"}
-    other = [c for c in contacts if frozenset((str(c[0]), str(c[1]))) not in planned_pairs]
-    if other:
-        label = "other contacts, not in the plan" if planned_pairs else "contacts"
-        lines.append(f"- {label} (gap in mm where not 0): " + _adjacency(other, LEDGER_MAX_CONTACTS))
-    unresolved = list(d.get("planned_unresolved") or [])
-    if unresolved:
-        lines.append(f"- plan parts not found in the mesh: {', '.join(unresolved[:8])}" + (" …" if len(unresolved) > 8 else ""))
-    ground = _ground_line(d.get("ground_gap_mm") or {})
-    if ground:
-        lines.append("- " + ground)
-    return lines
+    return [f"{label} ({len(items)}):", *items[:cap], *([f"- … {len(items) - cap} more {label}"] if len(items) > cap else [])] if items else []
 
 
 def _gap(mm: float) -> str:
@@ -794,212 +674,162 @@ def _gap(mm: float) -> str:
     return f" {mm:.1f}" if round(mm, 1) else ""
 
 
-def _adjacency(contacts: list, cap: int) -> str:
-    by_a: dict[str, list[str]] = {}
-    for a, b, gap in contacts[:cap]:
-        by_a.setdefault(str(a), []).append(f"{b}{_gap(float(gap))}")
-    text = " · ".join(f"{a}: {', '.join(bs)}" for a, bs in by_a.items())
-    if len(contacts) > cap:
-        text += f" · … {len(contacts) - cap} more"
-    return text
+def _structure_block(conn: GateReport, ledger: GateFinding) -> list[str]:
+    """STRUCTURE: parts / contacts / floating / overlaps, planned joins, other contacts, floor gaps, overlaps, verdict."""
+    d = ledger.data
+    parts, contacts, over = list(d.get("parts") or []), list(d.get("contacts") or []), list(d.get("overlaps") or [])
+    gap = float(d.get("contact_gap_mm") or 0.0)
+    floating = sum(1 for f in conn.findings if f.severity == Severity.ERROR and f.data.get("kind") == "floating")
+    lines = [f"STRUCTURE (connectivity gate, mesh-to-mesh distances): {len(parts)} part{'s' if len(parts) != 1 else ''}, "
+             f"{len(contacts)} contacts (gap ≤ {gap:g} mm), {floating} floating, {len(over)} overlapping pairs"]
+    planned = [(str(a), str(b), float(g), str(st)) for a, b, g, st in (d.get("planned") or [])]
+    open_rows = [r for r in planned if r[3] != "contact"][:LEDGER_MAX_JOINS]
+    joined = [r for r in planned if r[3] == "contact"][: LEDGER_MAX_JOINS - len(open_rows)]
+    if planned:  # OPEN joins first so the clip never hides one
+        lines.append(f"- planned joins: {len(planned) - sum(r[3] != 'contact' for r in planned)}/{len(planned)} in contact")
+        if open_rows:
+            lines.append("- OPEN joins: " + "; ".join(f"{a}→{b} {g:.1f} mm" for a, b, g, _st in open_rows))
+        if joined:
+            lines.append("- joined (gap mm where not 0): " + ", ".join(f"{a}→{b}{_gap(g)}" for a, b, g, _st in joined))
+        lines[-1] += _more(len(planned), len(open_rows) + len(joined))
+    planned_pairs = {frozenset((a, b)) for a, b, _g, st in planned if st == "contact"}
+    other = [c for c in contacts if frozenset((str(c[0]), str(c[1]))) not in planned_pairs]
+    if other:
+        by_a: dict[str, list[str]] = {}
+        for a, b, g in other[:LEDGER_MAX_CONTACTS]:
+            by_a.setdefault(str(a), []).append(f"{b}{_gap(float(g))}")
+        lines.append(f"- {'other contacts, not in the plan' if planned_pairs else 'contacts'} (gap mm where not 0): "
+                     + " · ".join(f"{a}: {', '.join(bs)}" for a, bs in by_a.items()) + _more(len(other), LEDGER_MAX_CONTACTS, " ·"))
+    unresolved = list(d.get("planned_unresolved") or [])
+    if unresolved:
+        lines.append(f"- plan parts not found in the mesh: {', '.join(unresolved[:8])}" + (" …" if len(unresolved) > 8 else ""))
+    if ground := {str(n): float(g) for n, g in (d.get("ground_gap_mm") or {}).items()}:
+        low_name, low = min(ground.items(), key=lambda kv: kv[1])
+        verdict = "nothing touches the floor" if low > GROUND_GAP_REPORT_MM else "below the floor" if low < -GROUND_GAP_REPORT_MM else "floor contact"
+        up = [(n, g) for n, g in sorted(ground.items(), key=lambda kv: kv[1]) if g - low <= GROUND_BAND_MM and g > GROUND_GAP_REPORT_MM]
+        lines.append(f"- ground: lowest point {low:.1f} mm ({low_name}) — {verdict}; " + (
+            f"near-floor parts (within {GROUND_BAND_MM:g} mm of it) above {GROUND_GAP_REPORT_MM:g} mm: "
+            + ", ".join(f"{n} {g:.1f} mm" for n, g in up[:8]) + (" …" if len(up) > 8 else "")
+            if up else f"every other near-floor part ≤ {GROUND_GAP_REPORT_MM:g} mm"))
+    lines += _overlap_lines(conn, over)
+    if conn.passed and len(parts) >= 2:
+        lines.append(_passed_line(len(parts), gap, over))
+    return lines
 
 
-def _planned_line(planned: list, gap_mm: float) -> str:
-    """OPEN joins first so the clip never hides one."""
-    rows = [(str(a), str(b), float(g), str(st)) for a, b, g, st in planned]
-    open_rows = [r for r in rows if r[3] != "contact"]
-    contact_rows = [r for r in rows if r[3] == "contact"]
-    shown = (open_rows + contact_rows)[:LEDGER_MAX_JOINS]
-    bits = [f"PLANNED JOINS (the plan's attach_to pairs, measured; contact = gap ≤ {gap_mm:g} mm): "
-            f"{len(contact_rows)}/{len(rows)} in contact."]
-    if any(r[3] != "contact" for r in shown):
-        bits.append("OPEN: " + "; ".join(f"{a}→{b} {g:.1f} mm" for a, b, g, st in shown if st != "contact") + ".")
-    if any(r[3] == "contact" for r in shown):
-        bits.append("CONTACT (gap in mm where not 0): " + ", ".join(f"{a}→{b}{_gap(g)}" for a, b, g, st in shown if st == "contact") + ".")
-    if len(rows) > len(shown):
-        bits.append(f"… {len(rows) - len(shown)} more.")
-    return " ".join(bits)
-
-
-def _ground_line(ground: dict) -> str:
-    if not ground:
-        return ""
-    low_name, low = min(((str(n), float(g)) for n, g in ground.items()), key=lambda kv: kv[1])
-    band = [(str(n), float(g)) for n, g in ground.items() if float(g) - low <= GROUND_BAND_MM]
-    up = [(n, g) for n, g in band if g > GROUND_GAP_REPORT_MM]
-    if low > GROUND_GAP_REPORT_MM:
-        head = f"ground: lowest point {low:.1f} mm above the floor ({low_name}) — nothing touches it"
-    elif low < -GROUND_GAP_REPORT_MM:
-        head = f"ground: lowest point {-low:.1f} mm below the floor ({low_name})"
-    else:
-        head = f"ground: lowest point {low:.1f} mm ({low_name}) — floor contact"
-    if up:
-        head += (f"; parts within {GROUND_BAND_MM:g} mm of the floor: "
-                 + ", ".join(f"{n} {g:.1f} mm" for n, g in up[:8]) + (" …" if len(up) > 8 else ""))
-    else:
-        head += f"; every other near-floor part is within {GROUND_GAP_REPORT_MM:g} mm of the floor"
-    return head
-
-
-def _overlap_line(conn: GateReport, d: dict) -> str:
-    """The measured replacement for the interpenetration WARN prose: overlapping pairs are welds by the gate's
-    rule; a pair reaching half-way through its partner is named as a measurement."""
-    over = list(d.get("overlaps") or [])
+def _overlap_lines(conn: GateReport, over: list) -> list[str]:
+    """The measured overlaps: welds under the ERROR line, pairs over it kept WARN (a sliver), welds reaching the
+    partner's mid-plane.  Classified by measured depth, never by severity."""
     if not over:
-        return ""
+        return []
     error_pairs = {(f.target, f.data.get("other")) for f in conn.findings
                    if f.severity == Severity.ERROR and f.data.get("kind") == "penetration"}
     rest = [r for r in over if (str(r[0]), str(r[1])) not in error_pairs]
-    # classified by measured depth, never by severity (a deep overlap can still be a WARN)
-    deep = [r for r in rest if float(r[2]) > PENETRATION_ERROR_M * 1000]
-    welds = [r for r in rest if float(r[2]) <= PENETRATION_ERROR_M * 1000]
-    text = f"connectivity measured {len(over)} mating overlaps"
+    err_mm, warn_mm = PENETRATION_ERROR_M * 1000, PENETRATION_WARN_M * 1000
+    deep = [r for r in rest if float(r[2]) > err_mm]
+    welds = [r for r in rest if float(r[2]) <= err_mm]
+    text = (f"- overlaps: {len(over)} measured; weld allowance {warn_mm:g} mm, ERROR line {err_mm:g} mm; "
+            f"{len(error_pairs)} pair(s) above it (under errors); {len(welds)} weld(s) under it (not the interpenetration defect)")
     if welds:
         a, b, depth, through = max(welds, key=lambda r: float(r[2]))
-        text += f" (deepest weld {float(depth):.1f} mm {a}/{b}, through-ratio {float(through):.2f})"
-    text += f"; weld allowance {PENETRATION_WARN_M * 1000:g} mm, ERROR line {PENETRATION_ERROR_M * 1000:g} mm; "
-    if error_pairs:
-        text += f"{len(error_pairs)} pair(s) above it are listed under errors; "
-    text += f"{len(welds)} weld(s) under it are NOT the interpenetration defect."
+        text += f"; deepest weld {a}/{b} {float(depth):.1f} mm (through-ratio {float(through):.2f})"
+    lines = [text]
     if deep:
-        text += (f" {len(deep)} overlap(s) deeper than the ERROR line kept WARN because only a sliver of either "
-                 "surface is inside — a continuous member through a slab reads like this; the montage decides: "
-                 + "; ".join(f"{a}/{b} {float(dp):.1f} mm (through-ratio {float(t):.2f})" for a, b, dp, t in deep[:3])
-                 + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more") + ".")
-    mid = [r for r in welds if float(r[3]) >= 0.5]
-    if mid:
-        text += (" Measured, not a defect claim: "
-                 + "; ".join(f"{a}/{b} reaches {min(float(t), 1.0):.0%} of the way to its partner's mid-plane ({float(dp):.1f} mm)"
-                             for a, b, dp, t in mid[:3])
-                 + " — the far side is for the GEOMETRY montage.")
-    return text
+        lines.append(f"- {len(deep)} overlap(s) over the ERROR line kept WARN (only a sliver of either surface inside; the GEOMETRY "
+                     "montage decides): " + "; ".join(f"{a}/{b} {float(dp):.1f} mm (through-ratio {float(t):.2f})" for a, b, dp, t in deep[:3])
+                     + _more(len(deep), 3))
+    if mid := [r for r in welds if float(r[3]) >= 0.5]:
+        lines.append("- welds reaching ≥ 50% of the way to the partner's mid-plane (measured, not a defect claim; the far side is on "
+                     "the GEOMETRY montage): " + "; ".join(f"{a}/{b} {min(float(t), 1.0):.0%} ({float(dp):.1f} mm)" for a, b, dp, t in mid[:3])
+                     + _more(len(mid), 3))
+    return lines
+
+
+def _passed_line(n_parts: int, gap_mm: float, overlaps: list) -> str:
+    # the interpenetration verdict is given only when the veto honours it (every overlap under VETO_PENETRATION_DEPTH_M)
+    veto_mm = VETO_PENETRATION_DEPTH_M * 1000
+    deep = [r for r in overlaps if float(r[2]) >= veto_mm]
+    text = (f"- verdict: CONNECTIVITY PASSED — all {n_parts} parts in measured contact (gap ≤ {gap_mm:g} mm); "
+            "a dark seam at a join is contact, not a floating part")
+    if not deep:
+        return text + f"; all {len(overlaps)} overlaps under {veto_mm:g} mm are welds, not interpenetration"
+    return text + (f"; {len(deep)} of {len(overlaps)} overlaps reach {veto_mm:g} mm or more ("
+                   + "; ".join(f"{a}/{b} {float(dp):.1f} mm" for a, b, dp, _t in deep[:3]) + _more(len(deep), 3)
+                   + "): interpenetration only where a render shows a part passing through another")
 
 
 def _grouped_warnings(rest: list[tuple[GateReport, GateFinding]], max_warns: int) -> list[str]:
     """One line per (gate, kind), ``max_warns`` findings each."""
-    if not rest:
-        return []
     groups: dict[str, list[GateFinding]] = {}
     for g, f in rest:
         kind = f.data.get("kind") if isinstance(f.data.get("kind"), str) else ""
         groups.setdefault(f"{g.gate}/{kind}" if kind else g.gate, []).append(f)
-    lines = [f"warnings ({len(rest)}), grouped by kind:"]
-    for key, fs in groups.items():
-        items = [(f"[{f.target}] " if f.target else "") + _clip(f.message, 160) for f in fs[:max_warns]]
-        line = f"- {key} ×{len(fs)}: " + "; ".join(items)
-        if len(fs) > max_warns:
-            line += f"; … {len(fs) - max_warns} more"
-        lines.append(line)
-    return lines
-
-
-def _passed_paragraph(n_parts: int, n_contacts: int, gap_mm: float, overlaps: list) -> str:
-    # the interpenetration injunction is made only when the veto honours it (every overlap under VETO_PENETRATION_DEPTH_M)
-    head = (
-        f"CONNECTIVITY PASSED: all {n_parts} parts are in measured contact ({n_contacts} contacts, gap <= {gap_mm:g} mm). "
-        "A dark seam or shadow line where two parts meet is contact, not daylight. Do NOT report any "
-        "part as floating, hovering or disconnected, and do not mark the floating-part defect present. "
-    )
-    deep = [r for r in overlaps if float(r[2]) >= VETO_PENETRATION_DEPTH_M * 1000]
-    if not deep:
-        tail = (f"All {len(overlaps)} overlaps measured, none over {VETO_PENETRATION_DEPTH_M * 1000:g} mm: do NOT mark "
-                "the interpenetration defect present either — those overlaps are welds. ")
-    else:
-        tail = (f"All {len(overlaps)} overlaps measured; {len(deep)} reach {VETO_PENETRATION_DEPTH_M * 1000:g} mm or more ("
-                + "; ".join(f"{a}/{b} {float(dp):.1f} mm" for a, b, dp, _t in deep[:3])
-                + ("" if len(deep) <= 3 else f"; … {len(deep) - 3} more")
-                + "): mark interpenetration only if a part VISIBLY passes through another in a render; "
-                "a hidden overlap is a weld. ")
-    return head + tail + "If a joint looks visually ugly, say so under craftsmanship."
+    return [f"warnings ({len(rest)}) by kind:", *(
+        f"- {key} ×{len(fs)}: " + "; ".join((f"[{f.target}] " if f.target else "") + _clip(f.message, 220) for f in fs[:max_warns])
+        + _more(len(fs), max_warns) for key, fs in groups.items())] if rest else []
 
 
 def previous_section(prev: Judgment | None, round_index: int) -> str:
     if prev is None:
         return ""
-    lines = [
+    return "\n".join([
         f"PREVIOUS VERDICT (round {max(round_index - 1, 0)}): overall {prev.overall:.2f}, "
-        f"{'passed' if prev.passed else 'not passed'}. The builder was then asked to:"
-    ]
-    for it in prev.improvement_plan[:6]:
-        lines.append(f"- [{it.target}/{it.kind}] {_clip(it.instruction, 200)}")
-    if not prev.improvement_plan:
-        lines.append("- (no plan items)")
-    lines.append(
-        "Judge THIS round on its own merits (do not anchor on the old numbers), but say in the summary which of "
-        "those items are now fixed, which are STILL present, and whether anything regressed."
-    )
-    return "\n".join(lines)
-
-
-#: the fixed sentences of the view-rig paragraph, constants so ``judge_prompt_hash`` covers them
-RIG_RULES: dict[str, str] = {
-    "grid": (
-        "Each montage is a ≤2×2 grid; every tile carries a label under it ('name · az/el[· mode][· t=]') and the "
-        "montage's own label strip lists which view sits top-left / top-right / bottom-left / bottom-right. "
-        "Cite evidence as 'MONTAGE k <position> (<view name>)'. Detail crops are zoomed regions of a view, labelled with what to look for."
-    ),
-    "azimuth": (
-        "Azimuth 0° = looking at the FRONT of the object, increasing counter-clockwise seen from above (90° = the object's right side, 180° = back); "
-        "elevation is degrees above the horizon (negative = looking up from below the ground plane, which reveals undersides and ground contact)."
-    ),
-    "geometry": "The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.",
-    "poses": "POSE tiles show the SAME object with joints moved by the instruments (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
-    "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
-}
+        f"{'passed' if prev.passed else 'not passed'}; the builder was asked to:",
+        *([f"- [{it.target}/{it.kind}] {_clip(it.instruction, 200)}" for it in prev.improvement_plan[:6]] or ["- (no plan items)"]),
+        "Score this round on its own; say in the summary which of those items are fixed, still present or regressed.",
+    ])
 
 
 def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool) -> str:
     n_grids = sum(1 for m in montages if not m.is_detail)
-    n_detail = len(montages) - n_grids
-    bits = [
-        f"VIEW RIG: {n_grids} MONTAGE image(s) follow" + (f" plus {n_detail} DETAIL CROP(s)" if n_detail else "") + ". "
-        + RIG_RULES["grid"],
-        RIG_RULES["azimuth"],
-    ]
-    if any(m.kind == "geometry" for m in montages):
-        bits.append(RIG_RULES["geometry"])
-    if any(m.kind in ("poses", "pose_sheet") for m in montages):
-        bits.append(RIG_RULES["poses"])
+    kinds = {m.kind for m in montages}
+    lines = [f"VIEW RIG: {n_grids} montage(s)" + (f" + {len(montages) - n_grids} detail crop(s)" if len(montages) > n_grids else "")
+             + " — a montage is a ≤2×2 grid; its label strip names the view at top-left / top-right / bottom-left / bottom-right; "
+             "tile label = 'name · az/el[· mode][· t=]'",
+             "- az 0° = the FRONT of the object, counter-clockwise seen from above (90° = its right side, 180° = back); "
+             "el = degrees above the horizon (negative = from below the ground plane: undersides, ground contact)"]
+    if "geometry" in kinds:
+        lines.append("- GEOMETRY-ONLY montage: the same object without materials or lighting (holes, inverted black faces, "
+                     "intersections, floating parts); SHADED montage: materials and detail")
+    if kinds & {"poses", "pose_sheet"}:
+        lines.append("- POSE tiles: the same object with joints moved by the instruments (label = joint@value or rest); "
+                     "judge articulation only from them and the joint table")
     if not scene:
-        bits.append(RIG_RULES["object"])
+        lines.append("- every view shows the same object; top + low views: symmetry, footprint, ground contact")
     if renders.console_errors:
-        bits.append(f"PROBE: {len(renders.console_errors)} console error(s) during rendering, first: {_clip(renders.console_errors[0], 200)}")
-    return "\n".join(bits)
+        lines.append(f"- PROBE: {len(renders.console_errors)} console error(s) during rendering, first: {_clip(renders.console_errors[0], 200)}")
+    return "\n".join(lines)
 
 
 def slice_rig_section(labels: list[str]) -> str:
-    """The slice block appended to the view rig on gate-ERROR rounds: what the slices are, the anti-over-read
-    sentence, and the slice list in send order."""
-    lines = "\n".join(f"- slice {i}: {lbl}" for i, lbl in enumerate(labels, 1))
-    return (f"After the crops, {len(labels)} cross-section slice(s) show the interior: "
-            "slices cut the object on two centre planes; each part keeps one color "
-            "(legend on the image); regions the connectivity gate measured as ERROR-level "
-            "overlap are hatched red. "
-            "A gap between parts IN THE CUT PLANE is not evidence of disconnection — parts "
-            "may join outside this plane; the measured structure block is authoritative for "
-            "connectivity.  Judge floating_part and holes_or_inverted_faces from the shaded "
-            "and geometry views, which see the whole surface; a slice shows one cut only.\n"
-            + lines)
+    """The slice block appended to the view rig on gate-ERROR rounds: what a slice shows, what it cannot show, the list."""
+    return "\n".join([
+        f"SLICES ({len(labels)}, after the crops): cuts on two centre planes; one colour per part (legend on the image); "
+        "red hatch = overlap the connectivity gate measured at ERROR level",
+        "- a gap IN THE CUT PLANE is not disconnection (parts may join outside it; STRUCTURE above is authoritative); "
+        "floating_part and holes_or_inverted_faces are judged on the shaded and geometry views, which see the whole surface",
+        *(f"- slice {i}: {lbl}" for i, lbl in enumerate(labels, 1)),
+    ])
 
 
 def plan_summary(plan: Plan | None, language: str) -> str:
     """The plan digest the judge reads.  An object's size is written W×H×D in the GLB frame (Y-up),
     so a Z-up plan's (W, D, H) is permuted first."""
     if isinstance(plan, GraphicsPlan):
-        passes = ", ".join(f"{p.name} ({p.kind})" for p in plan.passes)
-        return (f"{plan.title}: {plan.summary} Style: {plan.style}. Passes: {passes}. Key visuals: {'; '.join(plan.key_visuals)}. "
-                f"Motion: {plan.motion or '(none planned)'}. {plan.resolution[0]}x{plan.resolution[1]}, loop {plan.duration_s:g}s.")
+        return (f"{plan.title}: {plan.summary} Style: {plan.style}. Passes: {', '.join(f'{p.name} ({p.kind})' for p in plan.passes)}. "
+                f"Key visuals: {'; '.join(plan.key_visuals)}. Motion: {plan.motion or '(none planned)'}. "
+                f"{plan.resolution[0]}x{plan.resolution[1]}, loop {plan.duration_s:g}s.")
     if isinstance(plan, ScenePlan):
         return (f"{plan.title}: {plan.summary} Setting: {plan.setting}. Zones: {', '.join(z.name for z in plan.zones)}. "
                 f"Assets: {', '.join(a.name for a in plan.assets)}. Cameras: {', '.join(c.name for c in plan.cameras)}.")
     if not isinstance(plan, StaticPlan):
         return ""
-    parts = ", ".join(f"{p.name}×{p.instances}" if p.instances > 1 else p.name for p in plan.parts)
     e = to_authoring_frame(plan.overall_bbox.extents, language, extents=True)
-    text = f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m (W×H×D). Parts: {parts}."
+    text = (f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m (W×H×D). "
+            f"Parts: {', '.join(f'{p.name}×{p.instances}' if p.instances > 1 else p.name for p in plan.parts)}.")
     if isinstance(plan, ArticulatedPlan):
-        joints = "; ".join(f"{j.name} ({j.type} {j.parent}→{j.child}, [{j.lower:.2f},{j.upper:.2f}])" for j in plan.joints)
-        text += f" Root link {plan.root_link}. Joints: {joints}."
+        text += (f" Root link {plan.root_link}. Joints: "
+                 + "; ".join(f"{j.name} ({j.type} {j.parent}→{j.child}, [{j.lower:.2f},{j.upper:.2f}])" for j in plan.joints) + ".")
     return text
 
 
@@ -1112,7 +942,6 @@ def build_brief(
     previous: Judgment | None,
     extra_context: str,
     extra_text: str,
-    geometry_views: RenderSet | None,
     images: list[tuple[str, Path]],
     montages: list[Montage],
     extra_images: Sequence[tuple[str, Path]] = (),
@@ -1122,11 +951,12 @@ def build_brief(
     """The whole judge brief as Markdown, under :data:`BRIEF_MAX_BYTES`: the case (request, plan digest, acceptance
     items, measurements, gate facts, previous verdict, view rig), the rubric, every image with its label and absolute
     path in viewing order, and the JSON shape to write to ``judgment_path``.  The case is what gives way when the
-    budget is tight; the rubric, the image list and the shape never do."""
+    budget is tight; the rubric, the image list and the shape never do.  Every case section is a fact list: one line
+    per fact, numbers and verdicts; the judge's rules are the plugin's ``agents/3d-judge.md`` and the rubric block."""
     is_scene = spec.track.value == "scene"
     sections = [
         brief_section(spec),
-        ("PLAN DIGEST:\n" + _clip(plan_summary(plan, spec.language.value), 5000)) if plan is not None else "PLAN DIGEST: (none)",
+        "PLAN DIGEST: " + (_clip(plan_summary(plan, spec.language.value), 5000) if plan is not None else "(none)"),
         acceptance_section(list(getattr(plan, "acceptance", None) or [])),
         measurement_section(measurement),
         _clip(gates_section(gates, scene=is_scene), GATES_MAX_CHARS),
