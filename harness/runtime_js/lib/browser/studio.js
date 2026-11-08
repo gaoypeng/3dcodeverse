@@ -18,7 +18,7 @@ import { viewDirection } from './camera_fit.js';
 import { backdropTexture, contactShadowTexture, softboxEnvironment } from './studio_env.js';
 
 /** Bumped whenever the look changes.  Recorded in views.json so a sheet can be dated. */
-export const RIG_VERSION = 2;
+export const RIG_VERSION = 3;
 
 export const BACKGROUNDS = { studio: 0xe9e9ec, white: 0xffffff, transparent: null };
 
@@ -198,6 +198,11 @@ export function buildStudio(renderer, scene, box, { background = 'studio', shado
 }
 
 const CLAY = new THREE.MeshStandardMaterial({ color: 0x9c9c9c, roughness: 0.85, metalness: 0.0 });
+// a double-sided material stays double-sided in clay: a front-only override shows an open shell's (a lampshade's)
+// back faces as holes the delivered GLB does not have
+const CLAY_DOUBLE = CLAY.clone();
+CLAY_DOUBLE.side = THREE.DoubleSide;
+const isDouble = (mat) => (Array.isArray(mat) ? mat.some(isDouble) : !!mat && mat.side === THREE.DoubleSide);
 const NORMALS = new THREE.MeshNormalMaterial();
 const SILHOUETTE = new THREE.MeshBasicMaterial({ color: 0x000000 });
 const WIRE = new THREE.MeshBasicMaterial({ color: 0x1a1a1a, wireframe: true, transparent: true, opacity: 0.45, depthTest: true });
@@ -220,7 +225,7 @@ export function applyMode(root, mode) {
     m.castShadow = true;
     m.receiveShadow = true;
     if (mode === 'shaded') continue;
-    if (mode === 'clay' || mode === 'wire') m.material = CLAY;
+    if (mode === 'clay' || mode === 'wire') m.material = isDouble(m.material) ? CLAY_DOUBLE : CLAY;
     else if (mode === 'normals') m.material = NORMALS;
     else if (mode === 'silhouette') m.material = SILHOUETTE;
   }
