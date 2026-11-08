@@ -45,9 +45,10 @@ lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode
 | `init` | writes `spec.json` (track, language, prompt, must-haves, dims, references, style) and the workspace layout; prints the entry files and the skill to read | once, first |
 | `validate-plan` | is `plan.json` a valid plan for the track — schema, plan checks, the acceptance items derived from `spec.json`; writes the normalised plan back (`scene_blender`: also `src/scene.py`) | after every plan edit, until PASS |
 | `build` | does `src/` lint, build and export; measures the result | after every code edit |
-| `check` | build + EVERY gate of the track → `artifacts/gates.json`; PASS/FAIL with each ERROR and its fix — the round's verdict | before judging; every ERROR caps the score |
-| `judge-pack --round N` | renders the judged views, composes the montages and crops, writes `judge/rNN/brief.md` + images for a fresh-context judge | after a clean `check`, once per round |
-| `score --round N` | the rubric arithmetic on `judgment.json`: overall, passed, caps, the improvement list → `score.json` | after the judge wrote `judgment.json` |
+| `check` | build + EVERY gate of the track → `artifacts/gates.json`; PASS/FAIL with each ERROR and its fix — the round's verdict (it subsumes `build`, `check-contract` and `check-connectivity`) | before judging; every ERROR caps the score |
+| `judge --round N` | the round's hand-over in one call: commits `src/` + `plan.json` tagged `rNN` (re-running `check` when the gates are stale), runs `judge-pack`, prints the folder and the `JUDGE INSTRUCTION:` line for the judge subagent | after a clean `check`, once per round |
+| `judge-pack --round N` | renders the judged views, composes the montages and crops, writes `judge/rNN/brief.md` + images for a fresh-context judge | inside `judge`; alone only to re-pack |
+| `score --round N` | the rubric arithmetic on `judgment.json`: overall, passed, caps, the improvement list → `score.json`; repairs a trivial deviation in the judgment and says what it repaired | after the judge replied |
 | `measure` | overall bbox, ground gap, per-part size / triangles / islands in Y-up metres (`--parts`) | when a number, not a picture, answers it |
 | `check-contract` | the built object vs `plan.json`: missing parts, bbox delta per part, overall size, ground contact | object tracks, after every build |
 | `check-connectivity` | the contact graph: floating parts with the gap vector that closes them, interpenetration, stray islands | object tracks, after every build |
@@ -82,14 +83,19 @@ judge/rNN/    brief.md + montages (judge-pack), judgment.json (the judge), score
   rounds over).  The one exception is a camera finding: prefer moving the subject (a zone's
   placement, the ground under the eye); when the camera itself must move, edit `cameras[]`
   only and re-run `3dcode validate-plan` — that is not a re-plan.
-* Every round is a commit: `git -C W add -A src public 2>/dev/null; git -C W commit -qm rNN`.
 
 ## The loop
+
+**Editing rule.**  After a file's first write, change it only with the host's edit tool, scoped
+to the lines the change needs; a large change is several edits, never a whole-file rewrite.
+Keep files small and modular so edits stay local — one part / zone / asset / pass per file, as
+the language skill's `## Files` allows.  Do not re-read a file you just wrote or edited, and
+write nothing while a command or a subagent runs: its result wakes you.
 
 1. **Init.**  `3dcode init --workspace W --track T --language L --prompt "..."` with
    `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated
    dimension, `--references img.png` per reference image.  It prints the entry files and the
-   skill to read.  Then `git -C W init` if the workspace is not a repository.
+   skill to read.
 2. **Plan.**  Write `plan.json` by `references/plan-<track>.md` (exact numbers, acceptance
    checklist), then `3dcode validate-plan --workspace W` until it prints PASS; FAIL lists each
    error with its JSON path — fix the plan, never argue with the validator.
@@ -98,31 +104,33 @@ judge/rNN/    brief.md + montages (judge-pack), judgment.json (the judge), score
    `3dcode check --workspace W`: every ERROR it lists caps the score, so fix each before judging.
    Object tracks: the whole object first — every plan part at its box and attached to its
    parent before any part gets detail (a part still a ≤ 12-triangle box within 1 mm of its plan
-   box is a `placeholder_part` ERROR); then detail.  Commit `r00`.
-4. **Judge.**  `3dcode judge-pack --workspace W --round 0` writes `judge/r00/` (requires a `check`
-   in the current state).  The judge is a context that has not seen your work: start a FRESH
-   subagent with the `3d-judge` agent definition and give it ONLY the folder path — it reads
-   `brief.md` and the images and writes `judgment.json`.  Tell it nothing else: not what you
-   built, not what you think of it.  Only when the host cannot start any fresh context, judge
-   it yourself as a DEGRADED verdict — a clearly separated step after writing nothing else into
-   context: open `brief.md`, look at every image, answer exactly its JSON — and mark the round
-   "self-judged" in your report.  Then `3dcode score --workspace W --round 0`: it prints
-   overall, passed, the caps applied and the improvement list.
+   box is a `placeholder_part` ERROR); then detail.
+4. **Judge.**  `3dcode judge --workspace W --round 0`: it commits and tags `r00`, writes
+   `judge/r00/` and prints a line starting `JUDGE INSTRUCTION:`.  The judge is a context that
+   has not seen your work: start a FRESH subagent with the `3d-judge` agent definition and hand
+   it that instruction VERBATIM — nothing else: not what you built, not what you think of it.
+   It reads `brief.md` and the images, writes `judgment.json` and replies `wrote <path>`; wait
+   for that reply.  Only when the host cannot start any fresh context, judge it yourself as a
+   DEGRADED verdict — a clearly separated step after writing nothing else into context: open
+   `brief.md`, look at every image, answer exactly its JSON — and mark the round "self-judged"
+   in your report.  Then `3dcode score --workspace W --round 0`: it prints overall, passed,
+   the caps applied, what it repaired in the judgment and the improvement list.
 5. **Refine rounds (r01, r02 …; at most 2 unless the user sets another number).**  Each round
    makes exactly the score's improvement list, gate ERRORs first (`[gate/...]` items), as
-   targeted edits — change the lines a task needs, keep every other part, name and dimension.
+   edits under the editing rule, keeping every other part, name and dimension.
    A placement task changes that part's placement numbers to the plan's centre; a material task
    changes that part's colour / roughness / metalness only; a shape task rebuilds that part
    alone; on graphics a colour/light task touches palette, exposure and grade only, a motion
    task the time terms only — never rewrite unrelated layers or passes.  A measured finding
    that repeats needs a different change of the thing it measures, not the same edit again; a
-   judge note that repeats needs a visible change in the named view.  Then `check` → commit
-   `rNN` → `judge-pack --round N` → the judge → `score --round N`.
+   judge note that repeats needs a visible change in the named view.  Then `check` →
+   `judge --round N` → the judge → `score --round N`.
 6. **Stop** when the rounds are used up, when `score` says passed with an empty improvement
    list, or when the overall fell two rounds running.  The deliverable is the BEST-scoring
    round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run
-   `3dcode check` once more so `artifacts/` matches.  Report the round, its overall, the caps
-   and the paths of its montages.
+   `3dcode check` once more so `artifacts/` matches.  Report in about ten lines: each round's
+   overall and caps, the entry files, the deliverable round and the paths of its montages —
+   nothing more.
 
 ## Quality rules on every track
 
@@ -176,5 +184,5 @@ first.  Never finish a round on a broken build.
   fillet/chamfer falling back to the unrounded solid when the kernel refuses it).
 * Never import a helper SDK, the plugin's own package or `runtime_js/`; harness-owned modules a
   language skill names inside `src/` (scene_threejs `src/lib/*.js`) are the one exception.
-* `judgment.json` is the judge's: never edit it, never give the judge anything but the folder
-  path, and report a self-judged round as such.
+* `judgment.json` is the judge's: never edit it, never give the judge anything but the printed
+  `JUDGE INSTRUCTION`, and report a self-judged round as such.

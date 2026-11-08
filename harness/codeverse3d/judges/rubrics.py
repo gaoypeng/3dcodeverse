@@ -7,10 +7,12 @@ into a penalty and a cap.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
 import statistics
+import typing
 from fnmatch import fnmatch
 from functools import lru_cache
 from pathlib import Path
@@ -22,7 +24,6 @@ from pydantic import (
     Field,
     PrivateAttr,
     ValidationError,
-    create_model,
     field_validator,
     model_validator,
 )
@@ -264,44 +265,6 @@ class JudgeOutput(BaseModel):
         return {k: v.verified for k, v in self.acceptance.items()}
 
 
-def build_wire_model(rubric: Rubric, acceptance_ids: list[str]) -> type[BaseModel]:
-    """A pydantic model whose ``criteria`` / ``acceptance`` objects have fixed keys (``acc_<i>`` aliased to the id)."""
-    crit_fields: dict[str, Any] = {
-        c.id: (CriterionScore, Field(description=f"{c.label}: {c.description.strip()[:200]}"))
-        for c in rubric.visual_criteria()
-    }
-    Criteria = create_model("Criteria", **crit_fields)
-    # field order = generation order: evidence before scores
-    fields: dict[str, Any] = {
-        "summary": (str, Field(description="2-4 sentences: what it is, what is right, what is most wrong")),
-        "strengths": (list[str], Field(default_factory=list, description="≤ 5 short bullets")),
-        "issues": (list[JudgeIssue], Field(default_factory=list, description="observable defects, most severe first")),
-    }
-    if rubric.defects:
-        def_fields: dict[str, Any] = {
-            d.id: (DefectVerdict, Field(description=d.text.strip()[:200])) for d in rubric.defects
-        }
-        Defects = create_model("Defects", **def_fields)
-        fields["defects"] = (Defects, Field(description="binary checklist: one entry per defect id, present=true ONLY when seen"))
-    if acceptance_ids:
-        acc_fields: dict[str, Any] = {
-            f"acc_{i}": (AcceptanceVerdict, Field(alias=aid, description=f"acceptance item {aid}"))
-            for i, aid in enumerate(acceptance_ids)
-        }
-        Acceptance = create_model("Acceptance", **acc_fields)
-        fields["acceptance"] = (Acceptance, Field(description="one entry per acceptance item id"))
-    fields["criteria"] = (Criteria, Field(description="one entry per criterion id, scored AFTER the observations above"))
-    fields["improvement_plan"] = (
-        list[ImprovementItem],
-        Field(default_factory=list, description="≤ 6 concrete instructions for the builder, priority 1 first"),
-    )
-    return create_model("JudgeReply", **fields)
-
-
-def wire_schema(rubric: Rubric, acceptance_ids: list[str]) -> dict[str, Any]:
-    return build_wire_model(rubric, acceptance_ids).model_json_schema(by_alias=True)
-
-
 def _object(value: Any, what: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise JudgeParseError(f"{what} is not an object: {type(value).__name__}")
@@ -367,6 +330,201 @@ def parse_judge_output(
             out.defects[d.id] = False
             out.defect_evidence[d.id] = "not answered by judge"
     return out
+
+
+# ===================================================================== repair
+def _literal_values(model: type[BaseModel], field: str) -> tuple[str, ...]:
+    return tuple(str(v) for v in typing.get_args(model.model_fields[field].annotation))
+
+
+def _bounds(model: type[BaseModel], field: str) -> tuple[float, float]:
+    meta = model.model_fields[field].metadata
+    return (next(float(m.ge) for m in meta if hasattr(m, "ge")), next(float(m.le) for m in meta if hasattr(m, "le")))
+
+
+#: an issue kind the improvement enum lacks → the improvement kind the builder acts on
+IMPROVEMENT_KIND_FALLBACK = {"detail": "geometry", "proportion": "geometry", "scale": "geometry", "fidelity": "composition"}
+SEVERITY_FALLBACK = {"blocking": "critical", "severe": "critical", "high": "major", "medium": "major", "moderate": "major",
+                     "low": "minor", "trivial": "minor", "cosmetic": "minor"}
+#: how alike a misspelt enum value must be to the one it is read as
+ENUM_MATCH_CUTOFF = 0.75
+_TRUE_WORDS = {"true", "yes", "present", "verified", "1"}
+_FALSE_WORDS = {"false", "no", "absent", "unverified", "0", "none", ""}
+
+
+def _enum(value: Any, allowed: tuple[str, ...], synonyms: dict[str, str], default: str, where: str,
+          repairs: list[str]) -> str:
+    """``value`` read as one of ``allowed``: as written, a listed synonym, the closest spelling, else ``default``."""
+    text = str(value if value is not None else "").strip().lower().replace("-", "_").replace(" ", "_")
+    if text in allowed:
+        return text
+    if text in synonyms and synonyms[text] in allowed:
+        fixed = synonyms[text]
+    else:
+        close = difflib.get_close_matches(text, allowed, n=1, cutoff=ENUM_MATCH_CUTOFF)
+        fixed = close[0] if close else default
+    repairs.append(f"{where} {value!r} is not one of {list(allowed)} → read as {fixed!r}")
+    return fixed
+
+
+def _bool(value: Any, where: str, repairs: list[str]) -> bool | None:
+    """A real boolean, a yes/no word or a 0/1 → bool; anything else None."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower() if isinstance(value, (str, int, float)) else None
+    if text in _TRUE_WORDS or text in _FALSE_WORDS:
+        flag = text in _TRUE_WORDS
+        repairs.append(f"{where} {value!r} → {str(flag).lower()}")
+        return flag
+    return None
+
+
+def _number(value: Any, lo: float, hi: float, where: str, repairs: list[str], *, percent: bool = False) -> float | None:
+    """A number (or a numeric string) clamped to ``lo..hi``; ``percent`` reads 1 < x ≤ 100 as x/100.  None when not a number."""
+    try:
+        x = float(value) if not isinstance(value, bool) else None
+    except (TypeError, ValueError):
+        x = None
+    if x is None or x != x:
+        return None
+    if percent and 1.0 < x <= 100.0:
+        repairs.append(f"{where} {value!r} read as a percentage → {x / 100:.2f}")
+        x = x / 100
+    if not lo <= x <= hi:
+        clamped = min(hi, max(lo, x))
+        repairs.append(f"{where} {value!r} is outside {lo:g}..{hi:g} → {clamped:g}")
+        x = clamped
+    if isinstance(value, str):
+        repairs.append(f"{where} {value!r} is a string → {x:g}")
+    return x
+
+
+def _keyed(section: Any, ids: list[str], flag: str, lo_hi: tuple[float, float] | None, where: str,
+           repairs: list[str], missing: list[str], *, required: bool) -> dict[str, dict[str, Any]]:
+    """criteria / defects / acceptance: one ``{flag, evidence}`` object per known id; bare values are wrapped, unknown
+    ids dropped, absent ids reported as missing (``required``) or left to the parser's default."""
+    raw = section if isinstance(section, dict) else {}
+    if section is not None and not isinstance(section, dict):
+        repairs.append(f"{where} is not an object → ignored")
+    out: dict[str, dict[str, Any]] = {}
+    for key, value in raw.items():
+        if key not in ids:
+            repairs.append(f"{where}.{key} is not a known id → dropped")
+            continue
+        body = dict(value) if isinstance(value, dict) else {flag: value}
+        if not isinstance(value, dict):
+            repairs.append(f"{where}.{key} was a bare value → wrapped as {{{flag}, evidence}}")
+        v = body.get(flag)
+        fixed = _number(v, *lo_hi, f"{where}.{key}.{flag}", repairs, percent=True) if lo_hi else _bool(v, f"{where}.{key}.{flag}", repairs)
+        if fixed is None:
+            missing.append(f"{where}.{key}.{flag}" + (" (a number 0..1)" if lo_hi else " (true or false)"))
+            continue
+        body[flag] = fixed
+        body["evidence"] = str(body.get("evidence") or "")
+        out[key] = body
+    for key in ids:
+        if key not in out and not any(m.startswith(f"{where}.{key}.") for m in missing):
+            if required:
+                missing.append(f"{where}.{key}")
+            else:
+                repairs.append(f"{where}.{key} not answered → false")
+    return out
+
+
+def repair_judgment(payload: Any, rubric: Rubric, acceptance_ids: list[str], *,
+                    measured_scores: dict[str, float] | None = None) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Mend the trivial deviations of a judge's JSON and name what is still missing.
+
+    Returns ``(payload, repairs, missing)``: each repair is one line saying what was read as what; ``missing`` lists
+    the keys the judge must add (a criterion score, a defect answer, an acceptance verdict) — those are never
+    invented.  Enum values are read as the closest allowed one (``IMPROVEMENT_KIND_FALLBACK`` / ``SEVERITY_FALLBACK``
+    first), numbers are clamped to their range, bare values are wrapped, unknown keys and ids are dropped.
+    """
+    repairs: list[str] = []
+    missing: list[str] = []
+    if not isinstance(payload, dict):
+        return {}, repairs, ["the file must hold ONE JSON object"]
+    data: dict[str, Any] = {}
+    known = ("summary", "strengths", "issues", "defects", "acceptance", "criteria", "improvement_plan")
+    for key in payload:
+        if key not in known:
+            repairs.append(f"{key!r} is not a key of the judgment → dropped")
+    if not isinstance(payload.get("summary", ""), str):
+        repairs.append("summary is not text → str()")
+    data["summary"] = str(payload.get("summary") or "")
+    strengths = payload.get("strengths") or []
+    data["strengths"] = [str(x) for x in strengths] if isinstance(strengths, list) else []
+    score_lo_hi = _bounds(CriterionScore, "score")
+    visual_ids = [c.id for c in rubric.visual_criteria()]
+    measured_ids = [c.id for c in rubric.measured_criteria() if c.id not in (measured_scores or {})]
+    data["criteria"] = _keyed(payload.get("criteria"), visual_ids + measured_ids, "score", score_lo_hi, "criteria",
+                              repairs, missing, required=True)
+    data["defects"] = _keyed(payload.get("defects"), [d.id for d in rubric.defects], "present", None, "defects",
+                             repairs, missing, required=True)
+    data["acceptance"] = _keyed(payload.get("acceptance"), list(acceptance_ids), "verified", None, "acceptance",
+                                repairs, missing, required=True)
+    data["issues"] = _issues(payload.get("issues"), repairs)
+    data["improvement_plan"] = _plan(payload.get("improvement_plan"), repairs)
+    return data, repairs, missing
+
+
+def _issues(raw: Any, repairs: list[str]) -> list[dict[str, Any]]:
+    if raw is not None and not isinstance(raw, list):
+        repairs.append("issues is not a list → ignored")
+    out = []
+    for i, item in enumerate(raw if isinstance(raw, list) else []):
+        where = f"issues[{i}]"
+        if not isinstance(item, dict):
+            repairs.append(f"{where} is not an object → dropped")
+            continue
+        detail = str(item.get("detail") or item.get("instruction") or item.get("text") or item.get("evidence") or "")
+        if not detail:
+            repairs.append(f"{where} has no detail → dropped")
+            continue
+        out.append({
+            "target": str(item.get("target") or "overall"),
+            "kind": _enum(item.get("kind"), _literal_values(JudgeIssue, "kind"), {}, "geometry", f"{where}.kind", repairs),
+            "severity": _enum(item.get("severity"), _literal_values(JudgeIssue, "severity"), SEVERITY_FALLBACK, "minor",
+                              f"{where}.severity", repairs),
+            "detail": detail, "evidence": str(item.get("evidence") or ""),
+        })
+    return out
+
+
+def _plan(raw: Any, repairs: list[str]) -> list[dict[str, Any]]:
+    if raw is not None and not isinstance(raw, list):
+        repairs.append("improvement_plan is not a list → ignored")
+    lo, hi = _bounds(ImprovementItem, "priority")
+    out = []
+    for i, item in enumerate(raw if isinstance(raw, list) else []):
+        where = f"improvement_plan[{i}]"
+        if not isinstance(item, dict):
+            repairs.append(f"{where} is not an object → dropped")
+            continue
+        instruction = str(item.get("instruction") or item.get("detail") or item.get("text") or "")
+        if not instruction:
+            repairs.append(f"{where} has no instruction → dropped")
+            continue
+        priority = _number(item.get("priority"), lo, hi, f"{where}.priority", repairs)
+        if priority is None:
+            priority = min(hi, float(i + 1))
+            repairs.append(f"{where}.priority {item.get('priority')!r} → {int(priority)} (its position)")
+        gain = _number(item.get("expected_gain", 0.0), *_bounds(ImprovementItem, "expected_gain"), f"{where}.expected_gain", repairs)
+        if gain is None:
+            repairs.append(f"{where}.expected_gain {item.get('expected_gain')!r} → 0")
+            gain = 0.0
+        out.append({
+            "target": str(item.get("target") or "overall"),
+            "kind": _enum(item.get("kind"), _literal_values(ImprovementItem, "kind"), IMPROVEMENT_KIND_FALLBACK, "geometry",
+                          f"{where}.kind", repairs),
+            "instruction": instruction, "priority": int(round(priority)), "expected_gain": gain,
+        })
+    return out[:int(hi)] if len(out) <= hi else _cap_plan(out, int(hi), repairs)
+
+
+def _cap_plan(items: list[dict[str, Any]], cap: int, repairs: list[str]) -> list[dict[str, Any]]:
+    repairs.append(f"improvement_plan has {len(items)} items → the {cap} with the lowest priority numbers kept")
+    return sorted(items, key=lambda it: it["priority"])[:cap]
 
 
 _SEV_RANK = {Severity.INFO: 0, Severity.WARN: 1, Severity.ERROR: 2}
@@ -587,8 +745,7 @@ class ScoreBreakdown(BaseModel):
     n_requested: int
     sample_errors: list[str] = Field(default_factory=list)
     rubric_hash: str = ""
-    judge_prompt_hash: str = Field(default="", description="hash of everything the judge is told that is constant per rubric: "
-                                                           "role prompt + view-rig rules + wire schema (prompt_builder.judge_prompt_hash)")
+    judge_prompt_hash: str = Field(default="", description="hash of everything the judge is told that is constant per rubric")
     samples: list[dict[str, Any]] = Field(default_factory=list)
 
 

@@ -22,7 +22,8 @@ LLM-written **raw executable 3D code** — no SDK layered on the language — fo
 ## 1. Design laws
 
 1. **Code is truth; artifacts are derived.**  `src/` is the deliverable; every GLB, PNG and
-   URDF is regenerated from it.  Every round is a git commit of `src/`.
+   URDF is regenerated from it.  Every round is a git commit of `src/`, tagged `rNN` by
+   `3dcode judge`.
 2. **Requirements, never templates.**  A skill states what must be true, where, and how it is
    measured — interface, sandbox, thresholds — never a mandated shape or structure the brief
    did not ask for; ONE executable interface example per language; no fence over ~12 lines.
@@ -94,8 +95,9 @@ python function + argparse subcommand (kebab-case; a list argument is a repeated
 | `validate-plan` | all | validates `plan.json` against the track's plan model + the deterministic plan checks (placeholder echo, hard quality complaints, acceptance present, fixed-part clash); writes the normalised plan back; FAIL lists each error with its JSON path |
 | `build` | all | lint + build with the language runtime, export, measure; `artifacts/build.json` |
 | `check` | all | build + measure + every gate of the track → `artifacts/gates.json`; the round's verdict |
+| `judge --round N` | all | the round's hand-over: makes the workspace a git repo with a local identity if needed, re-runs `check` when the gates are stale, commits `src/` + `plan.json` tagged `rNN`, runs `judge-pack`, prints the folder and the `JUDGE INSTRUCTION:` line the host hands verbatim to a fresh `3d-judge` subagent |
 | `judge-pack --round N` | all | renders the judged views, post-render gates, composes the montages/crops, writes `judge/rNN/brief.md` + images; needs a prior `check` in the same state |
-| `score --round N` | all | parses `judge/rNN/judgment.json` strictly, applies weights, penalties, floors and the gate caps from `gates.json` → `score.json`; prints overall, passed, caps, the improvement list |
+| `score --round N` | all | parses `judge/rNN/judgment.json`, repairs trivial deviations (saying what it repaired), applies weights, penalties, floors and the gate caps from `gates.json` → `score.json`; prints overall, passed, caps, the improvement list |
 | `measure [--parts]*` | object | bbox / extents, ground gap, per-part size / tris / islands |
 | `check-contract` | object | built GLB vs `plan.json`: missing parts, bbox deltas, overall size, ground contact |
 | `check-connectivity` | object | contact graph: floating parts (with the gap vector), interpenetration, stray islands |
@@ -133,8 +135,10 @@ the overview rig; graphics: the frame sheet), composes labelled 2 × 2 montages,
 `brief.md`: the request, the plan digest, the acceptance items, the measured numbers and gate
 facts, the rubric's criteria with anchors, the binary defect checklist with penalties and caps,
 and the EXACT JSON the judge returns (`criteria`, `summary`, `strengths`, `issues`,
-`improvement_plan`, `acceptance`, `defects`).  The `3d-judge` agent reads only that folder and
-writes `judgment.json`.  `score` parses it strictly (`judges/rubrics.py`), fills measured
+`improvement_plan`, `acceptance`, `defects`).  `judge` wraps it: commit + tag, `judge-pack`,
+and the one `JUDGE INSTRUCTION:` line the host hands verbatim to a fresh `3d-judge` subagent,
+which reads only that folder, writes `judgment.json` and replies `wrote <path>`.  `score`
+parses the judgment (repairing a trivial deviation and saying so; `judges/rubrics.py`), fills measured
 criteria from code, applies weights, subtracts defect penalties, applies floors, then the caps
 from `gates.json` (build error 0; floating 0.60; penetration 0.70; contract violation 0.75;
 an unmet `must` acceptance item 0.60 / 0.70 on graphics; the per-track measured caps), and

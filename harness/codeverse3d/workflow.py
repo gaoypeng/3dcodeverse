@@ -1,9 +1,11 @@
-"""The workflow tools: ``init`` · ``validate_plan`` · ``check`` · ``judge_pack`` · ``score``.
+"""The workflow tools: ``init`` · ``validate_plan`` · ``check`` · ``judge`` · ``judge_pack`` · ``score``.
 
 They tie the instruments to the workspace the host agent works in: ``init`` writes ``spec.json`` and what the
 language runtime owns, ``validate_plan`` validates and normalises ``plan.json``, ``check`` builds and runs every
 gate of the track, ``judge_pack`` renders the judged views and writes ``judge/rNN/brief.md`` + images for a
-fresh-context judge, ``score`` turns that judge's ``judgment.json`` into the rubric arithmetic.
+fresh-context judge, ``judge`` is the one step from code to that judge (check if stale → commit + tag ``rNN`` →
+judge-pack → the instruction to hand the judge), ``score`` turns the judge's ``judgment.json`` into the rubric
+arithmetic, mending trivial deviations first.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from codeverse3d.judges.rubrics import (
     aggregate_samples,
     load_rubric,
     parse_judge_output,
+    repair_judgment,
 )
 from codeverse3d.languages import get_runtime
 from codeverse3d.plan_checks import (
@@ -42,7 +45,7 @@ from codeverse3d.plan_checks import (
     schema_echo,
     validation_errors,
 )
-from codeverse3d.proc import read_json_or_none
+from codeverse3d.proc import read_json_or_none, run_subprocess
 from codeverse3d.spatial.observe import rel_path, text_observation
 from codeverse3d.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse3d.spatial.silhouette import compare_silhouette, dimension_conflict, measure_reference
@@ -417,9 +420,9 @@ def _slug(label: str) -> str:
 
 
 @tool("judge_pack", NoArgs, "Render the track's judged views (14-view rig + clay + poses / authored cameras + rig / "
-      "judged frames), compose the montages and crops, and write judge/rNN/: brief.md (the case, the rubric as a "
-      "checklist, the EXACT JSON to return), the images and pack.json. A fresh-context judge reads ONLY that folder. "
-      "Requires a `check` of the current src/.", cost_hint="slow")
+      "judged frames), compose the montages and crops, and write judge/rNN/: brief.md (the case, the rubric, the image "
+      "list, the JSON shape to write), the images and pack.json. A fresh-context judge reads ONLY that folder. "
+      "Requires a `check` of the current src/; `3dcode judge` runs it for you.", cost_hint="slow")
 def judge_pack(ctx: ToolContext, args: NoArgs) -> Observation:
     ws = ctx.workspace
     spec = _spec(ctx)
@@ -487,10 +490,107 @@ def judge_pack(ctx: ToolContext, args: NoArgs) -> Observation:
                             images=all_images, limit=4000)
 
 
+# ===================================================================== judge
+#: the plugin root (``agents/3d-judge.md`` lives beside the package)
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+GIT_IDENTITY = (("user.name", "3dcodeverse"), ("user.email", "3dcodeverse@localhost"))
+#: what a workspace repo never tracks (written to .git/info/exclude, not to a tracked file)
+GIT_EXCLUDE = ("artifacts/", "judge/", "node_modules/", "__pycache__/", ".venv/")
+GIT_TIMEOUT_S = 120.0
+
+
+def _git(ws: Workspace, *args: str, ok_codes: tuple[int, ...] = (0,)) -> str:
+    r = run_subprocess(["git", *args], cwd=ws.root, timeout_s=GIT_TIMEOUT_S)
+    if r.returncode not in ok_codes:
+        raise ToolUsageError(f"git {' '.join(args)} failed ({r.returncode}): {(r.stderr or r.stdout).strip()[:400]}")
+    return r.stdout
+
+
+def _check_stale(ws: Workspace) -> str:
+    """Why the last ``check`` cannot stand for the current src/ (empty when it can)."""
+    raw = read_json_or_none(ws.gates_path)
+    if raw is None:
+        return "no check yet"
+    res = CheckResult.model_validate(raw)
+    if res.src_hash != ws.src_hash():
+        return "src/ changed since the last check"
+    if not res.build.ok:
+        return "the last check did not build"
+    return ""
+
+
+def commit_round(ws: Workspace, round_index: int, message: str) -> tuple[str, list[str]]:
+    """Commit src/ + plan.json as ``rNN`` (re-tagged on repeat) in the workspace's own repo, creating the repo and
+    a local identity when there is none.  Returns ``(short sha, what was set up)``."""
+    notes: list[str] = []
+    if not (ws.root / ".git").exists():
+        _git(ws, "init", "-q")
+        notes.append("git init")
+    exclude = ws.root / ".git" / "info" / "exclude"
+    if exclude.parent.is_dir():
+        have = exclude.read_text().splitlines() if exclude.is_file() else []
+        add = [e for e in GIT_EXCLUDE if e not in have]
+        if add:
+            exclude.write_text("\n".join([*have, *add]) + "\n")
+    for key, value in GIT_IDENTITY:
+        if not _git(ws, "config", key, ok_codes=(0, 1)).strip():
+            _git(ws, "config", key, value)
+            notes.append(f"git config {key} {value}")
+    paths = [p for p in ("src", "plan.json") if (ws.root / p).exists()]
+    if paths:
+        _git(ws, "add", "-A", "--", *paths)
+    _git(ws, "commit", "-q", "--allow-empty", "-m", message)
+    tag = f"r{round_index:02d}"
+    _git(ws, "tag", "-f", tag)
+    return _git(ws, "rev-parse", "--short", "HEAD").strip(), notes
+
+
+def judge_instruction(out: Path) -> str:
+    """The exact text to hand a fresh-context judge subagent for the folder ``out``."""
+    agent = PLUGIN_ROOT / "agents" / "3d-judge.md"
+    definition = f"at {agent}" if agent.is_file() else "3d-judge"
+    return (f"You are the 3d-judge of the 3dcodeverse plugin: read the plugin agent definition {definition} and follow it. "
+            f"Judge ONLY the folder {out}: read {out / 'brief.md'} and every image it lists, write {out / JUDGMENT_NAME}, "
+            f"then reply with exactly one line: wrote {out / JUDGMENT_NAME}")
+
+
+@tool("judge", NoArgs, "One step from code to the judge: make the workspace a git repo (local identity if none), run "
+      "`check` when the gates are stale for the current src/, commit src/ + plan.json tagged rNN, run `judge-pack`, "
+      "and print the folder plus the exact JUDGE INSTRUCTION for a fresh-context 3d-judge subagent. Then "
+      "`3dcode score --round N`.", cost_hint="slow")
+def judge(ctx: ToolContext, args: NoArgs) -> Observation:
+    ws = ctx.workspace
+    spec = _spec(ctx)
+    lines: list[str] = []
+    stale = _check_stale(ws)
+    if stale:
+        chk = check(ctx, NoArgs())
+        if not chk.numbers.get("build_ok"):
+            return Observation(ok=False, failed=chk.failed, text=f"JUDGE STOPPED — check ran ({stale}) and did not build:\n" + chk.text,
+                               numbers=chk.numbers)
+        lines.append(f"check ran ({stale}): {chk.text.splitlines()[0]}")
+    else:
+        lines.append("check is current for this src/")
+    sha, notes = commit_round(ws, ctx.round_index, f"round {ctx.round_index}: {spec.prompt[:72]}")
+    lines.append(f"committed {sha} tagged r{ctx.round_index:02d}" + (f" ({'; '.join(notes)})" if notes else ""))
+    pack = judge_pack(ctx, NoArgs())
+    if pack.failed or not pack.ok:
+        return Observation(ok=False, failed=pack.failed, text="\n".join(lines) + "\n" + pack.text, numbers=pack.numbers,
+                           images=pack.images)
+    out = ws.judge_dir(ctx.round_index)
+    lines += pack.text.splitlines()[:2]
+    lines.append("JUDGE INSTRUCTION: " + judge_instruction(out))
+    lines.append(f"next: 3dcode score --round {ctx.round_index}")
+    return text_observation(lines, numbers={**pack.numbers, "commit": sha, "tag": f"r{ctx.round_index:02d}",
+                                            "instruction": judge_instruction(out)}, limit=4000)
+
+
 # ===================================================================== score
-@tool("score", NoArgs, "Read judge/rNN/judgment.json (the judge's JSON), parse it strictly, apply the rubric's weights, "
+@tool("score", NoArgs, "Read judge/rNN/judgment.json (the judge's JSON), mend trivial deviations (an enum spelt wrong, "
+      "a number out of range, a bare value, an unknown key — each printed as `repaired:`), apply the rubric's weights, "
       "defect penalties, floors and gate caps, write judge/rNN/score.json. Prints overall, PASS/FAIL, the caps and the "
-      "improvement list for the next round (gate ERRORs first).")
+      "improvement list for the next round (gate ERRORs first). A judgment missing a criterion score, a defect answer "
+      "or an acceptance verdict is a FAIL that names exactly what to add.")
 def score(ctx: ToolContext, args: NoArgs) -> Observation:
     ws = ctx.workspace
     spec = _spec(ctx)
@@ -504,12 +604,25 @@ def score(ctx: ToolContext, args: NoArgs) -> Observation:
         raise ToolUsageError(f"{jpath} does not exist — the judge has to write it first (see brief.md)")
     rubric = load_rubric(str(pack["rubric"]))
     acceptance_ids = [str(a) for a in pack.get("acceptance_ids") or []]
+    measured = dict(pack.get("measured_scores") or {})
+    again = f"then run `3dcode score --round {ctx.round_index}` again"
     try:
         payload = parse_json_lenient(jpath.read_text(errors="replace"))
-        parsed = parse_judge_output(payload, rubric, acceptance_ids, measured_scores=dict(pack.get("measured_scores") or {}))
-    except (JsonParseError, JudgeParseError) as e:
-        return Observation.error(f"judgment.json is not a complete verdict: {e}\n"
-                                 f"The judge must write ONE JSON object matching the schema at the end of {out / 'brief.md'}.")
+    except JsonParseError as e:
+        return text_observation([f"SCORE FAIL — {rel_path(jpath, ws.root)} is not JSON: {e}",
+                                 f"Write ONE JSON object of the shape at the end of {out / 'brief.md'} to {jpath}, {again}."],
+                                ok=False, numbers={"missing": ["a JSON object"]})
+    payload, repairs, missing = repair_judgment(payload, rubric, acceptance_ids, measured_scores=measured)
+    repaired = [f"repaired: {r}" for r in repairs]
+    if missing:
+        return text_observation([f"SCORE FAIL — {rel_path(jpath, ws.root)} is incomplete; add to it:"] + [f"- {m}" for m in missing]
+                                + repaired + [f"(the shape is at the end of {out / 'brief.md'}; {again})"],
+                                ok=False, numbers={"missing": missing, "repairs": len(repairs)})
+    try:
+        parsed = parse_judge_output(payload, rubric, acceptance_ids, measured_scores=measured)
+    except JudgeParseError as e:
+        return text_observation([f"SCORE FAIL — {rel_path(jpath, ws.root)} does not validate: {e}"] + repaired
+                                + [f"(the shape is at the end of {out / 'brief.md'}; {again})"], ok=False, numbers={"repairs": len(repairs)})
     gates = [GateReport.model_validate(g) for g in pack.get("gates") or []]
     renders = RenderSet.model_validate(pack.get("renders") or {})
     items = list(getattr(plan, "acceptance", None) or [])
@@ -518,7 +631,7 @@ def score(ctx: ToolContext, args: NoArgs) -> Observation:
     ws.write_json(out / SCORE_NAME, judgment)
     breakdown = json.loads(judgment.raw)
     lines = [f"SCORE {judgment.overall:.2f} → {'PASS' if judgment.passed else 'FAIL'} (threshold {rubric.pass_threshold:.2f}; "
-             f"uncapped {breakdown.get('overall_uncapped', 0):.2f}, defects -{breakdown.get('defect_penalty', 0):.2f})"]
+             f"uncapped {breakdown.get('overall_uncapped', 0):.2f}, defects -{breakdown.get('defect_penalty', 0):.2f})"] + repaired
     lines.append("criteria: " + ", ".join(f"{k} {v:.2f}" for k, v in judgment.scores.items()))
     present = [d for d, on in (breakdown.get("defects") or {}).items() if on]
     if present:
@@ -549,4 +662,4 @@ def score(ctx: ToolContext, args: NoArgs) -> Observation:
     return text_observation(lines, ok=judgment.passed,
                             numbers={"overall": judgment.overall, "passed": judgment.passed, "scores": judgment.scores,
                                      "defects": present, "caps": [c["rule"] for c in caps], "must_missing": missing,
-                                     "n_improvements": len(improve)}, limit=8000)
+                                     "n_improvements": len(improve), "repairs": len(repairs)}, limit=8000)

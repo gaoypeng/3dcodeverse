@@ -28,7 +28,8 @@ constructions.  Realistic scale: people 1.7 m, doors 2.1 m, steps 0.17 m, bench 
    judged enclosed in glass from every camera, lit through the glazing with the frame's
    shadows inside, and what is seen through the glass is the brief's world, never a void or a
    flat colour.
-5. `zones[]`: `name` PascalCase, `bbox` (where that zone may place; neighbours overlap ≤ 1 m —
+5. `zones[]`: `name` PascalCase, `bbox` `{"center": [x, y, z], "extents": [w, h, d]}` (where
+   that zone may place; neighbours overlap ≤ 1 m —
    and when built the zones read as ONE continuous place: nothing stops dead at a zone edge,
    scale and materials agree across them, no zone is left a block-out), `contents[]` (asset
    names only), `description` as numbers: what the place is and which cameras see it; the
@@ -41,8 +42,8 @@ constructions.  Realistic scale: people 1.7 m, doors 2.1 m, steps 0.17 m, bench 
    (`threejs` | `bpy` procedural module; `blender_glb` a hero built as an object and shipped as
    a GLB, costlier, may carry ONE keyframed motion whose pose at t = 1.5 s differs visibly from
    t = 0 — named in its description), `description` with construction numbers and colours,
-   `approx_size_m` = width × height × depth (the built asset is measured against it — a stone
-   lantern 0.5 × 1.6 × 0.5, a bench 1.6 × 0.9 × 0.6, a pine 3 × 7 × 3), `instances_hint`.  An
+   `approx_size_m` `[width, height, depth]` in metres (the built asset is measured against it — a
+   stone lantern `[0.5, 1.6, 0.5]`, a bench `[1.6, 0.9, 0.6]`, a pine `[3, 7, 3]`), `instances_hint`.  An
    asset is judged as a prop at scene distance and is instanced: the description names its
    silhouette, the two or three features a person would name and its condition, not close-up
    hardware; real thickness where the thing has it (a fence is stakes and rails, not a coloured
@@ -58,14 +59,15 @@ constructions.  Realistic scale: people 1.7 m, doors 2.1 m, steps 0.17 m, bench 
    a scrolling uv/normal at ≥ 0.15 m/s; particles ≥ 0.6 m per 1.5 s; boats/vehicles ≥ 1.5 m or
    a visible turn; lantern flicker ×0.75–×1.3.  Motion the brief names is visible from the
    establishing camera.
-9. `cameras[]` (1–6): `name` ([A-Za-z0-9_-], a filename), `position`, `look_at`, `fov`
-   (vertical, 5–150), `purpose` (what the shot is of and what the judge should see in it).
+9. `cameras[]` (1–6): `name` ([A-Za-z0-9_-], a filename), `position` and `look_at` as
+   `[x, y, z]`, `fov` (vertical, 5–150), `purpose` (what the shot is of and what the judge should see in it).
    Choose the shot set the place implies — a long vista, a close interior, a walk along a
    street, a top-down court.  Numbers are used literally: compute them from where the subject
    is and how big it is.  `cameras[0]` is the establishing shot (≥ 20 % of the frame is
    content, not sky or ground; others ≥ 10 %); every eye ≥ 0.3 m above the ground under it,
    ≥ 0.5 m from any surface, looking at content.
-10. `acceptance[]`: one per must-have, plus nothing floating or sunken (`how: "probe"`), the
+10. `acceptance[]`, each `{"id": "a1", "text": "...", "how": "visual" | "probe"}`: one per
+    must-have, plus nothing floating or sunken (`how: "probe"`), the
     named motion visible (`probe`), no world edge from any camera (`visual`), lighting reads as
     the stated time of day (`visual`).  On this track `priority` is not yours: `validate-plan`
     sets every plan item to `should`, and the `must` items — each capping the run at 0.60 when

@@ -17,7 +17,7 @@ handed.  No window, no context creation, no clock of your own.
 ## Files
 ```
 src/program.py      REQUIRED  defines setup() and render()
-src/*.glsl          optional  shader sources; read with Path(__file__).with_name("x.glsl").read_text()
+src/*.glsl          optional  shader sources, one file per shader so program.py keeps only the GL plumbing; read with Path(__file__).with_name("x.glsl").read_text()
 ```
 Only these two globs are delivered; another `src/*.py` is a lint WARN (`stray_file`).
 `references/interface.md` is the interface, executable.

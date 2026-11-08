@@ -17,7 +17,7 @@ shows them to the judge.  Every frame is a pure function of the pixel and absolu
 ## Files
 ```
 src/shader.frag     REQUIRED  the image pass (no #version, no uniform/out declarations)
-src/common.glsl     optional  helpers, pasted ABOVE shader.frag (and buffer_a.frag) at build time
+src/common.glsl     optional  helpers AND each layer's function (sky, aurora, terrain …), pasted ABOVE shader.frag (and buffer_a.frag) at build time — shader.frag only composites them and stays short
 src/buffer_a.frag   optional  ONE feedback buffer pass, rendered every frame before the image pass
 ```
 Nothing else is read (another file under `src/` is a lint WARN `stray_file`).

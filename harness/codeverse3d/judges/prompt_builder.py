@@ -1,8 +1,9 @@
 """What the judge sees: image prep, montage planning and the brief.
 
 ``prepare_image`` downscales and labels every image; ``plan_montages`` / ``render_montage`` pack ranked views
-into ≤2×2 sheets; ``build_brief`` assembles the judge's text (the role, the rubric as a checklist, the measured
-facts, the view rig, the exact JSON to return) for ``judge/rNN/brief.md``.
+into ≤2×2 sheets; ``build_brief`` assembles this round's data for ``judge/rNN/brief.md`` (the case: request, plan
+digest, acceptance items, measured facts, gate findings, view rig; the rubric; the image list; the JSON shape).
+The generic judge rules live in the plugin's ``agents/3d-judge.md``, not here.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import typing
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +24,8 @@ from codeverse3d.contracts.artifacts import (
     RENDER_MODES,
     GateFinding,
     GateReport,
+    ImprovementItem,
+    JudgeIssue,
     Judgment,
     Measurement,
     RenderSet,
@@ -45,7 +49,7 @@ from codeverse3d.conventions import (
     to_authoring_frame,
     view_key,
 )
-from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric, wire_schema
+from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
 from codeverse3d.proc import unique_tmp
 from codeverse3d.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse3d.spatial.measure import measure_summary_table
@@ -502,51 +506,23 @@ def render_montage(m: Montage, *, cache_dir: Path | None = None, tile_px: int = 
     return out
 
 
-def describe_montages(montages: list[Montage]) -> str:
-    grids = [m for m in montages if not m.is_detail]
-    details = [m for m in montages if m.is_detail]
-    lines = [f"- image {i}: {m.title}" for i, m in enumerate(grids, 1)]
-    lines += [f"- detail crop {i}: {m.title.replace('DETAIL CROP — ', '')}" for i, m in enumerate(details, 1)]
-    return "\n".join(lines)
-
-
 #: tracks whose rounds have one canonical GLB the judge slice channel may cut
 SLICE_TRACKS = ("static_object", "articulated_object")
 #: rubric for a static object judged against reference images (adds the measured silhouette criterion)
 REFERENCE_RUBRIC = "reference"
 
-TEXT_BUDGET_CHARS = 24_000
+#: agy truncates a file read at 46 080 bytes: a brief is one read
+BRIEF_MAX_BYTES = 40_000
+#: the gate facts alone never exceed this (long finding lists end in a count)
+GATES_MAX_CHARS = 5_000
 MAX_PX = 1024
 MONTAGE_TILE_PX = 512
 SLICE_MAX_PX = 1024
 
-_ROLE = """You are the BLIND JUDGE of a 3D-code project: exacting but fair.
-You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning (you read ONLY this brief and the images it lists). Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
-Gate findings describe the exported FILE (names, node hierarchy, contacts); the renders show the actual geometry. When they seem to disagree about something VISIBLE (a part moves in a posed tile, a part is present), trust the images for the visual criteria and report the file-level fact as an issue — never infer "nothing moves" or "part missing" from text alone when the tiles show otherwise.
-Work in this order: observe (summary, strengths, issues), answer the defect checklist and the acceptance items, and only THEN score the criteria against their anchors.
-
-SCORING RULES
-- Score each criterion 0..1 against its anchors (interpolate between anchors). Use the WHOLE range: competent work sits at 0.8+, one clearly visible major defect pulls the affected criterion to ~0.4, broken work sits at 0.1-0.3. Do not compress everything into 0.5-0.7 — a primitive box-stack and a crafted product must be 0.4 apart, not 0.1.
-- Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_high): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
-- DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed in code, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
-- Do NOT compute an overall or decide pass/fail; `3dcode score` computes the weighted overall, subtracts defect penalties, applies floors and caps.
-- Issues: observable defects, most severe first, with target = the part / zone / joint / asset name from the plan digest (or "overall"), a kind, a severity and evidence.
-- Improvement plan: at most 6 concrete, imperative instructions for the builder ("rear_leg_left: ends 3 cm above y=0 in the ground-contact crop — extend it to touch the ground"; "seat: measured 62 mm thick against the brief's 25 mm — thin it to the stated size"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
-- Acceptance items: answer verified=true ONLY when the renders or measurements prove the item; otherwise false with what is missing.
-- Write ONE JSON object matching the schema at the end of this brief to the judgment file it names; no prose outside it."""
-
-
-#: end of the DEFECT CHECKLIST scoring-rule bullet in ``_ROLE``; the provenance sentence is appended after it
-_DEFECT_BULLET_END = 'do not mark a defect to "be safe", and do not hide one to be kind.'
-#: one neutral, defect-agnostic sentence for slice (gate-ERROR) rounds
-PROVENANCE_ELICITATION = (
-    "For each defect you mark present, say where it is visible (MONTAGE n / "
-    "DETAIL CROP n / slice n) or state that it rests on the measured text alone."
-)
-
 
 def _rubric_block(rubric: Rubric) -> str:
-    lines = [f"RUBRIC {rubric.name} v{rubric.version} (pass threshold {rubric.pass_threshold:.2f}, for information only)"]
+    lines = [f"RUBRIC {rubric.name} v{rubric.version} (pass threshold {rubric.pass_threshold:.2f}; the overall is computed in code "
+             "from these weights, penalties, floors and caps — score each criterion 0..1 against its anchors)"]
     for i, c in enumerate(rubric.criteria, 1):
         if c.kind == "measured":
             lines.append(f"{i}. {c.id} (weight {c.weight:.2f}) — MEASURED IN CODE, shown for calibration; do not score it.")
@@ -570,16 +546,6 @@ def _rubric_block(rubric: Rubric) -> str:
         lines.append("")
         lines.append("RUBRIC NOTES: " + rubric.extra_instructions.strip())
     return "\n".join(lines)
-
-
-def build_system_prompt(rubric: Rubric, *, provenance_elicitation: bool = False) -> str:
-    """The judge's system prompt; ``provenance_elicitation`` appends :data:`PROVENANCE_ELICITATION` once."""
-    role = _ROLE
-    if provenance_elicitation:
-        if role.count(_DEFECT_BULLET_END) != 1:
-            raise ValueError("prompt_builder._ROLE: the defect-checklist bullet anchor drifted")
-        role = role.replace(_DEFECT_BULLET_END, _DEFECT_BULLET_END + " " + PROVENANCE_ELICITATION)
-    return role + "\n\n" + _rubric_block(rubric)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -978,9 +944,6 @@ RIG_RULES: dict[str, str] = {
     ),
     "geometry": "The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.",
     "poses": "POSE tiles show the SAME object with joints moved by the instruments (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
-    "scene_cams": "Views named overview_* and eye_* are rig cameras fitted to the scene bounds (layout X-ray); every other view is one of the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
-    "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth readable for what each shot frames, surfaces that read as the brief's materials rather than one flat colour, variety among repeated elements, the secondary detail the brief's place implies, and distance softened where the brief's weather would soften it — each judged against what THIS place would have, not a fixed recipe. The same camera at two times appears as separate tiles; nothing_moves is answered from the MEASURED MOTION line only, never by comparing tiles.",
-    "scene_contact": "The high overview_* tiles (overview_front_right / overview_back_left / overview_top) are rendered with the fog removed and room ceilings lifted: a missing roof, lid or haze in them is never a defect. overview_low_front stands at ground level just outside the content, where daylight under a base shows. CONTACT CROP images are diagnostic close-ups cut from an overview tile around a placement finding the gate measured (the label names the asset, the kind and the number): judge the contact they show — base meets ground, part through neighbour — never their composition, lighting or dressing. Every floating / sunken / clipping / scale claim must name its view and its asset.",
     "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
 }
 
@@ -997,15 +960,10 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
         bits.append(RIG_RULES["geometry"])
     if any(m.kind in ("poses", "pose_sheet") for m in montages):
         bits.append(RIG_RULES["poses"])
-    if scene:
-        bits.append(RIG_RULES["scene_cams"])
-        bits.append(RIG_RULES["scene_craft"])
-        bits.append(RIG_RULES["scene_contact"])
-    else:
+    if not scene:
         bits.append(RIG_RULES["object"])
     if renders.console_errors:
         bits.append(f"PROBE: {len(renders.console_errors)} console error(s) during rendering, first: {_clip(renders.console_errors[0], 200)}")
-    bits.append("Images in send order:\n" + describe_montages(montages))
     return "\n".join(bits)
 
 
@@ -1073,6 +1031,75 @@ def montage_images(
     return out, montages
 
 
+def _literal_values(model: type, field: str) -> tuple[str, ...]:
+    return tuple(str(v) for v in typing.get_args(model.model_fields[field].annotation))
+
+
+def _bound(model: type, field: str, attr: str) -> float:
+    return next(float(getattr(m, attr)) for m in model.model_fields[field].metadata if hasattr(m, attr))
+
+
+EVIDENCE = "<MONTAGE k <position> (<view>) / DETAIL CROP k / the measurement that shows it>"
+
+
+def judgment_shape(rubric: Rubric, acceptance_ids: list[str], judgment_path: Path) -> str:
+    """The JSON the judge writes: a filled example with every criterion / defect / acceptance id, then the enum
+    lists and ranges the parser holds it to (``rubrics.repair_judgment`` mends anything smaller)."""
+    example = {
+        "summary": "<2-4 sentences: what it is, what is right, what is most wrong>",
+        "issues": [{"target": "<name from the plan digest, or overall>", "kind": "geometry", "severity": "major",
+                    "detail": "<what is wrong, observable>", "evidence": EVIDENCE}],
+        "defects": {d.id: {"present": False, "evidence": "<evidence>"} for d in rubric.defects},
+        "acceptance": {a: {"verified": False, "evidence": "<evidence>"} for a in acceptance_ids},
+        "criteria": {c.id: {"score": 0.0, "evidence": "<evidence>"} for c in rubric.visual_criteria()},
+        "improvement_plan": [{"target": "<name from the plan digest>", "kind": "geometry",
+                              "instruction": "<one imperative change and its expected effect>", "priority": 1, "expected_gain": 0.05}],
+    }
+    if not rubric.defects:
+        example.pop("defects")
+    if not acceptance_ids:
+        example.pop("acceptance")
+    lo, hi = int(_bound(ImprovementItem, "priority", "ge")), int(_bound(ImprovementItem, "priority", "le"))
+    rules = [
+        f"Write ONE JSON object of this shape to `{judgment_path}` (nothing else in the file). Every id shown under "
+        "criteria, defects and acceptance must be answered; a criterion the rubric marks MEASURED is not listed and not yours.",
+        "- criteria[].score: 0..1 against the anchors; evidence names the image and tile or the measurement.",
+        "- defects[].present: true only when an image, a gate ERROR or a measurement shows it (a WARN never does).",
+        "- acceptance[].verified: true only when a render or a measurement proves the item.",
+        f"- issues[].kind ∈ {', '.join(_literal_values(JudgeIssue, 'kind'))}; severity ∈ {', '.join(_literal_values(JudgeIssue, 'severity'))}; most severe first.",
+        f"- improvement_plan: at most {hi} items, priority {lo} first ({lo}..{hi}); kind ∈ {', '.join(_literal_values(ImprovementItem, 'kind'))}; expected_gain 0..1.",
+        "- Do not compute an overall or a pass/fail: code does that from the rubric.",
+    ]
+    return "\n".join(rules) + "\n\n```json\n" + _shape_json(example) + "\n```\n"
+
+
+def _shape_json(example: dict) -> str:
+    """``json.dumps(indent=1)`` with every id entry of a keyed object on one line (a filled example, not a dump)."""
+    lines = ["{"]
+    keys = list(example)
+    for i, k in enumerate(keys):
+        v, comma = example[k], ("," if i < len(keys) - 1 else "")
+        if isinstance(v, dict):
+            lines.append(f' "{k}": {{')
+            items = list(v.items())
+            lines += [f'  "{id_}": {json.dumps(body, ensure_ascii=False)}' + ("," if j < len(items) - 1 else "")
+                      for j, (id_, body) in enumerate(items)]
+            lines.append(" }" + comma)
+        else:
+            lines.append(f' "{k}": ' + json.dumps(v, indent=1, ensure_ascii=False).replace("\n", "\n ") + comma)
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _clip_bytes(text: str, limit: int) -> str:
+    """``text`` cut to ``limit`` UTF-8 bytes, ending in the clip mark when cut."""
+    if len(text.encode()) <= limit:
+        return text
+    mark = " …[clipped]"
+    body = text.encode()[: max(0, limit - len(mark.encode()))].decode(errors="ignore").rstrip()
+    return body + mark
+
+
 def build_brief(
     *,
     spec: Spec,
@@ -1092,16 +1119,17 @@ def build_brief(
     slice_images: Sequence[tuple[str, Path]] = (),
     judgment_path: Path,
 ) -> str:
-    """The whole judge brief as Markdown: role + rubric, the measured sections, the view rig, every image with its
-    label and absolute path (in viewing order), and the exact JSON object to write to ``judgment_path``."""
+    """The whole judge brief as Markdown, under :data:`BRIEF_MAX_BYTES`: the case (request, plan digest, acceptance
+    items, measurements, gate facts, previous verdict, view rig), the rubric, every image with its label and absolute
+    path in viewing order, and the JSON shape to write to ``judgment_path``.  The case is what gives way when the
+    budget is tight; the rubric, the image list and the shape never do."""
     is_scene = spec.track.value == "scene"
-    system = build_system_prompt(rubric, provenance_elicitation=bool(slice_images))
     sections = [
         brief_section(spec),
         ("PLAN DIGEST:\n" + _clip(plan_summary(plan, spec.language.value), 5000)) if plan is not None else "PLAN DIGEST: (none)",
         acceptance_section(list(getattr(plan, "acceptance", None) or [])),
         measurement_section(measurement),
-        gates_section(gates, scene=is_scene),
+        _clip(gates_section(gates, scene=is_scene), GATES_MAX_CHARS),
         previous_section(previous, round_index),
         _clip(extra_context, 2500) if extra_context.strip() else "",
         _clip(extra_text, 2500) if extra_text.strip() else "",
@@ -1110,19 +1138,12 @@ def build_brief(
     if slice_images:
         rig = rig + "\n" + slice_rig_section([lbl for lbl, _ in slice_images])
     sections.append(rig)
-    text = "\n\n".join(s for s in sections if s)
-    if len(text) > TEXT_BUDGET_CHARS:
-        text = _clip(text, TEXT_BUDGET_CHARS)
+    case = "\n\n".join(s for s in sections if s)
     acceptance_ids = [a.id for a in (getattr(plan, "acceptance", None) or [])]
-    schema = json.dumps(wire_schema(rubric, acceptance_ids), indent=1)
     listing = "\n".join(f"{i}. {lbl}\n   {p}" for i, (lbl, p) in enumerate([*extra_images, *images, *slice_images], 1))
-    return (
-        f"# Judge brief — round {round_index}\n\n"
-        "## Your role\n\n" + system + "\n\n"
-        "## The case\n\n" + text + "\n\n"
-        "## Images (open each with your image viewer, in this order)\n\n" + listing + "\n\n"
-        "## Return exactly this JSON\n\n"
-        f"Write ONE JSON object matching this schema to `{judgment_path}` (nothing else in the file). Score every "
-        "criterion with evidence, answer every defect-checklist item and every acceptance item.\n\n"
-        "```json\n" + schema + "\n```\n"
-    )
+    head = f"# Judge brief — round {round_index}\n\n## The case\n\n"
+    tail = ("\n\n## Rubric\n\n" + _rubric_block(rubric)
+            + "\n\n## Images (open each with your image viewer, in this order)\n\n" + listing
+            + "\n\n## Return exactly this JSON\n\n" + judgment_shape(rubric, acceptance_ids, judgment_path))
+    room = BRIEF_MAX_BYTES - len(head.encode()) - len(tail.encode())
+    return head + _clip_bytes(case, room) + tail

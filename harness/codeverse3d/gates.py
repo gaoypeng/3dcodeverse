@@ -499,7 +499,7 @@ def asset_gate(ws: Workspace, runtime: Any, plan: ScenePlan, language: Language)
         elif chk.errors:
             findings.append(GateFinding(gate=ASSET_GATE, severity=Severity.WARN, target=a.name,
                                         message=f"{rel}: " + "; ".join(chk.errors)[:400],
-                                        fix_hint=f"rewrite {rel} so the deterministic asset check passes", data=data))
+                                        fix_hint=f"edit {rel} at the fault the message names so the asset check passes", data=data))
         else:
             size = f"{chk.size_m[0]:.2f}×{chk.size_m[1]:.2f}×{chk.size_m[2]:.2f} m" if chk.size_m else "size unmeasured"
             findings.append(GateFinding(gate=ASSET_GATE, severity=Severity.INFO, target=a.name,

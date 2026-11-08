@@ -12,19 +12,21 @@ and judged on frames at t = 0, 1, 2.5, 4 and 6 s.
    1920 × 1080.  `duration_s` ≥ 6 (the preview loop; judged times stop at 6 s).
 4. `passes[]` (at most 6) in draw order: `name` PascalCase, `kind` (`fullscreen` | `geometry` |
    `postprocess` | `feedback`), `description` — what it draws, the technique by name, the quantities (counts,
-   sizes as screen fractions, speeds, the style's colours); optional `elements[]` (≤ 8 named
-   things with their numbers) and `detail_hint`.  A fragment shader's pass is a layer composited
+   sizes as screen fractions, speeds, the style's colours); optional `elements[]` (≤ 8 plain
+   strings, each a named thing with its numbers: `["stars ~2000 points", "3 curtains 0.3 frame tall"]`)
+   and `detail_hint`.  A fragment shader's pass is a layer composited
    inside the one shader; an OpenGL program's may be a real pass (geometry, an FBO).  One field
    filling the frame is the `flat_fill` defect (−0.08) and the 0.1 anchor of `depth_and_detail`
    (weight 0.16): plan structure at the scales the subject has.
-5. `uniforms`: the harness uniforms the effect needs (`u_time`, `u_resolution`, `u_prev` for
-   feedback, `u_noise`).
+5. `uniforms`: the harness uniforms the effect needs, as strings (`["u_time", "u_resolution",
+   "u_noise"]`; `u_prev` for feedback).
 6. `motion`: ONE paragraph — what animates, direction, speed in screen fractions per second or
    Hz, easing, and what stays still.  Every request animates unless it says "static image": the
    largest mean |Δ| between consecutive judged frames must reach 0.002 or the score caps at 0.5.
 7. `key_visuals`: the nouns a viewer must recognise.
-8. `acceptance`: one item per must-have and per key visual (`how: "visual"`), ids `a1…`;
-   `must` only for what makes it the wrong effect when absent (an unverified `must` caps at 0.7).
+8. `acceptance`: one item per must-have and per key visual, each
+   `{"id": "a1", "text": "...", "how": "visual", "priority": "must" | "should"}`; `must` only
+   for what makes it the wrong effect when absent (an unverified `must` caps at 0.7).
 
 Plan inside the language: a fragment shader has no geometry (everything is a function of the
 pixel, `u_time` and the two samplers); an OpenGL program may draw meshes, instances and passes.

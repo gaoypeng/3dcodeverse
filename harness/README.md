@@ -15,14 +15,15 @@ has a fresh-context judge score it.
   `c3d-*` craft bundles (parts that touch, bbox contract, repeats, scene lighting / placement /
   materials / motion, shader traps …).
 * **Instruments** (`3dcode`, a command-line tool): `init`, `validate-plan`, `build`, `check`
-  (every gate of the track), `judge-pack`, `score`, and the per-track probes — `measure`,
+  (every gate of the track), `judge` (commit + tag + `judge-pack` + the judge's instruction),
+  `score`, and the per-track probes — `measure`,
   `check-contract`, `check-connectivity`, `cross-section`, `render-views`, `render-sheet`,
   `isolate`, `compare-reference`, `joint-sweep`, `scene-probe`, `check-placement`,
   `scene-views`, `shader-probe`, `gl-probe`, `gl-frames`.  Each prints a verdict, numbers,
   fix hints and the paths of the PNGs it wrote.
-* **Judge** (`agents/3d-judge.md`): a subagent that reads only `judge/rNN/brief.md` + the
-  images and writes `judgment.json`; `3dcode score` does the arithmetic from the rubric's
-  weights, penalties, floors and gate caps.
+* **Judge** (`agents/3d-judge.md`): a subagent started with the one instruction `3dcode judge`
+  prints; it reads only `judge/rNN/brief.md` + the images and writes `judgment.json`; `3dcode
+  score` does the arithmetic from the rubric's weights, penalties, floors and gate caps.
 
 Everything model-side — writing code, looking at renders, judging — is the host agent's own
 model and billing.  There is no pipeline, no vendor backend, no API key and no cost ledger in

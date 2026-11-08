@@ -148,4 +148,4 @@ def list_tools(*, track: str = "", language: str = "") -> list[ToolDef]:
 def _ensure_loaded() -> None:
     """Import the modules that register every tool."""
     import codeverse3d.spatial.tools  # noqa: F401 — its @tool decorators fill _REGISTRY
-    import codeverse3d.workflow  # noqa: F401 — init / validate_plan / check / judge_pack / score
+    import codeverse3d.workflow  # noqa: F401 — init / validate_plan / check / judge / judge_pack / score
