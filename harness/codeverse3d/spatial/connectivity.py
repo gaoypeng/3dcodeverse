@@ -20,10 +20,13 @@ from codeverse3d.spatial.joints_collide import fcl_collision_object, inside_isla
 from codeverse3d.spatial.measure import GlbLoadError, fmt_vec, solid_parts
 
 GATE = "connectivity"
-PlannedEdge = tuple[str, "str | Sequence[str]"]
+#: (child, its candidate parents, every instance of the child's plan part)
+PlannedEdge = tuple[str, "str | Sequence[str]", "Sequence[str]"]
 MIN_PART_SIZE_M = 0.01
 PENETRATION_WARN_M = 0.002
 PENETRATION_ERROR_M = 0.010
+#: a join the plan states (``attach_to``) left open by more than this is a visible gap the judge marks down
+OPEN_JOIN_ERROR_M = 0.010
 PENETRATION_MIN_FRACTION = 0.02
 PENETRATION_MIN_INSIDE = 4
 PENETRATION_MIN_LOCAL_FRACTION = 0.2
@@ -280,6 +283,22 @@ def _island_findings(name: str, mesh: trimesh.Trimesh, islands: list[trimesh.Tri
     return out
 
 
+def _open_join_finding(a: str, b: str, exact: dict[tuple[str, str], PairDistance], language: str, *,
+                       sibling_joined: bool = False) -> GateFinding:
+    """A join the plan states (``a`` attach_to ``b``) whose surfaces do not meet."""
+    pd = exact.get((a, b)) or exact[(b, a)]
+    vec_glb = pd.gap_vector if pd.a == a else tuple(-x for x in pd.gap_vector)
+    vec = tuple(float(x) for x in glb_vec_to_plan(vec_glb, language))
+    big = pd.distance > OPEN_JOIN_ERROR_M and not sibling_joined
+    return GateFinding(
+        gate=GATE, severity=Severity.ERROR if big else Severity.WARN, target=a,
+        message=f"'{a}' is planned to join '{b}' but a {pd.distance * 1000:.1f} mm gap separates them"
+                + (" — a visible open joint" if big else ""),
+        fix_hint=f"translate '{a}' by {fmt_vec(vec, 4)} m ({frame_label(language)}) — or extend it by "
+                 f"{pd.distance * 1000:.1f} mm towards '{b}' — so the surfaces meet",
+        data={"kind": "open_join", "other": b, "gap_m": pd.distance, "gap_vector_m": list(vec)})
+
+
 def _penetration_finding(a: str, b: str, pen: Penetration, warn_m: float, error_m: float) -> GateFinding:
     through = pen.through_ratio
     sev = (Severity.ERROR if pen.depth_m > error_m and pen.fraction_inside >= PENETRATION_MIN_FRACTION
@@ -415,7 +434,9 @@ def check_connectivity(
     planned: list[list[Any]] = []
     unresolved: list[str] = []
     seen_pairs: set[frozenset[str]] = set()
-    for a, cands in planned_edges:
+    open_joins: list[tuple[str, str, Sequence[str]]] = []
+    joined: set[str] = set()
+    for a, cands, siblings in planned_edges:
         names_b = (cands,) if isinstance(cands, str) else tuple(cands)
         if a not in parts:
             if a not in unresolved:
@@ -437,6 +458,14 @@ def check_connectivity(
             rows.append([a, b, _mm(pd.distance), "contact" if pd.distance <= CONTACT_GAP_M else "open"])
         contacts = [r for r in rows if r[3] == "contact"]
         planned.extend(contacts if contacts else rows[:1] if len(rows) <= 1 else [min(rows, key=lambda r: r[2])])
+        if contacts:
+            joined.add(a)
+        elif rows:
+            open_joins.append((a, min(rows, key=lambda r: r[2])[1], siblings))
+    for a, b, siblings in open_joins:
+        # one instance of a repeated part that meets the planned parent while its twin sits elsewhere (a vise's
+        # second jaw plate on the fixed jaw) is placement the plan did not spell out, not an open joint
+        findings.append(_open_join_finding(a, b, exact, language, sibling_joined=any(s in joined for s in siblings if s != a)))
     if len(big) > 1 and not any(f.severity == Severity.ERROR for f in findings):
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO,
                                     message=f"all {len(big)} parts are connected ({len(edges)} contacts, gap ≤ {CONTACT_GAP_M * 1000:.0f} mm)"))

@@ -114,25 +114,26 @@ def is_placeholder(rows: list[PartMeasure], plan_box: BBox) -> bool:
     return True
 
 
-def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tuple[str, tuple[str, ...]]]:
-    """The plan's ``attach_to`` edges spelled in the GLB's part names, for the connectivity
-    ledger."""
+def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+    """The plan's ``attach_to`` edges spelled in the GLB's part names — (child, its candidate parents, every instance
+    of the child's plan part) — for the connectivity gate."""
     if plan is None or measurement is None or not measurement.parts:
         return []
     parts = list(getattr(plan, "parts", []) or [])
     matched, _ = match_parts(parts, measurement.parts)
-    edges: list[tuple[str, str]] = []
+    edges: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = []
     for pp in parts:
         if not pp.attach_to:
             continue
         parents = matched.get(pp.attach_to) or []
+        siblings = tuple(c.name for c in matched.get(pp.name) or [])
         for child in matched.get(pp.name) or []:
             gaps = {p.name: _aabb_gap((child.bbox_min, child.bbox_max), (p.bbox_min, p.bbox_max))
                     for p in parents if p.name != child.name}
             if not gaps:
                 continue
             touching = [n for n, g in gaps.items() if g <= CONTACT_GAP_M]
-            edges.append((child.name, tuple(touching or [min(gaps, key=gaps.__getitem__)])))
+            edges.append((child.name, tuple(touching or [min(gaps, key=gaps.__getitem__)]), siblings))
     return edges
 
 

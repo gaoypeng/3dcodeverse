@@ -1,6 +1,6 @@
 {
   "name": "3dcodeverse",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Make real 3D with raw code: Blender bpy, CadQuery, Three.js, URDF, GLSL and OpenGL objects, mechanisms, scenes and shader effects. Skills carry the workflow and each language's measured contract; the 3dcode command-line instruments build, measure, render and gate the result; a fresh-context judge subagent scores it.",
   "author": {
     "name": "3dcodeverse"
