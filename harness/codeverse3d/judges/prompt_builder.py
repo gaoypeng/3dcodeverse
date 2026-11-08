@@ -576,7 +576,7 @@ def _num(v: object) -> float | None:
 
 def brief_section(spec: Spec) -> str:
     c = spec.constraints
-    rows = [("dimensions_m", ", ".join(f"{k}={v:g}" for k, v in c.dimensions_m.items())), ("style", c.style),
+    rows = [("dimensions_m", ", ".join(f"{k}={v:g}" for k, v in (c.dimensions_m or {}).items())), ("style", c.style),
             ("must_have", "; ".join(c.must_have)), ("must_not", "; ".join(c.must_not))]
     return "\n".join([f"BRIEF (track {spec.track.value}, language {spec.language.value}): {_clip(spec.prompt, 3000)}",
                       *(f"- {k}: {v}" for k, v in rows if v)])

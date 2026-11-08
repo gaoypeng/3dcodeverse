@@ -20,7 +20,7 @@ src/env.js          export function heightAt(x, z); export function buildEnv(ctx
 src/zones/<snake>.js   export function build(ctx) → THREE.Group   (ctx = { THREE, scene, renderer, loaders, heightAt, env, assets })
 src/assets/<snake>.js  export function build<Asset>(THREE, opts = {}) → THREE.Group   (procedural; lowest point on y = 0)
 src/shaders/<snake>.js export function make<Name>Material(THREE, opts = {}) → ShaderMaterial | patched material
-src/lib/*.js        HARNESS-OWNED effect library: import and call, NEVER read — `3dcode init` printed every export with its parameters and references/effects-catalog.md says what each is for; edits are reverted
+src/lib/*.js        HARNESS-OWNED effect library: import and call, NEVER read — the project's creation (`validate-plan`'s first call or `init`) printed every export with its parameters and references/effects-catalog.md says what each is for; edits are reverted
 public/assets/<snake>.glb   optional Blender-built heroes; scene.js preloads each into ctx.assets['<snake>']
 ```
 The build serves the workspace over http (`public/assets/` at `/assets/`), imports
@@ -28,7 +28,7 @@ The build serves the workspace over http (`public/assets/` at `/assets/`), impor
 `loaders = { gltf, texture, cube, manager }`, awaits `createScene`, validates the return
 value, renders every camera at t = 0 and t = 1.5 s (calling `update`) and probes (tris, draw
 calls, console/shader errors, camera checks, exposure, content, the frame difference).  The
-library's surface is the index `init` printed plus the catalog: open a `src/lib` file only for
+library's surface is the index printed when the project was created plus the catalog: open a `src/lib` file only for
 ONE signature the index lacks, and read only that function's lines — never a lib file whole.  The
 plan's `bounds` are what the census and placement gate measure against; the world a camera
 sees extends past them as far as the brief needs.  `references/interface.md` has the wiring

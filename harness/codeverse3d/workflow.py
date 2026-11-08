@@ -165,11 +165,27 @@ def _language_owned_files(ws: Workspace, language: Language) -> list[Path]:
 
 
 # ===================================================================== validate_plan
-@tool("validate_plan", NoArgs, "Validate plan.json against the track's plan model and the deterministic plan checks "
-      "(placeholder echo, size/detail budget from the request, fixed-part clash); writes the normalised plan back. "
+class ValidatePlanArgs(InitArgs):
+    track: str = Field(default="", description="first call only (no spec.json yet): " + InitArgs.model_fields["track"].description)
+    language: str = Field(default="", description="first call only: " + InitArgs.model_fields["language"].description)
+    prompt: str = Field(default="", description="first call only: what to build, the user's words")
+
+
+@tool("validate_plan", ValidatePlanArgs, "Validate plan.json against the track's plan model and the deterministic plan "
+      "checks (placeholder echo, size/detail budget from the request, fixed-part clash); writes the normalised plan back. "
+      "The first call creates the project too (pass --track --language --prompt and init's other flags). "
       "FAIL lists each error with its JSON path.")
-def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
+def validate_plan(ctx: ToolContext, args: ValidatePlanArgs) -> Observation:
     ws = ctx.workspace
+    created: list[str] = []
+    if not ws.spec_path.is_file():
+        if not (args.track and args.language and args.prompt):
+            raise ToolUsageError("no spec.json yet: the first validate-plan also creates the project",
+                                 '3dcode validate-plan --track T --language L --prompt "..."')
+        made = init(ctx, InitArgs(**args.model_dump(exclude={"force"})))
+        if made.failed or not made.ok:
+            return made
+        created = [line for line in made.text.splitlines() if not line.startswith("next:")]
     spec = _spec(ctx)
     raw = _plan_raw(ws)
     model = PLAN_MODELS[spec.track]
@@ -193,7 +209,7 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
         if clash:
             errors.append(clash)
     if errors:
-        text = [f"PLAN INVALID ({model.__name__}): {len(errors)} error(s)"] + [f"- {e}" for e in errors]
+        text = created + [f"PLAN INVALID ({model.__name__}): {len(errors)} error(s)"] + [f"- {e}" for e in errors]
         return text_observation(text, ok=False, numbers={"errors": len(errors), "model": model.__name__}, limit=6000)
     assert plan is not None
     budget = plan_budget(spec)
@@ -217,7 +233,7 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
     files = rt.expected_files(plan)
     units = list(getattr(plan, unit, None) or [])
     head = "PLAN FAIL (valid, but not worth building yet)" if hard else "PLAN OK"
-    lines = [f"{head}: {model.__name__}, {len(units)} {unit}, {len(plan.acceptance)} acceptance items"]
+    lines = created + [f"{head}: {model.__name__}, {len(units)} {unit}, {len(plan.acceptance)} acceptance items"]
     lines += [f"- ERROR: {h}" for h in hard]
     lines += [f"- WARN: {s}" for s in soft]
     if rewritten:
@@ -295,6 +311,9 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
     if census_warn:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
     lines.append(f"written: {rel_path(ws.gates_path, ws.root)}")
+    if res.ok:
+        lines.append(f"next: no ERROR — the round's code is done; judge it (`3dcode judge --round {ctx.round_index}`) if the "
+                     "user asked for a score or refine rounds, else report. WARNs neither block nor cap the score: leave them.")
     return text_observation(lines, ok=res.ok, numbers=numbers, limit=8000)
 
 

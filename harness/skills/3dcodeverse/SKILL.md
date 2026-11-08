@@ -15,7 +15,7 @@ number and an improvement list.  Nothing is drawn by hand and nothing comes from
 store: the object, mechanism, place or effect has to come out of the code at real scale, and it
 is measured.  Your job is the loop below, honestly.
 
-**Read three files together, in ONE step, before `init`** — all under the plugin root, beside
+**Read three files together, in ONE step, before anything else** — all under the plugin root, beside
 this file: this skill's `## The loop` (the rest of this file is reference), the language skill
 `skills/3d-lang-<language>/SKILL.md` (hyphens: `scene_threejs` → `3d-lang-scene-threejs`; the
 table below names each) and `skills/3dcodeverse/references/plan-<track>.md`.  Open no other
@@ -48,7 +48,7 @@ lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode
 
 | subcommand | what it answers | when |
 |---|---|---|
-| `init` | writes `spec.json` (track, language, prompt, must-haves, dims, references, style) and the workspace layout; prints the entry files and the skill to read | once, first |
+| `init` | writes `spec.json` (track, language, prompt, must-haves, dims, references, style) and the workspace layout; prints the entry files | only to create a project before its plan exists — the first `validate-plan` does it otherwise |
 | `validate-plan` | is `plan.json` a valid plan for the track — schema, plan checks, the acceptance items derived from `spec.json`; writes the normalised plan back (`scene_blender`: also `src/scene.py`) | after every plan edit, until PASS |
 | `build` | does `src/` lint, build and export; measures the result | after every code edit |
 | `check` | build + EVERY gate of the track → `artifacts/gates.json`; PASS/FAIL with each ERROR and its fix — the round's verdict (it subsumes `build`, `check-contract` and `check-connectivity`) | before judging; every ERROR caps the score |
@@ -112,16 +112,16 @@ ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then 
 to confirm the listed items.  A WARN never caps the score: fix it once if cheap, otherwise
 leave it.
 
-1. **Init.**  `3dcode init --workspace W --track T --language L --prompt "..."` with
-   `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated
-   dimension, `--references img.png` per reference image.  It prints the entry files and the
-   skill to read.
-2. **Plan.**  Write `plan.json` by `references/plan-<track>.md` — exact numbers, an acceptance
+1. **Plan.**  Write `W/plan.json` by `references/plan-<track>.md` — exact numbers, an acceptance
    checklist, and SHORT: one sentence per part, one line of summary, the reference's example is
-   the length (an object plan under 5 KB).  Then `3dcode validate-plan --workspace W` until it
-   prints PASS; FAIL lists each error with its JSON path — fix the plan, never argue with the
-   validator.  It writes the normalised plan back and says what changed; there is nothing to
-   re-read.
+   the length (an object plan under 5 KB).
+2. **Validate (and create the project).**  `3dcode validate-plan --workspace W --track T
+   --language L --prompt "..."` with `--must-have "..."` / `--must-not "..."` per hard
+   requirement, `--dims height=0.45` per stated dimension, `--references img.png` per reference
+   image: the first call also creates the project (spec.json, layout, the language's own files)
+   and prints its entry files.  Then `3dcode validate-plan --workspace W` until PASS; FAIL lists
+   each error with its JSON path — fix the plan, never argue with the validator.  It says what it
+   normalised; there is nothing to re-read.
 3. **Baseline round (r00).**  Write every file the language skill describes from the plan in at
    most THREE write steps — several files per step (all the part / zone / layer files together),
    the entry file last — then `3dcode check --workspace W` and fix each ERROR it lists (a compile or runtime error at the
