@@ -12,8 +12,7 @@ from pathlib import Path
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import PASCAL_RE, fmt3, to_pascal, to_snake
+from codeverse3d.conventions import PASCAL_RE
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     ImportCollector,
@@ -24,7 +23,6 @@ from codeverse3d.languages._ast_lint import (
 )
 from codeverse3d.languages._common import run_wrapper_build
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.languages.blender import finish_for, instance_centers
 from codeverse3d.proc import scrub_secrets
 from codeverse3d.workspace import Workspace
 
@@ -205,97 +203,6 @@ def lint_cadquery_file(path: Path, *, target: str = "src/model.py") -> GateRepor
 
 
 # ===================================================================== skeleton
-def _part_function(p: PartPlan) -> str:
-    pascal, snake = to_pascal(p.name), to_snake(p.name)
-    mn, mx = p.bbox.min, p.bbox.max
-    ex, ey, ez = p.bbox.extents
-    lines = [
-        f"def build_{snake}():",
-        f'    """{pascal} — {p.role}',
-        f"    {p.description}",
-        f"    Material: {p.material or 'n/a'}",
-        f"    Plan bbox (world, Z-up): center ({fmt3(p.bbox.center)}) extents ({fmt3(p.bbox.extents)})",
-        f"      x in [{mn[0]:.3f}, {mx[0]:.3f}]  y in [{mn[1]:.3f}, {mx[1]:.3f}]  z in [{mn[2]:.3f}, {mx[2]:.3f}]",
-    ]
-    if p.attach_to:
-        lines.append(f"    Attaches to: {to_pascal(p.attach_to)} — surface gap <= 2 mm, overlap <= 2 mm (check_connectivity)")
-    if p.instances > 1:
-        lines.append(f"    Instances: {p.instances} ({p.symmetry}) — exported as {pascal}_0..{pascal}_{p.instances - 1}; the placeholder builds")
-        lines.append("      one at the origin and places each copy with `loc` below (authoring each in world coordinates is fine too).")
-        lines.append('    """')
-        lines.append("    # TODO: replace the placeholder box (keep the name + bbox)")
-        lines.append(f"    return cq.Workplane(\"XY\").box({ex:.3f}, {ey:.3f}, {ez:.3f})")
-    else:
-        lines.append('    """')
-        lines.append("    # TODO: replace the placeholder box with the real geometry (keep the name + bbox)")
-        lines.append(f"    return cq.Workplane(\"XY\").box({ex:.3f}, {ey:.3f}, {ez:.3f}).translate(({fmt3(p.bbox.center)}))")
-    lines += ["", ""]
-    return "\n".join(lines)
-
-
-def _main_body(plan: StaticPlan) -> str:
-    lines = [f'result = cq.Assembly(name="{to_pascal(plan.object_name)}")', ""]
-    for p in plan.parts:
-        pascal, snake = to_pascal(p.name), to_snake(p.name)
-        rgb, _r, _m = finish_for(f"{p.material} {p.description}")
-        color = f"cq.Color({rgb[0]:.2f}, {rgb[1]:.2f}, {rgb[2]:.2f})"
-        if p.instances == 1:
-            lines.append(f'result.add(build_{snake}(), name="{pascal}", color={color})')
-            continue
-        centers = instance_centers(p.bbox, p.instances, p.symmetry)
-        lines.append(f"_{snake} = build_{snake}()")
-        lines.append(f"for _i, _c in enumerate({[tuple(round(x, 4) for x in c) for c in centers]}):  # TODO: exact placement")
-        lines.append(f'    result.add(_{snake}, name=f"{pascal}_{{_i}}", loc=cq.Location(cq.Vector(*_c)), color={color})')
-    lines.append("")
-    return "\n".join(lines)
-
-
-def cadquery_skeleton_source(plan: StaticPlan) -> str:
-    """Return the complete starter ``model.py`` text for ``plan``."""
-    ob = plan.overall_bbox
-    parts_doc = "\n".join(
-        f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center ({fmt3(p.bbox.center)}) extents ({fmt3(p.bbox.extents)})"
-        for p in plan.parts
-    )
-    accept = "\n".join(f"  - [{a.id}] {a.text}" for a in plan.acceptance) or "  (none listed)"
-    header = f'''"""{plan.object_name} — CadQuery model.
-
-{plan.summary}
-Style: {plan.style_notes or "n/a"}
-
-CONTRACT (the harness imports this file and exports `result` to GLB/STEP/STL itself):
-  * Z is up, -Y is the FRONT, units are METERS. Lowest point at z=0, footprint centred on Z (check_contract).
-  * Overall bbox: center ({fmt3(ob.center)}) extents ({fmt3(ob.extents)})
-    -> x in [{ob.min[0]:.3f}, {ob.max[0]:.3f}]  y in [{ob.min[1]:.3f}, {ob.max[1]:.3f}]  z in [{ob.min[2]:.3f}, {ob.max[2]:.3f}]
-  * `result` = cq.Assembly; one `.add(shape, name="PascalName", color=cq.Color(r, g, b))` per part,
-    instances Name_0..Name_N-1 (a shape built at the origin + `loc=cq.Location(cq.Vector(x, y, z))`).
-  * Imports: cadquery, math, random, numpy and the stdlib data helpers (the lint's list). No file IO,
-    no export, no show_object.
-  * `.box(x, y, z)` is centred; `.cylinder(height, radius)`; `.rotate(p1, p2, DEGREES)`;
-    `.translate()/.rotate()` return NEW objects (reassign). OCC refuses a fillet whose radius reaches
-    the adjacent wall (the build's hint says < 0.45 x).
-
-PARTS:
-{parts_doc}
-
-ACCEPTANCE:
-{accept}
-"""
-import math  # noqa: F401
-
-import cadquery as cq
-
-
-'''
-    body = "".join(_part_function(p) for p in plan.parts)
-    return header + body + _main_body(plan)
-
-
-def write_cadquery_skeleton(ws: Workspace, plan: StaticPlan) -> list[Path]:
-    ws.src.mkdir(parents=True, exist_ok=True)
-    path = ws.src / "model.py"
-    path.write_text(cadquery_skeleton_source(plan))
-    return [path]
 
 
 # ===================================================================== runtime
@@ -328,11 +235,6 @@ class CadQueryRuntime(RuntimeLayout):
         """The wrapper's own constants are the tessellation and the seed."""
         return [self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts)]
 
-    # ------------------------------------------------------------------ protocol
-    def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
-        if not isinstance(plan, StaticPlan):
-            raise TypeError(f"CadQueryRuntime.skeleton needs a StaticPlan, got {type(plan).__name__}")
-        return write_cadquery_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint_cadquery_file(self.entry_file(ws))

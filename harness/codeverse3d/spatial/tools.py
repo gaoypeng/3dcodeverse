@@ -1,6 +1,6 @@
-"""Every spatial tool registered with ``@tool``; importing this module registers them all.
+"""Every spatial instrument registered with ``@tool``; importing this module registers them all.
 
-Observations are compact (errors first, fix hints attached) and their text never carries absolute host paths.
+Observations are compact (errors first, fix hints attached); image paths are absolute so the agent can open them.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from codeverse3d.spatial.observe import (
 from codeverse3d.spatial.probes import run_probe
 from codeverse3d.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse3d.spatial.scene_placement import placement_census as _placement_census
-from codeverse3d.spatial.scene_placement import placement_gate, placement_table_text
+from codeverse3d.spatial.scene_placement import placement_gate_safe, placement_table_text
 from codeverse3d.spatial.sections import cross_section as _cross_section
 from codeverse3d.spatial.sheet import contact_sheet
 from codeverse3d.spatial.silhouette import compare_silhouette as _compare_silhouette
@@ -493,7 +493,7 @@ def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
             plan = load_plan(ws.plan_path)
         except ToolUsageError:
             plan = None
-    report = placement_gate(ws, census, plan)
+    report = placement_gate_safe(census, plan=plan)
     if report is None:
         return Observation.error("check_placement: the census carries no placement table")
     obs = gate_observation(report, title="placement check")

@@ -4,13 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "3dcodeverse"
-version = "0.0.1"
-description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
+version = "0.1.0"
+description = "3dcodeverse: deterministic instruments (build, measure, render, gate, judge brief, score) for a coding agent writing raw 3D code (Blender / CadQuery / Three.js / URDF / GLSL) — the `3dcode` command line of the 3dcodeverse plugin."
 readme = "README.md"
-# One fixed version: 3.13 (owner's decision 2026-08-26 — no floor, no matrix; the
-# one fixed version, 3.13 (owner, 2026-08-26): developed and measured on it; no CI (tests run locally before a push).
-# Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
-# old codeverse3d/_compat.py shims are gone: StrEnum, datetime.UTC, tomllib are stdlib here).
+# One fixed version: 3.13 (owner's decision 2026-08-26 — no floor, no matrix).
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 classifiers = [
@@ -22,67 +19,39 @@ classifiers = [
 dependencies = [
   "pydantic>=2.12",  # Field(exclude_if=...)
   "pydantic-settings>=2.3",
-  "typer>=0.12",
-  "click>=8.1",   # imported directly by cli/cost_cmd.py (typer re-exports it, but we use it by name)
-  "rich>=13",
-  "jinja2>=3.1",
   "pyyaml>=6",
   "numpy>=1.26",
   "trimesh>=4.4",
   "python-fcl>=0.7",
   "pillow>=10",
-  "google-genai>=1.0",
-  "anthropic>=0.40",
-  "openai>=1.40",
 ]
 
 [project.optional-dependencies]
-# What each extra unlocks is documented in docs/INSTALL.md §4.
+# What each extra unlocks is documented in docs/INSTALL.md.
 cad = ["cadquery>=2.4"]                                   # language `cadquery`
 urdf = ["yourdfpy>=0.0.56", "scipy>=1.11"]                # track `articulated_object` (urdf_blender)
 graphics = ["moderngl>=5.8"]                              # track `graphics` (glsl_shader / opengl_python)
-mesh = ["shapely>=2.0", "networkx>=3.2", "matplotlib>=3.8"]  # cross_section area, mesh split, judge slices (D48)
-mcp = ["mcp>=1.0"]                                        # `3dcodeverse mcp` spatial-tool server for the agentic CLIs
-flywheel = ["pyarrow>=15"]                                # `3dcodeverse flywheel export --pack` (parquet)
-all = ["3dcodeverse[cad,urdf,graphics,mesh,mcp,flywheel]"]
-dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "pyarrow>=15"]
+mesh = ["shapely>=2.0", "networkx>=3.2", "matplotlib>=3.8"]  # cross_section area, mesh split, judge slices
+all = ["3dcodeverse[cad,urdf,graphics,mesh]"]
+dev = ["ruff>=0.5"]
 
 [project.scripts]
-3dcodeverse = "codeverse3d.cli.main:app"
+3dcode = "codeverse3d.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["codeverse3d*"]
 
 [tool.setuptools.package-data]
-# Runtime data, including starter trees and skill bundles. tests/core/test_portability.py
-# checks that every data file matches a glob and every glob matches an existing file.
-codeverse3d = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
-             "languages/**/starter/**/*", "skills/**/*"]
+# Runtime data: the rubrics, the language wrappers and the scene_threejs effect library.
+codeverse3d = ["judges/rubrics/*.yaml", "languages/**/wrappers/*", "languages/**/starter/**/*", "spatial/*.json"]
 
 [tool.setuptools.exclude-package-data]
 codeverse3d = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"  # == requires-python: one fixed version (owner, 2026-08-26)
+target-version = "py313"  # == requires-python: one fixed version
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-timeout = 600
-# Live tests are OPT-IN (`pytest -m live`).  Without this, a bare `pytest` on a machine
-# that happens to have API keys configured fires real requests, and during a provider
-# outage it hangs instead of failing — which is exactly what happened on 2026-08-24.
-# Everyone's default run is the offline suite (run locally before every push; there is no CI).
-# xdist distributes test items with work stealing. Tests isolate mutable state with tmp_path;
-# nested pytest invocations must use -n0 to avoid launching another worker pool.
-addopts = ["-m", "not live", "-n", "auto", "--dist", "worksteal"]
-markers = [
-  "live: needs network + API keys (deselect with -m 'not live')",
-  "blender: needs a Blender binary",
-  "node: needs node + runtime_js deps",
-  "slow: builds or validates a distributable artifact (deselect with -m 'not slow')",
-]

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.languages._common import line_of, missing_entry, ws_rel
 from codeverse3d.languages._gl_common import (
     GlslMessage,
@@ -252,66 +250,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-COMMON_GLSL = """// src/common.glsl — pasted above shader.frag (and buffer_a.frag) by the harness; no #include.
-// Functions and constants only: no main(), no uniforms, no #version.  What goes here is yours.
-#define PI 3.14159265359
-#define TAU 6.28318530718
-"""
-
-_SHADER_TEMPLATE = """// src/shader.frag — {title}
-// CONTRACT: the harness prepends `#version 330 core`, the uniforms (u_time u_resolution u_mouse u_frame
-//   u_prev u_noise u_buffer_a; iTime / iResolution / iFrame / iMouse / iChannel0 / iChannel1 for Shadertoy ports)
-//   and `out vec4 fragColor` — do not redeclare them.
-// Entry: void mainImage(out vec4 fragColor, in vec2 fragCoord) — fragCoord in pixels, origin BOTTOM-LEFT.
-// src/common.glsl is pasted above this file (it starts with PI and TAU only); what goes in it is yours.
-// MEASURED on the frames at t = 0, 1, 2.5, 4, 6 s (loop {duration:g} s): no NaN / Inf pixel (score cap 0);
-//   no frame essentially black or blown out (cap 0.5); when motion is planned, consecutive frames must differ
-//   (mean |delta| >= 0.002, else `static`, cap 0.5) and never jump (> 0.35 is `flicker`, cap 0.7); any lint
-//   ERROR caps the score at 0.6.  What the frames show is the plan's business, not this file's.
-//
-// PLAN — {summary}
-// Style: {style}
-{passes}
-{visuals}
-// Motion: {motion}
-
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {{
-    vec2 uv = fragCoord / u_resolution.xy;                            // 0..1: the coordinate u_prev / u_buffer_a are sampled at
-    vec2 p  = (fragCoord - 0.5 * u_resolution.xy) / u_resolution.y;   // centred, aspect-correct, y up
-    // PLACEHOLDER — a flat grey the static gate rejects: replace this write with the plan's passes
-    fragColor = vec4(vec3(0.5), 1.0);
-}}
-"""
-
-
-def _comment_lines(prefix: str, items: list[str]) -> str:
-    if not items:
-        return f"// {prefix}: (none)"
-    return "\n".join(f"//   TODO {prefix} {i + 1}: {x}" for i, x in enumerate(items))
-
-
-def shader_source(plan: GraphicsPlan | None) -> str:
-    title = plan.title if plan else "untitled shader"
-    summary = plan.summary if plan else ""
-    style = plan.style if plan else ""
-    motion = plan.motion if plan else "animate with u_time"
-    duration = plan.duration_s if plan else 8.0
-    passes = [f"{p.name} ({p.kind}): {p.description}" for p in plan.passes] if plan else []
-    visuals = list(plan.key_visuals) if plan else []
-    return _SHADER_TEMPLATE.format(
-        title=title, summary=summary, style=style, motion=motion, duration=duration,
-        passes=_comment_lines("pass", passes), visuals=_comment_lines("key visual", visuals),
-    )
-
-
-def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
-    gplan = plan if isinstance(plan, GraphicsPlan) else None
-    ws.src.mkdir(parents=True, exist_ok=True)
-    common = ws.src / "common.glsl"
-    shader = ws.src / "shader.frag"
-    common.write_text(COMMON_GLSL)
-    shader.write_text(shader_source(gplan))
-    return [common, shader]
 
 
 # ===================================================================== runtime
@@ -323,9 +261,6 @@ class GlslShaderRuntime(RuntimeLayout):
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
 
-    # ------------------------------------------------------------------ skeleton / lint
-    def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
-        return write_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint_workspace(ws)

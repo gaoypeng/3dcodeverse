@@ -1,18 +1,15 @@
-"""Process-level primitives shared across the harness.
+"""Process-level primitives shared by the instruments.
 
-Run-a-child-process (:class:`ManagedProcess`, :func:`run_subprocess`), atomic JSON writes, tolerant
-JSON / JSONL readers, the event stream (:class:`EventLog`), the per-run mutex (:func:`exclusive`)
-and the context-carrying :func:`fan_out`.  Stdlib-only: imports nothing from ``codeverse3d``.
+Run-a-child-process (:class:`ManagedProcess`, :func:`run_subprocess`), atomic JSON writes, a tolerant
+JSON reader and the machine-wide :class:`Slots`.  Stdlib-only: imports nothing from ``codeverse3d``.
 """
 
 from __future__ import annotations
 
 import contextlib
-import contextvars
 import fcntl
 import hashlib
 import json
-import logging
 import os
 import random
 import signal
@@ -20,9 +17,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
@@ -132,7 +127,7 @@ class _BoundedSink:
 class ManagedProcess:
     """A ``Popen`` in its own session whose process group cannot outlive the ``with`` block.
 
-    Shared core of :func:`run_subprocess` and ``agents/cli_common.run_with_watchdog``: two pump
+    Core of :func:`run_subprocess`: two pump
     threads feed a bounded sink per stream, an optional ``on_line(stream, line)`` observer sees
     each line (exceptions suppressed), and stdin is written from its own thread.  ``__exit__``
     on any exception, or with the child still running, SIGTERMs the group (SIGKILL after
@@ -153,21 +148,16 @@ class ManagedProcess:
         self._stop = threading.Event()  # tells an abandoned pump to quit feeding
         self._abandoned = ""  # the truncation note to append, once we know which one
         self._sinks = {"stdout": _BoundedSink(STREAM_BUDGET_BYTES), "stderr": _BoundedSink(STREAM_BUDGET_BYTES)}
-        # started and registered under the guard so a stop can neither miss this group nor race a new one
-        with _LIVE_GUARD:
-            if _STOPPING.is_set():
-                raise ProcessStopping(f"not starting {cmd[0]!r}: this process is stopping")
-            self.proc: subprocess.Popen[bytes] = subprocess.Popen(
-                list(cmd),
-                cwd=str(cwd),
-                env=dict(env) if env is not None else None,
-                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-                preexec_fn=preexec_fn,
-            )
-            _LIVE.add(self)
+        self.proc: subprocess.Popen[bytes] = subprocess.Popen(
+            list(cmd),
+            cwd=str(cwd),
+            env=dict(env) if env is not None else None,
+            stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            preexec_fn=preexec_fn,
+        )
         assert self.proc.stdout is not None and self.proc.stderr is not None
         self._pumps = [
             threading.Thread(target=self._pump, args=(self.proc.stdout, "stdout"), daemon=True),
@@ -260,14 +250,10 @@ class ManagedProcess:
         # start_new_session children never see Ctrl-C, so the group dies here on any exception or
         # if still alive.  Ask whether the GROUP exists, not the leader (it may exit 0 with
         # grandchildren running).
-        try:
-            self.proc.poll()
-            if _group_alive(self.proc.pid):
-                self.terminate()
-            self._drain_and_reap()
-        finally:
-            with _LIVE_GUARD:
-                _LIVE.discard(self)
+        self.proc.poll()
+        if _group_alive(self.proc.pid):
+            self.terminate()
+        self._drain_and_reap()
 
     def _drain_and_reap(self) -> None:
         deadline = time.monotonic() + DRAIN_TIMEOUT_S  # module global on purpose: tests dial it down
@@ -282,49 +268,8 @@ class ManagedProcess:
             self._abandoned = _STILL_HELD if _group_alive(self.proc.pid) else _ABANDONED
 
 
-#: every :class:`ManagedProcess` whose group may still be alive; a stop signal kills these
-#: (signals reach only the main thread, so worker-thread ``__exit__`` never runs).
-_LIVE: set[ManagedProcess] = set()
-_LIVE_GUARD = threading.Lock()
-_STOPPING = threading.Event()
-STOP_GRACE_S = 30.0
-
-
-class ProcessStopping(RuntimeError):
-    """A child was requested after this process began to stop."""
-
-
-def kill_live_children() -> int:
-    with _LIVE_GUARD:
-        _STOPPING.set()
-        live = list(_LIVE)
-    for mp in live:
-        mp.kill()
-    return len(live)
-
-
-def install_stop_handlers() -> None:
-    """SIGTERM / SIGINT kill every live child group, refuse new ones, then end the process
-    (``KeyboardInterrupt`` / exit 143), outright after :data:`STOP_GRACE_S`.  Main thread only."""
-    if threading.current_thread() is not threading.main_thread():
-        return
-
-    def stop(signum: int, _frame: object) -> None:
-        kill_live_children()
-        status = 130 if signum == signal.SIGINT else 128 + signum
-        backstop = threading.Timer(STOP_GRACE_S, os._exit, args=(status,))
-        backstop.daemon = True
-        backstop.start()
-        if signum == signal.SIGINT:
-            raise KeyboardInterrupt
-        raise SystemExit(status)
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, stop)
-
-
 # ------------------------------------------------------------------ env scrubbing
-#: The one owner of the credential patterns (``agents/cli_common.clean_env`` uses :func:`scrub_secrets`).
+#: The one owner of the credential patterns.
 _SECRET_EXACT: frozenset[str] = frozenset({
     "GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
     "OPENAI_ORG_ID", "HF_TOKEN", "HUGGINGFACE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
@@ -410,228 +355,6 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
     return data if isinstance(data, dict) else None
 
 
-def iter_jsonl_lines(path: Path | str) -> Iterator[tuple[int, str]]:
-    """``(line_no, line)`` for every non-blank line of a JSONL file, 1-based.
-
-    Missing file → nothing; invalid bytes are replaced so one bad byte costs at most that line.
-    """
-    p = Path(path)
-    if not p.is_file():
-        return
-    for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines()):
-        if line.strip():
-            yield i + 1, line
-
-
-def read_jsonl_lenient(
-    path: Path | str, *, log: logging.Logger | None = None, dicts_only: bool = False
-) -> list[Any]:
-    """Every parseable JSON line of ``path``; unparseable lines are skipped (debug-logged
-    to ``log`` when given), ``dicts_only`` also drops non-object rows.
-    """
-    out: list[Any] = []
-    for i, line in iter_jsonl_lines(path):
-        try:
-            row = json.loads(line)
-        except ValueError as e:
-            if log is not None:
-                log.debug("%s:%d unreadable: %s", path, i, e)
-            continue
-        if dicts_only and not isinstance(row, dict):
-            continue
-        out.append(row)
-    return out
-
-
-def append_jsonl_line(path: Path | str, rec: Any, lock: threading.Lock) -> None:
-    line = json.dumps(rec, ensure_ascii=False, default=str)
-    with lock, Path(path).open("a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
-
-
-# ===================================================================== events
-log = logging.getLogger(__name__)
-
-
-class EventLog:
-    def __init__(self, path: Path):
-        self.path = Path(path)
-        self._lock = threading.Lock()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
-    def emit(self, event: str, **data: Any) -> None:
-        append_jsonl_line(self.path, {"t": round(time.time(), 3), "event": event, **data}, self._lock)
-
-    def read(self) -> list[dict[str, Any]]:
-        return read_jsonl_lenient(self.path, log=log, dicts_only=True)
-
-
-class _NullEvents:
-    """An event sink that drops everything."""
-
-    def emit(self, event: str, **data: Any) -> None:
-        pass
-
-
-#: use ``NULL_EVENTS if events is None else events``, never ``events or NULL_EVENTS`` (an empty fake log is falsy)
-NULL_EVENTS = _NullEvents()
-
-
-# ===================================================================== runlock
-LOCKS_DIR = ".locks"
-
-
-class RunLocked(RuntimeError):
-    """Another process or thread is already running this run."""
-
-
-def _held_message(run_root: Path | str, held: dict, *, action: str) -> str:
-    started = time.strftime("%H:%M:%S", time.localtime(held.get("started", 0)))
-    name = Path(run_root).name
-    return (
-        f"refusing to {action} run {name}: it is being run right now by pid {held.get('pid', '?')} "
-        f"(started {started}: {held.get('what') or '3dcodeverse'}).  Two processes on one run "
-        f"corrupt each other's state.  Look at it with `3dcodeverse status {name}`, or stop that "
-        f"ONE process with `kill {held.get('pid', '?')}` — never `pkill -f 3dcodeverse`, which kills every "
-        f"other run on this machine too."
-    )
-
-
-def flock_path(run_root: Path | str) -> Path:
-    root = Path(run_root).resolve()
-    return root.parent / LOCKS_DIR / f"{root.name}.lock"
-
-
-_HELD: dict[str, list] = {}  # flock path -> [fd, owning thread ident] held by THIS process
-_HELD_GUARD = threading.Lock()
-
-
-def _record_of(fd: int) -> dict | None:
-    try:
-        os.lseek(fd, 0, os.SEEK_SET)
-        raw = os.read(fd, 4096).decode("utf-8", "replace").strip()
-        rec = json.loads(raw) if raw else None
-    except (OSError, ValueError):
-        return None
-    return rec if isinstance(rec, dict) else None
-
-
-def _write_record(fd: int, rec: dict) -> None:
-    os.ftruncate(fd, 0)
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, json.dumps(rec).encode())
-    os.fsync(fd)
-
-
-def holder_of(run_root: Path | str) -> dict | None:
-    """The ``{pid, started, what}`` of whoever holds this run, without taking it; ``None`` if nobody
-    does (a stale record left by a SIGKILL is detected by probing the flock)."""
-    try:
-        fd = os.open(flock_path(run_root), os.O_RDONLY)
-    except OSError:
-        return None
-    try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except OSError:
-            return _record_of(fd)  # refused: somebody is holding it right now
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        return None
-    finally:
-        os.close(fd)
-
-
-@contextmanager
-def exclusive(run_root: Path | str, *, what: str = "", action: str = "enter") -> Iterator[None]:
-    """THE mutex for one run: hold it around every mutation of the run directory.
-
-    Raises :class:`RunLocked` when another process or thread holds it; the same thread re-enters."""
-    key, me = str(flock_path(run_root)), threading.get_ident()
-    with _HELD_GUARD:
-        entry = _HELD.get(key)
-    if entry is not None:
-        if entry[1] != me:
-            raise RunLocked(_held_message(run_root, holder_of(run_root) or {}, action=action))
-        yield  # re-entry: the outermost `with` owns the release
-        return
-    path = Path(key)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        held = _record_of(fd) or {}
-        os.close(fd)
-        raise RunLocked(_held_message(run_root, held, action=action)) from None
-    except BaseException:
-        os.close(fd)
-        raise
-    try:  # a failed write must not leak the lock
-        _write_record(fd, {"pid": os.getpid(), "started": time.time(), "what": what})
-        with _HELD_GUARD:
-            _HELD[key] = [fd, me]
-        yield
-    finally:
-        with _HELD_GUARD:
-            _HELD.pop(key, None)
-        try:
-            os.ftruncate(fd, 0)  # the file stays (unlinking it races a waiter's open)
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
-        finally:
-            os.close(fd)
-
-
-# ===================================================================== fanout
-
-
-def fan_out[T, R](
-    items: Sequence[T] | Iterable[T],
-    fn: Callable[[T], R],
-    max_workers: int,
-    *,
-    label: str = "fanout",
-    item_name: Callable[[T], str] | None = None,
-) -> list[R | Exception]:
-    """Run ``fn`` over ``items`` in a thread pool; return results in input order.
-
-    Each result is the return value or the raised ``Exception``.
-    """
-    items = list(items)
-    ctx_snapshot = contextvars.copy_context()
-    results: list[R | Exception] = [None] * len(items)  # type: ignore[list-item]
-    if not items:
-        return results
-    workers = max(1, min(max_workers, len(items)))
-    t_all = time.time()
-
-    def _run(i: int) -> None:
-        item = items[i]
-        name = item_name(item) if item_name else str(i)
-        t0 = time.time()
-        try:
-            out: R | Exception = fn(item)
-        except Exception as e:  # noqa: BLE001 — captured per item by design
-            out = e
-            log.warning("%s[%s] failed: %s: %s", label, name, type(e).__name__, e)
-        dt = time.time() - t0
-        results[i] = out
-        log.info("%s[%s] done in %.1fs (%s)", label, name, dt, "error" if isinstance(out, Exception) else "ok")
-
-    if workers == 1:
-        for i in range(len(items)):
-            _run(i)
-    else:
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=label) as pool:
-            list(pool.map(lambda i: ctx_snapshot.copy().run(_run, i),
-                          range(len(items))))
-
-    n_failed = sum(1 for r in results if isinstance(r, Exception))
-    log.info("%s: %d/%d ok in %.1fs", label, len(items) - n_failed, len(items), time.time() - t_all)
-    return results
-
-
 class SlotsBusy(RuntimeError):
     """Every slot stayed busy past the wait budget."""
 
@@ -692,7 +415,7 @@ class Slots:
             os.close(fd)
 
     def busy(self) -> int:
-        """How many slots are held machine-wide (``3dcodeverse doctor``); never takes one."""
+        """How many slots are held machine-wide (``3dcode doctor``); never takes one."""
         n = 0
         for i in range(self.n):
             try:

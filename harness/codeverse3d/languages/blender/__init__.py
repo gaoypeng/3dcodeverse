@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import math
 import os
 import time
 from pathlib import Path
@@ -11,8 +10,7 @@ from pathlib import Path
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, LintKind, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import GROUND_TOL_M, PASCAL_RE, fmt3, to_pascal, to_snake
+from codeverse3d.conventions import PASCAL_RE, to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
@@ -22,7 +20,6 @@ from codeverse3d.languages._ast_lint import (
 )
 from codeverse3d.languages._common import run_wrapper_build, strip_blender_noise, ws_rel
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.languages.blender._pbr import family_for, pbr_for
 from codeverse3d.proc import scrub_secrets
 from codeverse3d.workspace import Workspace
 
@@ -203,7 +200,6 @@ def _f(kind: LintKind, sev: Severity, msg: str, line: int | None = None, hint: s
     if line:
         data["line"] = line
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data=data)
-
 
 
 # API traps of bpy itself, shared by the object lint and the scene lint.
@@ -469,229 +465,10 @@ _COLOUR_WORDS: tuple[tuple[str, tuple[float, float, float]], ...] = (
 )
 
 
-def finish_for(text: str) -> tuple[tuple[float, float, float], float, float]:
-    """Placeholder (rgb, roughness, metallic) from the material family, else a bare colour word, else grey."""
-    hit = family_for(text)
-    pbr = pbr_for(hit.family) if hit else None
-    if pbr is not None:
-        return pbr.base_hint, pbr.roughness, pbr.metallic
-    low = text.lower()
-    return next((rgb for word, rgb in _COLOUR_WORDS if word in low), (0.6, 0.6, 0.6)), 0.5, 0.0
-
-
-def instance_centers(bbox: BBox, n: int, symmetry: str) -> list[tuple[float, float, float]]:
-    cx, cy, cz = bbox.center
-    if n <= 1:
-        return [(cx, cy, cz)]
-    if n == 2 and symmetry == "mirror_x":
-        return [(abs(cx), cy, cz), (-abs(cx), cy, cz)]
-    if n == 2 and symmetry == "mirror_y":
-        return [(cx, abs(cy), cz), (cx, -abs(cy), cz)]
-    if n == 4 and symmetry in ("mirror_x", "mirror_y"):
-        ax, ay = abs(cx), abs(cy)
-        return [(ax, -ay, cz), (-ax, -ay, cz), (-ax, ay, cz), (ax, ay, cz)]
-    if symmetry == "radial":
-        r = math.hypot(cx, cy)
-        a0 = math.atan2(cy, cx)
-        return [(r * math.cos(a0 + 2 * math.pi * i / n), r * math.sin(a0 + 2 * math.pi * i / n), cz) for i in range(n)]
-    return [(cx, cy, cz) for _ in range(n)]
-
-
 # ----------------------------------------------------------------------------- shared text blocks
-IMPORTS = '''import math
-import random
-
-import bpy
-import bmesh  # noqa: F401  (available for custom meshes: bm = bmesh.new(); ... bm.to_mesh(me))
-from mathutils import Vector, Matrix  # noqa: F401
-
-random.seed(0)
-'''
-
-HELPERS = '''
-# ----------------------------------------------------------------------------- helpers (plain bpy)
-def make_material(name, rgb, roughness=0.5, metallic=0.0):
-    """Principled BSDF material with flat PBR values (what the GLB keeps)."""
-    mat = bpy.data.materials.new(name)
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
-    bsdf.inputs["Roughness"].default_value = roughness
-    bsdf.inputs["Metallic"].default_value = metallic
-    return mat
-
-
-def add_box(name, center, extents, material=None):
-    """PLACEHOLDER helper (replace freely): an axis-aligned box of exactly `extents`, scale baked."""
-    bpy.ops.mesh.primitive_cube_add(size=1, location=center, scale=extents)
-    obj = bpy.context.object
-    obj.name = name
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    if material is not None:
-        obj.data.materials.append(material)
-    return obj
-
-'''
-
-SELFCHECK = '''
-def _selfcheck():
-    """Optional: meshes exist, no auto-suffixed names, lowest point — over the meshes that
-    export (a hidden boolean cutter does not).  Fails only past the ground gate's ERROR line."""
-    bpy.context.view_layer.update()
-    shown = set(bpy.context.view_layer.objects.keys())
-    meshes = [o for o in bpy.data.objects if o.type == "MESH" and o.name in shown
-              and not (o.hide_render or o.hide_viewport or o.hide_get())]
-    assert meshes, "no mesh objects built"
-    for o in meshes:
-        assert "." not in o.name, f"auto-suffixed name {o.name!r}: give every instance its own name"
-    z_min = min((o.matrix_world @ Vector(c)).z for o in meshes for c in o.bound_box)
-    assert abs(z_min) < 3 * __GROUND_TOL__, f"lowest point z={z_min:.4f}: check_contract reports this as an ERROR"
-    print(f"[selfcheck] {len(meshes)} mesh objects, z_min={z_min:.4f}")
-
-'''
-
-
-def _constants(p: PartPlan) -> str:
-    mn, mx = p.bbox.min, p.bbox.max
-    pre = to_snake(p.name).upper()
-    return (
-        f"# ---- plan bbox (metres) for {to_pascal(p.name)}: the built AABB must match it within max(1 cm, 10 %) "
-        f"per axis (check_contract)\n"
-        f"{pre}_CENTER = ({fmt3(p.bbox.center)})\n"
-        f"{pre}_EXTENTS = ({fmt3(p.bbox.extents)})\n"
-        f"{pre}_MIN = ({fmt3(mn)})\n"
-        f"{pre}_MAX = ({fmt3(mx)})\n"
-        f"{pre}_INSTANCES = {p.instances}\n"
-    )
-
-
-def _part_function(p: PartPlan) -> str:
-    pascal, snake, fn = to_pascal(p.name), to_snake(p.name), build_fn_name(p.name)
-    pre = snake.upper()
-    rgb, rough, metal = finish_for(f"{p.material} {p.description}")
-    mn, mx = p.bbox.min, p.bbox.max
-    lines = [
-        f"def {fn}():",
-        f'    """{pascal} — {p.role}',
-        f"    {p.description}",
-        f"    Material: {p.material or 'n/a'}",
-        f"    Plan bbox: center ({fmt3(p.bbox.center)}) extents ({fmt3(p.bbox.extents)})",
-        f"      x in [{mn[0]:.3f}, {mx[0]:.3f}]  y in [{mn[1]:.3f}, {mx[1]:.3f}]  z in [{mn[2]:.3f}, {mx[2]:.3f}]",
-    ]
-    if p.attach_to:
-        lines.append(f"    Attaches to: {to_pascal(p.attach_to)} (surface gap <= 2 mm, overlap <= 2 mm: check_connectivity)")
-    if p.instances > 1:
-        lines.append(f"    Instances: {p.instances} ({p.symmetry}) -> named {pascal}_0..{pascal}_{p.instances - 1}, "
-                     f"each TOP-LEVEL (no parent Empty — it would merge them into one measured part); returns the list")
-    lines += ['    Returns the object(s) at WORLD pose (Z up, -Y front, metres).', '    """']
-    lines.append(f"    mat = make_material(\"{pascal}Mat\", ({fmt3(rgb)}), roughness={rough}, metallic={metal})")
-    if p.instances == 1:
-        lines += [
-            "    # TODO: replace this placeholder box with the real geometry (keep the name + bbox)",
-            f"    return add_box(\"{pascal}\", {pre}_CENTER, {pre}_EXTENTS, mat)",
-        ]
-    else:
-        centers = [tuple(round(x, 4) for x in c) for c in instance_centers(p.bbox, p.instances, p.symmetry)]
-        lines += [
-            "    objs = []",
-            f"    for i, c in enumerate({centers}):  # TODO: exact placement",
-            "        # TODO: replace this placeholder box with the real geometry (keep the names + bbox)",
-            f"        objs.append(add_box(f\"{pascal}_{{i}}\", c, {pre}_EXTENTS, mat))",
-            "    return objs",
-        ]
-    return "\n".join(lines) + "\n"
-
-
-def _plan_header(plan: StaticPlan) -> str:
-    ob = plan.overall_bbox
-    parts_doc = "\n".join(
-        f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center ({fmt3(p.bbox.center)}) "
-        f"extents ({fmt3(p.bbox.extents)})  [{part_file_rel(p.name)}]"
-        for p in plan.parts
-    )
-    accept = "\n".join(f"  - [{a.id}] {a.text}" for a in plan.acceptance) or "  (none listed)"
-    layout = (
-        f"  * LAYOUT: this file is the ENTRY. Each part lives in src/{PARTS_DIR}/<snake>.py and exports\n"
-        f"    build_<snake>() -> bpy.types.Object; main() below imports and calls each once.\n"
-        "    The lint checks that every part file is imported here; the rest of this file is yours.\n"
-    )
-    return f'''"""{plan.object_name} — Blender (bpy) model.
-
-{plan.summary}
-Style: {plan.style_notes or "n/a"}
-
-CONTRACT (the harness runs this file in an EMPTY scene with `blender -b --factory-startup`):
-  * Z is up, -Y is the FRONT, units are METERS. Object stands on z=0, footprint centred on Z.
-  * Overall bbox: center ({fmt3(ob.center)}) extents ({fmt3(ob.extents)})
-    -> x in [{ob.min[0]:.3f}, {ob.max[0]:.3f}]  y in [{ob.min[1]:.3f}, {ob.max[1]:.3f}]  z in [{ob.min[2]:.3f}, {ob.max[2]:.3f}]
-  * One mesh object per part, named EXACTLY as below (PascalCase); instances Name_0..Name_N-1,
-    each TOP-LEVEL (never parented under an Empty — that merges them into ONE measured part).
-{layout}  * Materials: Principled BSDF (Base Color / Roughness / Metallic). GLB keeps flat PBR + image
-    textures only (procedural node textures are NOT exported) — rely on geometry + flat PBR.
-  * Each part's built AABB matches its row within max(1 cm, 10 %) per axis (3x that is an ERROR);
-    touching parts: surface gap <= 2 mm, overlap <= 2 mm; every part reaches the ground through
-    its neighbours (check_contract, check_connectivity).
-  * Modifiers may stay unapplied (the exporter applies them).
-  * NEVER: cameras, lights, world, render settings, export/import, file IO, bpy.ops.wm.*.
-  * Imports: the contract's allow-list (bpy, bmesh, mathutils, math, random, numpy, ...); seed random.
-
-PARTS:
-{parts_doc}
-
-ACCEPTANCE:
-{accept}
-"""
-'''
 
 
 # ----------------------------------------------------------------------------- public renderers
-def part_file_source(p: PartPlan) -> str:
-    pascal, fn = to_pascal(p.name), build_fn_name(p.name)
-    doc = (
-        f'"""{pascal} — {p.role} (part module; imported by src/model.py).\n\n'
-        f"{p.description}\n"
-        f"Material: {p.material or 'n/a'}.  Instances: {p.instances}"
-        + (f" ({p.symmetry})" if p.instances > 1 else "")
-        + (f".  Attaches to: {to_pascal(p.attach_to)} (gap <= 2 mm, overlap <= 2 mm)" if p.attach_to else "")
-        + f".\n\nExports `{fn}() -> bpy.types.Object`: builds the part at its WORLD pose (Z up, -Y front,\n"
-        "metres) with the exact object name(s) and returns it (list of TOP-LEVEL objects when\n"
-        "instanced — never parent instances under an Empty).  Do NOT call it here — model.py does.\n"
-        "Shared helpers may live in src/parts/_<name>.py (not a part); imports per the contract's allow-list.\n"
-        '"""\n'
-    )
-    return doc + IMPORTS + "\n" + _constants(p) + HELPERS + "\n# ----------------------------------------------------------------------------- part\n" + _part_function(p)
-
-
-def selfcheck_source(ground_tol_m: float = GROUND_TOL_M) -> str:
-    return SELFCHECK.replace("__GROUND_TOL__", f"{ground_tol_m:g}")
-
-
-def model_file_source(plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -> str:
-    imports = "\n".join(f"from {PARTS_DIR}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
-    calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
-    return (
-        _plan_header(plan)
-        + "import bpy\nfrom mathutils import Vector\n\n"
-        + imports + "\n\n"
-        + selfcheck_source(ground_tol_m)
-        + "\ndef main():\n    # build every part (order = plan order); parts are placed at world pose by their builders\n"
-        + calls + "\n    _selfcheck()\n\n\nmain()\n"
-    )
-
-
-def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -> list[Path]:
-    """Write the starter files (overwrites) and return the written paths (entry first).
-
-    ``ground_tol_m`` is the self-check's "stands on z=0" tolerance."""
-    ws.src.mkdir(parents=True, exist_ok=True)
-    entry = ws.src / "model.py"
-    entry.write_text(model_file_source(plan, ground_tol_m=ground_tol_m))
-    written = [entry]
-    for p in plan.parts:
-        path = ws.root / part_file_rel(p.name)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(part_file_source(p))
-        written.append(path)
-    return written
 
 
 # ===================================================================== runtime
@@ -733,11 +510,6 @@ class BlenderRuntime(RuntimeLayout):
     def entry_file(self, ws: Workspace) -> Path:
         return ws.root / ENTRY_REL
 
-    # ------------------------------------------------------------------ protocol
-    def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
-        if not isinstance(plan, StaticPlan):  # ArticulatedPlan is a StaticPlan subclass → allowed
-            raise TypeError(f"BlenderRuntime.skeleton needs a StaticPlan/ArticulatedPlan, got {type(plan).__name__}")
-        return write_blender_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint_workspace(ws)

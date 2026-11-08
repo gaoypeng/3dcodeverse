@@ -1,7 +1,6 @@
-"""Plans: the planner's structured decomposition, each with an acceptance checklist.
+"""Plans: the agent's structured decomposition, each with an acceptance checklist.
 
-Written by an LLM under a JSON schema, then validated in code; invalid plans are re-asked
-with the validation errors."""
+Written by the host agent as ``plan.json``, then validated in code (``3dcode validate-plan``)."""
 
 from __future__ import annotations
 
@@ -253,7 +252,7 @@ class ArticulatedPlan(StaticPlan):
     joints: list[JointPlan] = Field(min_length=1)
     normalisations: list[str] = Field(
         default_factory=list,
-        description="filled by the harness, leave empty: automatic corrections applied to the planner's answer "
+        description="filled by validate-plan, leave empty: automatic corrections applied to the plan "
                     "before validation (a sub-part promoted to a link because a joint moves it, revolute limits "
                     "written in degrees converted to radians or a > 2π radian range made continuous, swapped "
                     "or out-of-range limits clamped, a parent bbox grown around a sub-part)")
@@ -622,92 +621,6 @@ def scene_plan_schema(language: Language | str) -> dict[str, Any]:
     if doc:
         kind["description"] = doc
     return schema
-
-
-class ZonePlacement(BaseModel):
-    """One asset's placement inside a zone, decided by the L2 zone director.
-
-    Typed rows with concrete numbers on purpose (the RefDimension lesson: an
-    open-ended dict maps to a property-less schema and the model answers ``{}``)."""
-
-    asset: str = Field(description="asset name from the plan")
-    count: int = Field(ge=1, description="how many instances in this zone")
-    cluster: tuple[float, float] = Field(description="cluster centre (x, z) in WORLD meters, inside the zone bbox")
-    spread_m: float = Field(ge=0, description="radius the instances scatter within (0 = exactly at the centre)")
-    faces: str = Field(default="", description="what the instances face, e.g. 'the path', 'azimuth 220'")
-    support: str = Field(default="ground", description="'ground' or the asset they stand on")
-
-
-class ZoneLayout(BaseModel):
-    """The L2 layout for ONE zone: where its planned contents actually go.
-
-    Produced by a cheap structured call per zone (parallel, never an agent),
-    validated deterministically against the zone bbox and the plan before it is
-    handed to the zone builder — the builder realises a layout instead of
-    inventing one."""
-
-    zone: str = Field(description="the zone's name, exactly as planned")
-    placements: list[ZonePlacement] = Field(default_factory=list)
-    path_points: list[tuple[float, float]] = Field(
-        default_factory=list, description="(x, z) polyline of the walkway through this zone, if any")
-    mid_props: int = Field(default=0, ge=0, description="loose mid props (0.3-1.5 m) beyond the placements; 0 for a bare place")
-    small_props: int = Field(default=0, ge=0, description="small props (< 0.3 m); 0 for a bare place")
-    ground_cover: int = Field(default=0, ge=0, description="instanced tufts / pebbles; 0 where the ground is bare")
-    notes: str = Field(default="", description="one line of layout intent, e.g. 'stalls face the lane'")
-
-
-class RefDimension(BaseModel):
-    """One reference dimension of the real object.  A LIST of typed rows, not a free
-    ``dict[str, float]``: an open-ended object maps to a property-less ``{"type":
-    "object"}`` in the Gemini structured-output schema, and the model then answers ``{}``
-    every time (measured on the first live run of this wave)."""
-
-    name: str = Field(description="width | depth | height | length | diameter | wall_thickness | …")
-    meters: float = Field(description="the real-world size in METERS")
-
-
-class SubAssembly(BaseModel):
-    """One sub-assembly a real instance of the requested object has."""
-
-    name: str = Field(description="what a catalogue would call it, e.g. 'burr mechanism'")
-    purpose: str = Field(default="", description="what it does, one line")
-    parts: list[str] = Field(default_factory=list, max_length=10,
-                             description="the parts it is made of, named as a fitter would name them")
-    material: str = Field(default="", description="dominant material / finish")
-
-
-class EngineeringBrief(BaseModel):
-    """The expanded engineering brief for ONE request: what a person who has actually held
-    the object knows about it.  Produced by a cheap model call *before* planning
-    and folded into the plan; never a deliverable of its own.
-
-    The load-bearing fields are REQUIRED on purpose.  Measured on the first live run: with
-    every field defaulted, gemini-3.7-flash answered three of four requests with
-    ``sub_assemblies: []`` and ``signature_features: []`` — a schema that lets the model
-    say nothing gets nothing.  Only the two genuinely-sometimes-empty lists keep defaults.
-    """
-
-    object_name: str = Field(description="PascalCase name of the thing")
-    reference: str = Field(description="the real-world reference instance the numbers come from")
-    one_line: str = Field(description="what it is, one sentence")
-    dimensions_m: list[RefDimension] = Field(
-        max_length=12, description="up to 12 real-world reference dimensions in METERS, the small ones included")
-    sub_assemblies: list[SubAssembly] = Field(max_length=10, description="up to 10 assemblies a fitter would name")
-    mechanism: str = Field(description="how it works / how force or material moves through it")
-    visible_from_outside: list[str] = Field(
-        max_length=16, description="up to 16 things a viewer actually sees from outside — the only things worth modelling")
-    signature_features: list[str] = Field(
-        max_length=6, description="up to 6 features a viewer uses to recognise it — absence makes it the wrong object")
-    materials: list[str] = Field(max_length=12, description="'<part>: <material, colour, finish>' lines, up to 12")
-    hidden_inside: list[str] = Field(default_factory=list, max_length=10,
-                                     description="real parts that are NOT visible and must not be modelled")
-    not_present: list[str] = Field(default_factory=list, max_length=10,
-                                   description="things a naive model would wrongly add")
-
-    @property
-    def is_useful(self) -> bool:
-        """False when the brief tells the planner nothing and should be discarded."""
-        return len(self.sub_assemblies) >= 2 or len(self.signature_features) >= 2
 
 
 class PassPlan(BaseModel):

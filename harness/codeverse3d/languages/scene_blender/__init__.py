@@ -28,7 +28,7 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
+from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan
 from codeverse3d.conventions import (
     SCENE_TIMES,
     ZONE_ROOT_KEY,
@@ -53,14 +53,11 @@ from codeverse3d.languages._common import (
     target_line,
     ws_rel,
 )
-from codeverse3d.languages.base import AssembleResult, scene_files_for
 from codeverse3d.languages.blender import (
-    BlenderNotFoundError,
     BpyCollector,
     blender_binary,
     blender_env,
     call_traps,
-    finish_for,
     source_traps,
     store_traps,
     use_nodes_trap,
@@ -82,8 +79,6 @@ FPS = 30
 # ===================================================================== layout
 #: what a whole-scene session edits
 SCENE_FILES: tuple[str, ...] = (ENTRY_REL, "src/env.py")
-#: refine targets that are the environment's, whatever the plan calls its zones
-ENV_WORDS = frozenset({"env", "environment", "lighting", "sky", "fog", "ground", "water", "light", "world", "sun"})
 
 
 def zone_file(name: str) -> str:
@@ -93,16 +88,6 @@ def zone_file(name: str) -> str:
 def asset_file(asset: AssetPlan) -> str:
     snake = to_snake(asset.name)
     return f"public/assets/{snake}.glb" if asset.kind == "blender_glb" else f"src/assets/{snake}.py"
-
-
-def module_files(ws: Workspace, sub: str) -> list[Path]:
-    d = ws.src / sub
-    return sorted(p for p in d.glob("*.py") if not p.name.startswith("_")) if d.is_dir() else []
-
-
-def hero_files(ws: Workspace) -> list[Path]:
-    d = ws.public / "assets"
-    return sorted(d.glob("*.glb")) if d.is_dir() else []
 
 
 # ===================================================================== lint
@@ -367,112 +352,10 @@ def lint(ws: Workspace) -> GateReport:
 ENV_FILE = "src/env.py"
 
 
-#: the env check's data entry (deleted after use): only build_env runs
-ENV_CHECK_REL = "src/_c3d_env_check.py"
-
-
 _TB_FRAME_RE = re.compile(r'File "(?P<file>[^"]+)", line (?P<line>\d+)')
 
 
-def env_frame(traceback_text: str) -> str:
-    """``src/env.py:N`` of the deepest traceback frame in the env module (with its source line), or ``""``."""
-    lines = traceback_text.splitlines()
-    found = ""
-    for i, text in enumerate(lines):
-        m = _TB_FRAME_RE.search(text)
-        if m is None or not m.group("file").replace("\\", "/").endswith("/" + ENV_FILE):
-            continue
-        code = lines[i + 1].strip() if i + 1 < len(lines) and not _TB_FRAME_RE.search(lines[i + 1]) else ""
-        found = f"{ENV_FILE}:{m.group('line')}" + (f" `{code[:160]}`" if code else "")
-    return found
-
-
-def _put(path: Path, text: str, written: list[Path]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
-    written.append(path)
-
-
 # ===================================================================== skeleton
-def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, float]:
-    return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))
-
-
-def _env_source(plan: ScenePlan) -> str:
-    """``src/env.py`` as an interface stub: the plan's data, the two exports the wrapper calls and a
-    placeholder ground plate.  No world, lamp or atmosphere, so it fails the probe until the author writes them."""
-    from codeverse3d.languages.scene_threejs import PLACEHOLDER_GROUND_SPANS, sun_from_plan
-
-    c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
-    span = max(e[0], e[1], 1.0)
-    ground = round(span * PLACEHOLDER_GROUND_SPANS, 1)
-    interior = "True" if plan.interior else "False"
-    glazed = bool(getattr(plan, "glazed", False))
-    az, el = sun_from_plan(plan)
-    az_line = (f"SUN_AZIMUTH_DEG = {az:g}      # the plan's light: compass 0 = +X, 90 = +Y (the sky and the lamp share it; zones may import it)"
-               if az is not None else
-               "SUN_AZIMUTH_DEG = None     # the plan states no azimuth: set the brief's (compass 0 = +X, 90 = +Y; zones may import it)")
-    el_line = (f"SUN_ELEVATION_DEG = {el:g}" if el is not None else "SUN_ELEVATION_DEG = None   # the plan states none: set the brief's")
-    return f'''"""src/env.py — the environment: the ground every zone seats on, the light, the sky / backdrop, the
-atmosphere{" and the enclosure" if plan.interior else ""}.
-
-ENV PLAN: {plan.environment.strip()}
-setting: {plan.setting.strip()}   mood: {plan.mood.strip()}
-Frame: Z up, -Y front, metres.  BOUNDS below are the plan's, in this frame: the extent of the PLANNED
-content and the cameras' subject, not the edge of the world — land, backdrop and scenery continue beyond
-it as the brief implies.
-CONTRACT (the wrapper calls exactly these two):
-  height_at(x, y) -> z: the ONE ground function — the ground mesh samples it and every zone seats on it
-    (measured: scene_placement floating > 0.05 m outdoors / 0.02 m indoors, sunken > 0.10 m); the plan's
-    cameras expect the ground near their look_at at the height the plan states, and each eye above it
-    (camera_underground, cap 0.50).
-  build_env(ctx) -> dict: builds the world, the lamps, the ground and the atmosphere the plan describes into
-    ctx.collection and returns what zones may share (materials, water level, sun direction ...) — ctx.env to them.
-MEASURED: a world exists and an atmosphere exists — a world Volume or a bounded fog volume (no_fog, ERROR) —
-  with 1 / density >= the plan span / 1.5 (fog_short); the judged frames sit in the exposure band
-  (scene_frames: dark_frame / blown_frame / flat_frame); whatever the zones seat on is named Ground... /
-  Terrain... (the census finds the ground by name and shape); backdrop geometry is named Sky...; no world
-  edge in any authored frame (judged; the census: standing geometry past 1.25 x the bounds' half-extent).
-PLACEHOLDER below: ONE level plate named Ground past the plan span, so the census has a surface — and NO
-  world, NO lamp, NO atmosphere: as written this module fails the probe and renders black until build_env
-  builds the brief's.  The landform, the sky, the light and the atmosphere are yours.  Keep build_env and height_at.
-"""
-import bmesh
-import bpy
-
-BOUNDS = {{"center": ({fmt3(c)}), "extents": ({fmt3(e)})}}
-INTERIOR = {interior}      # the plan's: an interior needs the enclosure the brief describes (openings, materials as
-                           # named; it reads black without openings or practical lights)
-GLAZED = {glazed}          # the plan says the enclosure is glazed; its construction is the brief's
-GROUND_SIZE = {ground}     # the placeholder plate's side (m): 3 x the plan span, past the reach the fog gate measures
-{az_line}
-{el_line}
-SEED = 0
-
-
-def height_at(x, y):
-    """z of the ground at (x, y): the one function every zone seats on and the ground mesh follows.  PLACEHOLDER: level."""
-    return 0.0
-
-
-def build_env(ctx):
-    # PLACEHOLDER ground: a level plate following height_at — REPLACE with the brief's land (named Ground... / Terrain...)
-    ground_mat = bpy.data.materials.new("GroundMat")
-    bsdf = ground_mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (0.159, 0.144, 0.117, 1.0)
-    bsdf.inputs["Roughness"].default_value = 0.95
-    bm = bmesh.new()
-    bmesh.ops.create_grid(bm, x_segments=32, y_segments=32, size=GROUND_SIZE / 2)
-    for v in bm.verts:
-        v.co.z = height_at(v.co.x, v.co.y)
-    me = bpy.data.meshes.new("Ground")
-    bm.to_mesh(me)
-    bm.free()
-    me.materials.append(ground_mat)
-    ctx.collection.objects.link(bpy.data.objects.new("Ground", me))
-    # NO world, lamp or atmosphere here: the brief's go in this function (the docstring says what is measured)
-    return {{"ground_material": ground_mat}}
-'''
 
 
 _ASSET_BODY = """import bmesh
@@ -500,57 +383,8 @@ def build_{snake}(ctx, variant=0):
 """
 
 
-def _asset_source(a: AssetPlan) -> str:
-    snake, pascal = to_snake(a.name), to_pascal(a.name)
-    w, h, d = (max(0.05, float(v)) for v in a.approx_size_m)
-    rgb, rough, metal = finish_for(a.description)
-    return f'''"""src/assets/{snake}.py — asset "{pascal}": {a.description.strip()}
-
-approx size {w:g} x {d:g} x {h:g} m (x = width, y = depth, z = height); expected instances: ~{a.instances_hint}
-CONTRACT: build_{snake}(ctx, variant=0) -> bpy.types.Collection — link every part into ctx.collection
-  (named '{pascal}'), built ONCE at the origin with its base on z = 0, front facing -Y.  Zones place
-  collection instances of it (ctx.assets['{snake}']); link it nowhere else.  It must read as the plan
-  describes it at the judge's camera distance (judged) and measure about the size above (the asset check);
-  parts, materials and construction are yours.
-"""
-{_ASSET_BODY.format(snake=snake, pascal=pascal, rgb=fmt3(rgb), rough=rough, metal=metal,
-                    w=f"{w:g}", d=f"{d:g}", h=f"{h:g}", h2=f"{h / 2:g}")}'''
-
-
-def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan]) -> str:
-    snake, pascal = to_snake(z.name), to_pascal(z.name)
-    c, e = _v(z.bbox.center), _v(z.bbox.extents, extents=True)
-    todo = []
-    for name in z.contents:
-        a = assets.get(to_snake(name))
-        if a is None:
-            todo.append(f"  - {name}: not an asset of the plan — built here")
-        elif a.kind == "blender_glb":
-            todo.append(f"  - {a.name}: ctx.assets['{to_snake(a.name)}'] — the hero GLB public/assets/{to_snake(a.name)}.glb imported by the harness")
-        else:
-            todo.append(f"  - {a.name}: ctx.assets['{to_snake(a.name)}'] — built by src/assets/{to_snake(a.name)}.py; ~{a.instances_hint} planned")
-    todo_block = "\n".join(todo) if todo else "  (the plan lists no contents)"
-    return f'''"""src/zones/{snake}.py — zone "{pascal}": {z.description.strip()}
-
-PLAN bbox (Z up, -Y front, metres): centre ({fmt3(c)}) extents ({fmt3(e)}).
-CONTRACT: build(ctx) -> bpy.types.Collection — ctx.collection is this zone's (named '{pascal}', active): link
-  everything into it and return it.  Every PLACED thing is ONE root object in it, named <Name>_<i> (object
-  names are global in Blender: never reuse one another zone uses).  Seat things on ctx.height_at(x, y)
-  (measured: scene_placement floating > 0.05 m outdoors / 0.02 m indoors, sunken > 0.10 m).  The planned
-  contents are measured against the plan bounds and this bbox (scene_placement: present, at the plan's size,
-  not outside the bounds); scenery may continue past the bbox as the brief implies.
-  Assets: ctx.assets['<snake>'] is a Collection — place collection-instance Empties of it (instance_type
-  'COLLECTION', seated on ctx.height_at).  Animation: keyframes or simple drivers (the build samples frames 1 and
-  46 = t 0 / 1.5 s; motion between them is measured).
-TODO — this zone's planned contents, none placed yet:
-{todo_block}
-"""
-
-
-def build(ctx):
-    # TODO: build the contents listed above (seat everything with ctx.height_at)
-    return ctx.collection
-'''
+def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, float]:
+    return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))
 
 
 def _cam(c: CameraPlan) -> str:
@@ -580,27 +414,6 @@ CAMERAS = [
 {chr(10).join(_cam(c) for c in cameras)}
 ]
 '''
-
-
-def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
-    """Starter files for a scene plan; none without one."""
-    if plan is None:
-        return []
-    if not isinstance(plan, ScenePlan):
-        raise TypeError(f"scene_blender needs a ScenePlan, got {type(plan).__name__}")
-    written: list[Path] = []
-    _put(ws.root / ENV_FILE, _env_source(plan), written)
-    assets = {to_snake(a.name): a for a in plan.assets}
-    for a in plan.assets:
-        if a.kind != "blender_glb":
-            _put(ws.root / asset_file(a), _asset_source(a), written)
-    for z in plan.zones:
-        _put(ws.root / zone_file(z.name), _zone_source(z, assets), written)
-    _put(ws.root / ENTRY_REL, render_scene_py([to_snake(z.name) for z in plan.zones],
-                                              [to_snake(a.name) for a in plan.assets if a.kind != "blender_glb"], [],
-                                              list(plan.cameras[:6]), title=plan.title, summary=plan.summary), written)
-    (ws.public / "assets").mkdir(parents=True, exist_ok=True)
-    return written
 
 
 # ===================================================================== build
@@ -637,55 +450,10 @@ class SceneBlenderRuntime:
     def expected_files(self, plan: Plan | None) -> list[str]:
         return list(SCENE_FILES)
 
-    def files_for(self, plan: Plan | None, target: str) -> list[str]:
-        return scene_files_for(plan, target, zone_file=zone_file, asset_file=asset_file, entry=ENTRY_REL, env_file="src/env.py",
-                               env_words=ENV_WORDS)
-
-    def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
-        return write_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint(ws)
 
-    def lib_interface(self, ws: Workspace) -> str:
-        return ""
-
-    def check_env(self, ws: Workspace) -> str:
-        """``""`` when ``src/env.py`` lints clean, runs ``build_env`` alone and lights what it builds;
-        else the first failure, quoted.  A Blender that cannot run gives ``""``."""
-        from codeverse3d.spatial.probes import unlit
-
-        env = ws.root / ENV_FILE
-        if not env.is_file():
-            return f"{ENV_FILE} does not exist"
-        own = [f for f in lint_scene_source(env.read_text(errors="replace"), target=ENV_FILE, role="env")
-               if f.severity == Severity.ERROR]
-        if own:
-            return "\n".join(f"{f.target}: {f.message}" + (f" ({f.fix_hint})" if f.fix_hint else "") for f in own[:6])
-        entry = ws.root / ENV_CHECK_REL
-        entry.write_text(render_scene_py([], [], [], []))
-        try:
-            run = self.run_wrapper(ws, ws.artifacts / "env_check", zones={}, blend=False, entry=ENV_CHECK_REL)
-        except BlenderNotFoundError as e:
-            log.warning("env check could not run: %s", e)
-            return ""
-        finally:
-            entry.unlink(missing_ok=True)
-        raised = [e for e in run.report.get("errors") or [] if e.get("stage") == "env"]
-        if raised:
-            e = raised[0]
-            at = f"{e.get('error_file') or ENV_FILE}:{e.get('error_line')}" if e.get("error_line") else ENV_FILE
-            if (e.get("error_file") or ENV_FILE) != ENV_FILE and (own_at := env_frame(str(e.get("traceback") or ""))):
-                # the raise surfaced in a helper the env called: lead with the env's own call line
-                at = f"{own_at} (raised in {at})"
-            return f"{at}: build_env raised {e.get('error_type')}: {str(e.get('error_message'))[:600]}"
-        if not run.result.ok:
-            if run.result.harness_failure:
-                return ""
-            return f"{ENV_FILE}: the env-only build failed: {run.result.error_type}: {run.result.error_message}"[:900]
-        facts = run.facts
-        dark = unlit({"totals": {"lights": int(facts.get("lights") or 0)}, "background": facts.get("background")}, offline=True)
-        return f"{ENV_FILE}: {dark.message}" if dark is not None else ""
 
     # ------------------------------------------------------------------ the Blender process
     def run_wrapper(self, ws: Workspace, out_dir: Path, *, zones: dict[str, str] | None = None, blend: bool = True,
@@ -782,8 +550,6 @@ class SceneBlenderRuntime:
             return probe_result(GateReport.of(PROBE_GATE, [finding]), {})
         return probe_result(gate, census)
 
-    def assemble(self, ws: Workspace, plan: ScenePlan) -> AssembleResult:
-        return assemble(self, ws, plan)
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
                      times: Sequence[float] = SCENE_TIMES, width: int = 1024, height: int = 576, sheet: bool = True) -> RenderSet:
@@ -821,46 +587,6 @@ def stage_findings(report: dict[str, Any]) -> list[GateFinding]:
 
 
 # ===================================================================== assemble
-_ASSEMBLE_OUT = "assemble_probe"
-
-
-def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan, *, timeout_s: float | None = None) -> AssembleResult:
-    zones = [p.stem for p in module_files(ws, "zones")]
-    if not zones:
-        raise FileNotFoundError(f"no zone modules under {ws.src / 'zones'}")
-    assets = [p.stem for p in module_files(ws, "assets")]
-    heroes = [p.stem for p in hero_files(ws)]
-    cams = list(plan.cameras[:6])
-    warnings: list[str] = []
-    env_ok = (ws.src / "env.py").is_file()
-    if not env_ok:
-        warnings.append("src/env.py missing: scene assembled without env (flat ground at z = 0, no world or lamps)")
-    healthy, failed = list(zones), {}
-    census: dict[str, Any] = {}
-    out = ws.root / ENTRY_REL
-    # the probe run's entry lists every asset and hero; zones come from --zones
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_scene_py([], assets, heroes, cams))
-    run = runtime.run_wrapper(ws, ws.artifacts / _ASSEMBLE_OUT, zones={z: to_pascal(z) for z in zones}, blend=False,
-                              timeout_s=timeout_s)
-    if run.result.ok or run.report.get("zones_ok") is not None:
-        healthy = [z for z in zones if z in set(run.report.get("zones_ok") or [])]
-        failed = {z: str(m) for z, m in (run.report.get("zones_failed") or {}).items()}
-    else:
-        warnings.append(f"assembler probe did not run: {run.result.error_type}: {run.result.error_message}"[:300])
-    for e in run.report.get("errors") or []:
-        if e.get("stage") == "env":
-            env_ok = False
-            warnings.append(f"env.py failed in probe: {e.get('error_type')}: {e.get('error_message')}"[:300])
-    census = {k: run.facts[k] for k in ("lights", "fog", "background", "unique_tris", "instanced_tris") if k in run.facts}
-    if not healthy:
-        warnings.append("no zone module survived probing; scene.py assembled with zero zones")
-    out.write_text(render_scene_py(healthy, assets, heroes, cams, title=plan.title,
-                                   summary=plan.summary))
-    result = AssembleResult(scene_path=str(out), zones_included=healthy, zones_failed=failed, env_ok=env_ok,
-                            warnings=warnings, census=census)
-    ws.write_json(ws.artifacts / "assemble.json", result)
-    return result
 
 
 # ===================================================================== helpers

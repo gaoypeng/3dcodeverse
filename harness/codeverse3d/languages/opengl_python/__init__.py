@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
@@ -181,84 +179,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-_TEMPLATE = '''"""src/program.py — {title}
-
-CONTRACT (the harness imports this module in a headless moderngl process; the full text is the
-language contract):
-  def setup(ctx, width, height) -> state     create programs / VAOs / textures / FBOs ONCE; return any object
-  def render(ctx, state, t, frame, fbo)      draw the frame at time t (seconds) into `fbo` (already bound + cleared)
-* `ctx` is a moderngl.Context (GL 3.3 core).  Never create a context or window; never read the clock.
-* The final draw of every call goes into `fbo` (bind it and reset ctx.viewport first if you used your own FBOs).
-* Same t → same frame, whatever was rendered before; `frame` is a schedule index, not time.  Seed randomness
-  in setup.  GLSL strings start with `#version 330 core`.
-Judged frames at t = 0, 1, 2.5, 4, 6 s (clipped to the {duration:g} s duration).  Measured on them: largest
-frame-to-frame mean |Δ| below 0.002 → static (cap 0.5); above 0.35 → flicker (cap 0.7); NaN/Inf → cap 0;
-every frame black or blown → cap 0.5; mean edge density below 0.002 → reported as a near-flat gradient.
-
-PLAN — {summary}
-Style: {style}
-{passes}
-{visuals}
-Motion: {motion}
-"""
-import moderngl
-import numpy as np
-
-# This stub only proves the interface: one full-screen pass whose output depends on t.
-STUB_VERT = """#version 330 core
-in vec2 in_pos;
-out vec2 v_uv;
-void main() {{ v_uv = in_pos * 0.5 + 0.5; gl_Position = vec4(in_pos, 0.0, 1.0); }}
-"""
-STUB_FRAG = """#version 330 core
-uniform float u_time;
-in vec2 v_uv;
-out vec4 fragColor;
-void main() {{ fragColor = vec4(vec3(0.5 + 0.5 * sin(6.2832 * (v_uv.x - 0.05 * u_time))), 1.0); }}
-"""
-
-
-def setup(ctx: moderngl.Context, width: int, height: int):
-    prog = ctx.program(vertex_shader=STUB_VERT, fragment_shader=STUB_FRAG)
-    quad = ctx.buffer(np.array([-1, -1, 1, -1, -1, 1, 1, 1], dtype="f4").tobytes())
-    vao = ctx.vertex_array(prog, [(quad, "2f", "in_pos")])
-    # TODO build the plan's passes here (programs, buffers, textures, your own FBOs)
-    return {{"prog": prog, "vao": vao, "size": (width, height)}}
-
-
-def render(ctx: moderngl.Context, state, t: float, frame: int, fbo: moderngl.Framebuffer) -> None:
-    fbo.use()
-    ctx.disable(moderngl.DEPTH_TEST)
-    ctx.viewport = (0, 0, *state["size"])
-    state["prog"]["u_time"].value = t
-    state["vao"].render(mode=moderngl.TRIANGLE_STRIP)
-    # TODO the plan's passes; the final draw goes into `fbo` (bind it and reset ctx.viewport first)
-'''
-
-
-def _comment_lines(prefix: str, items: list[str]) -> str:
-    if not items:
-        return f"{prefix}: (none)"
-    return "\n".join(f"  TODO {prefix} {i + 1}: {x}" for i, x in enumerate(items))
-
-
-def program_source(plan: GraphicsPlan | None) -> str:
-    title = plan.title if plan else "untitled program"
-    passes = [f"{p.name} ({p.kind}): {p.description}" for p in plan.passes] if plan else []
-    visuals = list(plan.key_visuals) if plan else []
-    return _TEMPLATE.format(
-        title=title, summary=plan.summary if plan else "", style=plan.style if plan else "",
-        motion=plan.motion if plan else "animate with t", duration=plan.duration_s if plan else 8.0,
-        passes=_comment_lines("pass", passes), visuals=_comment_lines("key visual", visuals),
-    )
-
-
-def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
-    gplan = plan if isinstance(plan, GraphicsPlan) else None
-    ws.src.mkdir(parents=True, exist_ok=True)
-    p = ws.src / "program.py"
-    p.write_text(program_source(gplan))
-    return [p]
 
 
 # ===================================================================== runtime
@@ -269,9 +189,6 @@ class OpenGLPythonRuntime(RuntimeLayout):
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
 
-    # ------------------------------------------------------------------ skeleton / lint
-    def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
-        return write_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint_workspace(ws)

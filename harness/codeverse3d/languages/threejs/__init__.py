@@ -9,7 +9,7 @@ from pathlib import Path
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, LintKind, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import Plan, StaticPlan
+from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.conventions import to_pascal, to_snake
 from codeverse3d.languages._common import BUILD_TIMEOUT, line_of, missing_entry, ws_rel
 from codeverse3d.languages._js_lint import (
@@ -34,57 +34,6 @@ from codeverse3d.workspace import Workspace
 
 # ===================================================================== templates
 PACKAGE_JSON = '{ "type": "module", "private": true }\n'
-
-OBJECT_HEADER = """\
-// {object_name} — three.js static object (raw ESM).  Harness contract:
-//   export function build(THREE) -> THREE.Group   (root.name = object name)
-//   Y up, +Z front, meters; object stands on y=0, footprint centred on the Y axis.
-//   Parts live in ./parts/<snake>.js, each `export function build<Pascal>(THREE)`
-//   returning a Group already at its WORLD pose.  object.js only assembles.
-//   root.userData.tick is recorded by the census but never called or exported on this track.
-//   Imports that resolve: 'three', 'three/addons/...', relative './' under src/.  No network, no DOM.
-import * as THREE from 'three';
-{imports}
-
-export function build(THREE_) {{
-  const root = new THREE.Group();
-  root.name = '{object_name}';
-{adds}
-  return root;
-}}
-"""
-
-PART_TEMPLATE = """\
-// Part: {pascal}  ({role})
-// {description}
-// Plan bbox (world, meters): centre {center}  extents {extents}{material_line}
-// Contract: export function build{pascal}(THREE) -> THREE.Group named '{pascal}', at WORLD pose.
-// Y up, +Z front, metres.  The Group's name '{pascal}' is how the gates find this part; a mesh
-// with no name is a build warning.  Lights / cameras / renderers are lint findings.
-// Measured on this part: bbox centre + extents within max(10 mm, 10 % of the plan extent) per
-// axis; one connected shell (tiny islands are stray geometry); contact (surface gap <= 2 mm) with
-// its planned neighbours; penetration <= 2 mm; the whole object's lowest point within 10 mm of y = 0.
-import * as THREE from 'three';
-
-export function build{pascal}(THREE_) {{
-  const group = new THREE.Group();
-  group.name = '{pascal}';
-
-  // ---- PLACEHOLDER: a plain box at the plan bbox so the first build passes.  Replace it with the
-  // part the brief describes (keep the group name); what it is made of is yours to decide. ----
-  const size = [{ex}, {ey}, {ez}];
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]),
-                              new THREE.MeshStandardMaterial({{ color: {color} }}));
-  mesh.name = '{pascal}Body';
-  mesh.position.set({cx}, {cy}, {cz});   // world pose (bbox centre)
-  group.add(mesh);
-  // ---- END PLACEHOLDER ----
-
-  return group;
-}}
-"""
-
-PLACEHOLDER_COLORS = ("0x9aa5b1", "0xb08968", "0x7f8c8d", "0xc0a080", "0x6c7a89", "0xa0522d", "0x8fa3ad", "0xbfa27a")
 
 
 # ===================================================================== lint
@@ -224,63 +173,6 @@ def part_file_rel(part_name: str) -> str:
     return f"src/parts/{to_snake(part_name)}.js"
 
 
-def part_file(ws: Workspace, part_name: str) -> Path:
-    return ws.root / part_file_rel(part_name)
-
-
-def _fmt(v: float) -> str:
-    return f"{float(v):.4g}"
-
-
-def render_part_stub(part, index: int) -> str:
-    """JS source of one placeholder part file."""
-    c, e = part.bbox.center, part.bbox.extents
-    material_line = f"\n// Material: {part.material}" if part.material else ""
-    return PART_TEMPLATE.format(
-        pascal=to_pascal(part.name),
-        role=part.role,
-        description=part.description.replace("\n", " "),
-        center=f"({_fmt(c[0])}, {_fmt(c[1])}, {_fmt(c[2])})",
-        extents=f"({_fmt(e[0])}, {_fmt(e[1])}, {_fmt(e[2])})",
-        material_line=material_line,
-        ex=_fmt(max(e[0], 0.001)),
-        ey=_fmt(max(e[1], 0.001)),
-        ez=_fmt(max(e[2], 0.001)),
-        cx=_fmt(c[0]),
-        cy=_fmt(c[1]),
-        cz=_fmt(c[2]),
-        color=PLACEHOLDER_COLORS[index % len(PLACEHOLDER_COLORS)],
-    )
-
-
-def render_object(plan: StaticPlan) -> str:
-    imports = "\n".join(
-        f"import {{ build{to_pascal(p.name)} }} from './parts/{to_snake(p.name)}.js';" for p in plan.parts
-    )
-    adds = "\n".join(f"  root.add(build{to_pascal(p.name)}(THREE));" for p in plan.parts)
-    return OBJECT_HEADER.format(object_name=to_pascal(plan.object_name), imports=imports, adds=adds)
-
-
-def write_skeleton(ws: Workspace, plan: Plan) -> list[Path]:
-    """Write ``src/package.json``, ``src/object.js`` and ``src/parts/*.js``; existing files are kept."""
-    if not isinstance(plan, StaticPlan):
-        raise TypeError(f"threejs skeleton needs a StaticPlan, got {type(plan).__name__}")
-    written: list[Path] = []
-    (ws.src / "parts").mkdir(parents=True, exist_ok=True)
-
-    def _put(path: Path, text: str) -> None:
-        if path.exists():
-            return
-        path.write_text(text)
-        written.append(path)
-
-    _put(ws.src / "package.json", PACKAGE_JSON)
-    _put(ws.src / "object.js", render_object(plan))
-    for i, part in enumerate(plan.parts):
-        _put(part_file(ws, part.name), render_part_stub(part, i))
-    return written
-
-
 # ===================================================================== runtime
 ENTRY = ENTRY_FILE[Language.THREEJS]
 GLB_NAME = "object.glb"
@@ -296,9 +188,6 @@ class ThreeJsRuntime(RuntimeLayout):
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.THREEJS], "src/parts/*.js")
     part_file = staticmethod(part_file_rel)
 
-    # ------------------------------------------------------------------ skeleton / lint
-    def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
-        return write_skeleton(ws, plan)
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint_workspace(ws)

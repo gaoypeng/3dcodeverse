@@ -1,7 +1,8 @@
-"""What the judge sees: image prep, montage planning and message assembly.
+"""What the judge sees: image prep, montage planning and the brief.
 
 ``prepare_image`` downscales and labels every image; ``plan_montages`` / ``render_montage`` pack ranked views
-into ≤2×2 sheets; ``build_judge_messages`` assembles the request; ``judge_prompt_hash`` stamps a verdict.
+into ≤2×2 sheets; ``build_brief`` assembles the judge's text (the role, the rubric as a checklist, the measured
+facts, the view rig, the exact JSON to return) for ``judge/rNN/brief.md``.
 """
 
 from __future__ import annotations
@@ -9,11 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import random
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from PIL import Image, ImageDraw
 
@@ -28,19 +28,25 @@ from codeverse3d.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
-from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.plan import (
+    AcceptanceItem,
+    ArticulatedPlan,
+    GraphicsPlan,
+    Plan,
+    ScenePlan,
+    StaticPlan,
+)
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import (
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
     SCENE_VIEWS,
     ViewPreset,
+    to_authoring_frame,
     view_key,
 )
 from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric, wire_schema
 from codeverse3d.proc import unique_tmp
-from codeverse3d.prompts import prompt_hash
 from codeverse3d.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse3d.spatial.measure import measure_summary_table
 from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2
@@ -115,10 +121,6 @@ def _with_label_strip(im: Image.Image, label: str) -> Image.Image:
     font_px = getattr(font, "size", 11)
     draw.text((6, max(2, (strip_h - font_px) // 2)), text, fill=(245, 245, 240), font=font)
     return canvas
-
-
-def image_part(path: Path, label: str) -> ImagePart:
-    return ImagePart(path=str(path), mime="image/png", label=label)
 
 
 MontageKind = Literal["shaded", "geometry", "poses", "pose_sheet", "detail"]
@@ -225,14 +227,14 @@ def plan_montages(
     if sheets:
         candidates.append(Montage("pose_sheet", (sheets[0],), "POSE SHEET (rows = poses, columns = views; tile labels name the joint and its value)", passthrough=True))
     elif poses:
-        candidates.append(Montage("poses", tuple(poses[:MAX_TILES]), "POSED views (joints moved by the harness; tile label = pose)"))
+        candidates.append(Montage("poses", tuple(poses[:MAX_TILES]), "POSED views (joints moved by the instruments; tile label = pose)"))
     if geometry:
         geo = _match_geometry(geometry, candidates[0].tiles if candidates else ())
         candidates.append(Montage("geometry", tuple(geo), f"GEOMETRY-ONLY views ({geo[0].mode}: no materials — look for holes, black/inverted faces, intersections, gaps)"))
     for extra in shaded_groups[1:]:
         candidates.append(Montage("shaded", tuple(extra), "SHADED views (remaining)"))
     if sheets and poses:
-        candidates.append(Montage("poses", tuple(poses[:MAX_TILES]), "POSED views (joints moved by the harness; tile label = pose)"))
+        candidates.append(Montage("poses", tuple(poses[:MAX_TILES]), "POSED views (joints moved by the instruments; tile label = pose)"))
     chosen = candidates[: max(0, max_montages)]
     chosen.extend(plan_detail_crops(shaded, scene=scene, gates=gates, limit=max(0, detail_crops)))
     return chosen
@@ -435,25 +437,6 @@ def plan_contact_crops(shaded: list[RenderView], gates: Sequence[GateReport]) ->
     return out
 
 
-def shuffle_montages(montages: list[Montage], seed: int | None) -> list[Montage]:
-    """Permute montage order and the tile order inside each grid; detail crops stay last."""
-    if seed is None:
-        return list(montages)
-    rng = random.Random(seed)
-    grids = [m for m in montages if not m.is_detail]
-    details = [m for m in montages if m.is_detail]
-    rng.shuffle(grids)
-    out = []
-    for m in grids:
-        if m.passthrough or len(m.tiles) < 2:
-            out.append(m)
-            continue
-        tiles = list(m.tiles)
-        rng.shuffle(tiles)
-        out.append(replace(m, tiles=tuple(tiles)))
-    return out + details
-
-
 def tile_label(v: RenderView) -> str:
     bits = [v.name]
     azel = view_az_el(v)
@@ -527,28 +510,30 @@ def describe_montages(montages: list[Montage]) -> str:
     return "\n".join(lines)
 
 
-if TYPE_CHECKING:  # pragma: no cover
-    from codeverse3d.judges.base import JudgeInput
+#: tracks whose rounds have one canonical GLB the judge slice channel may cut
+SLICE_TRACKS = ("static_object", "articulated_object")
+#: rubric for a static object judged against reference images (adds the measured silhouette criterion)
+REFERENCE_RUBRIC = "reference"
 
 TEXT_BUDGET_CHARS = 24_000
 MAX_PX = 1024
 MONTAGE_TILE_PX = 512
 SLICE_MAX_PX = 1024
 
-_ROLE = """You are the BLIND JUDGE of a 3D-code harness: exacting but fair.
-You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning. Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
+_ROLE = """You are the BLIND JUDGE of a 3D-code project: exacting but fair.
+You see only the brief, a plan digest, measured numbers, deterministic gate findings and labelled renders of the result — never the builder's code or reasoning (you read ONLY this brief and the images it lists). Judge what is visible and measured; do not invent faults and do not credit what you cannot see.
 Gate findings describe the exported FILE (names, node hierarchy, contacts); the renders show the actual geometry. When they seem to disagree about something VISIBLE (a part moves in a posed tile, a part is present), trust the images for the visual criteria and report the file-level fact as an issue — never infer "nothing moves" or "part missing" from text alone when the tiles show otherwise.
 Work in this order: observe (summary, strengths, issues), answer the defect checklist and the acceptance items, and only THEN score the criteria against their anchors.
 
 SCORING RULES
 - Score each criterion 0..1 against its anchors (interpolate between anchors). Use the WHOLE range: competent work sits at 0.8+, one clearly visible major defect pulls the affected criterion to ~0.4, broken work sits at 0.1-0.3. Do not compress everything into 0.5-0.7 — a primitive box-stack and a crafted product must be 0.4 apart, not 0.1.
 - Every score needs evidence that cites the image and tile (e.g. "MONTAGE 1 top-left (front_right_high): rear leg ends 3 cm above ground; measurement ground_gap 0.03").
-- DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed by the harness, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
-- Do NOT compute an overall or decide pass/fail; the harness computes the weighted overall, subtracts defect penalties, applies floors and caps.
+- DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed in code, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
+- Do NOT compute an overall or decide pass/fail; `3dcode score` computes the weighted overall, subtracts defect penalties, applies floors and caps.
 - Issues: observable defects, most severe first, with target = the part / zone / joint / asset name from the plan digest (or "overall"), a kind, a severity and evidence.
 - Improvement plan: at most 6 concrete, imperative instructions for the builder ("rear_leg_left: ends 3 cm above y=0 in the ground-contact crop — extend it to touch the ground"; "seat: measured 62 mm thick against the brief's 25 mm — thin it to the stated size"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
 - Acceptance items: answer verified=true ONLY when the renders or measurements prove the item; otherwise false with what is missing.
-- Reply with ONE JSON object matching the requested schema; no prose outside it."""
+- Write ONE JSON object matching the schema at the end of this brief to the judgment file it names; no prose outside it."""
 
 
 #: end of the DEFECT CHECKLIST scoring-rule bullet in ``_ROLE``; the provenance sentence is appended after it
@@ -564,7 +549,7 @@ def _rubric_block(rubric: Rubric) -> str:
     lines = [f"RUBRIC {rubric.name} v{rubric.version} (pass threshold {rubric.pass_threshold:.2f}, for information only)"]
     for i, c in enumerate(rubric.criteria, 1):
         if c.kind == "measured":
-            lines.append(f"{i}. {c.id} (weight {c.weight:.2f}) — MEASURED BY THE HARNESS, shown for calibration; do not score it.")
+            lines.append(f"{i}. {c.id} (weight {c.weight:.2f}) — MEASURED IN CODE, shown for calibration; do not score it.")
             continue
         floor = f", hard floor {c.floor:.2f}" if c.floor is not None else ""
         lines.append(f"{i}. {c.id} (weight {c.weight:.2f}{floor}) — {c.label}: {c.description.strip()}")
@@ -633,7 +618,7 @@ def acceptance_section(items: list[AcceptanceItem]) -> str:
 def measurement_section(m: Measurement | None) -> str:
     if m is None:
         return "MEASUREMENTS: (none available)"
-    return "MEASUREMENTS (harness, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
+    return "MEASUREMENTS (measured, Y-up meters):\n" + _clip(str(measure_summary_table(m)), 6000)
 
 
 #: MEASURED STRUCTURE clips: contacts and planned joins are cut with an "… n more"
@@ -992,8 +977,8 @@ RIG_RULES: dict[str, str] = {
         "elevation is degrees above the horizon (negative = looking up from below the ground plane, which reveals undersides and ground contact)."
     ),
     "geometry": "The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.",
-    "poses": "POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
-    "scene_cams": "Views named overview_* and eye_* are harness cameras fitted to the scene bounds (layout X-ray); every other view is one of the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
+    "poses": "POSE tiles show the SAME object with joints moved by the instruments (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
+    "scene_cams": "Views named overview_* and eye_* are rig cameras fitted to the scene bounds (layout X-ray); every other view is one of the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
     "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth readable for what each shot frames, surfaces that read as the brief's materials rather than one flat colour, variety among repeated elements, the secondary detail the brief's place implies, and distance softened where the brief's weather would soften it — each judged against what THIS place would have, not a fixed recipe. The same camera at two times appears as separate tiles; nothing_moves is answered from the MEASURED MOTION line only, never by comparing tiles.",
     "scene_contact": "The high overview_* tiles (overview_front_right / overview_back_left / overview_top) are rendered with the fog removed and room ceilings lifted: a missing roof, lid or haze in them is never a defect. overview_low_front stands at ground level just outside the content, where daylight under a base shows. CONTACT CROP images are diagnostic close-ups cut from an overview tile around a placement finding the gate measured (the label names the asset, the kind and the number): judge the contact they show — base meets ground, part through neighbour — never their composition, lighting or dressing. Every floating / sunken / clipping / scale claim must name its view and its asset.",
     "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
@@ -1039,105 +1024,105 @@ def slice_rig_section(labels: list[str]) -> str:
             + lines)
 
 
-def judge_prompt_hash(rubric: Rubric) -> str:
-    """Hash of everything the judge is told that is constant for a rubric: the system prompt, the fixed
-    view-rig rules and the wire schema's structure.  Per-run content is excluded."""
-    payload = "\n".join([
-        build_system_prompt(rubric),
-        *(RIG_RULES[k] for k in sorted(RIG_RULES)),
-        json.dumps(wire_schema(rubric, []), sort_keys=True),
-    ])
-    return prompt_hash(payload)
+def plan_summary(plan: Plan | None, language: str) -> str:
+    """The plan digest the judge reads.  An object's size is written W×H×D in the GLB frame (Y-up),
+    so a Z-up plan's (W, D, H) is permuted first."""
+    if isinstance(plan, GraphicsPlan):
+        passes = ", ".join(f"{p.name} ({p.kind})" for p in plan.passes)
+        return (f"{plan.title}: {plan.summary} Style: {plan.style}. Passes: {passes}. Key visuals: {'; '.join(plan.key_visuals)}. "
+                f"Motion: {plan.motion or '(none planned)'}. {plan.resolution[0]}x{plan.resolution[1]}, loop {plan.duration_s:g}s.")
+    if isinstance(plan, ScenePlan):
+        return (f"{plan.title}: {plan.summary} Setting: {plan.setting}. Zones: {', '.join(z.name for z in plan.zones)}. "
+                f"Assets: {', '.join(a.name for a in plan.assets)}. Cameras: {', '.join(c.name for c in plan.cameras)}.")
+    if not isinstance(plan, StaticPlan):
+        return ""
+    parts = ", ".join(f"{p.name}×{p.instances}" if p.instances > 1 else p.name for p in plan.parts)
+    e = to_authoring_frame(plan.overall_bbox.extents, language, extents=True)
+    text = f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m (W×H×D). Parts: {parts}."
+    if isinstance(plan, ArticulatedPlan):
+        joints = "; ".join(f"{j.name} ({j.type} {j.parent}→{j.child}, [{j.lower:.2f},{j.upper:.2f}])" for j in plan.joints)
+        text += f" Root link {plan.root_link}. Joints: {joints}."
+    return text
 
 
-def montage_image_parts(
+def montage_images(
     renders: RenderSet,
     *,
     geometry_views: RenderSet | None = None,
     scene: bool = False,
-    shuffle_seed: int | None = None,
     max_montages: int = MAX_MONTAGES,
     detail_crops: int = MAX_DETAIL_CROPS,
     max_px: int = MAX_PX,
     cache_dir: Path | None = None,
     gates: Sequence[GateReport] = (),
-) -> tuple[list[tuple[str, ImagePart]], list[Montage]]:
-    """(label, ImagePart) pairs for the montages of a render set, plus the montage plan in send order."""
-    montages = shuffle_montages(
-        plan_montages(renders, geometry_views=geometry_views, scene=scene, max_montages=max_montages, detail_crops=detail_crops,
-                      gates=gates),
-        shuffle_seed,
-    )
+) -> tuple[list[tuple[str, Path]], list[Montage]]:
+    """``(label, labelled PNG)`` pairs for the montages of a render set, plus the montage plan in send order."""
+    montages = plan_montages(renders, geometry_views=geometry_views, scene=scene, max_montages=max_montages,
+                             detail_crops=detail_crops, gates=gates)
     grids = [m for m in montages if not m.is_detail]
     details = [m for m in montages if m.is_detail]
-    out: list[tuple[str, ImagePart]] = []
+    out: list[tuple[str, Path]] = []
     for i, m in enumerate(grids, 1):
         lbl, strip = montage_label(m, i, len(grids)), montage_strip(m, i, len(grids))
         png = render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
-        out.append((lbl, image_part(prepare_image(png, label=strip, max_px=max_px, cache_dir=cache_dir), lbl)))
+        out.append((lbl, prepare_image(png, label=strip, max_px=max_px, cache_dir=cache_dir)))
     for i, m in enumerate(details, 1):
         lbl, strip = montage_label(m, i, len(details)), montage_strip(m, i, len(details))
         png = render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
-        out.append((lbl, image_part(prepare_image(png, label=strip, max_px=min(max_px, 768), cache_dir=cache_dir), lbl)))
+        out.append((lbl, prepare_image(png, label=strip, max_px=min(max_px, 768), cache_dir=cache_dir)))
     return out, montages
 
 
-def build_judge_messages(
-    inp: JudgeInput,
-    rubric: Rubric,
+def build_brief(
     *,
-    shuffle_seed: int | None = None,
-    geometry_views: RenderSet | None = None,
-    max_montages: int = MAX_MONTAGES,
-    detail_crops: int = MAX_DETAIL_CROPS,
-    max_px: int = MAX_PX,
-    cache_dir: Path | None = None,
-    extra_images: list[tuple[str, str | Path]] | None = None,
-    extra_text: str = "",
-    slice_images: list[tuple[str, str | Path]] | None = None,
-    provenance_elicitation: bool = False,
-) -> tuple[str, list[ChatMessage]]:
-    """Return ``(system, [user_message])`` for a rubric judge call.
-
-    ``geometry_views`` is an optional clay/normals RenderSet; ``shuffle_seed`` permutes montage and tile order;
-    ``extra_images`` go BEFORE the montages and ``slice_images`` AFTER the montages and crops; ``extra_text``
-    is appended to the text block; ``provenance_elicitation`` adds one sentence to the system prompt.
-    """
-    system = build_system_prompt(rubric, provenance_elicitation=provenance_elicitation)
-    is_scene = inp.spec.track.value == "scene"
+    spec: Spec,
+    plan: Plan | None,
+    rubric: Rubric,
+    renders: RenderSet,
+    measurement: Measurement | None,
+    gates: list[GateReport],
+    round_index: int,
+    previous: Judgment | None,
+    extra_context: str,
+    extra_text: str,
+    geometry_views: RenderSet | None,
+    images: list[tuple[str, Path]],
+    montages: list[Montage],
+    extra_images: Sequence[tuple[str, Path]] = (),
+    slice_images: Sequence[tuple[str, Path]] = (),
+    judgment_path: Path,
+) -> str:
+    """The whole judge brief as Markdown: role + rubric, the measured sections, the view rig, every image with its
+    label and absolute path (in viewing order), and the exact JSON object to write to ``judgment_path``."""
+    is_scene = spec.track.value == "scene"
+    system = build_system_prompt(rubric, provenance_elicitation=bool(slice_images))
     sections = [
-        brief_section(inp.spec),
-        ("PLAN DIGEST:\n" + _clip(inp.plan_summary, 5000)) if inp.plan_summary.strip() else "PLAN DIGEST: (none)",
-        acceptance_section(inp.acceptance),
-        measurement_section(inp.measurement),
-        gates_section(inp.gates, scene=is_scene),
-        previous_section(inp.previous, inp.round_index),
-        _clip(inp.extra_context, 2500) if inp.extra_context.strip() else "",
+        brief_section(spec),
+        ("PLAN DIGEST:\n" + _clip(plan_summary(plan, spec.language.value), 5000)) if plan is not None else "PLAN DIGEST: (none)",
+        acceptance_section(list(getattr(plan, "acceptance", None) or [])),
+        measurement_section(measurement),
+        gates_section(gates, scene=is_scene),
+        previous_section(previous, round_index),
+        _clip(extra_context, 2500) if extra_context.strip() else "",
         _clip(extra_text, 2500) if extra_text.strip() else "",
     ]
-    extras = extra_images or []
-    images, montages = montage_image_parts(
-        inp.renders, geometry_views=geometry_views, scene=is_scene, shuffle_seed=shuffle_seed,
-        max_montages=max_montages, detail_crops=detail_crops, max_px=max_px, cache_dir=cache_dir,
-        gates=inp.gates if is_scene else (),
-    )
-    slices = slice_images or []
-    rig = view_rig_section(inp.renders, montages, scene=is_scene)
-    if slices:
-        rig = rig + "\n" + slice_rig_section([lbl for lbl, _ in slices])
+    rig = view_rig_section(renders, montages, scene=is_scene)
+    if slice_images:
+        rig = rig + "\n" + slice_rig_section([lbl for lbl, _ in slice_images])
     sections.append(rig)
     text = "\n\n".join(s for s in sections if s)
     if len(text) > TEXT_BUDGET_CHARS:
         text = _clip(text, TEXT_BUDGET_CHARS)
-    parts: list[TextPart | ImagePart] = [TextPart(text=text)]
-    for lbl, p in extras:
-        parts.append(TextPart(text=lbl))
-        parts.append(image_part(prepare_image(p, label=lbl, max_px=min(max_px, 768), cache_dir=cache_dir), lbl))
-    for lbl, ip in images:
-        parts.append(TextPart(text=lbl))
-        parts.append(ip)
-    for lbl, p in slices:
-        parts.append(TextPart(text=lbl))
-        parts.append(image_part(prepare_image(p, label=lbl, max_px=SLICE_MAX_PX, cache_dir=cache_dir), lbl))
-    parts.append(TextPart(text="Now score every criterion with evidence, answer every defect-checklist item and every acceptance item, and return the JSON object."))
-    return system, [ChatMessage(role="user", parts=parts)]
+    acceptance_ids = [a.id for a in (getattr(plan, "acceptance", None) or [])]
+    schema = json.dumps(wire_schema(rubric, acceptance_ids), indent=1)
+    listing = "\n".join(f"{i}. {lbl}\n   {p}" for i, (lbl, p) in enumerate([*extra_images, *images, *slice_images], 1))
+    return (
+        f"# Judge brief — round {round_index}\n\n"
+        "## Your role\n\n" + system + "\n\n"
+        "## The case\n\n" + text + "\n\n"
+        "## Images (open each with your image viewer, in this order)\n\n" + listing + "\n\n"
+        "## Return exactly this JSON\n\n"
+        f"Write ONE JSON object matching this schema to `{judgment_path}` (nothing else in the file). Score every "
+        "criterion with evidence, answer every defect-checklist item and every acceptance item.\n\n"
+        "```json\n" + schema + "\n```\n"
+    )
