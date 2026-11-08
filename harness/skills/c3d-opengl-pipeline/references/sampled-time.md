@@ -8,7 +8,7 @@ clears it to `(0, 0, 0, 1)` with depth 1, sets the viewport, and calls
 `render(ctx, state, t, i, fbo)`. `i` is the index into that merged schedule.
 
 Judged times are `0, 1, 2.5, 4, 6` (`codeverse3d/languages/_gl_common.py`, clipped to the
-loop duration, always at least 3 samples). The preview GIF adds about a dozen more. So:
+loop duration, always at least 3 samples). Do not assume those are the only calls. So:
 
 * the number of calls is not fixed, and `frame == 2` is not "the third judged frame";
 * the gaps between judged frames are 1.0, 1.5, 1.5 and 2.0 seconds;

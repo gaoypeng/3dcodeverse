@@ -90,7 +90,7 @@ off the same gate constants.
 
 ## 6. URDF (articulated_object)
 
-`3dcode check-connectivity` runs on the rest pose (q = 0) exactly as above, over the link meshes.
+the `connectivity` gate of `3dcode check` runs on the rest pose (q = 0) exactly as above, over the link meshes.
 Clearance across the joint *sweep* is a different gate (`3dcode joint-sweep`) and belongs to
 `c3d-urdf-joints`; a rest pose that is already 5 mm overlapped will fail both. Recorded
 `3dcode joint-sweep` overlaps in this corpus run 3-5 mm already at the rest pose and reach 20 mm at
@@ -103,6 +103,6 @@ parts instead of being given running clearance.
 build  ->  check_connectivity  ->  fix the ERRORs, then the deepest WARN  ->  build
 ```
 
-`3dcode check-connectivity` takes no arguments and answers in your authoring frame. `3dcode isolate` the
+the `connectivity` gate of `3dcode check` takes no arguments and answers in your authoring frame. `3dcode isolate` the
 part you doubt and `3dcode cross-section` through it when a finding does not make sense. Never
 finish a round on an ERROR.

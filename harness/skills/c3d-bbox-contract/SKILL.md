@@ -73,8 +73,8 @@ ERROR, not a rounding difference.
 
 ## Prove it, do not eyeball it
 
-`3dcode build` -> `3dcode measure` -> `3dcode check-contract`. `3dcode measure` gives you per-part size in cm and the
-ground gap; `3dcode check-contract` gives you, per failing part, the built size against the planned
+`3dcode check` prints both: its measurement table gives per-part size in cm and the
+ground gap; its `contract` gate gives, per failing part, the built size against the planned
 size, the per-axis delta, the planned centre and the frame those numbers are written in.
 Fix the largest ratio first — the message states it ("worst 3.4x tolerance"), so you always
 know which finding is the ERROR.

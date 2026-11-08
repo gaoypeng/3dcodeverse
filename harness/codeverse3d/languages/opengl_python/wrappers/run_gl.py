@@ -116,10 +116,7 @@ class Pass:
 
 def _schedule(job: dict) -> list[tuple[float, bool]]:
     """(time, is_judge_frame) sorted by time."""
-    times = {float(t): True for t in job.get("times", [])}
-    for t in job.get("extra_times", []) or []:
-        times.setdefault(float(t), False)
-    return sorted(times.items())
+    return sorted({float(t): True for t in job.get("times", [])}.items())
 
 
 def run_shader(ctx, job: dict, out_dir: Path) -> dict:

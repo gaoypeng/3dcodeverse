@@ -22,9 +22,8 @@ craft on top of it, and nothing below is a required shape.
 
 ## Trap 1: `render()` is sampled, not ticked
 
-The judged times are **t = 0, 1, 2.5, 4 and 6 s** — five calls, with unequal gaps, and with
-about a dozen more interleaved when the preview GIF is on (so `frame` indexes the merged
-sorted schedule, not the judged frames). There is no `dt` and there is no 60 Hz loop.
+The judged times are **t = 0, 1, 2.5, 4 and 6 s** — five calls, with unequal gaps (`frame` counts calls, not seconds;
+`gl-frames --times` renders other times). There is no `dt` and there is no 60 Hz loop.
 
 A simulation that advances one step per `render()` call therefore gets **five steps in
 total**. This is not hypothetical: two of our 5 graded opengl_python runs were ping-pong

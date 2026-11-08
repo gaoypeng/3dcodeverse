@@ -52,12 +52,12 @@ are options under their real API names, not a mapping to follow.
 2. **A union that does not overlap fails silently.** Two spheres placed exactly tangent
    union into **2 solids** and still report `isValid() == True`; the same pair with 0.5 mm
    of overlap gives 1 solid. `.isValid()` will not catch this and neither will a render —
-   `3dcode check-connectivity` reports the second solid as a stray island. `len(wp.solids().vals())`
+   the `connectivity` gate of `3dcode check` reports the second solid as a stray island. `len(wp.solids().vals())`
    after a union or a cut catches it before a build; a through cut that splits a part also
    leaves 2 valid solids.
 3. **Each plan part is its own Assembly child.** A pair unioned across a plan boundary reads
-   as a missing part in `3dcode check-contract`. Touching parts: a gap ≤ 2 mm is contact, overlap
-   > 2 mm is WARN, > 10 mm is ERROR (`3dcode check-connectivity`; the table is in `c3d-part-contact`).
+   as a missing part in the `contract` gate of `3dcode check`. Touching parts: a gap ≤ 2 mm is contact, overlap
+   > 2 mm is WARN, > 10 mm is ERROR (the `connectivity` gate of `3dcode check`; the table is in `c3d-part-contact`).
 4. **Keep solids closed.** Export runs through STL as well as GLB; `.shell()` keeps a solid
    watertight, hand-assembled faces do not.
 5. Features under ~0.5 mm come out invalid at OCC tolerance.
@@ -84,8 +84,8 @@ a habit, not a measured need.
 when a selector might match nothing — an empty selection raises `ValueError`.
 
 **Measure before you render.** Print per part what the gates read — `BoundingBox()` extents
-and `zmin`, `len(solids().vals())`, `Volume()`, `isValid()` — then the track loop: `3dcode build`
--> `3dcode check-contract` -> `3dcode check-connectivity` -> `3dcode render-views`. `Volume()` catches
+and `zmin`, `len(solids().vals())`, `Volume()`, `isValid()` — then the track loop: `3dcode check`
+(its `contract` and `connectivity` gates) -> `3dcode render-views`. `Volume()` catches
 hollow-when-it-should-be-solid, the solid count catches a split, `zmin` catches a floater,
 all before a render is spent.
 

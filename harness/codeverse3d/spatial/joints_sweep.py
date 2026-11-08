@@ -269,9 +269,11 @@ def name_clearing_limits(robot: Robot, findings: list[GateFinding], *, tol_m: fl
                                         _pair_depth(robot, bodies, a, b, {j.name: v}) <= thr, lim, steps)
         if clear:
             limits = " and ".join(f'{side}="{v:.2f}"' for side, v in clear.items())
-            f.fix_hint = (f"Fastest sure fix: in robot.urdf set '{j.name}' {limits} — measured: the pair is clear over that "
-                          f"whole range (every pose of this pair depends on that joint alone). Or carve the clearance in "
-                          f"model.py if the full range matters to the brief.")
+            depth = float(f.data.get("max_depth_m") or f.data.get("depth_m") or 0.0)
+            f.fix_hint = (f"Set '{j.name}' {limits} in robot.urdf — one edit, measured clear over that whole range (this "
+                          f"pair's every pose depends on that joint alone). Reshape model.py instead ONLY when the brief "
+                          f"names the full range, and then remove at least {depth * 1000 + 2:.0f} mm where they meet; "
+                          f"geometry nudges smaller than that come back as the same ERROR.")
             f.data["clear_limits"] = {j.name: clear}
 
 

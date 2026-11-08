@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import json
 import os
 import shutil
 from collections.abc import Sequence
@@ -89,9 +88,6 @@ class Workspace:
     def write_json(self, path: Path, model: BaseModel | dict[str, Any]) -> None:
         data = model.model_dump(mode="json") if isinstance(model, BaseModel) else model
         write_json_atomic(path, data)
-
-    def read_json(self, path: Path) -> dict[str, Any]:
-        return json.loads(path.read_text())
 
     # ----------------------------------------------------------------- artifact staging
     def stage_artifacts(self, *names: str) -> ArtifactStage:

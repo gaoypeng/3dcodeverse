@@ -1,6 +1,6 @@
 ---
 name: 3d-lang-blender
-description: "Use when writing, refining or repairing a static_object in Blender bpy (language blender): the files and builder names the lint expects, the Z-up metre frame, naming, the sandbox (allowed imports, forbidden bpy calls), the exact thresholds check-contract / check-connectivity / detail_budget measure, what the GLB exporter keeps, the Blender 5.2.2 API traps, and the 3dcode loop that ships it."
+description: "Use when writing, refining or repairing a static_object in Blender bpy (language blender): the files and builder names the lint expects, the Z-up metre frame, naming, the sandbox (allowed imports, forbidden bpy calls), the exact thresholds the contract / connectivity / detail_budget gates of `3dcode check` measure, what the GLB exporter keeps, the Blender 5.2.2 API traps, and the 3dcode loop that ships it."
 license: Apache-2.0
 compatibility: Blender 5.2 LTS headless (--factory-startup); the 3dcode build runs src/model.py in an empty scene and exports artifacts/object.glb.
 metadata:
@@ -29,7 +29,7 @@ build owns the scene setup, the export and the cameras: never save, render or ad
   module runs, so draws repeat from build to build.
 * `references/interface.md` is the interface, executable.
 
-## Frame, units, placement (`3dcode check-contract`)
+## Frame, units, placement (the `contract` gate of `3dcode check`)
 * Z up, −Y front, +X right, metres (a 450 mm seat is `0.45`; a measured bbox of 450 × 500 × 900
   means the plan was typed in mm).  The exporter maps to Y-up itself: do not pre-rotate.
 * Lowest vertex at z = 0: off by > 1 cm is a WARN, > 3 cm an ERROR.  Footprint centre within
@@ -37,7 +37,7 @@ build owns the scene setup, the export and the cameras: never save, render or ad
   translation that fixes them.  The export is AS AUTHORED — translating the whole assembly is
   fine; `bpy.ops.object.origin_set` changes what is measured.
 
-## Naming and structure (`check-contract`, the census)
+## Naming and structure (the `contract` gate, the census)
 * One top-level mesh object per plan part, `obj.name` exactly the plan's PascalCase; a merged
   mesh reports every other part missing, a misspelt name is an ERROR.  Instances
   `<Name>_0 … <Name>_N-1`; `Leg.001` means two objects claimed one name.
@@ -49,7 +49,7 @@ build owns the scene setup, the export and the cameras: never save, render or ad
   `hide_viewport` / `hide_set(True)` (an unapplied boolean still evaluates with a hidden
   cutter).  A curve exports only with `bevel_depth > 0`.
 
-## Sizes and contact (`check-contract`, `3dcode check-connectivity`)
+## Sizes and contact (the `contract` and `connectivity` gates of `3dcode check`)
 * Each part's built AABB (after modifiers) vs its plan row: per axis `tol = max(1 cm, 10 % of
   the planned extent)`; past `tol` WARN, past 3 × `tol` ERROR, with the per-axis delta.
   Instances are measured on extents (each copy or their union); a wrong copy count is a WARN.

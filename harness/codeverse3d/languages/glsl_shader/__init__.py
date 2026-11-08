@@ -23,7 +23,7 @@ from codeverse3d.languages._gl_common import (
     resolution_for,
 )
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.spatial.gl_render import GlHost, gif_times
+from codeverse3d.spatial.gl_render import GlHost
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== wrap
@@ -290,7 +290,7 @@ class GlslShaderRuntime(RuntimeLayout):
         return image, buffer_a
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
-              preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
+              width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         invalidate_stale_outputs(ws)
         if (missing := missing_entry(ws, self.language)) is not None:
@@ -305,7 +305,6 @@ class GlslShaderRuntime(RuntimeLayout):
         res = host.render_fragment_shader(
             image.source, ws.artifacts, width=w, height=h, times=times or judge_times(duration),
             buffer_a_src=buffer_a.source if buffer_a else None, feedback=image.uses_feedback or buffer_a is not None,
-            extra_times=gif_times(duration or 8.0) if preview else (),
         )
         err_file, err_line, err_msg = "", None, None
         if not res.ok and res.stage in ("compile", "compile_buffer_a"):

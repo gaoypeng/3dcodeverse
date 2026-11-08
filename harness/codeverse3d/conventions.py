@@ -226,11 +226,6 @@ def to_pascal(name: str) -> str:
     return "".join(w[:1].upper() + w[1:] for w in to_snake(name).split("_") if w) or "Part"
 
 
-def slugify(text: str, max_len: int = 48) -> str:
-    s = to_snake(text)[:max_len].strip("_")
-    return s or "run"
-
-
 def fmt3(vec: Sequence[float]) -> str:
     return ", ".join(f"{float(x):.3f}" for x in vec)
 

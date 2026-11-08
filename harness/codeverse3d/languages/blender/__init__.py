@@ -364,10 +364,6 @@ def part_file_rel(part_name: str) -> str:
     return f"src/{PARTS_DIR}/{to_snake(part_name)}.py"
 
 
-def build_fn_name(part_name: str) -> str:
-    return f"build_{to_snake(part_name)}"
-
-
 def part_files(ws: Workspace) -> list[Path]:
     d = ws.src / PARTS_DIR
     if not d.is_dir():

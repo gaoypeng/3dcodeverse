@@ -164,8 +164,8 @@ names no joint, names itself, or closes a loop is a lint ERROR.
 
 ## Finish
 
-A finish that catches everything: `3dcode build` (the FK check and the rest-pose check), `3dcode joint-sweep`
-with a look at every joint's lower/mid/upper renders, `3dcode check-connectivity`, `3dcode check-contract`.
+A finish that catches everything: `3dcode check` (the FK check, the rest-pose check, every gate), `3dcode joint-sweep`
+with a look at every joint's lower/mid/upper renders.
 
 Worked repairs, the finding catalogue with real messages and the measured thresholds:
 `references/sweep-and-motion.md`.

@@ -16,9 +16,6 @@ from codeverse3d.contracts.artifacts import RENDER_MODES, BuildResult, GateRepor
 from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track
 from codeverse3d.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK, SCENE_TIMES
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.spatial.connectivity import check_connectivity as _check_connectivity
-from codeverse3d.spatial.contract import check_contract as _check_contract
-from codeverse3d.spatial.contract import planned_joins
 from codeverse3d.spatial.frame_metrics import frame_summary_text
 from codeverse3d.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses
 from codeverse3d.spatial.joints_poses import limit_poses
@@ -84,7 +81,7 @@ def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[b
     census = dict(br.census) if isinstance(br.census, dict) else {}
     if language in GRAPHICS_LANGS:
         lines, numbers, ok = gl_metrics_summary(ws, hints=False, root=ws.root)
-        for key in ("frames", "sheet", "gif"):
+        for key in ("frames", "sheet"):
             p = br.extra_paths.get(key)
             if p:
                 lines.append(f"{key}: {rel_path(p, ws.root)}")
@@ -202,63 +199,6 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
 
 #: tracks whose builds write artifacts/object.glb (the object-GLB toolset)
 _OBJECT_TRACKS = (Track.STATIC_OBJECT.value, Track.ARTICULATED_OBJECT.value)
-
-
-# --------------------------------------------------------------------------- measure
-class MeasureArgs(BaseModel):
-    parts: list[str] = Field(default=[], description="limit the table to these part names (empty = all)")
-
-
-@tool("measure", MeasureArgs, "Measure the built object: overall bbox/extents, ground gap, per-part size/tris/islands (Y-up meters).",
-      tracks=_OBJECT_TRACKS)
-def measure(ctx: ToolContext, args: MeasureArgs) -> Observation:
-    glb = glb_path(ctx)
-    try:
-        m = measure_glb(glb)
-    except GlbLoadError as e:
-        return Observation.error(f"measure: {e}")
-    if args.parts:
-        known = {p.name for p in m.parts}
-        missing = [p for p in args.parts if p not in known]
-        if missing:
-            raise ToolUsageError(f"unknown part(s) {missing}; available: {sorted(known)}", "measure(parts=['Seat'])")
-        m = m.model_copy(update={"parts": [p for p in m.parts if p.name in set(args.parts)]})
-    numbers = {"extents_m": list(m.extents), "center_m": list(m.center), "bbox_min_m": list(m.bbox_min),
-               "bbox_max_m": list(m.bbox_max), "tri_count": m.tri_count, "n_parts": len(m.parts),
-               "n_islands": m.n_islands, "ground_gap_m": m.ground_gap_m, "footprint_offset_m": m.footprint_offset_m,
-               "parts": {p.name: {"min": list(p.bbox_min), "max": list(p.bbox_max), "tris": p.tri_count,
-                                  "islands": p.islands, "watertight": p.watertight} for p in m.parts[:40]}}
-    return text_observation(measure_summary_table(m), numbers=numbers)
-
-
-# --------------------------------------------------------------------------- gates
-@tool("check_connectivity", NoArgs, "Contact graph of all parts: floating parts (with the exact gap vector to close), interpenetration, stray islands.",
-      tracks=_OBJECT_TRACKS)
-def check_connectivity(ctx: ToolContext, args: NoArgs) -> Observation:
-    glb = glb_path(ctx)
-    plan = load_plan(ctx.workspace.plan_path) if ctx.workspace.plan_path.is_file() else None
-    try:  # the plan's attach_to pairs, in the GLB's part names
-        planned = planned_joins(plan, measure_glb(glb)) if plan is not None else []
-    except GlbLoadError as e:
-        return Observation.error(f"check_connectivity: {e}")
-    report = _check_connectivity(glb, language=language_of(ctx), planned_edges=planned)
-    ctx.workspace.write_json(ctx.workspace.gates_dir(ctx.round_index) / "connectivity_tool.json", report)
-    return gate_observation(report)
-
-
-@tool("check_contract", NoArgs, "Compare the built object with plan.json: missing parts, bbox deltas per part, overall size, ground contact.",
-      tracks=_OBJECT_TRACKS)
-def check_contract(ctx: ToolContext, args: NoArgs) -> Observation:
-    glb = glb_path(ctx)
-    plan = load_plan(ctx.workspace.plan_path)
-    language = language_of(ctx)
-    try:
-        m = measure_glb(glb)
-    except GlbLoadError as e:
-        return Observation.error(f"check_contract: {e}")
-    report = _check_contract(m, plan, language=language)
-    ctx.workspace.write_json(ctx.workspace.gates_dir(ctx.round_index) / "contract_tool.json", report)
-    return gate_observation(report)
 
 
 # --------------------------------------------------------------------------- sections
@@ -532,7 +472,7 @@ def _run_build(ctx: ToolContext, *, times: list[float] | None, width: int = 0, h
     refused, warns = _lint_gate(ctx, rt, verb="rendering")
     if refused is not None:
         return refused, None, warns
-    kw = {"times": times, "preview": False}
+    kw = {"times": times}
     if width and height:
         kw.update(width=width, height=height)
     br: BuildResult = rt.build(ws, **kw)

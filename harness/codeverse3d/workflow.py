@@ -311,9 +311,7 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
         return text_observation(lines, ok=False, numbers=numbers, limit=6000)
     lines = [f"CHECK {'PASS' if res.ok else 'FAIL'} — build ok ({res.build.duration_ms} ms)"
              + (f" → {rel_path(res.build.glb_path, ws.root)}" if res.build.glb_path else "")]
-    if plan is None and ws.plan_path.is_file():
-        lines.append("WARN: plan.json does not validate — the contract / budget gates did not run (3dcode validate-plan)")
-    elif plan is None:
+    if plan is None and not ws.plan_path.is_file():
         lines.append("WARN: no plan.json — the contract / budget gates did not run")
     lines += _gate_lines(res.gates, list_info=not res.ok)
     if res.measurement is not None:
@@ -473,7 +471,7 @@ def judge_pack(ctx: ToolContext, args: NoArgs) -> Observation:
         for p in out.iterdir():
             if p.is_dir():
                 shutil.rmtree(p, ignore_errors=True)
-            elif p.name != JUDGMENT_NAME:
+            else:  # judgment.json too: a new pack means new images, and an old judgment must never score them
                 p.unlink()
     out.mkdir(parents=True, exist_ok=True)
     jr = render_for_judge(ws, spec, plan, check, round_index=ctx.round_index)
@@ -576,7 +574,8 @@ def commit_round(ws: Workspace, round_index: int, message: str) -> tuple[str, li
     paths = [p for p in ("src", "plan.json") if (ws.root / p).exists()]
     if paths:
         _git(ws, "add", "-A", "--", *paths)
-    _git(ws, "commit", "-q", "--allow-empty", "-m", message)
+    # the pathspec commits src/ + plan.json only: anything else the user has staged stays staged, uncommitted
+    _git(ws, "commit", "-q", "--allow-empty", "-m", message, *(["--", *paths] if paths else []))
     tag = f"r{round_index:02d}"
     _git(ws, "tag", "-f", tag)
     return _git(ws, "rev-parse", "--short", "HEAD").strip(), notes

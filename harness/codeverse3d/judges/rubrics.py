@@ -239,11 +239,6 @@ class AcceptanceVerdict(BaseModel):
     evidence: str = Field(default="", description="which view / number proves or disproves it")
 
 
-class DefectVerdict(BaseModel):
-    present: bool = Field(description="true only if the defect is VISIBLE in the images or stated by a gate/measurement")
-    evidence: str = Field(default="", description="which image / tile / number shows it; empty when absent")
-
-
 class JudgeOutput(BaseModel):
     """Provider-neutral parsed judge reply (criteria + acceptance + defect checklist as dicts)."""
 

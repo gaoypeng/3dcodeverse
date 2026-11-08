@@ -257,12 +257,6 @@ def penetration_probe(
                        min(ab.own_through_ratio, ba.own_through_ratio))
 
 
-def penetration_depth(a: trimesh.Trimesh, b: trimesh.Trimesh) -> tuple[float, float]:
-    """(max depth, fraction of samples inside) of ``a``'s surface inside ``b`` and vice versa."""
-    p = penetration_probe("a", a, "b", b)
-    return p.depth_m, p.fraction_inside
-
-
 def _mm(x: float) -> float:
     return round(float(x) * 1000.0, 1)
 

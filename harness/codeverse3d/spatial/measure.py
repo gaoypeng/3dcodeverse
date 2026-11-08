@@ -295,18 +295,6 @@ def measure_glb(glb: Path | str) -> Measurement:
     return m.model_copy(deep=True)
 
 
-def _complexity_extra(
-    scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | None], materials: int
-) -> dict[str, Any] | None:
-    """The complexity vector as a plain dict, or ``None`` when it cannot be computed."""
-    from codeverse3d.spatial.complexity import complexity_of_parts
-
-    try:
-        return complexity_of_parts(parts, scene=scene, materials=materials).model_dump()
-    except Exception:  # noqa: BLE001 - a census is worth more than an index
-        return None
-
-
 def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | None]) -> Measurement:
     findings: list[str] = []
     rows: list[PartMeasure] = []
@@ -340,9 +328,6 @@ def _measure(scene: trimesh.Scene, parts: OrderedDict[str, trimesh.Trimesh | Non
         "n_parts": len(parts),
         "part_names": [r.name for r in rows],
     }
-    cx = _complexity_extra(scene, parts, materials)
-    if cx is not None:
-        extra["complexity"] = cx
     return Measurement(
         bbox_min=_vec3(bmin),
         bbox_max=_vec3(bmax),

@@ -32,7 +32,7 @@ too (parent it under a link's object or add a `<link>`).  `<collision>` missing 
 `references/interface.md` is one hinge, end to end.
 
 ## Frame rule (measured by the FK check)
-* Z up, −Y front, +X right, metres, radians.  Object on z = 0 at q = 0 (`3dcode check-contract`
+* Z up, −Y front, +X right, metres, radians.  Object on z = 0 at q = 0 (the `contract` gate of `3dcode check`
   compares every link's bbox with the plan's: max(10 mm, 10 % of the planned extent) per axis).
 * **q = 0 = what you build = the plan's rest pose** (doors closed, drawers in, lids down unless
   the plan's `rest` says otherwise).  The judge sees q = 0 and both limits of every joint.
@@ -82,7 +82,7 @@ too (parent it under a link's object or add a `<link>`).  `<collision>` missing 
 * Attachment at rest: a `fixed` child within 2 mm of its parent (ERROR beyond); a hinged /
   sliding child's mesh within 10 mm (WARN beyond, ERROR beyond 30 mm; a prismatic child already
   inside its parent's bbox is exempt).
-* `3dcode check-connectivity` reports a fragment inside a link smaller than 5 % of its largest
+* the `connectivity` gate of `3dcode check` reports a fragment inside a link smaller than 5 % of its largest
   extent as a stray island.
 
 ## Allowed / forbidden

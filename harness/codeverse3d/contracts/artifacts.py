@@ -56,15 +56,12 @@ class GateFinding(BaseModel):
     def as_line(
         self,
         *,
-        with_gate: bool = False,
         with_severity: bool = False,
         with_target: bool = False,
         with_hint: bool = True,
     ) -> str:
         """One line for prompts/reports, no leading bullet; the flags opt in to prefix/tag/suffix parts."""
         parts: list[str] = []
-        if with_gate:
-            parts.append(f"GATE {self.gate}:")
         if with_severity:
             parts.append(f"[{self.severity.value}]")
         parts.append(self.message)

@@ -101,22 +101,6 @@ def _label_cell(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, width: int
     draw.text((x + (width - tw) / 2, y + 6), text, fill=LABEL_FG, font=font)
 
 
-def write_gif(frames: Sequence[str | Path], out: Path | str, *, fps: int = 12, width: int | None = None) -> Path:
-    """Animated GIF from ``frames`` (adaptive 128-colour palette, looping)."""
-    if not frames:
-        raise ValueError("write_gif: no frames")
-    ims = []
-    for f in frames:
-        im = Image.open(f).convert("RGB")
-        if width and im.width != width:
-            im = im.resize((width, max(1, round(im.height * width / im.width))), Image.BILINEAR)
-        ims.append(im.convert("P", palette=Image.ADAPTIVE, colors=128))
-    out = Path(out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    ims[0].save(out, save_all=True, append_images=ims[1:], duration=int(1000 / fps), loop=0, optimize=False)
-    return out
-
-
 # --------------------------------------------------------------------------- montage helpers (judge inputs)
 MONTAGE_MAX_TILES = 4
 

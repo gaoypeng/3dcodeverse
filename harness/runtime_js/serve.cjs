@@ -118,7 +118,6 @@ async function serveDirs(opts = {}) {
       res.end(`not found: ${req.url}`);
       return;
     }
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-store');
 
     if (urlPath === '/favicon.ico' && !routes[urlPath]) {

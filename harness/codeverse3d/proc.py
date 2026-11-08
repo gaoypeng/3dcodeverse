@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import random
+import shutil
 import signal
 import subprocess
 import threading
@@ -38,7 +39,6 @@ def run_subprocess(
     cwd: Path | str,
     timeout_s: float,
     env: Mapping[str, str] | None = None,
-    stdin_text: str | None = None,
     preexec_fn: Callable[[], None] | None = None,
 ) -> ProcResult:
     """Run ``cmd`` in its own process group; kill the whole group on timeout.
@@ -49,7 +49,7 @@ def run_subprocess(
     """
     t0 = time.monotonic()
     timed_out = False
-    with ManagedProcess(cmd, cwd=cwd, env=env, stdin_text=stdin_text, preexec_fn=preexec_fn) as mp:
+    with ManagedProcess(cmd, cwd=cwd, env=env, preexec_fn=preexec_fn) as mp:
         try:
             mp.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
@@ -128,8 +128,7 @@ class ManagedProcess:
     """A ``Popen`` in its own session whose process group cannot outlive the ``with`` block.
 
     Core of :func:`run_subprocess`: two pump
-    threads feed a bounded sink per stream, an optional ``on_line(stream, line)`` observer sees
-    each line (exceptions suppressed), and stdin is written from its own thread.  ``__exit__``
+    threads feed a bounded sink per stream, ``__exit__``
     on any exception, or with the child still running, SIGTERMs the group (SIGKILL after
     :data:`TERMINATE_GRACE_S`), drains the pumps for at most :data:`DRAIN_TIMEOUT_S` and reaps.
     """
@@ -140,11 +139,8 @@ class ManagedProcess:
         *,
         cwd: Path | str,
         env: Mapping[str, str] | None = None,
-        stdin_text: str | None = None,
         preexec_fn: Callable[[], None] | None = None,
-        on_line: Callable[[str, str], None] | None = None,
     ) -> None:
-        self._on_line = on_line
         self._stop = threading.Event()  # tells an abandoned pump to quit feeding
         self._abandoned = ""  # the truncation note to append, once we know which one
         self._sinks = {"stdout": _BoundedSink(STREAM_BUDGET_BYTES), "stderr": _BoundedSink(STREAM_BUDGET_BYTES)}
@@ -152,7 +148,7 @@ class ManagedProcess:
             list(cmd),
             cwd=str(cwd),
             env=dict(env) if env is not None else None,
-            stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
@@ -165,14 +161,8 @@ class ManagedProcess:
         ]
         for t in self._pumps:
             t.start()
-        self._writer: threading.Thread | None = None
-        if stdin_text is not None:
-            self._writer = threading.Thread(
-                target=self._write_stdin, args=(stdin_text.encode("utf-8"),), daemon=True
-            )
-            self._writer.start()
 
-    # ------------------------------------------------------------- pump / writer threads
+    # ------------------------------------------------------------- pump threads
     def _pump(self, stream: IO[bytes], tag: str) -> None:
         sink = self._sinks[tag]
         with contextlib.suppress(OSError, ValueError):  # ValueError: stream closed under us
@@ -181,22 +171,9 @@ class ManagedProcess:
                 if not chunk or self._stop.is_set():
                     break
                 sink.feed(chunk)
-                if self._on_line is not None:
-                    with contextlib.suppress(Exception):  # observer bugs must not kill the pump
-                        self._on_line(tag, chunk.decode("utf-8", errors="replace").rstrip("\n"))
         with contextlib.suppress(OSError):
             stream.close()
 
-    def _write_stdin(self, data: bytes) -> None:
-        stdin = self.proc.stdin
-        if stdin is None:  # pragma: no cover — the constructor only starts us with a pipe
-            return
-        with contextlib.suppress(OSError, ValueError):  # BrokenPipe (child never read) is OSError
-            stdin.write(data)
-        with contextlib.suppress(OSError, ValueError):
-            stdin.close()
-
-    # ------------------------------------------------------------- what the wrappers need
     @property
     def returncode(self) -> int | None:
         return self.proc.returncode
@@ -257,8 +234,6 @@ class ManagedProcess:
 
     def _drain_and_reap(self) -> None:
         deadline = time.monotonic() + DRAIN_TIMEOUT_S  # module global on purpose: tests dial it down
-        if self._writer is not None:
-            self._writer.join(timeout=max(0.0, deadline - time.monotonic()))
         for t in self._pumps:
             t.join(timeout=max(0.0, deadline - time.monotonic()))
         with contextlib.suppress(subprocess.TimeoutExpired):
@@ -278,6 +253,27 @@ _SECRET_EXACT: frozenset[str] = frozenset({
 _SECRET_SUFFIXES: tuple[str, ...] = (
     "_API_KEY", "_SECRET", "_SECRET_KEY", "_TOKEN", "_AUTH_TOKEN", "_PASSWORD", "_PRIVATE_KEY",
 )
+
+
+#: shared caches (renders, judge images) keep what was used within this many days
+CACHE_MAX_AGE_S = 7 * 24 * 3600
+_pruned: set[Path] = set()
+
+
+def prune_cache(root: Path) -> None:
+    """Once per process: delete the entries of a shared cache not used for CACHE_MAX_AGE_S (a hit refreshes the
+    entry's mtime), so a machine running many sessions does not fill its disk."""
+    if root in _pruned or not root.is_dir():
+        return
+    _pruned.add(root)
+    cutoff = time.time() - CACHE_MAX_AGE_S
+    for entry in root.iterdir():
+        with contextlib.suppress(OSError):
+            if entry.stat().st_mtime < cutoff:
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink()
 
 
 def scrub_secrets(env: dict[str, str]) -> dict[str, str]:

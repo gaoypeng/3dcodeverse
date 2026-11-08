@@ -120,7 +120,7 @@ Two more from the same lint that cost a whole run when they fire: indexing
 
 ## Before you finish
 
-`3dcode build` -> `3dcode render-sheet` -> `3dcode check-connectivity` -> `3dcode check-contract`, and read the
+`3dcode check` (its `connectivity` and `contract` gates) -> `3dcode render-sheet`, and read the
 `lint:blender` findings in the build report first: they are free, static, and every one of
 the five above was reported *before* the model was wrong.
 

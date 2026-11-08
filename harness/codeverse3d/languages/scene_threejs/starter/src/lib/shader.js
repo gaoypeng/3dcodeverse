@@ -32,9 +32,8 @@
  *     fragmentMain: 'gl_FragColor = vec4(uColor * vUv.y, 1.0);',
  *   });
  *
- * Verify before you render: the harness's `check_shaders` tool (CLI:
- * `node runtime_js/check_shaders.mjs --ws <workspace>`) compiles every
- * material on the headless GPU and maps errors back to file:line.
+ * Verify before you render: `3dcode shader-probe` compiles every material on
+ * the headless GPU and maps errors back to file:line.
  */
 
 import * as THREE from 'three';

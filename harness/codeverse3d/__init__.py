@@ -14,4 +14,4 @@ Package map:
 - ``cli``           the ``3dcode`` command line.   - ``doctor``   environment checks.
 """
 
-__version__ = "0.0.13"
+__version__ = "0.0.14"

@@ -1,6 +1,6 @@
 ---
 name: 3d-lang-threejs
-description: "Use when writing, refining or repairing a static_object in three.js (language threejs): the ESM files and build* exports the lint expects, the Y-up metre frame and three.js primitive facts (centred on the origin, lathe/torus axes), naming, the import and sandbox rules, what survives GLTFExporter, the thresholds check-contract / check-connectivity / the triangle budget measure, and the 3dcode loop."
+description: "Use when writing, refining or repairing a static_object in three.js (language threejs): the ESM files and build* exports the lint expects, the Y-up metre frame and three.js primitive facts (centred on the origin, lathe/torus axes), naming, the import and sandbox rules, what survives GLTFExporter, the thresholds the contract / connectivity / triangle-budget gates of `3dcode check` measure, and the 3dcode loop."
 license: Apache-2.0
 compatibility: three r182 ESM loaded in node by the 3dcode build; export with GLTFExporter exactly as authored.
 metadata:
@@ -40,7 +40,7 @@ AS AUTHORED.  The lint derives the export name from the file stem (`seat_cushion
 
 ## Naming
 * `g.name = "<PartName>"` — the plan's PascalCase; the GLB's top-level node name is how every
-  gate finds the part, `new THREE.Box3().setFromObject(root)` is the box `check-contract`
+  gate finds the part, `new THREE.Box3().setFromObject(root)` is the box the `contract` gate
   measures.  Unique names (a reused name makes the loader re-parent a node); instances get
   their own (`Leg_0`…`Leg_3`).  A mesh with no `.name` is a build warning.
 * `root.userData.tick` is never called on this track; the judged pose is what `build` returns.
@@ -72,13 +72,13 @@ AS AUTHORED.  The lint derives the export name from the file stem (`seat_cushion
   touches nothing is a floating island.
 
 ## What is measured
-* **`3dcode check-contract`** (the GLB vs the plan): each part's bbox centre and extents within
+* **the `contract` gate of `3dcode check`** (the GLB vs the plan): each part's bbox centre and extents within
   max(10 mm, 10 % of the plan extent) per axis — WARN beyond, ERROR beyond 3 ×; lowest point
   within 10 mm of y = 0 (WARN; ERROR past 30 mm); footprint centre within max(10 mm, 10 % of
   the footprint) of the Y axis (WARN); height along the wrong axis is "lying on its side"; a
   top-level node the plan does not name is "not in the plan" — no helper meshes, bounding boxes
   or axes in the GLB.
-* **`3dcode check-connectivity`** (per top-level part): contact when the surface gap ≤ 2 mm; a
+* **the `connectivity` gate of `3dcode check`** (per top-level part): contact when the surface gap ≤ 2 mm; a
   part with no contact path to the supported assembly is a floating ERROR (cap 0.60) with the
   translation that closes the gap (parts under 10 mm are INFO); penetration > 2 mm WARN,
   > 10 mm ERROR (cap 0.70); islands under 5 % of the part are `stray_islands` WARN — what a

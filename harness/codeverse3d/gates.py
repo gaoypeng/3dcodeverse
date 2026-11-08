@@ -549,6 +549,11 @@ def run_check(ws: Workspace, spec: Spec, plan: Plan | None, *, round_index: int 
         elif spec.track is Track.SCENE:
             gates += scene_gates(ws, spec, plan, build)
     gates += build.gates
+    if plan is None and ws.plan_path.is_file():  # an invalid plan must not pass by skipping the gates that read it
+        gates.append(GateReport.of("plan", [GateFinding(
+            gate="plan", severity=Severity.ERROR, target="plan.json",
+            message="plan.json does not validate — the contract / budget gates cannot run",
+            fix_hint="run `3dcode validate-plan` and fix what it lists")]))
     result = CheckResult(ok=build.ok and not any(g.errors for g in gates), track=spec.track.value,
                          language=spec.language.value, round_index=round_index, src_hash=ws.src_hash(),
                          build=build, measurement=measurement, gates=gates)

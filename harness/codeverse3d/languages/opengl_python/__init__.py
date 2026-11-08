@@ -25,7 +25,7 @@ from codeverse3d.languages._gl_common import (
     traceback_location,
 )
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.spatial.gl_render import GlHost, gif_times
+from codeverse3d.spatial.gl_render import GlHost
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -198,7 +198,7 @@ class OpenGLPythonRuntime(RuntimeLayout):
         return make_host(self._host, timeout_s)
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,
-              preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
+              width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
         if (missing := missing_entry(ws, self.language)) is not None:
@@ -210,7 +210,7 @@ class OpenGLPythonRuntime(RuntimeLayout):
             w, h = int(width), int(height)
         duration = plan.duration_s if plan else None
         res = self.host(timeout_s).run_program(program, ws.artifacts, width=w, height=h, times=times or judge_times(duration),
-                                               extra_times=gif_times(duration or 8.0) if preview else (), cwd=ws.src)
+                                               cwd=ws.src)
         err_file, err_line, err_msg = "", None, None
         if not res.ok:
             err_file, err_line = traceback_location(res.traceback, program)

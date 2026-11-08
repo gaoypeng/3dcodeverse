@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import typing
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,8 +48,8 @@ from codeverse3d.conventions import (
     to_authoring_frame,
     view_key,
 )
-from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
-from codeverse3d.proc import unique_tmp
+from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric, _bounds, _literal_values
+from codeverse3d.proc import prune_cache, unique_tmp
 from codeverse3d.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse3d.spatial.measure import measure_summary_table
 from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2, montage_stack
@@ -65,7 +64,9 @@ class JudgeImageError(FileNotFoundError):
 
 
 def default_cache_dir() -> Path:
-    return get_settings().cache_dir / "judge_images"
+    root = get_settings().cache_dir / "judge_images"
+    prune_cache(root)
+    return root
 
 
 def view_az_el(view: RenderView) -> tuple[float, float] | None:
@@ -892,12 +893,6 @@ def crop_sheet(details: list[Montage], *, cache_dir: Path | None, tile_px: int) 
     return label, f"DETAIL CROPS 1–{len(crops)}", out
 
 
-def _literal_values(model: type, field: str) -> tuple[str, ...]:
-    return tuple(str(v) for v in typing.get_args(model.model_fields[field].annotation))
-
-
-def _bound(model: type, field: str, attr: str) -> float:
-    return next(float(getattr(m, attr)) for m in model.model_fields[field].metadata if hasattr(m, attr))
 
 
 EVIDENCE = "<one sentence: MONTAGE k <position> (<view>) / DETAIL CROP k / the measurement that shows it>"
@@ -920,7 +915,7 @@ def judgment_shape(rubric: Rubric, acceptance_ids: list[str], judgment_path: Pat
         example.pop("defects")
     if not acceptance_ids:
         example.pop("acceptance")
-    lo, hi = int(_bound(ImprovementItem, "priority", "ge")), int(_bound(ImprovementItem, "priority", "le"))
+    lo, hi = (int(b) for b in _bounds(ImprovementItem, "priority"))
     rules = [
         f"Write ONE JSON object of this shape to `{judgment_path}` (nothing else in the file). Every id shown under "
         "criteria, defects and acceptance must be answered; a criterion the rubric marks MEASURED is not listed and not yours.",

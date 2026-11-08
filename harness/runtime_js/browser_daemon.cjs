@@ -80,6 +80,7 @@ async function main() {
     const cur = _internal.readJson(epPath);
     if (cur && cur.ws === record.ws) fs.rmSync(epPath, { force: true });
     try { await Promise.race([browser.close(), new Promise((res) => setTimeout(res, 5000))]); } catch (_e) { /* already dead */ }
+    if (browser.__c3dProfile) fs.rmSync(browser.__c3dProfile, { recursive: true, force: true });
     process.exit(code);
   };
 

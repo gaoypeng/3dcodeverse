@@ -170,9 +170,6 @@ class Robot:
     def child_joints(self, link: str) -> list[Joint]:
         return [j for j in self.joints.values() if j.parent == link]
 
-    def movable_joints(self) -> list[Joint]:
-        return [j for j in self.joints.values() if j.movable]
-
     def independent_joints(self) -> list[Joint]:
         """The degrees of freedom."""
         return [j for j in self.joints.values() if j.movable and j.mimic is None]

@@ -126,13 +126,6 @@ def tool(
     return deco
 
 
-def get_tool(name: str) -> ToolDef:
-    _ensure_loaded()
-    if name not in _REGISTRY:
-        raise KeyError(f"unknown tool {name!r}; known: {sorted(_REGISTRY)}")
-    return _REGISTRY[name]
-
-
 def list_tools(*, track: str = "", language: str = "") -> list[ToolDef]:
     _ensure_loaded()
     out = []

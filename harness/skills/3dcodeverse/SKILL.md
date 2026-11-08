@@ -50,20 +50,17 @@ lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode
 |---|---|---|
 | `init` | writes `spec.json` (track, language, prompt, must-haves, dims, references, style) and the workspace layout; prints the entry files | only to create a project before its plan exists — the first `validate-plan` does it otherwise |
 | `validate-plan` | is `plan.json` a valid plan for the track — schema, plan checks, the acceptance items derived from `spec.json`; writes the normalised plan back (`scene_blender`: also `src/scene.py`) | after every plan edit, until PASS |
-| `build` | does `src/` lint, build and export; measures the result | after every code edit |
-| `check` | build + EVERY gate of the track → `artifacts/gates.json`; PASS/FAIL with each ERROR and its fix — the round's verdict (it subsumes `build`, `check-contract` and `check-connectivity`) | before judging; every ERROR caps the score |
+| `build` | does `src/` lint, build and export, without the gates | scene / graphics quick iterations; object tracks run `check` |
+| `check` | build + EVERY gate of the track → `artifacts/gates.json`; PASS/FAIL with each ERROR and its fix — the round's verdict (it subsumes `build` and prints the measurement table) | before judging; every ERROR caps the score |
 | `judge --round N` | the round's hand-over in one call: commits `src/` + `plan.json` tagged `rNN` (re-running `check` when the gates are stale), runs `judge-pack`, prints the folder and the `JUDGE INSTRUCTION:` line for the judge subagent | after a clean `check`, once per round |
 | `judge-pack --round N` | renders the judged views, composes the montages and crops, writes `judge/rNN/brief.md` + images for a fresh-context judge | inside `judge`; alone only to re-pack |
 | `score --round N` | the rubric arithmetic on `judgment.json`: overall, passed, caps, the improvement list → `score.json`; repairs a trivial deviation in the judgment and says what it repaired | after the judge replied |
-| `measure` | overall bbox, ground gap, per-part size / triangles / islands in Y-up metres (`--parts`) | when a number, not a picture, answers it |
-| `check-contract` | the built object vs `plan.json`: missing parts, bbox delta per part, overall size, ground contact | object tracks, after every build |
-| `check-connectivity` | the contact graph: floating parts with the gap vector that closes them, interpenetration, stray islands | object tracks, after every build |
 | `cross-section` | a labelled slice (`--axis x|y|z --at 0..1 --parts`) with loops, area and hollow ratio | when `check` or a score item says a cavity, wall or part position is wrong — not as a routine look |
 | `render-views` | named views (`--views`, `--mode shaded|wire|normals|silhouette|clay`, `--isolate`, `--explode`) | to see one aspect |
 | `render-sheet` | the labelled 14-view contact sheet (`--mode`) | the refine round's one look, to confirm a listed item |
 | `isolate --part X` | one part alone + its measurement row | where did that fragment come from; where is this part |
 | `compare-reference` | a reference image beside a render with the outline diff and IoU (`--reference-index`, `--view`) | after the first clean build and after every shape change when `spec.json` has references |
-| `joint-sweep` | every joint through its range: overlap, unattached, buried per link pair with the fix, plus pose renders (`--joints` renders fewer) | articulated, after every build |
+| `joint-sweep` | the `joint_sweep` gate plus pose renders (`--joints` renders fewer) | articulated, when a sweep finding needs the poses seen — `check` already runs the gate |
 | `scene-probe` | the scene census: objects, materials, lights, draw calls, triangles, console errors, world and atmosphere | scene, for the budget and the world |
 | `check-placement` | per placed thing: gap under its feet, burial, support, interpenetration with the metres to move it; bounds, scale, zone contents (`--rebuild` probes again) | scene, after every build — read its rows (gap + tolerance), never `artifacts/scene_probe.json` (the raw dump) |
 | `scene-views` | the authored cameras and/or the orbit rig (`--cameras authored|orbit|all`, `--times`): sheet + frame table + MEASURED MOTION per camera | scene exposure, cameras, motion — those numbers, not your impression; the refine round's one look |
@@ -131,7 +128,11 @@ leave it.
    instead of each `check` after the code is written: it runs the check first and stops on any ERROR
    with the same output, so a clean round goes straight to step 4 without a separate `check`.  Object tracks: the whole object first — every plan part at its box and
    attached to its parent before any part gets detail (a part still a ≤ 12-triangle box within
-   1 mm of its plan box is a `placeholder_part` ERROR); then detail.  No ERROR → the round is
+   1 mm of its plan box is a `placeholder_part` ERROR); then detail.  Model each part AT its planned
+   size from the plan's numbers; never scale finished geometry to fit the plan box (a non-uniform
+   scale bends bevels, radii and tube walls: sessions that did scored 0.06 lower on craftsmanship and
+   no better on proportions).  Keep comments sparse: a short note only where the code alone does
+   not say why — no step-by-step narration, no restating the plan's numbers or part list.  No ERROR → the round is
    done: without a judge request, go to step 6.
 4. **Judge (only when the user asked for a score or for refine rounds).**  `3dcode judge --workspace W --round 0`: it commits and tags `r00`, writes
    `judge/r00/` and prints a line starting `JUDGE INSTRUCTION:`.  The judge is a context that

@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import shutil
 import time
 from collections.abc import Sequence
@@ -18,7 +19,7 @@ from typing import Any
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES, RenderSet, RenderView
 from codeverse3d.conventions import OBJECT_VIEWS, ViewPreset
-from codeverse3d.proc import sha256_file, unique_tmp
+from codeverse3d.proc import prune_cache, sha256_file, unique_tmp
 from codeverse3d.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse3d.spatial.node import (
     OWN_BROWSER_ENV,
@@ -202,6 +203,7 @@ def _run_render(
 
 def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> None:
     # per-writer tmp + tolerant rename: concurrent judge threads must not share a tmp dir
+    prune_cache(cache_dir.parent)
     tmp = unique_tmp(cache_dir)
     shutil.rmtree(tmp, ignore_errors=True)
     try:
@@ -224,6 +226,8 @@ def _restore_from_cache(cache_dir: Path, out_dir: Path) -> dict[str, Any] | None
         return None
     record["from_cache"] = True
     (out_dir / "views.json").write_text(json.dumps(record, indent=1))
+    with contextlib.suppress(OSError):
+        os.utime(cache_dir)  # a hit keeps the entry from the age prune
     return record
 
 

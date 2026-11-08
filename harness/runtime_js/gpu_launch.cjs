@@ -81,19 +81,62 @@ function loadPuppeteer(puppeteer) {
   return puppeteer || require('puppeteer');
 }
 
+// Each launch gets its own Chrome profile under CACHE_DIR, removed on release.  A node process killed on a
+// timeout never releases, so every launch first sweeps the profiles whose Chrome is gone (its SingletonLock
+// names a dead pid) — including puppeteer's own /tmp/puppeteer_dev_chrome_profile-* from older versions.
+const PROFILE_DIR = path.join(CACHE_DIR, 'chrome-profiles');
+
+function chromeAlive(dir) {
+  try {
+    const pid = Number(fs.readlinkSync(path.join(dir, 'SingletonLock')).split('-').pop());
+    if (!pid) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function sweepProfiles() {
+  for (const [base, prefix] of [[PROFILE_DIR, ''], [os.tmpdir(), 'puppeteer_dev_chrome_profile-']]) {
+    let names = [];
+    try { names = fs.readdirSync(base); } catch (_e) { continue; }
+    for (const n of names) {
+      const dir = path.join(base, n);
+      if (!n.startsWith(prefix)) continue;
+      try {
+        if (Date.now() - fs.statSync(dir).mtimeMs < 60000 || chromeAlive(dir)) continue;  // just made, or in use
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch (_e) { /* another process swept it first */ }
+    }
+  }
+}
+
+function newProfile() {
+  sweepProfiles();
+  fs.mkdirSync(PROFILE_DIR, { recursive: true });
+  return fs.mkdtempSync(path.join(PROFILE_DIR, `${process.pid}-`));
+}
+
 function owned(browser, gpu, renderer) {
-  return { browser, gpu, renderer, shared: false, release: () => browser.close().catch(() => {}) };
+  const dir = browser.__c3dProfile;
+  return { browser, gpu, renderer, shared: false, release: () => browser.close().catch(() => {}).finally(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }) };
 }
 
 async function launchCpu(puppeteer) {
   const env = { ...process.env };
   for (const k of Object.keys(GPU_ENV)) delete env[k];
+  const userDataDir = newProfile();
   const browser = await puppeteer.launch({
     headless: true,
     args: CPU_ARGS,
     env,
+    userDataDir,
     protocolTimeout: PROTOCOL_TIMEOUT_MS,
   });
+  browser.__c3dProfile = userDataDir;
   let renderer = 'SwiftShader (CPU)';
   try {
     renderer = (await rendererInfo(browser)) || renderer;
@@ -105,21 +148,27 @@ async function launchCpu(puppeteer) {
 
 async function tryGpu(puppeteer) {
   let browser = null;
+  let userDataDir = null;
   try {
+    userDataDir = newProfile();
     browser = await puppeteer.launch({
       headless: true,
       args: GPU_ARGS,
       env: { ...process.env, ...GPU_ENV },
+      userDataDir,
       protocolTimeout: PROTOCOL_TIMEOUT_MS,
     });
+    browser.__c3dProfile = userDataDir;
     const renderer = await rendererInfo(browser);
     if (!renderer || SOFTWARE_RE.test(renderer)) {
       await browser.close().catch(() => {});
+      fs.rmSync(userDataDir, { recursive: true, force: true });
       return { browser: null, renderer: renderer || 'no WebGL context' };
     }
     return { browser, renderer };
   } catch (e) {
     if (browser) await browser.close().catch(() => {});
+    if (userDataDir) fs.rmSync(userDataDir, { recursive: true, force: true });
     return { browser: null, renderer: `launch failed: ${e.message}` };
   }
 }

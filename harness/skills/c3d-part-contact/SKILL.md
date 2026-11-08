@@ -61,7 +61,7 @@ included — no overlap is required. Two traps follow directly:
   contact edge disappears and the part can drop out of the support component — a WARN
   becomes an ERROR that caps the run at 0.60.
 * An overlap of exactly 2 mm already reads WARN. Measured with the gate's own
-  `penetration_depth` on a rod driven into a disc:
+  penetration probe on a rod driven into a disc:
 
   | overlap | reported depth | fraction inside | gate |
   |---|---|---|---|
@@ -121,18 +121,17 @@ topology, is still a separate island. So a sub-shape must be either
   interpenetration and its own floating ERROR. Apply the boolean and delete the cutter, or
   set `hide_render` / `hide_viewport` / `hide_set(True)` on it; all three keep it out of the
   export and the boolean still evaluates.
-* Boolean leftovers and slivers — check the result with `3dcode check-connectivity`. The solvers on
+* Boolean leftovers and slivers — check the result with the `connectivity` gate of `3dcode check`. The solvers on
   5.2.2 are `EXACT`, `MANIFOLD` (closed inputs) and `FLOAT`; `'FAST'` is a lint ERROR.
 * A mirrored half that was never merged, and zero-thickness or coincident faces.
 
 ## Verify with the gate, do not re-implement it
 
-Call `3dcode check-connectivity` (no arguments — it reads your workspace and answers in your
-authoring frame). It runs an fcl exact-distance contact graph, a per-island parity
+Run `3dcode check`; its `connectivity` gate reads your workspace and answers in your
+authoring frame. It runs an fcl exact-distance contact graph, a per-island parity
 containment test and the island split. A hand-written centroid or bounding-box check in
 your own build script is strictly weaker and will disagree with the gate that scores you.
-Then `3dcode check-contract`, then rebuild. Do not finish on a run whose last
-`3dcode check-connectivity` still lists an ERROR.
+Do not finish on a run whose last `3dcode check` still lists an ERROR.
 
 Worked recipes (bpy, CadQuery, URDF) and the full finding-to-fix table are in
 `references/contact-recipes.md`.

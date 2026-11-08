@@ -68,8 +68,8 @@ other and the contact graph does not change.
 
 ## Order of work on a repair round
 
-1. `3dcode check-contract`, and sort the findings by the "worst Nx tolerance" number in the message.
+1. the `contract` gate of `3dcode check`, and sort the findings by the "worst Nx tolerance" number in the message.
 2. Fix ERRORs (ratio above 3x) first; they are the only ones that fail the gate.
 3. Where a constant drives the dimension, changing the constant fixes every place that uses it.
-4. `3dcode build` -> `3dcode check-contract` again. A fix that moves a second part into failure means the
+4. `3dcode check` again. A fix that moves a second part into failure means the
    two shared a derived number and one of them was re-typed.

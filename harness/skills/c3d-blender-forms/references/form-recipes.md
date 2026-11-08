@@ -62,4 +62,4 @@ link's mesh), and `lint:urdf` checks that each link name appears verbatim in the
 The skeleton's `model.py` ends with an optional `_selfcheck()`: it asserts that meshes exist and
 that no name is auto-suffixed, prints the lowest point, and fails the build only past the
 contract gate's ERROR line for the ground (3 × `GROUND_TOL_M`).  Keep it, change it or delete
-it; `3dcode check-contract` and `3dcode check-connectivity` are the real census.
+it; the `contract` and `connectivity` gates of `3dcode check` are the real census.

@@ -10,7 +10,6 @@ from __future__ import annotations
 import ast
 import json
 import logging
-import re
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -352,7 +351,6 @@ def lint(ws: Workspace) -> GateReport:
 ENV_FILE = "src/env.py"
 
 
-_TB_FRAME_RE = re.compile(r'File "(?P<file>[^"]+)", line (?P<line>\d+)')
 
 
 # ===================================================================== skeleton

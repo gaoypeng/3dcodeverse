@@ -25,7 +25,7 @@ out of the plan row — a hand-typed second copy is how a pair stops matching.
 
 ## What the gate actually measures
 
-`3dcode check-contract` (`spatial/contract.py`) treats an instanced part differently from a single part.
+the `contract` gate of `3dcode check` (`spatial/contract.py`) treats an instanced part differently from a single part.
 
 * **Naming.** The gate first claims the node named exactly like the plan part, then claims
   `Name_0`, `Name_1`, ... (`Leg1`, with no separator, is NOT an instance of `Leg`).
@@ -102,7 +102,7 @@ Two different things share the word:
 **On mirroring by negative object scale, the usual warning is wrong here.** It is widely
 repeated that a negative scale reaches the export and inverts normals. Checked on 2026-08-25:
 `spatial/measure.py` loads the GLB with trimesh and calls `apply_transform` per node, and
-trimesh repairs the face winding of a negatively-scaled mesh on load; `3dcode measure` then records
+trimesh repairs the face winding of a negatively-scaled mesh on load; the measurement table of `3dcode check` then records
 `abs(volume)`. The gates read identical numbers either way. That cuts the other way too —
 **no geometry gate here can tell a correctly mirrored twin from a botched one.** Mirror the
 mesh data (MIRROR modifier, or a bmesh transform), apply it, and look at the render: the judge
@@ -123,7 +123,7 @@ The judge penalises both ends, so read the brief before looping:
 
 ## Finish
 
-Run `3dcode build`, then `3dcode check-contract` (count + both box readings) and `3dcode check-connectivity` (the
+Run `3dcode check`: its `contract` gate (count + both box readings) and `connectivity` gate (the
 loop's placement). Read the numbers; do not eyeball the montage.
 
 Depth, the full failing-message catalogue and the per-language array/mirror idioms:

@@ -17,14 +17,12 @@ from codeverse3d.spatial.gl_render import (
     GlHost,
     GlResult,
     write_contact_sheet,
-    write_gif,
 )
 from codeverse3d.spatial.tool_common import plan_or_none
 from codeverse3d.workspace import Workspace
 
 JUDGE_TIMES: tuple[float, ...] = (0.0, 1.0, 2.5, 4.0, 6.0)
 SHEET_NAME = "frames_sheet.png"
-GIF_NAME = "preview.gif"
 METRICS_NAME = "metrics.json"
 BUILD_JSON = "build.json"
 FRAMES_DIR = "frames"
@@ -34,7 +32,7 @@ MAX_PIXELS = 1920 * 1080
 
 def invalidate_stale_outputs(ws: Workspace) -> None:
     """Wipe the previous build's GL artifacts at the top of ``build()``, including on MISSING_ENTRY returns."""
-    ws.stage_artifacts(BUILD_JSON, SHEET_NAME, GIF_NAME, METRICS_NAME).invalidate()
+    ws.stage_artifacts(BUILD_JSON, SHEET_NAME, METRICS_NAME).invalidate()
     (ws.artifacts / RESULT_NAME).unlink(missing_ok=True)
     frames = ws.artifacts / FRAMES_DIR
     if frames.is_dir():
@@ -87,9 +85,6 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
         extras["frames"] = str(art / "frames")
         sheet = write_contact_sheet(frames, art / SHEET_NAME)
         extras["sheet"] = str(sheet)
-        gif = write_gif(res.frames, art / GIF_NAME)
-        if gif is not None:
-            extras["gif"] = str(gif)
         seq = sequence_stats([(f.time, f.path) for f in frames], nan_counts=[(f.nan, f.inf) for f in frames])
         gate = frame_gate(seq, motion_expected=motion_expected)
         gates.append(gate)
@@ -107,7 +102,7 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
     if res.ok and not res.judge_frames:
         result.error_type, result.error_message = "NoFrames", "the renderer produced no frames"
     if not result.ok:
-        ws.stage_artifacts(SHEET_NAME, GIF_NAME, METRICS_NAME).invalidate()
+        ws.stage_artifacts(SHEET_NAME, METRICS_NAME).invalidate()
     ws.write_json(art / BUILD_JSON, result)
     return result
 

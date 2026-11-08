@@ -1,6 +1,6 @@
 ---
 name: 3d-lang-cadquery
-description: "Use when writing, refining or repairing a static_object in CadQuery (language cadquery): the module-level `result` assembly the wrapper reads, named parts and instances, the Z-up metre frame, the lint's import and call lists, the thresholds check-contract / check-connectivity / detail_budget measure, the OCC kernel facts that fail a build, and the 3dcode loop."
+description: "Use when writing, refining or repairing a static_object in CadQuery (language cadquery): the module-level `result` assembly the wrapper reads, named parts and instances, the Z-up metre frame, the lint's import and call lists, the thresholds the contract / connectivity / detail_budget gates of `3dcode check` measure, the OCC kernel facts that fail a build, and the 3dcode loop."
 license: Apache-2.0
 compatibility: CadQuery 2.8 (OCC B-rep kernel) run in a subprocess by the 3dcode build; exports STEP + STL + a GLB with one node per part.
 metadata:
@@ -30,7 +30,7 @@ render or `show_object`.
   `cq.Face` is "contains no solid".
 * `references/interface.md` is the interface, executable.
 
-## Frame, units, placement (`3dcode check-contract`)
+## Frame, units, placement (the `contract` gate of `3dcode check`)
 * Z up, −Y front, +X right, metres at real scale (the wrapper converts to Y-up GLB).  Author
   in world coordinates (identity `loc`) or at the origin and place with
   `loc=cq.Location(cq.Vector(x, y, z))`.  Export is AS AUTHORED: seat the assembly on the
@@ -43,7 +43,7 @@ render or `show_object`.
   `.twistExtrude(h, deg)` take DEGREES; `math` takes radians.  The lint checks three-argument
   `.rotate(...)` (a `math.pi` expression there is an ERROR).
 
-## Contact (`3dcode check-connectivity`)
+## Contact (the `connectivity` gate of `3dcode check`)
 * Surface gap ≤ 2 mm is contact; overlap > 2 mm WARN "interpenetrate", > 10 mm with ≥ 2 % of
   one part's surface inside ERROR (judge cap 0.70).  Parts under 10 mm are skipped.
 * Every part must be in the ground-touching component; an unreachable part is a floating ERROR

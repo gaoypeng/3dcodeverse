@@ -7,12 +7,11 @@ from __future__ import annotations
 import contextlib
 import math
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from codeverse3d.contracts.common import (
-    Language,
     MimicSpec,
     Vec3,
     mimic_issues,
@@ -521,7 +520,7 @@ class AssetPlan(BaseModel):
     name: str = Field(description="PascalCase asset name")
     kind: Literal["threejs", "bpy", "blender_glb"] = Field(
         description="threejs = procedural module; blender_glb = built with bpy and compiled to a GLB",
-        # default is scene_threejs's enum; ``scene_plan_schema`` swaps in the language's own
+        # default is scene_threejs's enum
         json_schema_extra={"enum": list(SCENE_ASSET_KINDS["scene_threejs"])},
     )
     description: str = Field(description="construction in numbers and colours; the builder realises it")
@@ -608,19 +607,6 @@ class ScenePlan(BaseModel):
                 if to_snake(c) not in assets:
                     raise ValueError(f"zone {z.name} lists unknown asset {c}")
         return self
-
-
-def scene_plan_schema(language: Language | str) -> dict[str, Any]:
-    """The ``ScenePlan`` JSON schema for ``language``: ``AssetPlan.kind``'s enum and description
-    are that language's.  ``KeyError`` for a language that plans no scene."""
-    kinds = SCENE_ASSET_KINDS[Language(language).value]
-    schema = ScenePlan.model_json_schema()
-    kind = schema["$defs"]["AssetPlan"]["properties"]["kind"]
-    kind["enum"] = list(kinds)
-    doc = SCENE_KIND_DOCS.get(Language(language).value)
-    if doc:
-        kind["description"] = doc
-    return schema
 
 
 class PassPlan(BaseModel):

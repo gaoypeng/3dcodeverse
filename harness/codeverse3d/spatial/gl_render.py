@@ -103,19 +103,16 @@ class GlHost:
     # ------------------------------------------------------------------ public
     def render_fragment_shader(self, frag_src: str, out_dir: Path, *, width: int = 1280, height: int = 720,
                                times: Sequence[float], buffer_a_src: str | None = None,
-                               feedback: bool = False, extra_times: Sequence[float] = ()) -> GlResult:
+                               feedback: bool = False) -> GlResult:
         job = {"mode": "shader", "frag_src": frag_src, "buffer_a_src": buffer_a_src, "feedback": bool(feedback),
-               "width": int(width), "height": int(height), "times": [float(t) for t in times],
-               "extra_times": [float(t) for t in extra_times]}
+               "width": int(width), "height": int(height), "times": [float(t) for t in times]}
         return self._run(job, out_dir)
 
     def run_program(self, program_path: Path, out_dir: Path, *, width: int = 1280, height: int = 720,
-                    times: Sequence[float], extra_times: Sequence[float] = (),
-                    cwd: Path | None = None) -> GlResult:
+                    times: Sequence[float], cwd: Path | None = None) -> GlResult:
         program_path = Path(program_path).resolve()
         job = {"mode": "program", "program_path": str(program_path), "program_cwd": str(cwd or program_path.parent),
-               "width": int(width), "height": int(height), "times": [float(t) for t in times],
-               "extra_times": [float(t) for t in extra_times]}
+               "width": int(width), "height": int(height), "times": [float(t) for t in times]}
         return self._run(job, out_dir)
 
     # ------------------------------------------------------------------ internals
@@ -179,20 +176,3 @@ def write_contact_sheet(frames: Sequence[GlFrame], out: Path, *, cols: int = 3, 
         raise ValueError("write_contact_sheet: no frames")
     return contact_sheet([(f"t={f.time:g}s", f.path) for f in frames], Path(out), cols=cols,
                          tile=tile_size(tile_w, sample=frames[0].path))
-
-
-def write_gif(frames: Sequence[GlFrame], out: Path, *, width: int = 480, fps: int = 6) -> Path | None:
-    """Animated GIF of all frames (judge + extra)."""
-    from codeverse3d.spatial.sheet import write_gif as _write_gif
-
-    ordered = sorted(frames, key=lambda f: f.time)
-    if len(ordered) < 2:
-        return None
-    return _write_gif([f.path for f in ordered], out, fps=fps, width=width)
-
-
-def gif_times(duration_s: float, n: int = 12) -> list[float]:
-    """Evenly spaced preview times across one loop (excluding the end)."""
-    n = max(2, n)
-    d = max(0.5, float(duration_s))
-    return [round(i * d / n, 3) for i in range(n)]

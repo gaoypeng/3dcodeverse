@@ -10,7 +10,7 @@ metadata:
 # GLSL fragment shader — graphics
 
 You write ONE Shadertoy-style image pass; the build wraps it, compiles it (OpenGL 3.3 core,
-headless), renders the judged frames and a preview GIF up to `duration_s`, measures them and
+headless), renders the judged frames up to `duration_s`, measures them and
 shows them to the judge.  Every frame is a pure function of the pixel and absolute `u_time`
 (plus the samplers); there is no state between pixels.
 
