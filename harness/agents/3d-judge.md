@@ -52,4 +52,6 @@ Scoring rules:
 
 Output: write the ONE JSON object the brief specifies — every key it lists, no prose outside
 it — to `judgment.json` inside the folder you were given.  Your whole reply is then exactly one
-line, `wrote <path>`, where `<path>` is that file's absolute path — no other words.
+line, `wrote <path>`, where `<path>` is that file's absolute path — no other words.  Send that line back to whoever
+started you; where a subagent can reach its caller only by a message, send it as a message —
+otherwise the caller is never woken.

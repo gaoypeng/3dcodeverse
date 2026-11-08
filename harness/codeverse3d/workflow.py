@@ -554,7 +554,8 @@ def judge_instruction(out: Path, images: list[str]) -> str:
     agent = PLUGIN_ROOT / "agents" / "3d-judge.md"
     return (f"Judge ONLY the folder {out}. Step 1, in ONE step: read {out / 'brief.md'} and all of these images "
             f"together: {' '.join(images)}. Step 2: write {out / JUDGMENT_NAME} (exactly the JSON the brief specifies). "
-            f"Then reply with exactly one line: wrote {out / JUDGMENT_NAME}. "
+            f"Then send exactly one line back to whoever started you: wrote {out / JUDGMENT_NAME} "
+            f"(where a subagent can only reach its caller by a message, send it as a message; nothing else wakes the caller). "
             f"If you were not started as the 3d-judge agent, read {agent} in step 1 as well.")
 
 
