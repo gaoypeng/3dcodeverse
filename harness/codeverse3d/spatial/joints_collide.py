@@ -72,7 +72,23 @@ def inside_island(island: trimesh.Trimesh, points: np.ndarray) -> np.ndarray:
     """Deterministic parity containment (fixed ray direction, both directions must agree)."""
     if len(points) == 0:
         return np.zeros(0, dtype=bool)
-    return np.asarray(ray_util.contains_points(_intersector(island), points, check_direction=_RAY_DIR), dtype=bool)
+    ray = _intersector(island)
+    inside = np.asarray(ray_util.contains_points(ray, points, check_direction=_RAY_DIR), dtype=bool)
+    if island.is_watertight or not inside.any():
+        return inside
+    # an open shell (a lampshade, a cup) has no inside: parity counts its cavity as solid.  A point is inside it
+    # only when six directions around the axes agree — a ray out through the opening says it is in the cavity
+    for d in _AXES:
+        idx = np.flatnonzero(inside)
+        if not len(idx):
+            break
+        inside[idx] = np.asarray(ray_util.contains_points(ray, points[idx], check_direction=d), dtype=bool)
+    return inside
+
+
+#: six directions near ±x, ±y, ±z but tilted off every axis (an axis-aligned ray grazes the edges of a box's faces)
+_AXES = [v / np.linalg.norm(v) for v in (np.array(t, dtype=float) for t in (
+    (1, 0.13, 0.21), (-1, -0.17, 0.11), (0.19, 1, -0.12), (-0.14, -1, 0.23), (0.16, -0.22, 1), (-0.21, 0.15, -1)))]
 
 
 def _intersector(mesh: trimesh.Trimesh) -> object:
