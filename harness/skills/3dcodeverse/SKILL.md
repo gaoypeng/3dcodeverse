@@ -1,6 +1,6 @@
 ---
 name: 3dcodeverse
-description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step, all in ONE read: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md; no c3d-* skill until a 3dcode finding or score item names its topic."
+description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step, all in ONE read: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md (urdf_blender: also skills/3d-lang-blender/SKILL.md and plan-static.md, which it builds on); no c3d-* skill until a 3dcode finding or score item names its topic."
 license: Apache-2.0
 metadata:
   verified: "2026-11-07"

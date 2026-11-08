@@ -250,6 +250,10 @@ def validate_plan(ctx: ToolContext, args: ValidatePlanArgs) -> Observation:
 
 
 # ===================================================================== check
+#: WARNs that predict the judged score (a primitive-looking object), so they stay actionable
+ACTIONABLE_WARN_GATES = frozenset({"detail_budget"})
+
+
 def _gate_lines(gates: list[GateReport], *, max_errors: int = 20, max_warns: int = 10) -> list[str]:
     lines = []
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)
@@ -262,9 +266,15 @@ def _gate_lines(gates: list[GateReport], *, max_errors: int = 20, max_warns: int
             lines.append(f"    fix: {f.fix_hint}")
     if len(errs) > max_errors:
         lines.append(f"- … {len(errs) - max_errors} more error(s) (artifacts/gates.json)")
-    for g, f in warns[:max_warns]:
+    acted = [(g, f) for g, f in warns if g.gate in ACTIONABLE_WARN_GATES]
+    info = [(g, f) for g, f in warns if g.gate not in ACTIONABLE_WARN_GATES]
+    for g, f in acted[:max_warns]:
         lines.append(f"- WARN {g.gate}" + (f" [{f.target}]" if f.target else "") + f": {f.message}"
                      + (f"  fix: {f.fix_hint}" if f.fix_hint else ""))
+    if info:
+        lines.append("informational WARNs (they neither block nor cap; act on them only while fixing an ERROR nearby):")
+    for g, f in info[:max_warns]:
+        lines.append(f"  · {g.gate}" + (f" [{f.target}]" if f.target else "") + f": {f.message}")
     if len(warns) > max_warns:
         lines.append(f"- … {len(warns) - max_warns} more warning(s) (artifacts/gates.json)")
     return lines
