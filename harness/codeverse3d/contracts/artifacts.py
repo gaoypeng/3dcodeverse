@@ -192,7 +192,7 @@ class ImprovementItem(BaseModel):
     target: str
     kind: Literal["geometry", "material", "assembly", "articulation", "lighting", "composition", "animation", "effect", "bug"]
     instruction: str = Field(description="concrete, actionable change for the builder")
-    priority: int = Field(ge=1, le=5, description="1 = do first")
+    priority: int = Field(ge=1, le=6, description="1 = do first (a plan holds at most 6 items)")
     expected_gain: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
