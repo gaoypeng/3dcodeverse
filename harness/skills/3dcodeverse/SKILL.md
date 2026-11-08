@@ -96,10 +96,11 @@ scene `check` or `judge` can take a minute or two): when you run one, give it a 
 minutes so it returns its result in the same step instead of moving to the background.  Never
 poll a running command or subagent; its result comes back to you.
 
-**No self-polishing.**  The judge decides what to polish next and `score` lists it; you do not
-iterate on looks between judges.  Round 0: write the code from the plan, run `3dcode check`
-until it lists no ERROR, then go straight to `3dcode judge --round 0` — no render-look-edit
-cycles before the first judge.  A refine round fixes exactly what the last `score` listed (gate
+**How many rounds is the user's call.**  By default there is ONE round: plan, write the code,
+`3dcode check` until it lists no ERROR, report — no judge, no render-look-edit cycles.  Judge
+(steps 4–5) only when the user asks for a score or for refine rounds, and run exactly the
+number of refine rounds the user asked for.  **No self-polishing:** the judge decides what to
+polish and `score` lists it; you do not iterate on looks between judges.  A refine round fixes exactly what the last `score` listed (gate
 ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then `3dcode judge`
 — at most ONE look at renders (`render-sheet` / `scene-views` / `gl-frames`) per refine round,
 to confirm the listed items.  A WARN never caps the score: fix it once if cheap, otherwise
@@ -118,8 +119,9 @@ leave it.
    `file:line` it names, see Repairs; a gate ERROR by its fix hint) until none is left — every
    ERROR caps the score.  Object tracks: the whole object first — every plan part at its box and
    attached to its parent before any part gets detail (a part still a ≤ 12-triangle box within
-   1 mm of its plan box is a `placeholder_part` ERROR); then detail.  No ERROR → step 4.
-4. **Judge.**  `3dcode judge --workspace W --round 0`: it commits and tags `r00`, writes
+   1 mm of its plan box is a `placeholder_part` ERROR); then detail.  No ERROR → the round is
+   done: without a judge request, go to step 6.
+4. **Judge (only when the user asked for a score or for refine rounds).**  `3dcode judge --workspace W --round 0`: it commits and tags `r00`, writes
    `judge/r00/` and prints a line starting `JUDGE INSTRUCTION:`.  The judge is a context that
    has not seen your work: start a FRESH subagent with the `3d-judge` agent definition and hand
    it that instruction VERBATIM — nothing else: not what you built, not what you think of it.
@@ -131,7 +133,7 @@ leave it.
    the caps applied, what it repaired in the judgment, the improvement list and the round's
    image paths — open those paths when an item needs confirming; never list or guess names in
    `judge/`, never re-read `brief.md`.
-5. **Refine rounds (r01, r02 …; at most 2 unless the user sets another number).**  Each round
+5. **Refine rounds (r01, r02 …; exactly as many as the user asked for).**  Each round
    makes exactly the score's improvement list, gate ERRORs first (`[gate/...]` items), as
    edits under the editing rule, keeping every other part, name and dimension.
    A placement task changes that part's placement numbers to the plan's centre; a material task
@@ -142,11 +144,11 @@ leave it.
    judge note that repeats needs a visible change in the named view.  Then `check` until no
    ERROR → the round's one look at the renders, if an item needs it → `judge --round N` → the
    judge → `score --round N`.
-6. **Stop** when the rounds are used up, when `score` says passed with an empty improvement
-   list, or when the overall fell two rounds running.  The deliverable is the BEST-scoring
-   round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run
+6. **Stop** when the rounds the user asked for are done, when `score` says passed with an empty
+   improvement list, or when the overall fell two rounds running.  Without a judge the
+   deliverable is r00; with one it is the BEST-scoring round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run
    `3dcode check` once more so `artifacts/` matches.  Report in AT MOST ten lines: each round's
-   overall and caps, the entry files, the deliverable round and the paths of its montages —
+   overall and caps (if judged), the entry files, the deliverable round and the paths of its montages —
    nothing more, no file-by-file list.
 
 ## Quality rules on every track

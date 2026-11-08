@@ -58,7 +58,9 @@ Ask the host agent for a 3D thing and name the language if you care:
 
 The `3dcodeverse` skill drives the rest: a workspace directory with `spec.json`, `plan.json`,
 `src/` (the code), `artifacts/` (object.glb, renders, gates) and `judge/rNN/` (brief, montages,
-judgment, score).  The deliverable is the best-scoring round's `src/` and its artifacts.
+judgment, score).  By default one round is generated and checked; a score and refine rounds
+happen when you ask for them ("judge it", "refine it twice"), and then the best-scoring round is
+the deliverable.
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor) · `docs/ARCHITECTURE.md` (design,
 the workspace, every instrument and gate, judging) · `CLAUDE.md` (working rules for changing
