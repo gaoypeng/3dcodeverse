@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "3dcodeverse",
+  "description": "The 3dcodeverse plugin: raw-code 3D objects, mechanisms, scenes and shader effects, built, measured and judged.",
+  "owner": { "name": "3dcodeverse" },
+  "plugins": [
+    {
+      "name": "3dcodeverse",
+      "description": "Make real 3D with raw code: Blender bpy, CadQuery, Three.js, URDF, GLSL and OpenGL objects, mechanisms, scenes and shader effects, with the 3dcode instruments and a judge subagent.",
+      "source": "./harness",
+      "category": "development",
+      "keywords": ["3d", "blender", "cadquery", "threejs", "urdf", "glsl", "opengl"]
+    }
+  ]
+}
