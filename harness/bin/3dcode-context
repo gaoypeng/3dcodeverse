@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""SessionStart hook: preload the 3dcodeverse workflow, the four plan references and the eight language skills
+(~33k tokens) so the host agent starts planning without a read step.  Prompt caching makes the block cheap after
+the first turn.  `3dcode-context agy` prints Antigravity's injectSteps JSON, `3dcode-context claude` prints Claude
+Code's additionalContext JSON; `3dcode-context text` prints the block itself."""
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+FILES = ["skills/3dcodeverse/SKILL.md", *sorted(str(p.relative_to(ROOT)) for p in (ROOT / "skills/3dcodeverse/references").glob("plan-*.md")),
+         *sorted(str(p.relative_to(ROOT)) for p in (ROOT / "skills").glob("3d-lang-*/SKILL.md"))]
+HEADER = "3DCODEVERSE PRELOADED"
+
+
+def body(text: str) -> str:
+    """The file without its YAML front matter."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            return text[end + 5:]
+    return text
+
+
+#: agy cuts one injected system message at ~49 000 characters, so the block goes out in pieces under this
+CHUNK_CHARS = 40_000
+
+
+def sections() -> list[str]:
+    head = (f"# {HEADER}\nThe 3dcodeverse plugin (root: {ROOT}) preloaded these files at session start, in "
+            f"{{n}} parts: the workflow, every plan reference and every language skill ({', '.join(FILES)}).  For a 3D "
+            "request they are already read — go straight to the plan; never open them again.  Other files (c3d-* "
+            "skills, references/ of a language skill) only when a 3dcode finding names them.  Not a 3D request: "
+            "ignore this block.")
+    return [head] + [f"===== {rel} =====\n{body((ROOT / rel).read_text(encoding='utf-8')).strip()}" for rel in FILES]
+
+
+#: Claude Code shows a hook's additionalContext only up to ~10 000 characters (beyond: a 2 KB preview), each hook
+#: on its own and in no fixed order — so it gets many small labelled pieces, one per hook entry
+CLAUDE_CHUNK_CHARS = 9_500
+CLAUDE_HOOKS = 20  # hook entries in hooks/hooks.json
+
+
+def _split(sec: str, limit: int) -> list[str]:
+    """A section cut at paragraph breaks into pieces of at most ``limit``; each continuation is labelled."""
+    if len(sec) <= limit:
+        return [sec]
+    title = sec.split("\n", 1)[0].strip("= ")
+    pieces, cur = [], ""
+    for para in sec.split("\n\n"):
+        if cur and len(cur) + len(para) + 2 > limit - 80:
+            pieces.append(cur)
+            cur = para
+        else:
+            cur = f"{cur}\n\n{para}" if cur else para
+    pieces.append(cur)
+    n = len(pieces)
+    return [p if i == 0 else f"===== {title} (continued, piece {i + 1}/{n}) =====\n{p}" for i, p in enumerate(pieces)]
+
+
+def chunks(limit: int = CHUNK_CHARS) -> list[str]:
+    """The sections packed into messages of at most ``limit`` characters."""
+    out: list[str] = []
+    for sec in (piece for s in sections() for piece in _split(s, limit)):
+        if out and len(out[-1]) + len(sec) + 2 <= limit:
+            out[-1] += "\n\n" + sec
+        else:
+            out.append(sec)
+    out = [c.replace("{n}", str(len(out)), 1) if i == 0 else c for i, c in enumerate(out)]
+    return [c if i == 0 else f"[{HEADER}, part {i + 1}/{len(out)}]\n{c}" for i, c in enumerate(out)]
+
+
+def main() -> int:
+    host = sys.argv[1] if len(sys.argv) > 1 else "text"
+    if host == "agy":
+        try:
+            meta = json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            meta = {}
+        if not meta.get("lastUserInput"):  # a subagent (the judge) starts with no user input: keep its context fresh
+            sys.stdout.write("{}")
+            return 0
+    parts = chunks()
+    if host == "agy":
+        out = {"injectSteps": [{"systemMessage": {"systemMessage": c}} for c in parts]}
+    elif host == "claude":  # `3dcode-context claude <i>`: the i-th piece (one hook entry each)
+        pieces = chunks(CLAUDE_CHUNK_CHARS)
+        i = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+        if i >= len(pieces):
+            sys.stdout.write("{}")
+            return 0
+        text = pieces[i] if i < CLAUDE_HOOKS - 1 or len(pieces) <= CLAUDE_HOOKS else (
+            pieces[i][:CLAUDE_CHUNK_CHARS - 200] + f"\n[more of the {HEADER} block did not fit: read the files it names]")
+        out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    else:
+        sys.stdout.write("\n\n".join(parts) + "\n")
+        return 0
+    sys.stdout.write(json.dumps(out))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

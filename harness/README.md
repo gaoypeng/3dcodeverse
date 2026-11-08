@@ -1,6 +1,6 @@
 # 3dcodeverse
 
-**Version 0.0.14** · plugin for Claude Code, Codex and Antigravity
+**Version 0.0.15** · plugin for Claude Code, Codex and Antigravity
 
 A plugin for **Claude Code, Codex and Antigravity (`agy`)** that makes the host coding agent
 good at real 3D: it writes **raw, executable 3D code** — Blender `bpy`, CadQuery, Three.js,
@@ -27,6 +27,10 @@ has a fresh-context judge score it.
   the same body, each host's tool names): a subagent started with the one instruction `3dcode judge`
   prints; it reads only `judge/rNN/brief.md` + the images and writes `judgment.json`; `3dcode
   score` does the arithmetic from the rubric's weights, penalties, floors and gate caps.
+* **Preload** (`hooks.json` for Antigravity, `hooks/hooks.json` for Claude Code → `bin/3dcode-context`): at
+  session start the workflow, the plan references and every language skill (~31k tokens, cached after the
+  first turn) go into the context, so the agent plans at once instead of reading files first; a subagent
+  (the judge) gets nothing.  Codex has no session hook and reads the three files in one step.
 
 Everything model-side — writing code, looking at renders, judging — is the host agent's own
 model and billing.  There is no pipeline, no vendor backend, no API key and no cost ledger in

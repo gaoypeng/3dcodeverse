@@ -1,6 +1,6 @@
 ---
 name: 3dcodeverse
-description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step, all in ONE read: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md (urdf_blender: also skills/3d-lang-blender/SKILL.md and plan-static.md, which it builds on); no c3d-* skill until a 3dcode finding or score item names its topic."
+description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step: if a 3DCODEVERSE PRELOADED block is in your context, these files are already read — plan at once; otherwise read, all in ONE step: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md (urdf_blender: also skills/3d-lang-blender/SKILL.md and plan-static.md, which it builds on); no c3d-* skill until a 3dcode finding or score item names its topic."
 license: Apache-2.0
 metadata:
   verified: "2026-11-07"
@@ -15,7 +15,9 @@ number and an improvement list.  Nothing is drawn by hand and nothing comes from
 store: the object, mechanism, place or effect has to come out of the code at real scale, and it
 is measured.  Your job is the loop below, honestly.
 
-**Read three files together, in ONE step, before anything else** — all under the plugin root, beside
+**Already in context?** A `3DCODEVERSE PRELOADED` block at the start of the session (the plugin's
+session hook) holds this file, every plan reference and every language skill: then nothing is left to
+read — write the plan.  **Otherwise read three files together, in ONE step, before anything else** — all under the plugin root, beside
 this file: this skill's `## The loop` (the rest of this file is reference), the language skill
 `skills/3d-lang-<language>/SKILL.md` (hyphens: `scene_threejs` → `3d-lang-scene-threejs`; the
 table below names each) and `skills/3dcodeverse/references/plan-<track>.md`.  Open no other

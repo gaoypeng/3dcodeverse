@@ -1,0 +1,11 @@
+{
+  "3dcodeverse-preload": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./bin/3dcode-context agy",
+        "timeout": 20
+      }
+    ]
+  }
+}
