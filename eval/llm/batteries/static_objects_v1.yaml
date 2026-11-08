@@ -1,0 +1,137 @@
+name: static_objects_v1
+track: static_object
+language: blender
+description: >
+  24 static-object prompts, 8 categories × 3 tiers (easy / medium / hard).
+  Every prompt carries must_have items the planner turns into acceptance checks.
+  Same battery runs under any generator; keep the judge model fixed across arms.
+prompts:
+  # ---------------------------------------------------------------- furniture
+  - id: furn_easy_stool
+    tier: easy
+    category: furniture
+    prompt: a simple three-legged round wooden stool, 45 cm tall
+    must_have: [round seat, three splayed legs of equal length, legs touch the ground]
+    dimensions_m: {height: 0.45}
+  - id: furn_med_dining_chair
+    tier: medium
+    category: furniture
+    prompt: a mid-century wooden dining chair with a slatted backrest and tapered legs
+    must_have: [four tapered legs, seat slab, backrest with at least three vertical slats, back legs continue into back posts]
+  - id: furn_hard_rolltop_desk
+    tier: hard
+    category: furniture
+    prompt: a writing desk with two pedestals of three drawers each, a central knee-hole, a leather inlay top and brass drawer pulls
+    must_have: [two drawer pedestals, three drawers per pedestal with visible fronts, knee-hole gap, brass pull handles, desk top overhangs]
+  # ---------------------------------------------------------------- vehicles
+  - id: veh_easy_toy_car
+    tier: easy
+    category: vehicles
+    prompt: a chunky toy car with a rounded body and four thick wheels
+    must_have: [one-piece rounded body, four wheels touching the ground, wheels protrude sideways]
+  - id: veh_med_pickup
+    tier: medium
+    category: vehicles
+    prompt: a pickup truck with a two-door cab, open cargo bed, wheel arches and side mirrors
+    must_have: [cab with windows, open rear bed, four wheels with hubs, front grille and headlights, side mirrors]
+  - id: veh_hard_tractor
+    tier: hard
+    category: vehicles
+    prompt: a farm tractor with large rear tyres with treads, small front wheels, an exposed engine block, exhaust stack, driver seat, steering wheel and a roll bar
+    must_have: [rear wheels much larger than front wheels, tyre tread detail, exhaust stack, seat and steering wheel, roll bar, engine hood]
+  # ---------------------------------------------------------------- tools
+  - id: tool_easy_hammer
+    tier: easy
+    category: tools
+    prompt: a claw hammer with a wooden handle and a steel head
+    must_have: [cylindrical handle, steel head with a flat face, forked claw on the back]
+  - id: tool_med_hand_drill
+    tier: medium
+    category: tools
+    prompt: a cordless power drill with a pistol grip, trigger, battery pack in the base of the grip and a keyless chuck holding a drill bit
+    must_have: [pistol grip body, trigger, battery block under grip, chuck with a bit, side vents]
+  - id: tool_hard_bench_vise
+    tier: hard
+    category: tools
+    prompt: a cast-iron bench vise with fixed and sliding jaws, a lead screw with a tommy bar handle, guide rails, a small anvil face and mounting base with bolt holes
+    must_have: [two jaws with a visible gap, sliding jaw on guide rails, lead screw with sliding T handle, anvil flat, base with bolt holes]
+  # ---------------------------------------------------------------- appliances
+  - id: appl_easy_kettle
+    tier: easy
+    category: appliances
+    prompt: an electric kettle with a spout, a lid and a side handle on a round base
+    must_have: [pot body, pouring spout, handle opposite the spout, lid on top, round base]
+  - id: appl_med_toaster
+    tier: medium
+    category: appliances
+    prompt: a two-slot retro toaster with rounded chrome body, a lever on the side, a browning dial and a crumb tray
+    must_have: [two bread slots on top, side lever, dial knob, rounded body, small feet]
+  - id: appl_hard_espresso
+    tier: hard
+    category: appliances
+    prompt: an espresso machine with a group head and portafilter, a steam wand, a drip tray with grate, a water tank at the back, and a top-mounted cup warmer with a pressure gauge on the front panel
+    must_have: [portafilter with handle under a group head, steam wand on the side, drip tray with grate, water tank, pressure gauge, cup warmer rail]
+  # ---------------------------------------------------------------- plants
+  - id: plant_easy_cactus
+    tier: easy
+    category: plants
+    prompt: a potted barrel cactus in a terracotta pot with soil
+    must_have: [ribbed round cactus body, terracotta pot with rim, soil surface]
+  - id: plant_med_palm
+    tier: medium
+    category: plants
+    prompt: a small potted palm with a textured trunk and eight arching fronds made of many leaflets
+    must_have: [textured trunk, at least eight fronds, fronds arch downward, leaflets along each frond, pot]
+  - id: plant_hard_bonsai
+    tier: hard
+    category: plants
+    prompt: a bonsai tree with a twisted thick trunk, three layered foliage pads, exposed roots over a rock and a shallow oval ceramic tray with moss
+    must_have: [twisted trunk with taper, at least three distinct foliage pads, exposed roots gripping a rock, shallow oval tray, moss surface]
+  # ---------------------------------------------------------------- buildings
+  - id: bld_easy_shed
+    tier: easy
+    category: buildings
+    prompt: a small garden shed with a pitched roof, one door and one window
+    must_have: [box walls, pitched roof overhang, door on front, window]
+  - id: bld_med_lighthouse
+    tier: medium
+    category: buildings
+    prompt: a tapered lighthouse with red and white bands, a gallery with railing, a glass lantern room and a domed cap, on a rocky base
+    must_have: [tapered tower, alternating bands, gallery walkway with railing, glass lantern room, dome, rock base]
+  - id: bld_hard_windmill
+    tier: hard
+    category: buildings
+    prompt: a Dutch windmill with an octagonal tapered body, thatched cap, four lattice sails, a balcony stage with railing, a door, and two shuttered windows
+    must_have: [octagonal tapered body, cap, four lattice sails in a cross, balcony with railing, door, shuttered windows]
+  # ---------------------------------------------------------------- toys
+  - id: toy_easy_blocks
+    tier: easy
+    category: toys
+    prompt: a stack of five alphabet blocks of decreasing size in a slightly twisted tower
+    must_have: [five cubes, decreasing size upward, each slightly rotated, all stacked touching]
+  - id: toy_med_rocking_horse
+    tier: medium
+    category: toys
+    prompt: a wooden rocking horse with curved rockers, a saddle, handles and a mane
+    must_have: [horse body with head and four legs, two curved rockers, saddle, handle grips, mane]
+  - id: toy_hard_train
+    tier: hard
+    category: toys
+    prompt: a toy steam locomotive with a boiler, smokestack, cab with windows, cowcatcher, six driving wheels with connecting rods, and a coal tender with four wheels
+    must_have: [cylindrical boiler, smokestack, cab, cowcatcher, six large wheels with rods, separate tender with coal load and four wheels]
+  # ---------------------------------------------------------------- musical instruments
+  - id: mus_easy_drum
+    tier: easy
+    category: musical_instruments
+    prompt: a snare drum with tension rods and two drumsticks resting on top
+    must_have: [cylindrical shell, top head, at least eight tension rods around the rim, two sticks]
+  - id: mus_med_acoustic_guitar
+    tier: medium
+    category: musical_instruments
+    prompt: an acoustic guitar with a figure-eight body, sound hole, bridge, fretted neck, headstock with six tuning pegs and six strings
+    must_have: [figure-eight body, sound hole, bridge, neck with frets, headstock, six tuning pegs, six strings]
+  - id: mus_hard_drum_kit
+    tier: hard
+    category: musical_instruments
+    prompt: a five-piece drum kit with a bass drum with pedal, snare on a stand, two rack toms, a floor tom, a hi-hat and two cymbals on stands, and a throne
+    must_have: [bass drum with pedal, snare on stand, two mounted toms, floor tom with legs, hi-hat with two cymbals, two crash/ride cymbals on stands, drum throne]

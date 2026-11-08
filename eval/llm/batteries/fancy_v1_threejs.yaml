@@ -1,0 +1,99 @@
+# fancy_v1 — threejs slice (3 prompts).  Objects that read through colour separation and
+# instancing of repeated parts (keys, blades, slats, tines): a good fit for procedural
+# three.js meshes with per-part materials.  Every prompt names the real construction;
+# must_have items are single falsifiable clauses with counts.  All hard tier; ids
+# fancy_tj_<snake>.  Sibling files: fancy_v1_blender.yaml, fancy_v1_cadquery.yaml.
+name: fancy_v1_threejs
+track: static_object
+language: threejs
+description: >
+  fancy_v1 threejs slice: 3 hard static objects built from many repeated coloured parts
+  (a Wurlitzer-style jukebox, a Dutch windmill with lattice sails, a xylophone-style
+  marimba) that reward instancing and clean material separation.
+prompts:
+  # Jukebox: arched cabinet with bubble tubes, a chrome grille, a visible record carousel
+  # behind glass, a row of selector buttons — emissive colour bands plus repeated parts.
+  - id: fancy_tj_bubbler_jukebox
+    tier: hard
+    category: appliances
+    tags: [fancy_v1, hard]
+    prompt: >
+      a 1940s bubbler-style jukebox about 1.50 m tall: a wooden cabinet with a rounded arch
+      top, its front built as concentric arches of translucent coloured plastic panels
+      (yellow, red and green from the outside in) lit from behind, with two clear bubble
+      tubes following the outer arch; inside the arch a curved glass window showing the
+      record mechanism: a carousel of 24 vertical 78 rpm records on edge in a slotted
+      rack, with a chrome tonearm and a turntable in front; below the window a sloped
+      title strip holder with two columns of 12 title cards each behind a glass strip,
+      flanked by a row of 24 ivory selector buttons in two banks; the lower front a
+      chrome pierced speaker grille of at least eight vertical bars over a red cloth
+      backing, with two chrome coin-slot plates; four short cabinet feet; the cabinet
+      sides in dark walnut with a chrome trim strip up each front corner.
+    must_have:
+      - "a cabinet about 1.50 m tall with a rounded arched top"
+      - "at least 3 concentric coloured arch bands, distinct hues, on the front"
+      - "two bubble tubes following the outer arch on each side"
+      - "a curved window inside the arch through which at least 20 records are visible standing on edge"
+      - "two columns of title cards behind a glass strip below the window"
+      - "at least 20 selector buttons in two banks"
+      - "a speaker grille of at least 8 vertical chrome bars over a red backing on the lower front"
+      - "the coloured arch bands emissive so they read as lit"
+    dimensions_m: {width: 0.85, depth: 0.65, height: 1.52}
+  # Dutch smock windmill: an octagonal thatched body on a brick base, a rotating cap, four
+  # lattice sails with dozens of instanced slats, a tail pole and a stage gallery.
+  - id: fancy_tj_smock_windmill
+    tier: hard
+    category: architecture
+    tags: [fancy_v1, hard]
+    prompt: >
+      a Dutch smock windmill about 18 m tall: a tapered octagonal tower, the lower 5 m in
+      red brick with a door and two arched windows, the upper part thatched over a timber
+      frame with eight corner posts; a stage
+      gallery ringing the tower at the brick-to-thatch line, its deck on radial joists
+      with a railing of at least 40 balusters; a boat-shaped rotating cap on top, its
+      plank cladding laid horizontally, carrying the windshaft at a slight upward tilt; four
+      common sails fixed at 90 degrees on a cast-iron cross, each sail a long whip
+      about 12 m from the shaft with a lattice of at least 18 sail bars across it, the
+      lattice on one side of the whip only with a leading board on the other, the sails
+      set in the X position; a tail pole angling down from the back of the cap to a wheel
+      on the stage; sail lattices white,
+      the cap tarred black, the thatch grey-brown.
+    must_have:
+      - "an octagonal tapered tower that is brick below and thatch above"
+      - "a gallery deck ringing the tower at the material change with at least 40 balusters"
+      - "a rotating cap on top with horizontal plank cladding"
+      - "exactly 4 sails on a central cross set at 90 degree spacing"
+      - "each sail about 12 m from the shaft with at least 18 lattice bars"
+      - "a tail pole from the back of the cap running down to the gallery"
+      - "white sails, black cap and brown thatch as three distinct colours"
+      - "the tower base sits on the ground plane and no sail tip reaches the ground"
+    dimensions_m: {width: 26.0, depth: 26.0, height: 18.5}
+  # Concert marimba: 49 graduated rosewood bars in two rows on a frame, a resonator tube
+  # under each bar graduated in length, a wheeled frame; instancing with per-bar scaling.
+  - id: fancy_tj_concert_marimba
+    tier: hard
+    category: instruments
+    tags: [fancy_v1, hard]
+    prompt: >
+      a concert marimba with a 4-octave range: 49 rosewood bars laid out like a piano
+      keyboard on a wooden frame about 2.10 m long and 0.92 m high, the naturals in a
+      front row of 29 bars and the accidentals in a raised rear row of 20 bars offset
+      behind the gaps, the accidental row set back and about 0.03 m higher; bars
+      graduated in both length and width from about 0.45 m long and 0.075 m wide at the
+      bass end to 0.15 m long and 0.04 m wide at the treble, each bar resting on a cord through
+      nodal holes strung between posts on the rails; beneath every bar a vertical golden-coloured
+      aluminium resonator tube whose length matches the bar's pitch, longest under the
+      bass bars and stepping down toward the treble, so the resonator array forms a curved
+      wedge; the bass end of the frame taller than the treble end;
+      four legs on rubber-tyred casters; two mallets with yarn heads resting across the
+      bass bars.
+    must_have:
+      - "a front row of at least 25 bars and a raised rear row of at least 18 bars"
+      - "the rear row is offset behind the gaps of the front row and sits higher"
+      - "bars graduate in length from long at one end to short at the other"
+      - "a vertical resonator tube under every bar"
+      - "resonator tube lengths step down from the bass end to the treble end"
+      - "bars are a rosewood colour and resonators a golden metal colour"
+      - "four legs on casters, all touching the ground plane"
+      - "overall length about 2.10 m"
+    dimensions_m: {width: 2.15, depth: 0.85, height: 0.95}

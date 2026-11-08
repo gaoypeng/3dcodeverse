@@ -1,0 +1,227 @@
+# articulated_v2 — multi-DoF battery (v1: easy 75% pass; hard discriminated at 50%).
+#
+# Every prompt has >= 3 joints and at least one COUPLED constraint: a clearance or
+# rest condition that only holds when several joints are posed together (folded stack
+# thickness, sashes passing in separate tracks, a lid resting on a prop stick).
+# must_have items name the MOTION with a quantity ("drawer slides 0.25 m out toward
+# the front without hitting the frame") so the judge can verify each DoF in the
+# per-joint limit poses.  The harness renders rest + ONE joint at a time (lower/
+# upper limit) and IGNORES <mimic>, so coupled conditions are stated against the
+# rest pose or against the collision sweep, which samples random combined poses
+# and reports interpenetration as gate errors.
+# Difficulty axes: joint count (3-8 DoF), coupled clearances, mixed joint types
+# (revolute + prismatic + continuous in one model).
+# Expected discrimination: medium 30-60% pass (3-4 loosely coupled joints), hard
+# 0-30% pass (4+ joints with clearance coupling — v1 showed baseline collapse to
+# 0.25 on such prompts, with large refine deltas).
+name: articulated_v2
+track: articulated_object
+language: urdf_blender
+description: >
+  14 articulated prompts (URDF + bpy link meshes), all >= 3 DoF with coupled
+  constraints.  4 medium, 10 hard.  must_have names each joint's motion with a
+  quantity and at least one cross-joint clearance verifiable in the rest pose
+  or by the collision sweep over random combined poses.
+prompts:
+  # ------------------------------------------------------------------ medium
+  - id: art_med_architect_lamp
+    tier: medium
+    category: lighting
+    prompt: >
+      an adjustable architect lamp with four revolute joints: base swivel, shoulder,
+      elbow and head tilt, with parallel link bars beside the lower arm
+    must_have:
+      - "weighted round base"
+      - "arm assembly swivels at least 180 degrees about the vertical base axis"
+      - "lower arm about 0.35 m long, shoulder revolute raises it from 20 to 80 degrees"
+      - "upper arm about 0.35 m long, elbow revolute with at least 120 degrees range"
+      - "head tilt revolute at the wrist, shade opens downward"
+      - "twin parallel link bars alongside the lower arm"
+      - "shoulder at its lower limit folds the lower arm down toward the base without touching it"
+  - id: art_med_tool_chest
+    tier: medium
+    category: tools
+    prompt: >
+      a machinist tool chest with a rear-hinged lid over a top tray and three
+      drawers of decreasing height on slides
+    must_have:
+      - "chest carcass about 0.60 m wide and 0.40 m tall"
+      - "lid hinged along the rear edge, opens 90 degrees to expose a top tray"
+      - "3 drawers of decreasing height from bottom to top"
+      - "each drawer slides 0.25 m out toward the front without hitting its neighbours"
+      - "drawer pulls on every drawer front"
+      - "with the lid closed, each fully opened drawer clears the lid overhang"
+  - id: art_med_camera_tripod
+    tier: medium
+    category: props
+    prompt: >
+      a camera tripod: three legs that splay at the crown, a sliding lower section
+      per leg, and a pan-tilt head with a mounting plate
+    must_have:
+      - "3 legs, each splaying by revolute from vertical to 25 degrees at the crown"
+      - "each leg's lower section slides out 0.40 m along the leg axis"
+      - "pan joint at the head rotates continuously about the vertical axis"
+      - "tilt joint pitches the mounting plate from -90 to +30 degrees"
+      - "rest pose: legs at equal splay and full extension, mounting plate level about 1.4 m up"
+      - "rubber feet at all 3 leg tips, resting on the ground plane in the rest pose"
+  - id: art_med_dutch_door
+    tier: medium
+    category: architecture
+    prompt: >
+      a dutch stable door in its frame: independent upper and lower leaves on the
+      same jamb, a slide bolt that joins them, and a latch handle on the lower leaf
+    must_have:
+      - "door frame with both leaves fitted, total opening about 2.0 m tall"
+      - "upper leaf swings open 100 degrees on hinges at the jamb"
+      - "lower leaf swings open 100 degrees on hinges at the same jamb"
+      - "slide bolt on the upper leaf travels 0.08 m down into the lower leaf edge"
+      - "bolt at its extended limit spans the seam into a notch in the lower leaf edge (leaves closed at rest)"
+      - "shelf ledge on top of the lower leaf clears the swinging upper leaf in every sweep pose"
+      - "latch handle on the lower leaf"
+  # -------------------------------------------------------------------- hard
+  - id: art_hard_rolltop_desk
+    tier: hard
+    category: furniture
+    prompt: >
+      a roll-top desk: a tambour of hinged slats that retracts along curved side
+      tracks to expose pigeonholes and the desktop, plus two pedestal drawers
+      per side
+    must_have:
+      - "desk carcass with 2 pedestals and a knee-hole"
+      - "tambour approximated as at least 8 slats riding in curved side tracks"
+      - "tambour travels from fully closed at rest to fully open at its joint limit, moving toward the rear"
+      - "in the rest pose the closed tambour's bottom rail meets the desktop with under 0.01 m gap"
+      - "at the tambour's open limit at least 4 pigeonhole compartments are exposed"
+      - "2 drawers per pedestal, each slides 0.30 m out toward the front"
+      - "open drawers do not intersect the knee-hole space or each other"
+      - "drawer pulls and a writing surface about 0.75 m above the floor"
+  - id: art_hard_folding_workbench
+    tier: hard
+    category: tools
+    prompt: >
+      a folding workbench: a top on two leg frames that fold inward, each held
+      open by a diagonal locking brace with an elbow pivot
+    must_have:
+      - "top about 1.2 m by 0.6 m, work height 0.85 m when deployed"
+      - "2 leg frames, each folding inward by revolute at the top rail"
+      - "2 locking braces, each with an elbow revolute that snaps straight when deployed"
+      - "each brace elbow folds through at least 90 degrees"
+      - "each leg frame at its folded limit lies within 0.15 m of the top's underside, with no collision in any sweep pose"
+      - "rest pose: deployed, all 4 feet on the ground and braces straight"
+  - id: art_hard_parallel_clamp
+    tier: hard
+    category: tools
+    prompt: >
+      a parallel-jaw bench clamp: a fixed jaw and a moving jaw on two guide rods,
+      driven by a lead screw with a crank handle and a swivel foot pad
+    must_have:
+      - "fixed jaw body and moving jaw about 0.12 m wide"
+      - "2 guide rods passing through the moving jaw"
+      - "lead screw between the rods, crank handle rotates continuously"
+      - "moving jaw slides 0.12 m along the guide rods toward the fixed jaw"
+      - "jaw faces remain parallel over the whole travel"
+      - "swivel pad on the screw tip tilts up to 5 degrees against the fixed jaw"
+      - "at the moving jaw's closed limit the jaw faces meet with no interpenetration"
+  - id: art_hard_sash_window
+    tier: hard
+    category: architecture
+    prompt: >
+      a double-hung sash window: two counterweighted sashes sliding in separate
+      tracks of one frame, with a rotating lock lever on the meeting rail
+    must_have:
+      - "outer frame about 0.9 m by 1.5 m with sill and casing"
+      - "2 sashes, each divided into at least 4 panes by muntins"
+      - "lower sash slides up 0.40 m in the inner track"
+      - "upper sash slides down 0.35 m in the outer track"
+      - "sashes pass each other with visible clearance, never touching"
+      - "lock lever on the meeting rail rotates 90 degrees"
+      - "lower sash at its upper limit overlaps the upper sash, both visible in front view"
+  - id: art_hard_grand_piano
+    tier: hard
+    category: musical_instruments
+    prompt: >
+      a baby grand piano with a hinged main lid held by a prop stick, a rotating
+      fallboard over the keyboard, three pedals on a lyre, and a bench with a
+      hinged storage lid
+    must_have:
+      - "curved-rim piano body on 3 legs"
+      - "keyboard with white and black key rows exposed when the fallboard is open"
+      - "fallboard rotates 90 degrees from covering the keys to lying flat behind them"
+      - "main lid hinged along the straight side, held open about 30 degrees at its lower limit, hinging up to about 45 degrees"
+      - "prop stick pivots up from the rim; at its raised limit the stick tip meets the lid's underside within 0.01 m"
+      - "prop stick at rest lies flat inside the rim"
+      - "3 pedals on a lyre post under the body"
+      - "bench with a storage lid hinged at the rear, opening 60 degrees"
+  - id: art_hard_umbrella
+    tier: hard
+    category: props
+    prompt: >
+      an umbrella with a simplified rib mechanism: a runner sliding on the shaft
+      drives at least six ribs that pivot at the crown, with canopy panels
+      stretched between the ribs
+    must_have:
+      - "central shaft about 0.9 m with a curved handle"
+      - "runner slides 0.30 m up the shaft"
+      - "at least 6 ribs, each revolute at the crown"
+      - "ribs swing from folded along the shaft to 80 degrees open"
+      - "stretcher links connect the runner to each rib mid-point in the open rest pose"
+      - "rest pose: open, with canopy panels stretched between adjacent ribs"
+      - "each rib at its folded limit lies within 0.05 m of the shaft without crossing it"
+  - id: art_hard_casement_window
+    tier: hard
+    category: architecture
+    prompt: >
+      a casement window driven by a sill crank: the sash swings outward on side
+      hinges while a folding operator arm with a sliding shoe pushes its bottom rail
+    must_have:
+      - "frame about 0.6 m by 1.2 m with a gridded sash"
+      - "sash swings outward 90 degrees on hinges at one side edge"
+      - "crank handle at the sill rotates continuously"
+      - "operator arm with an elbow revolute links the sill to the sash bottom rail"
+      - "operator arm shoe slides 0.30 m along a track in the sash bottom rail"
+      - "rest pose: window closed, operator arm folded flat over the sill without touching the sash"
+      - "latch lever on the free edge rotates to lock the sash"
+  - id: art_hard_step_ladder
+    tier: hard
+    category: tools
+    prompt: >
+      an A-frame step ladder: a five-step front frame and a rear frame hinged at
+      the top cap, held open by two spreader arms with center elbows
+    must_have:
+      - "front frame with 5 flat steps"
+      - "rear frame hinged to the front frame at the top cap"
+      - "frames open from parallel to about 30 degrees apart"
+      - "2 spreader arms, each with a center elbow revolute"
+      - "rest pose: open, spreaders locked straight between the frames"
+      - "rear frame at its closed limit lies parallel to the front frame within 0.10 m; spreaders fold without hitting the steps in any sweep pose"
+      - "top cap platform and 4 feet touching the ground in the open rest pose"
+  - id: art_hard_drawleaf_table
+    tier: hard
+    category: furniture
+    prompt: >
+      a draw-leaf dining table: two end leaves stowed under the fixed center top
+      slide out horizontally on tapered runners, plus an apron drawer on one long
+      side
+    must_have:
+      - "fixed center top about 1.2 m by 0.9 m on 4 legs, surface about 0.75 m high"
+      - "2 end leaves about 0.45 m deep stowed under the center top at rest"
+      - "each leaf slides 0.45 m outward along the table's long axis"
+      - "each leaf rides on 2 tapered runners that emerge from under the top as it extends"
+      - "extended leaf clears the center top edge with a gap under 0.02 m"
+      - "apron drawer on one long side slides 0.25 m out"
+      - "leaves and drawer extend without touching the legs or each other in any sweep pose"
+      - "rest pose: both leaves fully stowed inside the center top's footprint"
+  - id: art_hard_scissor_mirror
+    tier: hard
+    category: household
+    prompt: >
+      a wall-mounted scissor extension mirror: a pantograph of three X-links
+      between a wall plate and a mirror head that also swivels and tilts
+    must_have:
+      - "wall plate anchoring the mechanism"
+      - "pantograph of at least 3 X-links with revolute pivots at centers and ends"
+      - "rest pose: mirror head retracted 0.15 m from the wall plate; each pantograph joint at its limit moves the head farther from the wall"
+      - "all pantograph bars lie in a horizontal plane, scissoring parallel to the floor"
+      - "mirror head swivels at least 90 degrees about its vertical post"
+      - "mirror tilts at least 30 degrees about its horizontal axis"
+      - "X-links nest without bar intersections in the retracted rest pose"

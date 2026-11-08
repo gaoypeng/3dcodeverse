@@ -78,32 +78,31 @@ on 805 fixed tasks:
 
 ## Quick Start
 
-The harness needs Python 3.13, Node 20.6+, Git, Gemini API keys and the Antigravity CLI (`agy`, the
-default generator). Blender 5.2 LTS is optional (the `blender`, `urdf_blender` and `scene_blender`
-languages). Full guide: [harness/docs/INSTALL.md](harness/docs/INSTALL.md).
-The default judge is `gemini:gemini-4-argon` with thinking `medium`.
+The harness ships as **`3dcodeverse`, a plugin for Claude Code, Codex and Antigravity**: the host agent
+writes the code with its own model, and the plugin's skills and `3dcode` instruments build, measure,
+render, gate and score it (a fresh-context subagent judges). It needs Python 3.13, Node 20.6+ and Git;
+Blender 5.2 LTS for the `blender`, `urdf_blender` and `scene_blender` languages.
+Full guide: [harness/README.md](harness/README.md) and [harness/docs/INSTALL.md](harness/docs/INSTALL.md).
 
 ```bash
-cd harness
-bash setup.sh                       # pip install -e . + runtime_js + headless Chrome + the agy / claude-code / codex CLIs at their latest, then `3dcodeverse doctor`
-export GEMINI_API_KEYS="key1,key2"  # agy runs in Gemini-API mode on this key pool
-3dcodeverse doctor                       # every row OK or WARN; a FAIL row says what to fix
-3dcodeverse make "a classic park bench" --track static_object --language threejs
-3dcodeverse gallery serve                # browse every run at http://127.0.0.1:8765/
+git clone https://github.com/gaoypeng/3dcodeverse && cd 3dcodeverse
+bash harness/setup.sh                                  # the `3dcode` instruments + runtime_js + headless Chrome, then doctor
+claude plugin marketplace add . && claude plugin install 3dcodeverse@3dcodeverse   # Claude Code
+codex plugin marketplace add . && codex plugin add 3dcodeverse@3dcodeverse         # Codex
+agy plugin install harness                                                         # Antigravity
 ```
 
-The optional generators claude-code and codex use your local subscriptions: `--generator claude-code:<model>`
-or `--generator codex:<model>`. Tracks, languages and costs per track: [harness/README.md](harness/README.md) and
-[harness/docs/RUNBOOK.md](harness/docs/RUNBOOK.md); evaluation: [eval/README.md](eval/README.md).
+Then ask your agent for a 3D thing, e.g. "Make a mid-century wooden dining chair in Blender bpy."
 
 ## Repository Structure
 
 | Directory | Description | Documentation |
 | :-- | :-- | :-- |
-| [`harness/`](harness/) | Agent-based 3D content generation, execution, rendering, and verification. | [Harness guide](harness/README.md) |
+| [`harness/`](harness/) | The `3dcodeverse` agent plugin: skills, judge subagent, and the `3dcode` build / measure / render / gate / score instruments. | [Plugin guide](harness/README.md) |
+| [`flywheel/`](flywheel/) | Reader for runs recorded by the v0.0.x CLI harness: gallery, cost, dataset export, pick. | [Flywheel guide](flywheel/README.md) |
 | [`toolkits/`](toolkits/) | General data CLI and per-source corpus curation. | [Data toolkit guide](toolkits/README.md) |
 | [`finetune/`](finetune/) | LLaMA-Factory training-data preparation, supervised fine-tuning, and preference optimization for open models. | [Training guide](finetune/README.md) |
-| [`eval/`](eval/) | Benchmarks and evaluation pipelines for the harness and standalone models. | [Evaluation guide](eval/README.md) |
+| [`eval/`](eval/) | Evaluation of standalone LLMs / VLMs on 3D coding. | [Evaluation guide](eval/README.md) |
 
 ## Citation
 

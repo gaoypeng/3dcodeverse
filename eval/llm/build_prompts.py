@@ -19,7 +19,7 @@ Suites built here (sizes are what the assets give):
   3dcodebench_img4text    212  Blender  4 views + description
   heldout_blender         103, heldout_cadquery 200, heldout_openscad 50, heldout_glsl 200, heldout_threejs 40
                                (3dcodeverse/3dcodeverse-2m finetune/test/*.parquet, never trained on)
-  harness_<battery>       rubric-judged batteries copied from harness/bench/prompts (no GT; scored by
+  harness_<battery>       rubric-judged batteries in eval/llm/batteries (no GT; scored by
                                execution + optional VLM judge), one suite per YAML
 
 System prompts are the exact strings used in finetune/docs/REPORT.md so numbers stay comparable; the
@@ -205,7 +205,7 @@ def build_batteries() -> None:
                          "reference": {"code": None, "mesh": None, "renders": []},
                          "meta": {"tier": p.get("tier"), "category": p.get("category"), "must_have": p.get("must_have", []),
                                   "dimensions_m": p.get("dimensions_m"), "tags": p.get("tags", []), "track": bat.get("track"),
-                                  "source": f"harness/bench/prompts/{y.name}"}})
+                                  "source": f"eval/llm/batteries/{y.name}"}})
         if rows:
             write_jsonl(rows, f"harness_{bat['name']}")
 

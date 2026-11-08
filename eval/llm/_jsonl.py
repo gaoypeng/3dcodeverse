@@ -10,13 +10,25 @@ byte) is skipped and that row simply runs again; a missing file has no rows."""
 from __future__ import annotations
 
 import json
-from functools import partial
 from pathlib import Path
 
-from codeverse3d.proc import read_jsonl_lenient, write_text_atomic
+from codeverse3d.proc import write_text_atomic
 
-#: every JSON object line of a file, in order
-read_rows = partial(read_jsonl_lenient, dicts_only=True)
+
+def read_rows(path: Path | str) -> list[dict]:
+    """Every JSON object line of ``path``, in order; a line that does not parse is skipped."""
+    p = Path(path)
+    if not p.is_file():
+        return []
+    rows = []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
 
 
 def write_rows(path: Path, rows: list[dict], *, ensure_ascii: bool = True) -> None:

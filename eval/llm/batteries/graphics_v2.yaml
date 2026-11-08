@@ -1,0 +1,170 @@
+# graphics_v2 — shader / OpenGL battery.
+#
+# Difficulty axes:
+#   raymarching depth   full raymarched scenes with material response (SSS-ish glow,
+#                       fractal surface detail, correct-looking gear meshing) — v1's
+#                       only raymarch prompt scored 0.30, the strongest discriminator
+#   feedback state      multi-pass programs whose look emerges from a feedback buffer
+#                       (reaction-diffusion, ink advection) — cannot be faked in one pass
+#   stylisation control hitting a named art style with countable features (ukiyo-e wave,
+#                       CRT boot) instead of generic noise beauty
+#   instancing scale    opengl_python prompts with explicit instance counts and a
+#                       structured motion the VLM can verify across frames
+# Per-prompt `language: opengl_python` marks the raw-OpenGL prompts (battery default
+# is glsl_shader); the bench loader honours the per-prompt override (BenchPrompt.language).
+# Expected discrimination: medium 40-70% pass; hard 0-30% pass — feedback-buffer and
+# instancing prompts also stress the build/runtime, where v1's opengl prompt errored.
+name: graphics_v2
+track: graphics
+language: glsl_shader
+description: >
+  10 graphics prompts: 3 medium stylised shaders, 7 hard (raymarched scenes,
+  feedback-buffer simulations, large-scale instancing).  must_have items are
+  frame-verifiable features with counts and motion statements.
+prompts:
+  # ------------------------------------------------------------- raymarched (hard)
+  - id: glsl_hard_mushroom_forest
+    tier: hard
+    category: raymarch
+    prompt: >
+      a raymarched night mushroom forest: giant glowing mushrooms whose caps
+      transmit light like wax, thin stems, drifting spore motes, soft shadows and
+      a slow camera glide between the stems
+    must_have:
+      - "at least 5 mushrooms with domed caps on visible stems"
+      - "caps glow from inside with a soft falloff toward the rim, brighter where thin"
+      - "ground plane receiving soft shadows from the stems"
+      - "drifting bright spore motes between the mushrooms"
+      - "dark blue or violet night ambience with the caps as main light sources"
+      - "camera glides forward between the stems over the loop"
+  - id: glsl_hard_infinite_corridor
+    tier: hard
+    category: raymarch
+    prompt: >
+      a raymarched infinite corridor: repeating arched segments receding to a
+      vanishing point, walls carved with self-similar fractal relief that gains
+      detail as the camera approaches, cool fog in the distance, endless forward
+      motion
+    must_have:
+      - "corridor of repeating arched segments receding to a vanishing point"
+      - "at least 6 segment repetitions visible at once"
+      - "wall surfaces show self-similar relief with at least 3 visible scales of detail"
+      - "distance fog fades the far segments"
+      - "forward motion continues across all sampled frames without the camera clipping the walls"
+      - "light sources along the corridor alternate or repeat with the segments"
+  - id: glsl_hard_clockwork_gears
+    tier: hard
+    category: raymarch
+    prompt: >
+      a raymarched brass clockwork: at least three meshing gears with visible
+      teeth turning at consistent ratios, a slowly swinging pendulum disc behind
+      them, metallic highlights and a dark workshop background
+    must_have:
+      - "at least 3 gears with clearly separated teeth"
+      - "adjacent gears rotate in opposite directions"
+      - "a small gear visibly turns faster than a large one it meshes with"
+      - "teeth of meshing gears interleave without overlapping"
+      - "pendulum disc swings periodically behind the gears"
+      - "metallic specular highlights on the gear faces"
+  # ---------------------------------------------------- feedback simulations (hard)
+  - id: ogl_hard_reaction_diffusion
+    tier: hard
+    category: simulation
+    language: opengl_python
+    prompt: >
+      a reaction-diffusion coral garden grown in a feedback buffer: patterns seeded
+      at several points spread outward into labyrinthine coral growth, shaded with
+      height-like lighting and an ocean palette, growth visible over the run
+    must_have:
+      - "labyrinthine or spotted pattern characteristic of reaction-diffusion"
+      - "pattern grows outward from at least 3 seed points over time"
+      - "later frames show strictly more covered area than early frames"
+      - "pattern edges shaded with a relief or rim-light effect"
+      - "ocean palette: teal to orange or pink gradient mapped to the pattern"
+      - "the pattern boundary advances in every successive sampled frame"
+  - id: ogl_hard_ink_swirls
+    tier: hard
+    category: simulation
+    language: opengl_python
+    prompt: >
+      fluid ink in water via a feedback advection buffer: dark ink blobs injected
+      periodically curl into filament swirls that stretch and fold without
+      dissipating instantly, on a paper-white background
+    must_have:
+      - "ink blobs appear at intervals during the run"
+      - "blobs stretch into curling filaments over subsequent frames"
+      - "filaments fold back on themselves forming spiral structures"
+      - "earlier ink stays visible as faded wisps while new ink is injected"
+      - "paper-white background with dark ink, no full-frame darkening over time"
+  # ------------------------------------------------------------- stylised (medium)
+  - id: glsl_med_ukiyoe_wave
+    tier: medium
+    category: stylised
+    prompt: >
+      a looping ukiyo-e style great wave: a large curling crest with claw-like foam
+      fingers, flat indigo color bands with paper-cream foam, smaller waves in
+      front, and a seamless loop where the crest rises, curls and collapses
+    must_have:
+      - "one dominant wave with a forward-curling crest"
+      - "foam edge broken into claw-like fingers"
+      - "flat color bands in indigo and cream, no photoreal gradients"
+      - "at least 2 smaller waves in the foreground"
+      - "across the sampled frames the crest rises, curls forward and collapses"
+  - id: glsl_med_crt_boot
+    tier: medium
+    category: stylised
+    prompt: >
+      a retro CRT boot sequence: black screen flickers on with a horizontal flash,
+      green blocky glyph rows type in line by line, a blinking cursor, scanlines,
+      barrel distortion at the screen corners and phosphor glow
+    must_have:
+      - "earliest sampled frame shows the turn-on state: mostly dark or a bright horizontal flash band"
+      - "rows of blocky glyphs appear line by line down the screen"
+      - "blinking rectangular cursor at the end of the last row"
+      - "visible scanlines across the whole frame"
+      - "image bulges with barrel distortion, corners darkened"
+      - "green phosphor glow bleeding around bright glyphs"
+  - id: glsl_med_kaleido_mandala
+    tier: medium
+    category: stylised
+    prompt: >
+      a kaleidoscopic mandala: 12-fold mirror symmetry, at least three concentric
+      pattern rings rotating at different speeds in alternating directions, petal
+      shapes morphing smoothly, jewel palette on a dark background
+    must_have:
+      - "12-fold mirror symmetry about the center"
+      - "at least 3 concentric pattern rings"
+      - "adjacent rings rotate in opposite directions at different speeds"
+      - "petal or lobe shapes morph smoothly over time"
+      - "saturated jewel palette on a dark background, center stays centered"
+  # ------------------------------------------------------ instancing scale (hard)
+  - id: ogl_hard_boids_murmuration
+    tier: hard
+    category: instancing
+    language: opengl_python
+    prompt: >
+      a starling murmuration of 30000 instanced boids over a dusk landscape
+      silhouette: the flock stretches, folds and splits into lobes that merge
+      again, dense cores darker than the edges, slow camera pan
+    must_have:
+      - "flock of thousands of small instances, far more than any countable number"
+      - "flock forms one connected shape that stretches and folds over time"
+      - "flock splits into at least 2 lobes and merges again during the run"
+      - "denser flock regions read darker or thicker than sparse edges"
+      - "dusk gradient sky with a dark landscape silhouette at the bottom"
+      - "camera pans slowly while the flock stays in frame"
+  - id: ogl_hard_voxel_city
+    tier: hard
+    category: instancing
+    language: opengl_python
+    prompt: >
+      a fly-through of an instanced voxel city with a full day-night cycle:
+      cube-built towers of varying heights on a street grid, sun light and long
+      shadows by day, lit windows by night, the camera weaving between towers
+    must_have:
+      - "city of cube-built towers on a regular street grid"
+      - "at least 50 towers of clearly varying heights"
+      - "continuous camera flight between the towers without entering any tower"
+      - "day phase: directional sun with visible long shadows"
+      - "night phase: dark sky with emissive lit windows on the towers"
+      - "smooth day-to-night transition within the run"

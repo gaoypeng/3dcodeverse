@@ -1,19 +1,18 @@
-# Tooling config for the evaluation code.  Nothing here is installed: `bench` and `llm` are run
-# from this directory (`cd eval && python bench/<script>.py …`, `cd eval && python -m pytest`).
+# Tooling config for the evaluation code.  Nothing here is installed: `llm` runs from this directory.
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-extend-exclude = ["bench/out", "llm"]   # llm/ keeps its own style; bench/out is run data
+extend-exclude = ["llm"]   # llm/ keeps its own style
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bench", "codeverse3d", "tests"]
+known-first-party = ["llm", "codeverse3d"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["llm/tests"]
 timeout = 600
 addopts = ["-m", "not live", "-n", "auto", "--dist", "worksteal"]
 markers = [

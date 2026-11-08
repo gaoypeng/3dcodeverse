@@ -25,9 +25,8 @@ from pathlib import Path
 
 PKG_DIR = Path(__file__).resolve().parent
 PROMPTS_DIR = PKG_DIR / "data" / "prompts"
-# the harness batteries are ONE set of files, owned by the harness evaluation next door (eval/bench/prompts);
-# these ten are the ones a bare LLM can be asked one-shot (static + graphics, no plan, no tools)
-BATTERIES_DIR = PKG_DIR.parent / "bench" / "prompts"
+# the ten harness prompt batteries a bare LLM can be asked one-shot (static + graphics, no plan, no tools)
+BATTERIES_DIR = PKG_DIR / "batteries"
 HARNESS_BATTERIES = ("articulated_v2", "compare_v4", "complexity_v3", "fancy_v1_blender", "fancy_v1_cadquery",
                      "fancy_v1_threejs", "graphics_v2", "static_objects_v1", "static_objects_v2", "teaser_v1_static")
 
