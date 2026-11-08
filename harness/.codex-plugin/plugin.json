@@ -1,0 +1,22 @@
+{
+  "name": "3dcodeverse",
+  "version": "0.1.0",
+  "description": "Make real 3D with raw code: Blender bpy, CadQuery, Three.js, URDF, GLSL and OpenGL objects, mechanisms, scenes and shader effects. Skills carry the workflow and each language's measured contract; the 3dcode command-line instruments build, measure, render and gate the result.",
+  "author": { "name": "3dcodeverse" },
+  "license": "Apache-2.0",
+  "keywords": ["3d", "blender", "bpy", "cadquery", "threejs", "urdf", "glsl", "opengl", "moderngl", "procedural"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "3dcodeverse",
+    "shortDescription": "Raw-code 3D objects, mechanisms, scenes and shaders, measured",
+    "longDescription": "The agent writes raw Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl code in a workspace; the 3dcode instruments build it, export it, measure it against the plan, render it and run deterministic gates; a separate judge step scores the renders against a rubric.",
+    "developerName": "3dcodeverse",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Make a mid-century wooden dining chair in Blender bpy with 3dcodeverse",
+      "Make a kitchen cabinet with one door and a drawer as a URDF mechanism",
+      "Make a small Japanese garden at dusk with a koi pond as a three.js scene"
+    ]
+  }
+}
