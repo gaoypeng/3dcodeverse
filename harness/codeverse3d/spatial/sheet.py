@@ -125,7 +125,13 @@ def montage_2x2(
     if not 1 <= len(images) <= MONTAGE_MAX_TILES:
         raise ValueError(f"montage_2x2: need 1..{MONTAGE_MAX_TILES} tiles, got {len(images)}")
     cols = 1 if len(images) == 1 else 2
-    return contact_sheet(images, out, cols=cols, tile=tile, label=True)
+    try:  # cells take the first view's aspect (long side = tile): a 16:9 scene frame is not letterboxed
+        with Image.open(images[0][1]) as im:
+            w, h = im.size
+        cell: int | tuple[int, int] = (tile, max(1, round(tile * h / w))) if w >= h else (max(1, round(tile * w / h)), tile)
+    except (OSError, ValueError, ZeroDivisionError):
+        cell = tile
+    return contact_sheet(images, out, cols=cols, tile=cell, label=True)
 
 
 def crop_region(
