@@ -549,12 +549,13 @@ def commit_round(ws: Workspace, round_index: int, message: str) -> tuple[str, li
     return _git(ws, "rev-parse", "--short", "HEAD").strip(), notes
 
 
-def judge_instruction(out: Path) -> str:
-    """The exact text to hand a fresh-context judge subagent for the folder ``out``."""
+def judge_instruction(out: Path, images: list[str]) -> str:
+    """The exact text to hand a fresh-context judge subagent for the folder ``out``: two steps, then one line."""
     agent = PLUGIN_ROOT / "agents" / "3d-judge.md"
-    return (f"Judge ONLY the folder {out}: read {out / 'brief.md'} and every image it lists, write {out / JUDGMENT_NAME}, "
-            f"then reply with exactly one line: wrote {out / JUDGMENT_NAME}. "
-            f"If you were not started as the 3d-judge agent, read {agent} first.")
+    return (f"Judge ONLY the folder {out}. Step 1, in ONE step: read {out / 'brief.md'} and all of these images "
+            f"together: {' '.join(images)}. Step 2: write {out / JUDGMENT_NAME} (exactly the JSON the brief specifies). "
+            f"Then reply with exactly one line: wrote {out / JUDGMENT_NAME}. "
+            f"If you were not started as the 3d-judge agent, read {agent} in step 1 as well.")
 
 
 @tool("judge", NoArgs, "One step from code to the judge: make the workspace a git repo (local identity if none), run "
@@ -582,10 +583,11 @@ def judge(ctx: ToolContext, args: NoArgs) -> Observation:
                            images=pack.images)
     out = ws.judge_dir(ctx.round_index)
     lines += pack.text.splitlines()[:2]
-    lines.append("JUDGE INSTRUCTION: " + judge_instruction(out))
+    instruction = judge_instruction(out, list(pack.images))
+    lines.append("JUDGE INSTRUCTION: " + instruction)
     lines.append(f"next: 3dcode score --round {ctx.round_index}")
     return text_observation(lines, numbers={**pack.numbers, "commit": sha, "tag": f"r{ctx.round_index:02d}",
-                                            "instruction": judge_instruction(out)}, limit=4000)
+                                            "instruction": instruction}, limit=6000)
 
 
 # ===================================================================== score
