@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from codeverse3d.contracts.common import Usage
-from codeverse3d.contracts.run import RunId
+from codeverse3d.proc import read_json_or_none
+
 from c3d_flywheel.cost.ledger import load_ledger, price_call, summarise
 from c3d_flywheel.cost.types import CallCost, Stage, Summary
-from codeverse3d.proc import read_json_or_none
+from c3d_flywheel.legacy import RunId
 from c3d_flywheel.record.record import (
     RecordError,
     find_run_dirs,

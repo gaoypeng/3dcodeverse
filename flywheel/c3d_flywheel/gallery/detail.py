@@ -5,16 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote
 
+from codeverse3d.contracts.common import ENTRY_FILE
+from codeverse3d.workspace import Workspace
+
 from c3d_flywheel.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
 from c3d_flywheel.gallery.code import CODE_CSS, numbered, read_text, src_files
 from c3d_flywheel.gallery.index import run_rel
 from c3d_flywheel.gallery.model import RunEntry
 from c3d_flywheel.gallery.theme import esc, footer, page_shell, top_bar
 from c3d_flywheel.gallery.urls import UrlMaker
-from codeverse3d.contracts.common import ENTRY_FILE
-from codeverse3d.contracts.run import RoundRecord, RunRecord
+from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record.record import effective_judgment
-from codeverse3d.workspace import Workspace
 
 DETAIL_CSS = CODE_CSS + """
 .hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:var(--s-4);align-items:start}

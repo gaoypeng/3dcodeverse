@@ -1,23 +1,18 @@
-"""``3dcodeverse flywheel export | pairs | refine | caption``."""
+"""``c3d-flywheel export | pairs | refine``: recorded runs → dataset rows."""
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.markup import escape
 
+from c3d_flywheel.cli import _common as C
+from c3d_flywheel.cli._common import console, kv_table, ok, warn
 from c3d_flywheel.dataset.pairs import MIN_PREFERENCE_DELTA, build_pairs
-from codeverse3d.cli import _common as C
-from codeverse3d.cli._common import console, kv_table, ok, warn
-from codeverse3d.config import get_settings
-
-flywheel_app = typer.Typer(no_args_is_help=True)
 
 
-@flywheel_app.command("export")
 def export_cmd(
     runs_dir: Annotated[Path, typer.Argument(help="runs root")],
     out_dir: Annotated[Path, typer.Argument(help="dataset folder")],
@@ -26,7 +21,7 @@ def export_cmd(
     pack: Annotated[bool, typer.Option("--pack", help="also pack samples-NNN.tar + byte-range locators")] = False,
     tar_prefix: Annotated[str, typer.Option("--tar-prefix", help="repo-root-relative prefix for the tar column")] = "",
     include_unbuilt: Annotated[bool, typer.Option("--include-unbuilt", help="also export runs whose exported round never built")] = False,
-    captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
+    captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions (<dir>/<slug>.json) written by the v0.0.x captioner")] = None,
     drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave byte-identical duplicates (raw code sha256 + prompt) out of the index, manifest and tars (recorded under the manifest's dropped); normalised ones are only marked near_duplicate_of")] = False,
 ) -> None:
     """Export runs → sample folders + dataset_manifest.json + metadata.jsonl/.parquet (+ tars)."""
@@ -37,9 +32,8 @@ def export_cmd(
         try:
             import pyarrow  # noqa: F401
         except ImportError:
-            # escaped: rich reads "[flywheel]" as markup
-            raise C.CliError(escape("--pack needs the flywheel extra: "
-                                    "pip install -e 'harness[flywheel]'")) from None
+            # escaped: rich reads "[parquet]" as markup
+            raise C.CliError(escape("--pack needs the parquet extra: pip install 'c3d-flywheel[parquet]'")) from None
 
     rep = export_samples(runs_dir, out_dir, min_score=min_score, only_passed=only_passed, include_unbuilt=include_unbuilt,
                          captions_dir=captions_dir, drop_duplicates=drop_duplicates)
@@ -63,7 +57,6 @@ def export_cmd(
         ok(f"packed {prep.n_samples} samples into {prep.tars}; verified {n} locators")
 
 
-@flywheel_app.command("pairs")
 def pairs_cmd(
     runs_dir: Annotated[Path, typer.Argument()],
     out_jsonl: Annotated[Path, typer.Argument()],
@@ -74,7 +67,6 @@ def pairs_cmd(
     ok(f"{n} pairs → {out_jsonl}")
 
 
-@flywheel_app.command("refine")
 def refine_cmd(
     runs_dir: Annotated[Path, typer.Argument()],
     out_jsonl: Annotated[Path, typer.Argument()],
@@ -86,48 +78,3 @@ def refine_cmd(
 
     n, drops = build_refine(runs_dir, out_jsonl, with_code=with_code)
     ok(f"{n} transitions → {out_jsonl}" + (f"; not exported: {dict(drops)}" if drops else ""))
-
-
-@flywheel_app.command("caption")
-def caption_cmd(
-    target: Annotated[str, typer.Argument(help="run slug/dir, or a runs root with --all")],
-    model: Annotated[str | None, typer.Option("--model", help="default: Settings.default_captioner")] = None,
-    all_runs: Annotated[bool, typer.Option("--all", help="caption every un-captioned run under target")] = False,
-    force: Annotated[bool, typer.Option("--force", help="re-caption even if captions exist")] = False,
-    runs_dir: Annotated[Path | None, typer.Option("--runs-dir")] = None,
-    out: Annotated[Path | None, typer.Option("--out", help="write side-car <out>/<slug>.json instead of touching the run (read-only runs)")] = None,
-) -> None:
-    """Caption run(s): {detailed, instruction, factory} via a chat model."""
-    from c3d_flywheel.dataset.captions import CaptionError, caption_sample
-    from c3d_flywheel.dataset.export import load_captions
-    from c3d_flywheel.cost.instrument import run_ledger
-    from codeverse3d.proc import RunLocked, exclusive
-    from c3d_flywheel.record.record import iter_runs, load_record
-
-    model = model or get_settings().default_captioner
-    if all_runs:
-        targets = [(fr.ws, fr.record, fr.run_id.slug)
-                   for fr in iter_runs(target, on_error=lambda d, e: warn(f"skip {d.name}: {e}"))]
-    else:
-        ws = C.open_workspace(target, runs_dir)
-        targets = [(ws, load_record(ws), None)]  # no scan root → basename identity
-    done = skipped = failed = 0
-    for ws, rec, slug in targets:
-        if not force and load_captions(ws, rec, out, slug=slug).get("detailed"):
-            skipped += 1
-            continue
-        # per run: captioning rewrites record.json (--out writes a side-car instead); a locked
-        # run is skipped so one live run does not abort an --all batch
-        lock = nullcontext() if out else exclusive(ws.root, what=f"3dcodeverse flywheel caption {ws.root.name}")
-        try:
-            with lock, run_ledger(ws.root, run=ws.root.name, create=False):
-                caps = caption_sample(ws, rec, model, out_dir=out, slug=slug)
-        except (CaptionError, RunLocked) as e:
-            failed += 1
-            warn(str(e))
-            continue
-        done += 1
-        console.print(f"[bold]{slug or ws.root.name}[/bold]: {caps.instruction}")
-    ok(f"captioned {done}, skipped {skipped} (already), failed {failed}")
-    if failed and not done:
-        raise typer.Exit(code=1)

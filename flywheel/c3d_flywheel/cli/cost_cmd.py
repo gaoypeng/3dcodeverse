@@ -1,12 +1,12 @@
-"""``3dcodeverse cost`` — what the runs cost and where the money went, from each run's
+"""``c3d-flywheel cost`` — what the runs cost and where the money went, from each run's
 ``telemetry/cost.jsonl`` ledger.
 
-    3dcodeverse cost <slug>                      # one run, from its own ledger
-    3dcodeverse cost --runs-dir eval/bench/out/x # a whole battery, aggregated
-    3dcodeverse cost runs/ eval/bench/out/*      # any mix of run dirs / trees
-    3dcodeverse cost show runs/ --md report.md   # the same, explicit + full markdown
-    3dcodeverse cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
-    3dcodeverse cost prices [--stale] [--unverified]
+    c3d-flywheel cost <slug>                      # one run, from its own ledger
+    c3d-flywheel cost --runs-dir eval/bench/out/x # a whole battery, aggregated
+    c3d-flywheel cost runs/ eval/bench/out/*      # any mix of run dirs / trees
+    c3d-flywheel cost show runs/ --md report.md   # the same, explicit + full markdown
+    c3d-flywheel cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
+    c3d-flywheel cost prices [--stale] [--unverified]
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import click
 import typer
 from typer.core import TyperGroup
 
-from codeverse3d.cli._common import console, ok, runs_root, warn
+from c3d_flywheel.cli._common import console, ok, runs_root, warn
 
 #: a price row older than this needs re-checking against the provider's page
 STALE_AFTER_DAYS = 90
@@ -106,7 +106,7 @@ def prices(
     days: Annotated[int, typer.Option("--days", help="staleness threshold in days")] = STALE_AFTER_DAYS,
 ) -> None:
     """The USD price table with its provenance; flags stale, approximate or unverified rows."""
-    from c3d_flywheel.models.pricing import PRICES, price_provenance
+    from c3d_flywheel.cost.pricing import PRICES, price_provenance
 
     rows, flagged = [], 0
     for (prov, model) in sorted(PRICES):

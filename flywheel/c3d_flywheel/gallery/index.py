@@ -5,6 +5,10 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from codeverse3d.conventions import views_by_preference
+from codeverse3d.proc import read_json_or_none
+from codeverse3d.workspace import Workspace
+
 from c3d_flywheel import select
 from c3d_flywheel.dataset.quality import quality_tier
 from c3d_flywheel.dataset.sample import gate_error_summary
@@ -16,9 +20,7 @@ from c3d_flywheel.gallery.model import (
     RunLink,
     humanize_view,
 )
-from codeverse3d.contracts.run import RunId, RunRecord
-from codeverse3d.conventions import views_by_preference
-from codeverse3d.proc import read_json_or_none
+from c3d_flywheel.legacy import RunId, RunRecord
 from c3d_flywheel.record.deliverable import round_outputs
 from c3d_flywheel.record.record import (
     RecordError,
@@ -28,7 +30,6 @@ from c3d_flywheel.record.record import (
     is_run_dir,
     load_record,
 )
-from codeverse3d.workspace import Workspace
 
 DEFAULT_RUNS = "runs"
 DEFAULT_BENCH_GLOB = "eval/bench/out/*/runs"

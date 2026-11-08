@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from codeverse3d.proc import write_text_atomic
+
 from c3d_flywheel.gallery.cards import TABLE_HEAD, fmt, render_card, render_row
 from c3d_flywheel.gallery.index import build_index
 from c3d_flywheel.gallery.model import (
@@ -19,7 +21,6 @@ from c3d_flywheel.gallery.model import (
 )
 from c3d_flywheel.gallery.theme import INDEX_CSS, INDEX_JS, esc, footer, page_shell, top_bar
 from c3d_flywheel.gallery.urls import THUMB_PX, StaticUrls, UrlMaker
-from codeverse3d.proc import write_text_atomic
 
 
 # --------------------------------------------------------------------------- summary
@@ -160,7 +161,7 @@ def render_static(index: GalleryIndex, *, title: str = "3dcodeverse gallery", em
                   extra_html: str = "") -> str:
     note = ("images are inlined; the links open the original run directories on this machine"
             if embed else "images and links point at the run directories with file:// — "
-                          "use `3dcodeverse gallery serve` for a page that works anywhere")
+                          "use `c3d-flywheel gallery serve` for a page that works anywhere")
     return render_index(index, StaticUrls(embed=embed, thumb_px=thumb_px),
                         title=title, sort=sort, view=view, note=note, extra_html=extra_html)
 

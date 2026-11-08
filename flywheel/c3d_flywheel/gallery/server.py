@@ -1,4 +1,4 @@
-"""The local gallery server: ``3dcodeverse gallery serve``."""
+"""The local gallery server: ``c3d-flywheel gallery serve``."""
 
 from __future__ import annotations
 
@@ -184,8 +184,9 @@ class GalleryApp:
         return Response(content_type=ctype, path=target, headers=headers)
 
     def _detail(self, entry: RunEntry) -> Response:
-        from c3d_flywheel.record.record import RecordError, load_record
         from codeverse3d.workspace import Workspace
+
+        from c3d_flywheel.record.record import RecordError, load_record
 
         ws = Workspace(entry.path)
         try:
@@ -290,9 +291,10 @@ def make_server(app: GalleryApp, host: str = DEFAULT_HOST, port: int = DEFAULT_P
 
 def serve(roots: list[Path] | list[str], *, host: str | None = None,
           port: int = DEFAULT_PORT, reload: bool = False, open_browser: bool = False,
-          title: str = "3dcodeverse gallery", on_start: Any = None) -> None:
+          title: str = "3dcodeverse gallery", runtime_js: Path | str | None = None,
+          on_start: Any = None) -> None:
     bind = host or DEFAULT_HOST
-    app = GalleryApp(roots, reload=reload, title=title)
+    app = GalleryApp(roots, reload=reload, title=title, runtime_js=runtime_js)
     httpd = make_server(app, bind, port)
     url = f"http://{'127.0.0.1' if bind == '0.0.0.0' else bind}:{httpd.server_address[1]}/"  # noqa: S104
     if on_start is not None:

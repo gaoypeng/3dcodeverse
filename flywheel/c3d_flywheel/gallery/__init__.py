@@ -1,4 +1,4 @@
-"""The local run gallery: ``3dcodeverse gallery serve`` (localhost) and ``3dcodeverse gallery build`` (one file).
+"""The local run gallery: ``c3d-flywheel gallery serve`` (localhost) and ``c3d-flywheel gallery build`` (one file).
 
 * ``index``       ``build_index(roots)`` · ``default_roots()`` — record.json → typed entries
 * ``model``       ``RunEntry`` / ``RootSection`` / ``GalleryIndex`` / ``summarize`` / ``match``,

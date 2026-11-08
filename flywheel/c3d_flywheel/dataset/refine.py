@@ -7,11 +7,12 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from c3d_flywheel.dataset.pairs import MIN_PREFERENCE_DELTA
-from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.contracts.run import RoundRecord, RunRecord
+from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record.git_history import (
     GitReadError,
     changed_files_between,
@@ -19,7 +20,6 @@ from c3d_flywheel.record.git_history import (
     read_tree_at,
 )
 from c3d_flywheel.record.record import effective_judgment, effective_score, iter_runs
-from codeverse3d.workspace import Workspace
 
 REFINE_KINDS: tuple[str, ...] = ("refine", "rewrite", "detail")
 MAX_DIFF_BYTES = 200_000

@@ -9,16 +9,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from codeverse3d.contracts.common import ENTRY_FILE, Language
+from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic, write_text_atomic
+from codeverse3d.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from c3d_flywheel.dataset import sample as S
 from c3d_flywheel.dataset.quality import DuplicateGroup, code_sha256, mark_duplicates
-from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.run import RunId, RunRecord
-from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic, write_text_atomic
+from c3d_flywheel.legacy import RunId, RunRecord
 from c3d_flywheel.record.git_history import CODE_ROOTS
 from c3d_flywheel.record.record import FoundRun, iter_runs
-from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
@@ -370,7 +370,7 @@ def load_manifest(out_dir: Path | str) -> DatasetGenerationManifest:
     path = Path(out_dir) / MANIFEST_NAME
     if not path.is_file():
         raise ManifestError(
-            f"{path} not found — run export first (3dcodeverse flywheel export writes it): "
+            f"{path} not found — run export first (c3d-flywheel export writes it): "
             f"pack no longer rescans directories")
     try:
         return DatasetGenerationManifest.model_validate_json(path.read_text())
