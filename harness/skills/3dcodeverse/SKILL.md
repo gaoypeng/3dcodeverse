@@ -127,7 +127,9 @@ leave it.
    most THREE write steps — several files per step (all the part / zone / layer files together),
    the entry file last — then `3dcode check --workspace W` and fix each ERROR it lists (a compile or runtime error at the
    `file:line` it names, see Repairs; a gate ERROR by its fix hint) until none is left — every
-   ERROR caps the score.  Object tracks: the whole object first — every plan part at its box and
+   ERROR caps the score.  When the user asked for a score, run `3dcode judge --workspace W --round 0`
+   instead of each `check` after the code is written: it runs the check first and stops on any ERROR
+   with the same output, so a clean round goes straight to step 4 without a separate `check`.  Object tracks: the whole object first — every plan part at its box and
    attached to its parent before any part gets detail (a part still a ≤ 12-triangle box within
    1 mm of its plan box is a `placeholder_part` ERROR); then detail.  No ERROR → the round is
    done: without a judge request, go to step 6.
@@ -153,9 +155,9 @@ leave it.
    alone; on graphics a colour/light task touches palette, exposure and grade only, a motion
    task the time terms only — never rewrite unrelated layers or passes.  A measured finding
    that repeats needs a different change of the thing it measures, not the same edit again; a
-   judge note that repeats needs a visible change in the named view.  Then `check` until no
-   ERROR → the round's one look at the renders, if an item needs it → `judge --round N` → the
-   judge → `score --round N`.
+   judge note that repeats needs a visible change in the named view.  Then `judge --round N`
+   (it checks first and stops on any ERROR) until it packs, or `check` first when an item needs
+   the round's one look at the renders → the judge → `score --round N`.
 6. **Stop** when the rounds the user asked for are done, when `score` says passed with an empty
    improvement list, or when the overall fell two rounds running.  Without a judge the
    deliverable is r00; with one it is the BEST-scoring round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run

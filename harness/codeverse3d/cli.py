@@ -17,6 +17,7 @@ import os
 import sys
 import types
 import typing
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -201,6 +202,7 @@ def doctor_command(gpu: bool, as_json: bool) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     ns = parser.parse_args(argv)
+    warnings.filterwarnings("ignore", category=RuntimeWarning, module="trimesh")  # numeric noise in the agent's output
     if ns.command == "list":
         return list_command(ns.as_json)
     if ns.command == "doctor":

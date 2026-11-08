@@ -254,7 +254,7 @@ def validate_plan(ctx: ToolContext, args: ValidatePlanArgs) -> Observation:
 ACTIONABLE_WARN_GATES = frozenset({"detail_budget"})
 
 
-def _gate_lines(gates: list[GateReport], *, max_errors: int = 20, max_warns: int = 10) -> list[str]:
+def _gate_lines(gates: list[GateReport], *, max_errors: int = 20, max_warns: int = 10, list_info: bool = True) -> list[str]:
     lines = []
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)
     lines.append(f"gates: {status}")
@@ -271,6 +271,9 @@ def _gate_lines(gates: list[GateReport], *, max_errors: int = 20, max_warns: int
     for g, f in acted[:max_warns]:
         lines.append(f"- WARN {g.gate}" + (f" [{f.target}]" if f.target else "") + f": {f.message}"
                      + (f"  fix: {f.fix_hint}" if f.fix_hint else ""))
+    if info and not list_info:
+        lines.append(f"{len(info)} informational WARN(s) in artifacts/gates.json — they neither block nor cap: leave them")
+        return lines
     if info:
         lines.append("informational WARNs (they neither block nor cap; act on them only while fixing an ERROR nearby):")
     for g, f in info[:max_warns]:
@@ -312,7 +315,7 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
         lines.append("WARN: plan.json does not validate — the contract / budget gates did not run (3dcode validate-plan)")
     elif plan is None:
         lines.append("WARN: no plan.json — the contract / budget gates did not run")
-    lines += _gate_lines(res.gates)
+    lines += _gate_lines(res.gates, list_info=not res.ok)
     if res.measurement is not None:
         lines.append(measure_summary_table(res.measurement))
         numbers.update({"extents_m": list(res.measurement.extents), "tri_count": res.measurement.tri_count,
@@ -323,7 +326,7 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
     lines.append(f"written: {rel_path(ws.gates_path, ws.root)}")
     if res.ok:
         lines.append(f"next: no ERROR — the round's code is done; judge it (`3dcode judge --round {ctx.round_index}`) if the "
-                     "user asked for a score or refine rounds, else report. WARNs neither block nor cap the score: leave them.")
+                     "user asked for a score or refine rounds, else report.")
     return text_observation(lines, ok=res.ok, numbers=numbers, limit=8000)
 
 
@@ -601,8 +604,11 @@ def judge(ctx: ToolContext, args: NoArgs) -> Observation:
     stale = _check_stale(ws)
     if stale:
         chk = check(ctx, NoArgs())
-        if not chk.numbers.get("build_ok"):
-            return Observation(ok=False, failed=chk.failed, text=f"JUDGE STOPPED — check ran ({stale}) and did not build:\n" + chk.text,
+        if not chk.ok:
+            how = ("did not build" if not chk.numbers.get("build_ok") else
+                   "lists ERRORs — fix them and run `3dcode judge` again (run it again with src/ unchanged to judge "
+                   "anyway, every ERROR capping the score)")
+            return Observation(ok=False, failed=chk.failed, text=f"JUDGE STOPPED — check ran ({stale}) and {how}:\n" + chk.text,
                                numbers=chk.numbers)
         lines.append(f"check ran ({stale}): {chk.text.splitlines()[0]}")
     else:

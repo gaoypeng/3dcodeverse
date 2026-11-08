@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "3dcodeverse"
-version = "0.0.6"
+version = "0.0.7"
 description = "3dcodeverse: deterministic instruments (build, measure, render, gate, judge brief, score) for a coding agent writing raw 3D code (Blender / CadQuery / Three.js / URDF / GLSL) — the `3dcode` command line of the 3dcodeverse plugin."
 readme = "README.md"
 # One fixed version: 3.13 (owner's decision 2026-08-26 — no floor, no matrix).

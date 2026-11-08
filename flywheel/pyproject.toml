@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "c3d-flywheel"
-version = "0.0.6"
+version = "0.0.7"
 description = "Reads the runs 3dcodeverse v0.0.x recorded: show / pick / cost / gallery / dataset export."
 readme = "README.md"
 requires-python = ">=3.13"
