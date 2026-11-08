@@ -18,11 +18,11 @@
     "job:refine@r01/prompt": {"bytes": 7267, "sha256": "a718673dc59d566a5af561d8543756e0326057613430e6dae0cb13eb23b8234e"},
     "job:refine@r01/scope": {"bytes": 379, "sha256": "d17ae76997ec9443d52089e32ec81ecac3ba2c93529b227533942e84598113d9"},
     "job:refine@r01/system": {"bytes": 3271, "sha256": "29f5a9b2e7b9a879be58963ce95ae6fbec7460dae6785d542b214d6b850e21f4"},
-    "judge:articulated:runs/run/artifacts/renders/r00/input": {"bytes": 9774, "sha256": "10640a4a962ca2b86feafecc6e717ae69db6bbd8dd7537060f28ba30cbeebe46"},
+    "judge:articulated:runs/run/artifacts/renders/r00/input": {"bytes": 9701, "sha256": "73e6036251381ccb123947435d361b49ada019bbc66fce64a043b3f173c87208"},
     "judge:articulated:runs/run/artifacts/renders/r00/messages": {"bytes": 7266, "sha256": "44869437393997f2107fdf0a59b70d830557064fa5958abfbee786e535323a2c"},
     "judge:articulated:runs/run/artifacts/renders/r00/sampling": {"bytes": 11992, "sha256": "0450937509be0de6976f74c7d439af0878caa67d4105d01afcec4a211cfbfbd2"},
     "judge:articulated:runs/run/artifacts/renders/r00/system": {"bytes": 13129, "sha256": "b6c7c917b035224ca53b1a3e1fcd0c838b8ac20563e687cd6521d8cab4a78ed6"},
-    "judge:articulated:runs/run/artifacts/renders/r01/input": {"bytes": 10677, "sha256": "208dcdbbb369608c39b62827783f2ebddb74b7df32fb5932e5dda66327a041f2"},
+    "judge:articulated:runs/run/artifacts/renders/r01/input": {"bytes": 10604, "sha256": "e5f866df6b98ef572b8c96cbe55fdd9e5318a5acfbb56e0226fff9011237228d"},
     "judge:articulated:runs/run/artifacts/renders/r01/messages": {"bytes": 7591, "sha256": "a2e7394b1d8515b0256e914ceb6b07eaf526a634104ea03829c559e5fd7ebf67"},
     "judge:articulated:runs/run/artifacts/renders/r01/sampling": {"bytes": 11992, "sha256": "0450937509be0de6976f74c7d439af0878caa67d4105d01afcec4a211cfbfbd2"},
     "judge:articulated:runs/run/artifacts/renders/r01/system": {"bytes": 13129, "sha256": "b6c7c917b035224ca53b1a3e1fcd0c838b8ac20563e687cd6521d8cab4a78ed6"},
@@ -30,7 +30,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 125, "sha256": "5c725d8f66ce509d26245268d4c3525c99ce65ff9a56b94c708a74934ae2edf4"}
    },
    "stage_keys": {
-    "runs/run:plan": "7ff91964f143",
+    "runs/run:plan": "d5f5d764f031",
     "runs/run:skeleton": "7e94e98a2207"
    }
   },
@@ -51,11 +51,11 @@
     "chat:planner:planner/messages": {"bytes": 1328, "sha256": "313c87553cf38df423dc9245a8af4cca5a41a844b489e13a5dc08e8c44eabba5"},
     "chat:planner:planner/sampling": {"bytes": 10001, "sha256": "0ff37a3ae43fdf878dd0911a9954d57e49365ad788c84818ea01d350310ab401"},
     "chat:planner:planner/system": {"bytes": 20030, "sha256": "45dccfcf72b4c6e46b7ceeaae8af0ebddf6f6e6b5970cda5fe900aa47682bf06"},
-    "judge:articulated:runs/run/artifacts/renders/r00/input": {"bytes": 9494, "sha256": "6979f3d46aa69e74e061de59815a7686cb7adb6410ad365b1381d465fb91a17a"},
+    "judge:articulated:runs/run/artifacts/renders/r00/input": {"bytes": 9421, "sha256": "6d6ebeb66f2a9875ed4837ce818d4b6d1912a0f8f500b5c430a8b2aaaaccc92c"},
     "judge:articulated:runs/run/artifacts/renders/r00/messages": {"bytes": 7120, "sha256": "7a0ef8d51456faa2c38867eea6c502fbe1a7aa30d6cd9f23b44701a2d11846bf"},
     "judge:articulated:runs/run/artifacts/renders/r00/sampling": {"bytes": 11992, "sha256": "0450937509be0de6976f74c7d439af0878caa67d4105d01afcec4a211cfbfbd2"},
     "judge:articulated:runs/run/artifacts/renders/r00/system": {"bytes": 13129, "sha256": "b6c7c917b035224ca53b1a3e1fcd0c838b8ac20563e687cd6521d8cab4a78ed6"},
-    "judge:articulated:runs/run/artifacts/renders/r01/input": {"bytes": 10397, "sha256": "47f43a066f59487f10617337e9926281444ab21d475cbec139ff356f1b8a1796"},
+    "judge:articulated:runs/run/artifacts/renders/r01/input": {"bytes": 10324, "sha256": "c40942f92b4b0b7c4a3c0ae101d8c336c8de59d589dda0c2adfb47a6e3adf345"},
     "judge:articulated:runs/run/artifacts/renders/r01/messages": {"bytes": 7445, "sha256": "2a654e5bb10f8a642367b40c8893a16dce24c4bc4f6941cfbba76ce348ad4f1c"},
     "judge:articulated:runs/run/artifacts/renders/r01/sampling": {"bytes": 11992, "sha256": "0450937509be0de6976f74c7d439af0878caa67d4105d01afcec4a211cfbfbd2"},
     "judge:articulated:runs/run/artifacts/renders/r01/system": {"bytes": 13129, "sha256": "b6c7c917b035224ca53b1a3e1fcd0c838b8ac20563e687cd6521d8cab4a78ed6"},
@@ -63,43 +63,8 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 138, "sha256": "cb0610ba263bbb5cbeadf679a8213b52ece498906fabcdf2f8e5937d23c94c0b"}
    },
    "stage_keys": {
-    "runs/run:plan": "7ff91964f143",
+    "runs/run:plan": "d5f5d764f031",
     "runs/run:skeleton": "7e94e98a2207"
-   }
-  },
-  "graphics.glsl_shader.agent.best_of_2": {
-   "payloads": {
-    "chat:planner:planner/messages": {"bytes": 348, "sha256": "f50fc3cdf3a426fc9c9b830b6e68d2cfe9fd9b7125550362b018f9c9b454b25c"},
-    "chat:planner:planner/sampling": {"bytes": 3421, "sha256": "918170272cea656e8c542c54b777c57d1a4567a8cc36a0c1cd825cb81a01b9bb"},
-    "chat:planner:planner/system": {"bytes": 11919, "sha256": "194d0e2a724c4799816033228af15cac568dd51c14ed85bff9c94ae5ba281866"},
-    "context:runs/run/_cand/c0/files": {"bytes": 32360, "sha256": "7ece7fd3e4274f3c5749772aaf0774de530f1f0a2d50b48aaf998dc6576a067c"},
-    "context:runs/run/_cand/c1/files": {"bytes": 32360, "sha256": "7ece7fd3e4274f3c5749772aaf0774de530f1f0a2d50b48aaf998dc6576a067c"},
-    "context:runs/run/files": {"bytes": 32360, "sha256": "7ece7fd3e4274f3c5749772aaf0774de530f1f0a2d50b48aaf998dc6576a067c"},
-    "job:baseline_c0@r00/prompt": {"bytes": 11347, "sha256": "5aca38cfae577e7e5e5974c2b6cd64e55ec35a1dfab33eaf62eff70652854df5"},
-    "job:baseline_c0@r00/scope": {"bytes": 383, "sha256": "51d22961200ef987a7c652af48ff2897b910803baa672d3081f53c3fb819a685"},
-    "job:baseline_c0@r00/system": {"bytes": 3173, "sha256": "c3879a563e2a512b82358d0c3927dcbfe9347725e592035a9b64c5d1b34e6654"},
-    "job:baseline_c1@r00/prompt": {"bytes": 11347, "sha256": "5aca38cfae577e7e5e5974c2b6cd64e55ec35a1dfab33eaf62eff70652854df5"},
-    "job:baseline_c1@r00/scope": {"bytes": 383, "sha256": "831265b54627f1f6c1bfadebefa4e898d6b543b253bf6be0685b5383bd39fb57"},
-    "job:baseline_c1@r00/system": {"bytes": 3173, "sha256": "c3879a563e2a512b82358d0c3927dcbfe9347725e592035a9b64c5d1b34e6654"},
-    "judge:shader:runs/run/_cand/c0/artifacts/renders/r00/input": {"bytes": 3994, "sha256": "9017ce25c58c838de8f1d4b5b06b1e229231815e0a1be8423fe1ad59fcafd350"},
-    "judge:shader:runs/run/_cand/c0/artifacts/renders/r00/messages": {"bytes": 3727, "sha256": "d7deb2c4a1fa8e9b015a4e81439f9781e7618be6a01b013d18bb3acc4f6a32b9"},
-    "judge:shader:runs/run/_cand/c0/artifacts/renders/r00/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
-    "judge:shader:runs/run/_cand/c0/artifacts/renders/r00/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "judge:shader:runs/run/_cand/c1/artifacts/renders/r00/input": {"bytes": 3994, "sha256": "33e92e986d31784b0cfabb948d5ec11f370b2648fb583e248920e955d0df6934"},
-    "judge:shader:runs/run/_cand/c1/artifacts/renders/r00/messages": {"bytes": 3727, "sha256": "d7deb2c4a1fa8e9b015a4e81439f9781e7618be6a01b013d18bb3acc4f6a32b9"},
-    "judge:shader:runs/run/_cand/c1/artifacts/renders/r00/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
-    "judge:shader:runs/run/_cand/c1/artifacts/renders/r00/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3940, "sha256": "5b42c0e9bf4425488c783ed454fa0f483dec9c992d931089f5f0455aa698d0b1"},
-    "judge:shader:runs/run/artifacts/renders/r00/messages": {"bytes": 3727, "sha256": "d7deb2c4a1fa8e9b015a4e81439f9781e7618be6a01b013d18bb3acc4f6a32b9"},
-    "judge:shader:runs/run/artifacts/renders/r00/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
-    "judge:shader:runs/run/artifacts/renders/r00/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "skills:runs/run/_cand/c0:baseline@r00/routed": {"bytes": 56, "sha256": "400eb18b3e0ca869392d11f9fc95c12140d8234f3efe8f3c1ec66b5c43d1ffa6"},
-    "skills:runs/run/_cand/c1:baseline@r00/routed": {"bytes": 56, "sha256": "400eb18b3e0ca869392d11f9fc95c12140d8234f3efe8f3c1ec66b5c43d1ffa6"},
-    "skills:runs/run:baseline@r00/routed": {"bytes": 56, "sha256": "400eb18b3e0ca869392d11f9fc95c12140d8234f3efe8f3c1ec66b5c43d1ffa6"}
-   },
-   "stage_keys": {
-    "runs/run:plan": "6b5b2d8775b3",
-    "runs/run:skeleton": "7ad4f988e9ca"
    }
   },
   "graphics.glsl_shader.agent.fresh": {
@@ -117,15 +82,15 @@
     "job:refine@r02/prompt": {"bytes": 4828, "sha256": "f02f3a218edb95d79000fd339cc556045baccd5087231dd293db83195c927fa7"},
     "job:refine@r02/scope": {"bytes": 375, "sha256": "c4a7fdb0b390ec75d595006e11b9982113e60c49f5a62a978153167053bbcd33"},
     "job:refine@r02/system": {"bytes": 3173, "sha256": "c3879a563e2a512b82358d0c3927dcbfe9347725e592035a9b64c5d1b34e6654"},
-    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3940, "sha256": "76bcc0b648da93801f0388ce5f7fa927bbaef4294992a4f97d61810d873fde02"},
+    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3867, "sha256": "7859b9bb883b24b1f54ae57ef0bbc29519d7b9939b257f3bd7b0b85faf86ae5f"},
     "judge:shader:runs/run/artifacts/renders/r00/messages": {"bytes": 3727, "sha256": "d7deb2c4a1fa8e9b015a4e81439f9781e7618be6a01b013d18bb3acc4f6a32b9"},
     "judge:shader:runs/run/artifacts/renders/r00/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r00/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 4993, "sha256": "6cfdce1740f3e23ee5dacff9505abc54ff248e606d94ca9af0b43cdc490952b0"},
+    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 4920, "sha256": "f36e49a74ae78281233fd0146d0c35e8f8ae89f7b5dc3785b1d686bec0db91fc"},
     "judge:shader:runs/run/artifacts/renders/r01/messages": {"bytes": 4123, "sha256": "a1f0c207406de6f415fdb8516b695aaedf7f06d25598f33932d2ad728f8c881f"},
     "judge:shader:runs/run/artifacts/renders/r01/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r01/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "judge:shader:runs/run/artifacts/renders/r02/input": {"bytes": 4989, "sha256": "3f80efe4c05ef89f372e24d4a15bac9d8168ae9e4009a0a989e8d116ec5d68ab"},
+    "judge:shader:runs/run/artifacts/renders/r02/input": {"bytes": 4916, "sha256": "5b8060dc2f179f7c13901e9519517d1cc4b425f809900f722c19fdab6a6e9194"},
     "judge:shader:runs/run/artifacts/renders/r02/messages": {"bytes": 4123, "sha256": "5b81b09f9d6a7e3225549454099d07143f5bb726c3ccff263b4afc7bfe13d88b"},
     "judge:shader:runs/run/artifacts/renders/r02/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r02/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
@@ -134,7 +99,7 @@
     "skills:runs/run:refine@r02/routed": {"bytes": 56, "sha256": "400eb18b3e0ca869392d11f9fc95c12140d8234f3efe8f3c1ec66b5c43d1ffa6"}
    },
    "stage_keys": {
-    "runs/run:plan": "6b5b2d8775b3",
+    "runs/run:plan": "14103d374ce8",
     "runs/run:skeleton": "7ad4f988e9ca"
    }
   },
@@ -156,7 +121,7 @@
     "job:rebuild@r01/prompt": {"bytes": 11530, "sha256": "55b953a2ecd60c415cec8995694d1dc731bd0d8135bc594a1ba07d68b7f5f09f"},
     "job:rebuild@r01/scope": {"bytes": 379, "sha256": "471fba995682e47fe12099cb5881743a8aeae71a0243fa3598c72d69a5b31f98"},
     "job:rebuild@r01/system": {"bytes": 3173, "sha256": "c3879a563e2a512b82358d0c3927dcbfe9347725e592035a9b64c5d1b34e6654"},
-    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 3940, "sha256": "e6cc828e4e29dcf2648d0e1d6f64786b693275e0c29dd029228967f047ae75f7"},
+    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 3867, "sha256": "40682b63109aa4c3467fb4f4b1149f912cbed41a12f55dd2802c0504301fde06"},
     "judge:shader:runs/run/artifacts/renders/r01/messages": {"bytes": 3727, "sha256": "d7deb2c4a1fa8e9b015a4e81439f9781e7618be6a01b013d18bb3acc4f6a32b9"},
     "judge:shader:runs/run/artifacts/renders/r01/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r01/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
@@ -164,7 +129,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 56, "sha256": "400eb18b3e0ca869392d11f9fc95c12140d8234f3efe8f3c1ec66b5c43d1ffa6"}
    },
    "stage_keys": {
-    "runs/run:plan": "6b5b2d8775b3",
+    "runs/run:plan": "14103d374ce8",
     "runs/run:skeleton": "7ad4f988e9ca"
    }
   },
@@ -179,11 +144,11 @@
     "chat:planner:planner/messages": {"bytes": 348, "sha256": "f50fc3cdf3a426fc9c9b830b6e68d2cfe9fd9b7125550362b018f9c9b454b25c"},
     "chat:planner:planner/sampling": {"bytes": 3421, "sha256": "918170272cea656e8c542c54b777c57d1a4567a8cc36a0c1cd825cb81a01b9bb"},
     "chat:planner:planner/system": {"bytes": 11919, "sha256": "194d0e2a724c4799816033228af15cac568dd51c14ed85bff9c94ae5ba281866"},
-    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3957, "sha256": "0329b91e396067d845a7fccd9fe2bb021d62d8b74e38e2b3f1554c6d439c5acf"},
+    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3884, "sha256": "1d3a1e12915794d2f628a1f2782bedd37da19a431877c4cafcdf46b6435b1525"},
     "judge:shader:runs/run/artifacts/renders/r00/messages": {"bytes": 3727, "sha256": "d7deb2c4a1fa8e9b015a4e81439f9781e7618be6a01b013d18bb3acc4f6a32b9"},
     "judge:shader:runs/run/artifacts/renders/r00/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r00/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 5010, "sha256": "d3f2975d0a9c9b79bd0902e39a6509b124e53effa66d9f1bd542feebd38208cf"},
+    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 4937, "sha256": "23fe39550e1f21bf9afa1cd9857bcd5abf461caf9e28c01fafdeb27038199c03"},
     "judge:shader:runs/run/artifacts/renders/r01/messages": {"bytes": 4123, "sha256": "a1f0c207406de6f415fdb8516b695aaedf7f06d25598f33932d2ad728f8c881f"},
     "judge:shader:runs/run/artifacts/renders/r01/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r01/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
@@ -191,7 +156,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 68, "sha256": "cf6a7b5027626c144cf9f6ccc254f9bf6332217398c364638db88002139012ad"}
    },
    "stage_keys": {
-    "runs/run:plan": "6b5b2d8775b3",
+    "runs/run:plan": "14103d374ce8",
     "runs/run:skeleton": "7ad4f988e9ca"
    }
   },
@@ -207,11 +172,11 @@
     "job:refine@r01/prompt": {"bytes": 4809, "sha256": "564c35401c05213d9906d0ecf84ead9e8c8a54ef51cae13eeb59fcb98e1b7275"},
     "job:refine@r01/scope": {"bytes": 354, "sha256": "81a4042ba077832530b2a9f64d3e1415da1b655b00caf1006ed51ee616a7b17b"},
     "job:refine@r01/system": {"bytes": 2729, "sha256": "d12d4891ce72156aa561bdfa0ed1fb20c5826412024b0be07b423949528e5df6"},
-    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3944, "sha256": "67ad3296a96af7a97e97593c3b322aa52f28b84d19c55ea53890a10e65310b8c"},
+    "judge:shader:runs/run/artifacts/renders/r00/input": {"bytes": 3871, "sha256": "5aeeb1467864ab1e55de9c1692d7292fba6de5ec7152163e814a3f14fdd9677b"},
     "judge:shader:runs/run/artifacts/renders/r00/messages": {"bytes": 3731, "sha256": "355b5a5eb7617171897155fe818a3975dea97d127ae8416f1352a67bb6a84a19"},
     "judge:shader:runs/run/artifacts/renders/r00/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r00/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
-    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 4997, "sha256": "ec17ede71c6393b5b990c777e25bbce8d5078f08ae1d9d12f74fec13d28e35f6"},
+    "judge:shader:runs/run/artifacts/renders/r01/input": {"bytes": 4924, "sha256": "f9da85534ef572ad253dcd7b930be7d3c8caa7c7b9a54a9cef1e9dc1cb1fbecb"},
     "judge:shader:runs/run/artifacts/renders/r01/messages": {"bytes": 4127, "sha256": "a4c4a41eea8d4af3df6646d2aa757c01a0ab663614361e61e76e84e21f9d5378"},
     "judge:shader:runs/run/artifacts/renders/r01/sampling": {"bytes": 11662, "sha256": "88d8e8ec41fe9fc983cb78208877ac3d1c9148a4f67637ee61b6e23451a9e0dc"},
     "judge:shader:runs/run/artifacts/renders/r01/system": {"bytes": 11253, "sha256": "dcf75b56942831a1db5074023dfdad4b4750a3842eb4233dc2d41adacd1de67b"},
@@ -219,7 +184,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 61, "sha256": "6cf132dce307379276e442875a061e8e0d099d50b70a8d18d4622abd9ce8ee8c"}
    },
    "stage_keys": {
-    "runs/run:plan": "2dae8a504e59",
+    "runs/run:plan": "9523e6374717",
     "runs/run:skeleton": "52e9bc1e1abd"
    }
   },
@@ -281,16 +246,16 @@
     "job:zones_quay_water@r00/prompt": {"bytes": 35057, "sha256": "8e18d1a7baa4f7747fabe9affb187b29ba5a39e9e2d5342ebe5027c9ec20c68c"},
     "job:zones_quay_water@r00/scope": {"bytes": 364, "sha256": "69a91221629a23e4f5bc8ce393294d5c6a00213156b2d2ded4783159a0f02557"},
     "job:zones_quay_water@r00/system": {"bytes": 7239, "sha256": "67334373ec84ee3a89a3870646aef6a41f03b9ae15678e06e800bc206e10673d"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3671, "sha256": "d9ebd5b9a5d5c66c8f71f019376d002a32259926864e2e10766cb54486e94cbc"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4930, "sha256": "676859b5172ea33c86195b543b5c80e49dc907598dbdddb57a9734e58df9e8a1"},
+    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3523, "sha256": "e53774da39deb14312abd4757f0882a623e0e5f8d45dea1faf3ae68f4c050711"},
+    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4909, "sha256": "778bd159c82abd4e548d04584acf214e1015aeee8027c8da26ace1d9277d9d20"},
     "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
-    "judge:scene:runs/run/artifacts/renders/r01/input": {"bytes": 4671, "sha256": "85ff73f1331745397559c9d5a8acbb3e440e1597cb6e003b2f7643d26da9386c"},
-    "judge:scene:runs/run/artifacts/renders/r01/messages": {"bytes": 5298, "sha256": "35679341c294b774ac1c228d9a2bc56f4792f8831dd1c216b513e4427e6cb0c1"},
+    "judge:scene:runs/run/artifacts/renders/r01/input": {"bytes": 4523, "sha256": "d8fbf4e7f169fd0f254dc4fa440d83d47235565b1098c15a61886aa64ec55c30"},
+    "judge:scene:runs/run/artifacts/renders/r01/messages": {"bytes": 5277, "sha256": "ad76faf0a14e94484deb1d7334e4e20308b6805558c5f902e43d278d8ccaedd8"},
     "judge:scene:runs/run/artifacts/renders/r01/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r01/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
-    "judge:scene:runs/run/artifacts/renders/r02/input": {"bytes": 4667, "sha256": "8d84413ef22fb9bc007c85bd7dd3d797dfad27001dcf4e189d15bf788948699e"},
-    "judge:scene:runs/run/artifacts/renders/r02/messages": {"bytes": 5298, "sha256": "0b15d27d13b64c082c86c2e4cea5d85a7f0b3e9daef93b5cb62f698d06570437"},
+    "judge:scene:runs/run/artifacts/renders/r02/input": {"bytes": 4519, "sha256": "ae2f05dbb47296e38745c38c4b340af6c1340613a231b558de4fce829328bc00"},
+    "judge:scene:runs/run/artifacts/renders/r02/messages": {"bytes": 5277, "sha256": "f04bd0d9bd2ad763a267f028ddeff04317d7708d41f36352a3409e3cac079c9c"},
     "judge:scene:runs/run/artifacts/renders/r02/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r02/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 35, "sha256": "607ad2fd09f3e6a0617f5d52cff3edf2a91bd286e8bf5b18d5f7c0e5f6dfff80"},
@@ -304,7 +269,7 @@
     "runs/run:assets": "47a6e0c9cb08",
     "runs/run:env": "47a6e0c9cb08",
     "runs/run:layouts": "47a6e0c9cb08",
-    "runs/run:plan": "54e8de4267c4",
+    "runs/run:plan": "7c51be26cc51",
     "runs/run:skeleton": "e42c2d2f88e0",
     "runs/run:zones": "7dd540d9edd0"
    }
@@ -347,8 +312,8 @@
     "chat:planner:zone-layout#2/messages": {"bytes": 485, "sha256": "67e917190ee227c5ed3415ab4b03c072af313d7040704e7de671e63c42e2ab52"},
     "chat:planner:zone-layout#2/sampling": {"bytes": 3397, "sha256": "160445a83ede28afc0191547fd42d9341e694ef70aaad380bebf60ead0a65c49"},
     "chat:planner:zone-layout#2/system": {"bytes": 3326, "sha256": "494acec302dd23fa2fc6ee1eb6d48e873d6cf0ad98bad413e27578cf062313d4"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3688, "sha256": "f4a2f469cd1a57547c5edd0691db35c4f75ae4b5a8cded221bdef01f323c3b6f"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4930, "sha256": "676859b5172ea33c86195b543b5c80e49dc907598dbdddb57a9734e58df9e8a1"},
+    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3540, "sha256": "4258120da8c5a0a93df02352ea3fcea77e2583ec55fa270f93ef82ce2b6b71ff"},
+    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4909, "sha256": "778bd159c82abd4e548d04584acf214e1015aeee8027c8da26ace1d9277d9d20"},
     "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 35, "sha256": "607ad2fd09f3e6a0617f5d52cff3edf2a91bd286e8bf5b18d5f7c0e5f6dfff80"},
@@ -361,7 +326,7 @@
     "runs/run:assets": "1fe4141b3b47",
     "runs/run:env": "1fe4141b3b47",
     "runs/run:layouts": "1fe4141b3b47",
-    "runs/run:plan": "54e8de4267c4",
+    "runs/run:plan": "7c51be26cc51",
     "runs/run:skeleton": "e42c2d2f88e0",
     "runs/run:zones": "f6a9dbff2217"
    }
@@ -411,16 +376,16 @@
     "job:zones_quay_water@r00/prompt": {"bytes": 42361, "sha256": "ba7f066f892074d3b6230f7380a1a3492167ab8c24a045e3ee38f0acab6a420a"},
     "job:zones_quay_water@r00/scope": {"bytes": 379, "sha256": "5b1def419a1370ab2d9f2345bc4a5232ef3c793d4e4f1e01bd5ab9a3a8e88a7d"},
     "job:zones_quay_water@r00/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3671, "sha256": "e0a279e07356ac991389dd13a46ffa63925c422c124e9a529b68a698c03d51dd"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4930, "sha256": "562ef4bfc6b24c34604482cb73a02fb4b01da5c0e70685e3a1a4e1dda616a827"},
+    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3523, "sha256": "635e16b036edfffb476af741daa997588315a6c1cc42424be72ce77d65f60058"},
+    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4909, "sha256": "cf981dcf14aa7bc842aa9309ada13b9622a798f0410f163940172d8f980a81cf"},
     "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
-    "judge:scene:runs/run/artifacts/renders/r01/input": {"bytes": 4671, "sha256": "b229d374a8e6f6bc73dc6ecbc0b5ea6e3d512e58f6417b8fb4fe147e8e795dcc"},
-    "judge:scene:runs/run/artifacts/renders/r01/messages": {"bytes": 5298, "sha256": "c9a488e3385bb803ce084eda9a1ad2ed58c338201f1ad6d7f416cf0070f1a9f1"},
+    "judge:scene:runs/run/artifacts/renders/r01/input": {"bytes": 4523, "sha256": "83bc0a78bbedca110500bbeb0854b04d1e98c57796c95bc144a1c76a16a2dabe"},
+    "judge:scene:runs/run/artifacts/renders/r01/messages": {"bytes": 5277, "sha256": "43e5179d1f5627212c0c097221ded74e289296f92d53e0f647d4dec5f1187858"},
     "judge:scene:runs/run/artifacts/renders/r01/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r01/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
-    "judge:scene:runs/run/artifacts/renders/r02/input": {"bytes": 4667, "sha256": "3891bd56dfcc04f73f8934501c81af1c02381687e94410341e6ab55f6a9426e3"},
-    "judge:scene:runs/run/artifacts/renders/r02/messages": {"bytes": 5298, "sha256": "d8e7af12d299bcc4d09f7b68a6cdf3de2816e89d0d785ff88153c9e3aa5ce8cd"},
+    "judge:scene:runs/run/artifacts/renders/r02/input": {"bytes": 4519, "sha256": "1e79f45c8e717d490e71e858b1eabc033aa383a4397644070c9fcef443d41f52"},
+    "judge:scene:runs/run/artifacts/renders/r02/messages": {"bytes": 5277, "sha256": "e40623fa28c4b20539b4392cb1a5e9b6f1a8224f72a0fe9061780a5e011c13a4"},
     "judge:scene:runs/run/artifacts/renders/r02/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r02/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 156, "sha256": "cae5ab46c39f9f4efb7ae3c4758b05d768025f93d525d5e13812b916a583fd30"},
@@ -434,7 +399,7 @@
     "runs/run:assets": "e3fcf2d29017",
     "runs/run:env": "e3fcf2d29017",
     "runs/run:layouts": "e3fcf2d29017",
-    "runs/run:plan": "105b46262eac",
+    "runs/run:plan": "9c44d138dbae",
     "runs/run:skeleton": "6bd35d0cf375",
     "runs/run:zones": "0526c0ee5233"
    }
@@ -485,16 +450,16 @@
     "job:zones_quay_water@r00/prompt": {"bytes": 42541, "sha256": "986c0f46f90e4f652c336741d6925c1bf7f7b2d83dbe5977ba8a9856dfa4c576"},
     "job:zones_quay_water@r00/scope": {"bytes": 379, "sha256": "5b1def419a1370ab2d9f2345bc4a5232ef3c793d4e4f1e01bd5ab9a3a8e88a7d"},
     "job:zones_quay_water@r00/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate/input": {"bytes": 3740, "sha256": "7ed1c4ad9bbe46627388ef6456e548a7bcea7a3cf2d81bd411a6661490c45d84"},
+    "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate/input": {"bytes": 3667, "sha256": "068f5fd80a9921093c7218c7d006c15034facb8041bbd4dad9797ad952858baa"},
     "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate/messages": {"bytes": 3099, "sha256": "eee511c765a105054417cb3fa37bf67c24bcf9022da44dc086385878a61d5f67"},
     "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate/sampling": {"bytes": 8358, "sha256": "d816200df3d61ed4afb3251779d3981fe0bdf6ef70db86cbba3dd76dcc28edf6"},
     "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate/system": {"bytes": 8834, "sha256": "8b52aa8a0e80ff6ba98f494c36013745f5dd07a4e1040d72ff7f55aeeb907ba5"},
-    "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate_fix/input": {"bytes": 3760, "sha256": "db0cd0f5265e7b6242276d4c247285af8cc63b7968663ab1d756b0f6e39a3ff1"},
+    "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate_fix/input": {"bytes": 3687, "sha256": "5446100192ea7ab0e97b140df166d4bec69bcf980be851ead52ba27809ee6a42"},
     "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate_fix/messages": {"bytes": 3099, "sha256": "eee511c765a105054417cb3fa37bf67c24bcf9022da44dc086385878a61d5f67"},
     "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate_fix/sampling": {"bytes": 8358, "sha256": "d816200df3d61ed4afb3251779d3981fe0bdf6ef70db86cbba3dd76dcc28edf6"},
     "judge:asset:runs/run/_assets/crate/artifacts/renders/r00/assets/crate_fix/system": {"bytes": 8834, "sha256": "8b52aa8a0e80ff6ba98f494c36013745f5dd07a4e1040d72ff7f55aeeb907ba5"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3678, "sha256": "c568be390c9629408785c20ba5d786b9df369f0d446a67258a4723be082d0a3f"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4937, "sha256": "407f918497c4e96ed25d4a9c5c968993644c2a43fadfcc1bc6a0c4f7e6a9d99f"},
+    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3530, "sha256": "03c018a57f4ead0775be5158c4f91ad3c7d00b8583963002c88ff70f599fa33c"},
+    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4916, "sha256": "88385fa5efce79ddac00aea9640c2f0706d88ff9c21cfcbc0cd3e1c7219f2e4c"},
     "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 156, "sha256": "cae5ab46c39f9f4efb7ae3c4758b05d768025f93d525d5e13812b916a583fd30"},
@@ -506,7 +471,7 @@
     "runs/run:assets": "2e61537ff1c0",
     "runs/run:env": "2e61537ff1c0",
     "runs/run:layouts": "2e61537ff1c0",
-    "runs/run:plan": "105b46262eac",
+    "runs/run:plan": "9c44d138dbae",
     "runs/run:skeleton": "dba1ece541d0",
     "runs/run:zones": "77a6039e286c"
    }
@@ -529,8 +494,8 @@
     "job:zones_quay_water@r00/prompt": {"bytes": 41688, "sha256": "752f5e1a1ee0e088ac14df293d7d28d56a29c6d8249f3a2a13f1d1e2249964df"},
     "job:zones_quay_water@r00/scope": {"bytes": 379, "sha256": "5b1def419a1370ab2d9f2345bc4a5232ef3c793d4e4f1e01bd5ab9a3a8e88a7d"},
     "job:zones_quay_water@r00/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3671, "sha256": "8db21e497c7c1a78034468aed62ee16133c954517a230a1a8fd1a3bc32f4ac34"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4930, "sha256": "562ef4bfc6b24c34604482cb73a02fb4b01da5c0e70685e3a1a4e1dda616a827"},
+    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3523, "sha256": "7f7d517fbf93af32bd3e256de324b01285ab656c39ea57e06b492203b8adecec"},
+    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4909, "sha256": "cf981dcf14aa7bc842aa9309ada13b9622a798f0410f163940172d8f980a81cf"},
     "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 156, "sha256": "cae5ab46c39f9f4efb7ae3c4758b05d768025f93d525d5e13812b916a583fd30"},
@@ -541,7 +506,7 @@
     "runs/run:assemble": "eb288074ac5b",
     "runs/run:assets": "e3fcf2d29017",
     "runs/run:env": "e3fcf2d29017",
-    "runs/run:plan": "105b46262eac",
+    "runs/run:plan": "9c44d138dbae",
     "runs/run:skeleton": "6bd35d0cf375",
     "runs/run:zones": "799b540cc58b"
    }
@@ -598,63 +563,7 @@
     "runs/run:assets": "e3fcf2d29017",
     "runs/run:env": "e3fcf2d29017",
     "runs/run:layouts": "e3fcf2d29017",
-    "runs/run:plan": "105b46262eac",
-    "runs/run:skeleton": "6bd35d0cf375",
-    "runs/run:zones": "0526c0ee5233"
-   }
-  },
-  "scene.scene_threejs.agent.variant_argon": {
-   "payloads": {
-    "chat:model:asset_bollard:r00/messages": {"bytes": 3327, "sha256": "1a2c11617634f2944f0e66819a64d644a0180612213856e98575191a481f2a5b"},
-    "chat:model:asset_bollard:r00/sampling": {"bytes": 92, "sha256": "08e72af1b4fb249378c5a151e019ded70a1014eafa4d50f70927bb225f695678"},
-    "chat:model:asset_bollard:r00/system": {"bytes": 3483, "sha256": "79f9f153926a1b9edee34e0fbc13767ff419319c18575fc0ad2bb553d9e6f3ad"},
-    "chat:model:asset_fishing_boat:r00/messages": {"bytes": 3365, "sha256": "583f9c5888c4ff1567e3cbb2d9e3e8701e31169fd30f295d89dae16e046e55cc"},
-    "chat:model:asset_fishing_boat:r00/sampling": {"bytes": 92, "sha256": "08e72af1b4fb249378c5a151e019ded70a1014eafa4d50f70927bb225f695678"},
-    "chat:model:asset_fishing_boat:r00/system": {"bytes": 3483, "sha256": "79f9f153926a1b9edee34e0fbc13767ff419319c18575fc0ad2bb553d9e6f3ad"},
-    "chat:planner:planner/messages": {"bytes": 204, "sha256": "b91c27cbf7a8071bf320a68a6113bd25896bf0422f92b9087fb155bad18dbdc1"},
-    "chat:planner:planner/sampling": {"bytes": 8047, "sha256": "ac5eba7173d30fcdfc0682ff102fc65e9f4325a5a4f1fbdaca4b0dcd4547d4b1"},
-    "chat:planner:planner/system": {"bytes": 26641, "sha256": "97cc784b73ca9dfb4f46cc62c0db7c73d9cb6085db85b7feba1895d98e0fa6f6"},
-    "chat:planner:zone-layout#0/messages": {"bytes": 331, "sha256": "eeefd42e9d8d37a901af0ae126aebf39fb2e7861fabe6208d3a9408e1a3c1b37"},
-    "chat:planner:zone-layout#0/sampling": {"bytes": 3397, "sha256": "160445a83ede28afc0191547fd42d9341e694ef70aaad380bebf60ead0a65c49"},
-    "chat:planner:zone-layout#0/system": {"bytes": 3326, "sha256": "494acec302dd23fa2fc6ee1eb6d48e873d6cf0ad98bad413e27578cf062313d4"},
-    "chat:planner:zone-layout#1/messages": {"bytes": 401, "sha256": "73206223434695497c74e5f8f5bc0a0f1b147a7dc38147645c6cf42b5372484b"},
-    "chat:planner:zone-layout#1/sampling": {"bytes": 3397, "sha256": "160445a83ede28afc0191547fd42d9341e694ef70aaad380bebf60ead0a65c49"},
-    "chat:planner:zone-layout#1/system": {"bytes": 3391, "sha256": "fa6d28546a947ddc6ab8d0adb8af97a1605873109a47cf7f097f72d9788fd678"},
-    "chat:planner:zone-layout#2/messages": {"bytes": 485, "sha256": "67e917190ee227c5ed3415ab4b03c072af313d7040704e7de671e63c42e2ab52"},
-    "chat:planner:zone-layout#2/sampling": {"bytes": 3397, "sha256": "160445a83ede28afc0191547fd42d9341e694ef70aaad380bebf60ead0a65c49"},
-    "chat:planner:zone-layout#2/system": {"bytes": 3326, "sha256": "494acec302dd23fa2fc6ee1eb6d48e873d6cf0ad98bad413e27578cf062313d4"},
-    "context:runs/run/files": {"bytes": 55626, "sha256": "210ef1318159cf47ac914cf0013d623c34ee57bc7723ca301da1e1a3881b5b86"},
-    "job:env@r00/prompt": {"bytes": 36302, "sha256": "f12e0b146910ce6a10b44229fb8b080fc72943831b04231f0522f6fdfb3892b2"},
-    "job:env@r00/scope": {"bytes": 334, "sha256": "b94c09720c9e481759ea0408d7ef708c4d5a3e47b1c2b28a8d901a7c77d7c66b"},
-    "job:env@r00/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "job:refine_quay@r01/prompt": {"bytes": 10042, "sha256": "1eefaead62e4787c4560d4411a977b090d9471c643a56ade7130591f15c57af1"},
-    "job:refine_quay@r01/scope": {"bytes": 352, "sha256": "95a620093126d95e34400b4879d58c03bb641810cf02cc497835c80890c54a01"},
-    "job:refine_quay@r01/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "job:refine_water@r01/prompt": {"bytes": 10047, "sha256": "2ffb0fea225d7eb12d212d915509b18ad0db399e348e3591e8bd4645161fca7a"},
-    "job:refine_water@r01/scope": {"bytes": 354, "sha256": "5c7aa29b996f768b637082248e69fbe65f7ed49d9f5abff27c464da564365b74"},
-    "job:refine_water@r01/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "job:zones_quay_water@r00/prompt": {"bytes": 42361, "sha256": "ba7f066f892074d3b6230f7380a1a3492167ab8c24a045e3ee38f0acab6a420a"},
-    "job:zones_quay_water@r00/scope": {"bytes": 379, "sha256": "5b1def419a1370ab2d9f2345bc4a5232ef3c793d4e4f1e01bd5ab9a3a8e88a7d"},
-    "job:zones_quay_water@r00/system": {"bytes": 5625, "sha256": "3e4c806c832c2fb4ab9dd3b1d5063c611b07258ce2fa6d9b3f25df5a467734c7"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3671, "sha256": "e0a279e07356ac991389dd13a46ffa63925c422c124e9a529b68a698c03d51dd"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4930, "sha256": "562ef4bfc6b24c34604482cb73a02fb4b01da5c0e70685e3a1a4e1dda616a827"},
-    "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
-    "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
-    "judge:scene:runs/run/artifacts/renders/r01/input": {"bytes": 4671, "sha256": "b229d374a8e6f6bc73dc6ecbc0b5ea6e3d512e58f6417b8fb4fe147e8e795dcc"},
-    "judge:scene:runs/run/artifacts/renders/r01/messages": {"bytes": 5298, "sha256": "c9a488e3385bb803ce084eda9a1ad2ed58c338201f1ad6d7f416cf0070f1a9f1"},
-    "judge:scene:runs/run/artifacts/renders/r01/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
-    "judge:scene:runs/run/artifacts/renders/r01/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
-    "skills:runs/run:baseline@r00/routed": {"bytes": 156, "sha256": "cae5ab46c39f9f4efb7ae3c4758b05d768025f93d525d5e13812b916a583fd30"},
-    "skills:runs/run:env@r00/routed": {"bytes": 164, "sha256": "eb0e2aca5a76b26e49a2d2c862a9405ef2e3e1130e719cca9a1f23fe1b264402"},
-    "skills:runs/run:refine@r01/routed": {"bytes": 156, "sha256": "cae5ab46c39f9f4efb7ae3c4758b05d768025f93d525d5e13812b916a583fd30"},
-    "skills:runs/run:zone@r00/routed": {"bytes": 161, "sha256": "c2efc99419ed923cc9093c675fa27abc39d11613b9d2ac59e2cc5aea67d7d191"}
-   },
-   "stage_keys": {
-    "runs/run:assemble": "eb288074ac5b",
-    "runs/run:assets": "e3fcf2d29017",
-    "runs/run:env": "e3fcf2d29017",
-    "runs/run:layouts": "e3fcf2d29017",
-    "runs/run:plan": "23a48aef8e1b",
+    "runs/run:plan": "9c44d138dbae",
     "runs/run:skeleton": "6bd35d0cf375",
     "runs/run:zones": "0526c0ee5233"
    }
@@ -697,8 +606,8 @@
     "chat:planner:zone-layout#2/messages": {"bytes": 485, "sha256": "67e917190ee227c5ed3415ab4b03c072af313d7040704e7de671e63c42e2ab52"},
     "chat:planner:zone-layout#2/sampling": {"bytes": 3397, "sha256": "160445a83ede28afc0191547fd42d9341e694ef70aaad380bebf60ead0a65c49"},
     "chat:planner:zone-layout#2/system": {"bytes": 3326, "sha256": "494acec302dd23fa2fc6ee1eb6d48e873d6cf0ad98bad413e27578cf062313d4"},
-    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3688, "sha256": "14a0caff9e08f697edf414144628fdc7b3fe60838808ece0f990ef85d00e9cb2"},
-    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4930, "sha256": "562ef4bfc6b24c34604482cb73a02fb4b01da5c0e70685e3a1a4e1dda616a827"},
+    "judge:scene:runs/run/artifacts/renders/r00/input": {"bytes": 3540, "sha256": "30de1c05f98ba2cfdc0359401762c2d81cfee44bb10e90631033bc37ffee4a0a"},
+    "judge:scene:runs/run/artifacts/renders/r00/messages": {"bytes": 4909, "sha256": "cf981dcf14aa7bc842aa9309ada13b9622a798f0410f163940172d8f980a81cf"},
     "judge:scene:runs/run/artifacts/renders/r00/sampling": {"bytes": 14069, "sha256": "9f5073025f0011d617d13bbde6605bf7358111b7700df92c41c23035482f789b"},
     "judge:scene:runs/run/artifacts/renders/r00/system": {"bytes": 21572, "sha256": "eee5e34a58a91720755be68ed4d39cf127c634a484a4948e77c77ecce7e8cd16"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 169, "sha256": "6ccf83dd133ef358e077dc682854e631d69bb44f6a3db6e91910c6f89d8d9455"},
@@ -711,12 +620,12 @@
     "runs/run:assets": "212efeee2ac5",
     "runs/run:env": "212efeee2ac5",
     "runs/run:layouts": "212efeee2ac5",
-    "runs/run:plan": "105b46262eac",
+    "runs/run:plan": "9c44d138dbae",
     "runs/run:skeleton": "6bd35d0cf375",
     "runs/run:zones": "b12775da7b08"
    }
   },
-  "static_object.blender.agent.best_of_2": {
+  "static_object.blender.agent.fresh": {
    "payloads": {
     "chat:planner:planner-brief/messages": {"bytes": 170, "sha256": "c59acfe245bb7cf2ca7111a65960824587e06cd8914a4d7ca9c8eba234fe6393"},
     "chat:planner:planner-brief/sampling": {"bytes": 4774, "sha256": "ac0bb868a0ed6551f5374840bf146b6e0b4fbb014f10a856fd306ec44357226a"},
@@ -724,41 +633,26 @@
     "chat:planner:planner/messages": {"bytes": 1354, "sha256": "5b1a589e27562a3668649aed4be4857a34804a2acdc140eb8fb3630d970f71a6"},
     "chat:planner:planner/sampling": {"bytes": 6272, "sha256": "04dbfbbd42d8b93a12571a1908beacc7eb471e6f2c0fc077371aa86e2a99fb40"},
     "chat:planner:planner/system": {"bytes": 20977, "sha256": "0a3c2ea2bfb39981a166952054d1dcc10dffdf097d493e89b03e0b8586d2ee8e"},
-    "context:runs/run/_cand/c0/files": {"bytes": 47092, "sha256": "abca5605a55de083655700701faed3bbfd7ba04281b47344a8394c0042f39dc1"},
-    "context:runs/run/_cand/c1/files": {"bytes": 47092, "sha256": "abca5605a55de083655700701faed3bbfd7ba04281b47344a8394c0042f39dc1"},
     "context:runs/run/files": {"bytes": 47092, "sha256": "abca5605a55de083655700701faed3bbfd7ba04281b47344a8394c0042f39dc1"},
-    "job:baseline_c0@r00/prompt": {"bytes": 20387, "sha256": "158c7483180b37e34a73f10bf8cabd1f708d89920c60b791f3815bdf4703ef8d"},
-    "job:baseline_c0@r00/scope": {"bytes": 434, "sha256": "2654f6339a446c7181633e50fb347ef3b3002dd0dc96cd6f88db21018f2fd4ba"},
-    "job:baseline_c0@r00/system": {"bytes": 2865, "sha256": "e8bdde0b2251c9f422c9a02c8c457543798280f5215e740312ffb73f1d0d867f"},
-    "job:baseline_c1@r00/prompt": {"bytes": 20387, "sha256": "158c7483180b37e34a73f10bf8cabd1f708d89920c60b791f3815bdf4703ef8d"},
-    "job:baseline_c1@r00/scope": {"bytes": 434, "sha256": "ea7fa63b68b2e822ddab3b4fbe0fcd7db185a3127ef747f85616b2784fa63311"},
-    "job:baseline_c1@r00/system": {"bytes": 2865, "sha256": "e8bdde0b2251c9f422c9a02c8c457543798280f5215e740312ffb73f1d0d867f"},
+    "job:baseline@r00/prompt": {"bytes": 20387, "sha256": "158c7483180b37e34a73f10bf8cabd1f708d89920c60b791f3815bdf4703ef8d"},
+    "job:baseline@r00/scope": {"bytes": 430, "sha256": "d612bb113b9dd7310092a317c8a48fe70883fbc91d96055dfb805617e7a7581e"},
+    "job:baseline@r00/system": {"bytes": 2865, "sha256": "e8bdde0b2251c9f422c9a02c8c457543798280f5215e740312ffb73f1d0d867f"},
     "job:refine@r01/prompt": {"bytes": 7038, "sha256": "7567826ea7793e5f05f355c236b5984aa89abde8942f86b2a9e8a2e1881096c6"},
     "job:refine@r01/scope": {"bytes": 426, "sha256": "3a39df2f37665e52ae78549431ea567fa9591605332e152cd7d41d2b58914893"},
     "job:refine@r01/system": {"bytes": 2865, "sha256": "e8bdde0b2251c9f422c9a02c8c457543798280f5215e740312ffb73f1d0d867f"},
-    "judge:static_object:runs/run/_cand/c0/artifacts/renders/r00/quick/input": {"bytes": 5423, "sha256": "8c8d53f300274af674ca6b0fad7eecd5b6785236b8bd7c6b805192aabbbbc65c"},
-    "judge:static_object:runs/run/_cand/c0/artifacts/renders/r00/quick/messages": {"bytes": 4246, "sha256": "029c3c03fe1f78f6f0d8b6b1b6bb4825d2851b55595a3c15c1a03f052b0b9771"},
-    "judge:static_object:runs/run/_cand/c0/artifacts/renders/r00/quick/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
-    "judge:static_object:runs/run/_cand/c0/artifacts/renders/r00/quick/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/_cand/c1/artifacts/renders/r00/quick/input": {"bytes": 5423, "sha256": "ac7c550b34c6dda878a8ae3189524ce95bef53cdd99e1d9c42055e5f5f57b028"},
-    "judge:static_object:runs/run/_cand/c1/artifacts/renders/r00/quick/messages": {"bytes": 4246, "sha256": "029c3c03fe1f78f6f0d8b6b1b6bb4825d2851b55595a3c15c1a03f052b0b9771"},
-    "judge:static_object:runs/run/_cand/c1/artifacts/renders/r00/quick/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
-    "judge:static_object:runs/run/_cand/c1/artifacts/renders/r00/quick/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 8986, "sha256": "263c78c5ef3b65de181e488b93344aac8ca350f211c0fdfcd6d25cd50c9fdec8"},
+    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 8913, "sha256": "d23c4d2364198559efb1170edfec62c0dc94e6db3f53b5236d781c96677b0a4d"},
     "judge:static_object:runs/run/artifacts/renders/r00/messages": {"bytes": 6699, "sha256": "7df542d34f969f456ab2fcd720b5ccf3a4547b1c57ed59a81df0a84a4d540b9a"},
     "judge:static_object:runs/run/artifacts/renders/r00/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r00/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10199, "sha256": "6512509cb2a85892bec8d1fdb69c60957061c9f95bd75f9da49d2d549002aad1"},
+    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10126, "sha256": "22393e34ccb189df38dd4977b3403842008e3b298d36e8807cbdfc2f200afd01"},
     "judge:static_object:runs/run/artifacts/renders/r01/messages": {"bytes": 7124, "sha256": "a800f572433fa02006cc5a02c883359497949586963a0edeb799e047048d8f2c"},
     "judge:static_object:runs/run/artifacts/renders/r01/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r01/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "skills:runs/run/_cand/c0:baseline@r00/routed": {"bytes": 133, "sha256": "53e382eba5cd3e9e5438941f437cd2148cca27c331d46ccbb73fb8b1b092a9dc"},
-    "skills:runs/run/_cand/c1:baseline@r00/routed": {"bytes": 133, "sha256": "53e382eba5cd3e9e5438941f437cd2148cca27c331d46ccbb73fb8b1b092a9dc"},
     "skills:runs/run:baseline@r00/routed": {"bytes": 133, "sha256": "53e382eba5cd3e9e5438941f437cd2148cca27c331d46ccbb73fb8b1b092a9dc"},
     "skills:runs/run:refine@r01/routed": {"bytes": 133, "sha256": "53e382eba5cd3e9e5438941f437cd2148cca27c331d46ccbb73fb8b1b092a9dc"}
    },
    "stage_keys": {
-    "runs/run:plan": "1fa4423b7ab2",
+    "runs/run:plan": "6058d7d3c105",
     "runs/run:skeleton": "65d9bf7a6805"
    }
   },
@@ -786,11 +680,11 @@
     "job:refine@r02/prompt": {"bytes": 7215, "sha256": "7d084dc936a0ca89af24a348321c9a88fd523c8353a034fe3bb37df511bcfe8e"},
     "job:refine@r02/scope": {"bytes": 350, "sha256": "4e7e7adc88c67e32725d4fbf7d2f95b24d0166d57881f69cf543ab1c6936ea35"},
     "job:refine@r02/system": {"bytes": 2205, "sha256": "2ca6cc8997115b5940dcef874355b65c82f25ee8000b964fe0ad96dce25ac0e8"},
-    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 9391, "sha256": "99babe8473b7d87bed3c2a33ef6609fe617960b927724e7d1b748736564f9eac"},
+    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 9318, "sha256": "e245c8ad4cbca58428accb7f4dce864d121366f500b8ba8dc099034bd7e87705"},
     "judge:static_object:runs/run/artifacts/renders/r01/messages": {"bytes": 6808, "sha256": "afe220b9286ff63c1e78b62cf853ead93c525947a873c6eaea80d9094a9d483e"},
     "judge:static_object:runs/run/artifacts/renders/r01/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r01/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r02/input": {"bytes": 10600, "sha256": "90d2ad98e2d79eba9e26bb5114c44ec23f00ab3f4e2202c1e5c6358ff9d30967"},
+    "judge:static_object:runs/run/artifacts/renders/r02/input": {"bytes": 10527, "sha256": "6c7c326a9e58fc40e0e499888be9a7cd3bcc3feeca206bcdd0120b88fa08189c"},
     "judge:static_object:runs/run/artifacts/renders/r02/messages": {"bytes": 7233, "sha256": "d6a82300f22e09f4cc9f7d5a09ec89e5c6e9b300eab6b8899fc61648ac406c21"},
     "judge:static_object:runs/run/artifacts/renders/r02/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r02/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
@@ -799,7 +693,7 @@
     "skills:runs/run:refine@r02/routed": {"bytes": 134, "sha256": "f11f63910f028add64068034f65c2875924ea57ea94bc407859b8b1e1050c6b6"}
    },
    "stage_keys": {
-    "runs/run:plan": "dda15c4ec2ee",
+    "runs/run:plan": "48754c33c182",
     "runs/run:skeleton": "1a2d68e2a2e3"
    }
   },
@@ -821,15 +715,15 @@
     "job:refine@r02/prompt": {"bytes": 7174, "sha256": "3474b8ace6d7212c7430b362f161485f9243cdc6ef3118dc5d342c8720b85de5"},
     "job:refine@r02/scope": {"bytes": 428, "sha256": "57e2f2633c63ce908a2842199385fe002439dcc7d6f68ffac0261d5be22cb8e1"},
     "job:refine@r02/system": {"bytes": 3208, "sha256": "e24e99f321231e5587cae7f4fbbbcc50fbd254768f4f4c860c4dfa8f83804810"},
-    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 9185, "sha256": "69d608e7a5df7e8bde0e095fa488dd919724caff8a4c2b8b6f3d3470768d2cef"},
+    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 9112, "sha256": "004510f946adb67eb27ace9285cfd1e468fc5df89f0ad393aadbe4cd92a7d774"},
     "judge:static_object:runs/run/artifacts/renders/r00/messages": {"bytes": 6756, "sha256": "447c252713a4d26c70c0b368c30217605f33543c3a329b6c32bee7099bdb1860"},
     "judge:static_object:runs/run/artifacts/renders/r00/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r00/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10398, "sha256": "e65a4e44a4cf4d77bdb4e5d482cd06763e7b3de5780c64247dd991978fcef47c"},
+    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10325, "sha256": "0e17c0d5d05f897584912abe2792ae8b5e939c619f43b0ea76681b91a4c467fb"},
     "judge:static_object:runs/run/artifacts/renders/r01/messages": {"bytes": 7181, "sha256": "0ee41f64bf25c8490c05f3478f11afde83f2d8fc7f4753553d7497f1ef83543a"},
     "judge:static_object:runs/run/artifacts/renders/r01/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r01/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r02/input": {"bytes": 10394, "sha256": "c5fb5b97a21e23b5f24ee9e9926815b182f3522cd10d2237d58d01eea8d8b76f"},
+    "judge:static_object:runs/run/artifacts/renders/r02/input": {"bytes": 10321, "sha256": "2ee0ba001ac3914f62470048514bd220443b488c93120ccd8244bf6e8d7ea0b0"},
     "judge:static_object:runs/run/artifacts/renders/r02/messages": {"bytes": 7181, "sha256": "61b52dd59cc941e842e0e789faf595cd9ed24187eba10e7cc399e1ca792eb099"},
     "judge:static_object:runs/run/artifacts/renders/r02/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r02/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
@@ -838,7 +732,7 @@
     "skills:runs/run:refine@r02/routed": {"bytes": 133, "sha256": "518f7b7ba0343e508a61d4b00f2c7628ee771ef0cd1766d631194f988152e858"}
    },
    "stage_keys": {
-    "runs/run:plan": "b17889f442b9",
+    "runs/run:plan": "f7520fc0e5fe",
     "runs/run:skeleton": "58657cfb09d9"
    }
   },
@@ -857,11 +751,11 @@
     "job:refine@r01/prompt": {"bytes": 8861, "sha256": "40ce1992b720f3a98f57dedeab35b70590f3f9a49ef111a544a300896fa39a35"},
     "job:refine@r01/scope": {"bytes": 644, "sha256": "f5e0c8fc1e3c0527734f358ad11929cedc505d872e61bbbfa4926d2cf5f4a1d0"},
     "job:refine@r01/system": {"bytes": 3208, "sha256": "e24e99f321231e5587cae7f4fbbbcc50fbd254768f4f4c860c4dfa8f83804810"},
-    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 10977, "sha256": "a62a659e7ad6910734d575b2d919e05039e58646ed1759c25cf9f8609f67914e"},
+    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 10904, "sha256": "3e81cbc8135e4a2612e52b1ab21ec6ee39b09d0b1b5257e25c196724240b09e9"},
     "judge:static_object:runs/run/artifacts/renders/r00/messages": {"bytes": 7002, "sha256": "90d9f0c3e869c20608b23834b3a93df8242b1dd3324fdfda3b91de9542337eb0"},
     "judge:static_object:runs/run/artifacts/renders/r00/sampling": {"bytes": 11137, "sha256": "3b6a70558e21e796673b65818721913f7720c6ee7e31dd35225cb4ca1bdcf20e"},
     "judge:static_object:runs/run/artifacts/renders/r00/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 12162, "sha256": "0bb3df066a50afdd9d13b3be5f69e3eaad404badf6954003005db702c095bffc"},
+    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 12089, "sha256": "3bff8a8612e6d14defbdebc4bc23dadf2a03af04bd5b2e3c544e16a332934752"},
     "judge:static_object:runs/run/artifacts/renders/r01/messages": {"bytes": 7429, "sha256": "70fca81684fcce477eadc3e0d5c329b3dcc31dcc527958abf29e484a0d555a7c"},
     "judge:static_object:runs/run/artifacts/renders/r01/sampling": {"bytes": 11137, "sha256": "3b6a70558e21e796673b65818721913f7720c6ee7e31dd35225cb4ca1bdcf20e"},
     "judge:static_object:runs/run/artifacts/renders/r01/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
@@ -869,7 +763,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 104, "sha256": "754997d8db8e89f9b7b0379fceda29998c2e42d362fcaec169d7bd48fc097d3b"}
    },
    "stage_keys": {
-    "runs/run:plan": "b17889f442b9",
+    "runs/run:plan": "f7520fc0e5fe",
     "runs/run:skeleton": "fb24414f9aea"
    }
   },
@@ -888,11 +782,11 @@
     "job:refine@r01/prompt": {"bytes": 7012, "sha256": "9db3905eac671203349cd349d93748e1abadf89a9f584948cf3e64f0527abbcd"},
     "job:refine@r01/scope": {"bytes": 428, "sha256": "186e31cec33c5144bbc9713eb76374ef7608534682433c9a9288191efc417ec4"},
     "job:refine@r01/system": {"bytes": 3208, "sha256": "e24e99f321231e5587cae7f4fbbbcc50fbd254768f4f4c860c4dfa8f83804810"},
-    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 8986, "sha256": "2e7532a1396d719d97f1a606ef4b0a827d8a81ce2c43dd2dfe9a54784ebbbabf"},
+    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 8913, "sha256": "1ffd2908786c2601ca2b00f18f15f2a2bf9cbbdee80fb0668c6c8474839c848d"},
     "judge:static_object:runs/run/artifacts/renders/r00/messages": {"bytes": 6699, "sha256": "6e3964ce3478de892b3c5dde9eb3154e9a54c2a669315a8e6f4b808c15dd930c"},
     "judge:static_object:runs/run/artifacts/renders/r00/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r00/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10199, "sha256": "c3778208bce04b21f24748b8549486a8e92378eaae50fb9eff12b48a01d3a156"},
+    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10126, "sha256": "a89e8a19dd4885324346f2e754a01e79247ff8160e002d5322e3d6f27e4f9a5f"},
     "judge:static_object:runs/run/artifacts/renders/r01/messages": {"bytes": 7124, "sha256": "0e3a5d3ed25799eec213d2d7fd92ae5009e4d88d5a818eeaf0aef3de8d47b932"},
     "judge:static_object:runs/run/artifacts/renders/r01/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r01/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
@@ -900,7 +794,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 133, "sha256": "537d8d98029fd6345c9d4a73eaf3615c7924c18a405b3ab633283694e23b1804"}
    },
    "stage_keys": {
-    "runs/run:plan": "b17889f442b9",
+    "runs/run:plan": "f7520fc0e5fe",
     "runs/run:skeleton": "58657cfb09d9"
    }
   },
@@ -921,11 +815,11 @@
     "chat:planner:planner/messages": {"bytes": 1354, "sha256": "5b1a589e27562a3668649aed4be4857a34804a2acdc140eb8fb3630d970f71a6"},
     "chat:planner:planner/sampling": {"bytes": 6272, "sha256": "04dbfbbd42d8b93a12571a1908beacc7eb471e6f2c0fc077371aa86e2a99fb40"},
     "chat:planner:planner/system": {"bytes": 18287, "sha256": "0e78778a5c81b420699c7148ee039722877c818cea9844f793d543fccc8ef97b"},
-    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 9003, "sha256": "0b11a734774d2ee7cfec89359d4ad3c4bbb26ed6c6e5250da6db20478c0228c4"},
+    "judge:static_object:runs/run/artifacts/renders/r00/input": {"bytes": 8930, "sha256": "be6b7b851a5d1e6db0a4209515c758d364f214c0d8b3125a8e8901177dae052b"},
     "judge:static_object:runs/run/artifacts/renders/r00/messages": {"bytes": 6699, "sha256": "6e3964ce3478de892b3c5dde9eb3154e9a54c2a669315a8e6f4b808c15dd930c"},
     "judge:static_object:runs/run/artifacts/renders/r00/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r00/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
-    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10216, "sha256": "bb40c3ba9b266e7301b8c5e6ade2a20b306acd2d535a0a002de19c46fa745dbf"},
+    "judge:static_object:runs/run/artifacts/renders/r01/input": {"bytes": 10143, "sha256": "fb65e7133b008b4624118425eed51195d8221683bf352625b75a45180809f5d7"},
     "judge:static_object:runs/run/artifacts/renders/r01/messages": {"bytes": 7124, "sha256": "0e3a5d3ed25799eec213d2d7fd92ae5009e4d88d5a818eeaf0aef3de8d47b932"},
     "judge:static_object:runs/run/artifacts/renders/r01/sampling": {"bytes": 11371, "sha256": "275368055f7250512e426b330f9720fcfbdad1d1ea1a739102ab9f3521a3fb25"},
     "judge:static_object:runs/run/artifacts/renders/r01/system": {"bytes": 15178, "sha256": "1becebca9df2996a380a8bedede59de191c58f5021c6f687a3dfd5abc673c4bc"},
@@ -933,7 +827,7 @@
     "skills:runs/run:refine@r01/routed": {"bytes": 148, "sha256": "67ba73ea33f42a757e533e24b318438e321943eeb47470a930fbcfda97e72e93"}
    },
    "stage_keys": {
-    "runs/run:plan": "b17889f442b9",
+    "runs/run:plan": "f7520fc0e5fe",
     "runs/run:skeleton": "58657cfb09d9"
    }
   }
