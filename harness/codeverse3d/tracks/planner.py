@@ -23,8 +23,8 @@ from codeverse3d.contracts.plan import (
 )
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
-from codeverse3d.models import get_chat_model
-from codeverse3d.models.schema_utils import ask_structured, parse_json_lenient
+from c3d_flywheel.models import get_chat_model
+from codeverse3d.schema_utils import ask_structured, parse_json_lenient
 from codeverse3d.proc import NULL_EVENTS, sha256_file, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
 from codeverse3d.prompts.catalog import contract_sections, language_text

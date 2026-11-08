@@ -22,9 +22,9 @@ from codeverse3d.contracts.common import (
     Usage,
     is_harness_owned,
 )
-from codeverse3d.cost.context import call_context
-from codeverse3d.cost.types import stage_for_label
-from codeverse3d.models import get_chat_model
+from c3d_flywheel.cost.context import call_context
+from c3d_flywheel.cost.types import stage_for_label
+from c3d_flywheel.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard
 from codeverse3d.proc import NULL_EVENTS, read_json_or_none
 from codeverse3d.workspace import C3D_DIR, Workspace
@@ -258,8 +258,8 @@ class GenerationResult(BaseModel):
 
 def is_model_outage(e: BaseException) -> bool:
     """Is this a *service* failure (the model is down) rather than a bad answer?"""
-    from codeverse3d.models.base import ModelError
-    from codeverse3d.models.parts import retryable_status
+    from c3d_flywheel.models.base import ModelError
+    from c3d_flywheel.models.parts import retryable_status
 
     if isinstance(e, ModelError):
         return bool(e.retryable) or retryable_status(e.status)
@@ -298,7 +298,7 @@ def generate_files(
 ) -> GenerationResult:
     """Single-shot API codegen: ChatRequest → envelope → files on disk (no commit)."""
     events = NULL_EVENTS if events is None else events
-    from codeverse3d.models.retry import RETRY_DEADLINE_S
+    from c3d_flywheel.models.retry import RETRY_DEADLINE_S
     from codeverse3d.prompts import load_text
 
     system = task.system + ("\n\n" if task.system else "") + load_text("system/singleshot_format.md")

@@ -42,14 +42,14 @@ class Services:
 
     # ---- models / agents / judges / runtimes
     def chat_model(self, model_id: str) -> Any:
-        return _import("codeverse3d.models", "get_chat_model")(model_id)
+        return _import("c3d_flywheel.models", "get_chat_model")(model_id)
 
     def coding_agent(self, agent_id: str) -> Any:
         return _import("codeverse3d.agents", "get_coding_agent")(agent_id)
 
     def judge(self, track: Track, rubric: str, model_id: str, n_samples: int = 1, *, references: bool = False) -> Any:
         """The judge that scores a round: the class ``judge_for`` picks, shared with every replay."""
-        judges = importlib.import_module("codeverse3d.judges.vlm_judge")
+        judges = importlib.import_module("c3d_flywheel.vlm_judge")
         cls = judges.judge_for(track, rubric, references=references)
         return cls(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
@@ -108,7 +108,7 @@ class Services:
         return runtime.assemble(ws, plan)
 
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:
-        _import("codeverse3d.record.record", "finalize_record")(ws, record)
+        _import("c3d_flywheel.record.record", "finalize_record")(ws, record)
 
 
 # ----------------------------------------------------------------------------- context

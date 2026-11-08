@@ -26,8 +26,8 @@ from codeverse3d.cli._common import (
     print_record_summary,
     warn,
 )
-from codeverse3d.cli.cost_cmd import cost_app
-from codeverse3d.cli.flywheel_cmd import flywheel_app
+from c3d_flywheel.cli.cost_cmd import cost_app
+from c3d_flywheel.cli.flywheel_cmd import flywheel_app
 from codeverse3d.cli.skills_cmd import skills_app
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
@@ -104,7 +104,7 @@ RootsArg = Annotated[list[Path] | None, typer.Argument(
 
 def resolve_roots(roots: list[Path] | None) -> list[Path]:
     """Explicit roots (validated) or the defaults; a clear error when there are none."""
-    from codeverse3d.addons.gallery.index import default_roots
+    from c3d_flywheel.gallery.index import default_roots
 
     if roots:
         missing = [r for r in roots if not Path(r).is_dir()]
@@ -136,7 +136,7 @@ def serve_cmd(
     title: Annotated[str, typer.Option("--title")] = "3dcodeverse gallery",
 ) -> None:
     """Serve the gallery (and the run directories) on localhost."""
-    from codeverse3d.addons.gallery.server import GalleryError, serve
+    from c3d_flywheel.gallery.server import GalleryError, serve
 
     root_paths = resolve_roots(roots)
 
@@ -166,7 +166,7 @@ def build_cmd(
     thumb_px: Annotated[int, typer.Option("--thumb-px", min=128, help="embedded thumbnail long edge")] = 720,
 ) -> None:
     """Write the gallery as one self-contained HTML file."""
-    from codeverse3d.addons.gallery.page import build_static
+    from c3d_flywheel.gallery.page import build_static
 
     path, n, index = build_static(resolve_roots(roots), out, title=title, embed=embed, thumb_px=thumb_px)
     broken = sum(1 for e in index.entries() if e.state != "ok")
@@ -348,7 +348,7 @@ def make(
 
 
 def _run_track(spec: Spec, ws, *, resume: bool, force: bool = False, pick: bool = True) -> None:
-    from codeverse3d.cost.instrument import run_ledger
+    from c3d_flywheel.cost.instrument import run_ledger
     from codeverse3d.proc import install_stop_handlers
     from codeverse3d.tracks import get_track
 
@@ -383,7 +383,7 @@ def _run_track(spec: Spec, ws, *, resume: bool, force: bool = False, pick: bool 
 
 def _pick_and_package(ws, *, round_index: int | None = None) -> int | None:
     """Choose the round (or take ``round_index``) and package it."""
-    from codeverse3d.addons import select
+    from c3d_flywheel import select
 
     idx = round_index if round_index is not None else select.pick(ws.root)
     if idx is None:
@@ -494,9 +494,9 @@ def pick(
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Choose the round of a finished run to hand over and package it: deliverable/ + selection.json."""
-    from codeverse3d.addons import select
-    from codeverse3d.cost.instrument import run_ledger
-    from codeverse3d.record.record import RecordError
+    from c3d_flywheel import select
+    from c3d_flywheel.cost.instrument import run_ledger
+    from c3d_flywheel.record.record import RecordError
 
     ws = C.open_workspace(slug, runs_dir)
     # writes deliverable/ + selection.json: one writer per run dir
@@ -513,7 +513,7 @@ def pick(
 
 
 # --------------------------------------------------------------------------- judge
-from codeverse3d.cli.inspect_cmd import judge  # noqa: E402
+from c3d_flywheel.cli.inspect_cmd import judge  # noqa: E402
 
 app.command()(judge)
 
@@ -531,7 +531,7 @@ def mcp(workspace: Annotated[Path, typer.Option("--workspace")]) -> None:
 
 
 # --------------------------------------------------------------------------- the single-run view (show, status)
-from codeverse3d.cli.layout_cmd import show, status  # noqa: E402
+from c3d_flywheel.cli.layout_cmd import show, status  # noqa: E402
 
 app.command()(show)
 app.command()(status)

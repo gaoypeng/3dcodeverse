@@ -22,7 +22,7 @@ from codeverse3d.conventions import slugify
 from codeverse3d.workspace import Workspace
 
 if TYPE_CHECKING:
-    from codeverse3d.addons.select import RoundRow
+    from c3d_flywheel.select import RoundRow
 
 console = Console(emoji=False)
 err_console = Console(stderr=True, style="bold red", emoji=False)
@@ -63,7 +63,7 @@ def rounds_table(rows: list[RoundRow], picked: int | None) -> Table:
 
 
 def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None:
-    from codeverse3d.addons import select
+    from c3d_flywheel import select
 
     spec = record.spec
     root = Path(ws_root or record.workspace)
@@ -226,7 +226,7 @@ def check_minutes(max_minutes: float | None) -> None:
 def check_backends(backends: Any) -> None:
     """Refuse a backend id this build cannot construct, before a run directory exists."""
     from codeverse3d.agents.registry import parse_agent_id
-    from codeverse3d.models.registry import parse_model_id
+    from c3d_flywheel.models.registry import parse_model_id
     from codeverse3d.tracks.generation import is_single_shot, single_shot_model_id
 
     for role in ("generator", "planner", "judge"):

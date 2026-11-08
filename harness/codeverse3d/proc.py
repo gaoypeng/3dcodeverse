@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import signal
 import subprocess
 import threading
@@ -629,3 +630,79 @@ def fan_out[T, R](
     n_failed = sum(1 for r in results if isinstance(r, Exception))
     log.info("%s: %d/%d ok in %.1fs", label, len(items) - n_failed, len(items), time.time() - t_all)
     return results
+
+
+class SlotsBusy(RuntimeError):
+    """Every slot stayed busy past the wait budget."""
+
+
+class Slots:
+    """``n`` machine-wide in-flight slots: one lock file per slot, ``<root>/NN.lock``, held with
+    ``fcntl.flock`` while one model call is out.  The kernel drops a dead holder's lock, so a
+    killed process never strands a slot.
+    """
+
+    #: nap between sweeps while every slot is busy (seconds, jittered x0.5..1.5)
+    POLL_S = 0.05
+
+    def __init__(self, n: int, root: Path | str) -> None:
+        if n < 1:
+            raise ValueError(f"Slots needs n >= 1, got {n}")
+        self.n = int(n)
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, i: int) -> Path:
+        return self.root / f"{i:02d}.lock"
+
+    def try_take(self) -> int | None:
+        """A held slot (its file descriptor), or ``None`` when all are busy; never waits.
+        The sweep starts at a random slot so a small-cap process is not starved."""
+        start = random.randrange(self.n)
+        for step in range(self.n):
+            fd = os.open(self._path((start + step) % self.n), os.O_RDWR | os.O_CREAT, 0o666)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                continue
+            except BaseException:
+                os.close(fd)
+                raise
+            return fd
+        return None
+
+    def take(self, timeout_s: float | None) -> int:
+        """Wait up to ``timeout_s`` (``None`` = forever) for a slot; raises ``SlotsBusy``."""
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        while (fd := self.try_take()) is None:
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left <= 0:
+                raise SlotsBusy(f"all {self.n} in-flight slots in {self.root} busy; waited {timeout_s}s")
+            nap = random.uniform(0.5, 1.5) * self.POLL_S
+            time.sleep(nap if left is None else min(nap, left))
+        return fd
+
+    @staticmethod
+    def give(fd: int) -> None:
+        """Hand a slot back; LOCK_UN first so a forked child's inherited descriptor does not keep it held."""
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def busy(self) -> int:
+        """How many slots are held machine-wide (``3dcodeverse doctor``); never takes one."""
+        n = 0
+        for i in range(self.n):
+            try:
+                fd = os.open(self._path(i), os.O_RDONLY)
+            except OSError:
+                continue  # never created, so never taken
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                n += 1
+            finally:
+                os.close(fd)
+        return n

@@ -17,10 +17,10 @@ from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.cost.context import run_binding
-from codeverse3d.cost.instrument import metered_agent, metered_chat_model, run_ledger
-from codeverse3d.cost.ledger import ledger_usage, load_ledger
-from codeverse3d.cost.tally import timed
+from c3d_flywheel.cost.context import run_binding
+from c3d_flywheel.cost.instrument import metered_agent, metered_chat_model, run_ledger
+from c3d_flywheel.cost.ledger import ledger_usage, load_ledger
+from c3d_flywheel.cost.tally import timed
 from codeverse3d.judges.base import run_rubric
 from codeverse3d.orchestrator import (
     BudgetExceeded,
@@ -37,7 +37,7 @@ from codeverse3d.orchestrator import (
 from codeverse3d.proc import EventLog, fan_out, read_json_or_none
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_text
-from codeverse3d.record.record import previous_verdict
+from c3d_flywheel.record.record import previous_verdict
 from codeverse3d.tracks.common import RunContext, Services
 from codeverse3d.tracks.generation import ALLOWED_ROOTS, GenerationTask, single_shot_model_id
 from codeverse3d.tracks.planner import plan as run_planner

@@ -10,7 +10,7 @@ from codeverse3d.contracts.chat import ChatMessage, ChatRequest
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import ScenePlan, ZoneLayout, ZonePlan
 from codeverse3d.conventions import Frame, authoring_frame, to_authoring_frame, to_snake
-from codeverse3d.models.schema_utils import parse_json_lenient
+from codeverse3d.schema_utils import parse_json_lenient
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import NULL_EVENTS, fan_out
 from codeverse3d.prompts import render

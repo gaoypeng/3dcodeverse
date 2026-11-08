@@ -26,7 +26,7 @@ from codeverse3d.conventions import (
     from_authoring_frame,
     to_authoring_frame,
 )
-from codeverse3d.models.retry import KeyPoolExhausted, Slots
+from codeverse3d.proc import Slots, SlotsBusy
 from codeverse3d.proc import ProcResult, read_json_or_none, run_subprocess, write_json_atomic
 from codeverse3d.spatial._render_common import out_directory, view_specs
 from codeverse3d.spatial.render_scene import (
@@ -107,7 +107,7 @@ def render_frames(blend: Path, out_dir: Path, job: dict[str, Any], *, timeout_s:
         t0 = time.monotonic()
         try:
             fd: int | None = slots.take(s.render.blender_gpu_wait_s)
-        except KeyPoolExhausted:
+        except SlotsBusy:
             fd = None
             fallback = f"all {slots.n} GPU render slots busy for {s.render.blender_gpu_wait_s:g}s ({slots.root})"
         wait_ms = int((time.monotonic() - t0) * 1000)

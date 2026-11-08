@@ -1,0 +1,254 @@
+"""Build the gallery index from run roots."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+from c3d_flywheel import select
+from c3d_flywheel.dataset.quality import quality_tier
+from c3d_flywheel.dataset.sample import gate_error_summary
+from c3d_flywheel.gallery.model import (
+    GalleryIndex,
+    RootSection,
+    RoundRow,
+    RunEntry,
+    RunLink,
+    humanize_view,
+)
+from codeverse3d.contracts.run import RunId, RunRecord
+from codeverse3d.conventions import views_by_preference
+from codeverse3d.proc import read_json_or_none
+from c3d_flywheel.record.deliverable import round_outputs
+from c3d_flywheel.record.record import (
+    RecordError,
+    battery_label,
+    effective_judgment,
+    find_run_dirs,
+    is_run_dir,
+    load_record,
+)
+from codeverse3d.workspace import Workspace
+
+DEFAULT_RUNS = "runs"
+DEFAULT_BENCH_GLOB = "eval/bench/out/*/runs"
+
+
+def default_roots(base: Path | str = ".") -> list[Path]:
+    base = Path(base)
+    roots: list[Path] = []
+    if (base / DEFAULT_RUNS).is_dir():
+        roots.append(base / DEFAULT_RUNS)
+    roots += sorted(p for p in base.glob(DEFAULT_BENCH_GLOB) if p.is_dir())
+    return roots
+
+
+def run_rel(ws: Workspace, path: Path | str | None) -> str:
+    """``path`` (rebased into this workspace) as a run-relative posix string, or ``""``
+    when it is outside the run."""
+    if not path:
+        return ""
+    try:
+        return ws.rebase(path).resolve().relative_to(ws.root.resolve()).as_posix()
+    except (ValueError, OSError):
+        return ""
+
+
+def _first_file(run_dir: Path, *rels: str) -> str:
+    for rel in rels:
+        if (run_dir / rel).is_file():
+            return rel
+    return ""
+
+
+def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
+    rnd = next((r for r in rec.rounds if r.index == index), None)
+    if rnd is not None and rnd.renders is not None and rnd.renders.contact_sheet:
+        rel = run_rel(ws, rnd.renders.contact_sheet)
+        if rel and (ws.root / rel).is_file():
+            return rel
+    return _first_file(ws.root, f"artifacts/renders/r{index:02d}/sheet.png")
+
+
+def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
+    return (_round_sheet(ws, rec, picked) if picked is not None else "") or _first_file(
+        ws.root, "deliverable/sheet.png", "artifacts/frames_sheet.png")
+
+
+HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low", "front_left_low", "front")
+
+
+def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, str, int]:
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
+    if rnd is None or rnd.renders is None or not rnd.renders.views:
+        return "", "", 0
+    views = [v for v in rnd.renders.views if not v.name.startswith(("pose_", "articulation"))]
+    if not views:
+        return "", "", 0
+    chosen = next(iter(views_by_preference(views, HERO_PREFERENCE)), views[0])
+    rel = run_rel(ws, chosen.path)
+    if not rel or not (ws.root / rel).is_file():
+        return "", "", len(views)
+    return rel, humanize_view(chosen.name), len(views)
+
+
+def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
+    rel = f"artifacts/renders/r{picked:02d}/poses/articulation_sheet.png" if picked is not None else ""
+    return rel if rel and (ws.root / rel).is_file() else ""
+
+
+def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
+    run = ws.root
+    rnd = next((r for r in rec.rounds if r.index == picked), None) if rec is not None else None
+    out = round_outputs(ws, rnd)
+
+    def artifact(name: str, *extra: str) -> str:
+        if rnd is None:
+            own = [f"artifacts/{name}"]
+        else:
+            own = [run_rel(ws, out / name)] if out is not None else []
+        return _first_file(run, f"deliverable/{name}", *own, *extra)
+
+    links = [RunLink(label="workspace", rel="", kind="dir"),
+             RunLink(label="record.json", rel="record.json")]
+    for name in ("spec.json", "plan.json"):
+        if (run / name).is_file():
+            links.append(RunLink(label=name, rel=name))
+    if (run / "src").is_dir():
+        links.append(RunLink(label="src/", rel="src", kind="code"))
+    sheet = picked_sheet(ws, rec, picked) if rec is not None else ""
+    if sheet:
+        links.append(RunLink(label="sheet", rel=sheet))
+    glb = artifact("object.glb")
+    if glb:
+        links.append(RunLink(label="glb", rel=glb, kind="viewer"))
+    urdf = artifact("robot.urdf", "src/robot.urdf")
+    if urdf:
+        links.append(RunLink(label="robot.urdf", rel=urdf))
+    art = _articulation_sheet(ws, picked)
+    if art:
+        links.append(RunLink(label="articulation", rel=art))
+    gif = artifact("preview.gif")
+    if gif:
+        links.append(RunLink(label="preview.gif", rel=gif))
+    frames = ("deliverable/frames", f"artifacts/renders/r{picked:02d}") if rnd is not None else ("artifacts/frames",)
+    frames_rel = next((f for f in frames if any((run / f).glob("f*_t*.png")) or any((run / f).glob("frame_t*.png"))), "")
+    if frames_rel:
+        links.append(RunLink(label="frames/", rel=frames_rel, kind="dir"))
+    if (run / "public" / "assets").is_dir():
+        links.append(RunLink(label="assets/", rel="public/assets", kind="dir"))
+    return links
+
+
+def round_rows(ws: Workspace, rec: RunRecord) -> list[RoundRow]:
+    rounds = {r.index: r for r in rec.rounds}
+    return [RoundRow(**{**row.model_dump(), "commit": row.commit[:12]}, sheet=_round_sheet(ws, rec, row.index),
+                     gates={k: v for k, v in gate_error_summary(rounds[row.index]).items() if v})
+            for row in select.round_rows(ws.root, record=rec)]
+
+
+_CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
+            "silhouette", "feature_density", "symmetry_groups", "hollowness")
+
+
+def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
+    try:
+        block = select.round_complexity_block(next((r for r in rec.rounds if r.index == picked), None))
+    except Exception:  # noqa: BLE001
+        block = None
+    if block is None or block.get("index") is None:
+        return None, "", {}
+    axes = {a: float(block[a]) for a in _CX_AXES if isinstance(block.get(a), (int, float))}
+    return float(block["index"]), str(block.get("band") or ""), axes
+
+
+def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> RunEntry:
+    summary = select.summarise(ws.root, record=rec)
+    picked = summary.round
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
+    j = effective_judgment(rnd) if rnd is not None else None
+    gates = gate_error_summary(rnd)
+    n_err = sum(gates.values())
+    minutes = rec.minutes
+    caps = rec.extra.get("captions") or {}
+    hero, hero_label, n_views = hero_view(ws, rec, picked)
+    plan = rec.plan
+    cx_index, cx_band, cx_axes = _complexity(ws, rec, picked)
+    return RunEntry(
+        battery=battery, slug=slug or ws.root.name, path=str(ws.root), state="ok",
+        title=(getattr(plan, "object_name", "") or getattr(plan, "title", "") or "") if plan else "",
+        prompt=rec.spec.prompt, track=rec.spec.track.value, language=rec.spec.language.value,
+        generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
+        status=summary.stop_reason, error=rec.error, caption=str(caps.get("instruction", "") or ""),
+        score=summary.picked_score, baseline_score=summary.baseline_score,
+        tier=quality_tier(passed=j.passed if j else None, gate_errors=n_err, score=j.overall if j else None),
+        gate_errors=n_err, gate_summary={k: v for k, v in gates.items() if v},
+        cost_usd=rec.total_usage.cost_usd, minutes=round(minutes, 1) if minutes is not None else None,
+        rounds=len(rec.rounds), picked_round=picked,
+        complexity=cx_index, complexity_band=cx_band, complexity_axes=cx_axes,
+        sheet=picked_sheet(ws, rec, picked), hero=hero, hero_label=hero_label, n_views=n_views,
+        links=entry_links(ws, rec, picked), round_rows=round_rows(ws, rec),
+    )
+
+
+def _spec_fields(run_dir: Path) -> dict[str, str]:
+    spec = read_json_or_none(run_dir / "spec.json") or {}
+    return {k: str(spec.get(k) or "") for k in ("prompt", "track", "language")}
+
+
+def entry_for_dir(battery: str, run_dir: Path, *, slug: str | None = None) -> RunEntry:
+    ws = Workspace(run_dir)
+    slug = slug or run_dir.name
+    fields = _spec_fields(run_dir)
+    if not (run_dir / "record.json").is_file():
+        return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="pending",
+                        error="no record.json yet (run in progress or never finished)",
+                        links=entry_links(ws, None, None), **fields)
+    try:
+        rec = load_record(ws)
+    except (RecordError, OSError, ValueError) as e:
+        return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="broken",
+                        error=str(e)[:400], links=entry_links(ws, None, None), **fields)
+    try:
+        return entry_from_record(battery, ws, rec, slug=slug)
+    except Exception as e:  # noqa: BLE001
+        return RunEntry(battery=battery, slug=slug, path=str(run_dir), state="broken",
+                        error=f"{type(e).__name__}: {e}"[:400], links=entry_links(ws, None, None), **fields)
+
+
+def _pending_direct_children(root: Path, found: set[Path]) -> list[Path]:
+    if not root.is_dir():
+        return []
+    return [d for d in sorted(root.iterdir())
+            if d.is_dir() and d not in found
+            and (d / "spec.json").is_file() and not (d / "record.json").is_file()]
+
+
+def scan_root(root: Path, label: str | None = None) -> RootSection:
+    root = Path(root)
+    label = label or battery_label(root)
+    found = find_run_dirs(root, predicate=is_run_dir)
+    dirs = sorted({*found, *_pending_direct_children(root, set(found))})
+    used: dict[str, int] = {}
+    entries: list[RunEntry] = []
+    for d in dirs:
+        slug = RunId(battery=label, rel=d.relative_to(root).as_posix()).slug
+        used[slug] = used.get(slug, 0) + 1
+        if used[slug] > 1:
+            slug = f"{slug}#{used[slug]}"
+        entries.append(entry_for_dir(label, d, slug=slug))
+    return RootSection(label=label, path=str(root.resolve()), entries=entries)
+
+
+def build_index(roots: list[Path] | list[str]) -> GalleryIndex:
+    t0 = time.perf_counter()
+    sections: list[RootSection] = []
+    used: dict[str, int] = {}
+    for root in roots:
+        root = Path(root)
+        base = battery_label(root)
+        used[base] = used.get(base, 0) + 1
+        label = base if used[base] == 1 else f"{base}#{used[base]}"
+        sections.append(scan_root(root, label))
+    return GalleryIndex(sections=sections, build_ms=int((time.perf_counter() - t0) * 1000),
+                        roots=[str(Path(r).resolve()) for r in roots])

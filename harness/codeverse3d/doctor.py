@@ -215,7 +215,7 @@ def check_keys(live: bool) -> list[Row]:
     n = len(s.gemini_api_keys)
     rows: list[Row] = [("gemini keys", "OK" if n else "FAIL", f"{n} key(s)")]
     if n:
-        from codeverse3d.models.gemini import shared_pool
+        from c3d_flywheel.models.gemini import shared_pool
 
         slots = shared_pool(list(s.gemini_api_keys)).slots
         if slots is None:
@@ -227,7 +227,7 @@ def check_keys(live: bool) -> list[Row]:
     rows.append(("anthropic key", "OK" if s.anthropic_api_key else "WARN", "set" if s.anthropic_api_key else "not set (anthropic:* backends unavailable)"))
     rows.append(("openai key", "OK" if s.openai_api_key else "WARN", "set" if s.openai_api_key else "not set (openai:* backends unavailable)"))
     if live and n:
-        from codeverse3d.models.health import probe
+        from c3d_flywheel.models.health import probe
 
         h = probe(sample=1)   # one workload-sized call, no retries; never raises
         rows.append(("gemini live call", "OK" if h.ok else "FAIL", str(h)))

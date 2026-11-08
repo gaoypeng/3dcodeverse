@@ -38,7 +38,7 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem
-from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient
+from codeverse3d.jsonparse import JsonParseError, parse_json_lenient
 
 RUBRICS_DIR = Path(__file__).resolve().parent / "rubrics"
 ANCHOR_LEVELS = ("1.0", "0.7", "0.4", "0.1")

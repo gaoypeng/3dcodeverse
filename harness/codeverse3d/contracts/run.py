@@ -199,7 +199,7 @@ class SettingsSnapshot(BaseModel):
     harness_version: str = ""
     harness_git_sha: str = ""
     key_pool_size: int = Field(default=0, description="number of API keys in the rotating pool")
-    price_table_version: str = Field(default="", description="content hash of codeverse3d.models.pricing.PRICES")
+    price_table_version: str = Field(default="", description="content hash of c3d_flywheel.models.pricing.PRICES")
     render: dict[str, Any] = Field(default_factory=dict, description="resolved render settings (size, gpu, sheet)")
 
 

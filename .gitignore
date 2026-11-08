@@ -35,3 +35,6 @@ dist/
 
 # Retired tools retained locally for reference.
 /.local-archive/
+
+# Harness tests live outside the repo now (~/3dcodeverse_tests/harness_tests); never re-add them here.
+/harness/tests/

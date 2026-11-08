@@ -19,11 +19,11 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, StepTime
-from codeverse3d.cost.tally import tally, timed
+from c3d_flywheel.cost.tally import tally, timed
 from codeverse3d.judges.base import round_input
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out
-from codeverse3d.record.deliverable import keep_round_artifacts
+from c3d_flywheel.record.deliverable import keep_round_artifacts
 from codeverse3d.spatial.render import RenderError
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for

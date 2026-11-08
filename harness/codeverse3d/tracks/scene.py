@@ -19,7 +19,7 @@ from codeverse3d.contracts.plan import BBox, CameraPlan, Plan, ScenePlan, ZonePl
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import SCENE_TIMES, fmt3, to_authoring_frame, to_snake
 from codeverse3d.judges.base import judged_subset
-from codeverse3d.models import get_chat_model
+from c3d_flywheel.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
