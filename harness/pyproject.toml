@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "3dcodeverse"
-version = "0.1.0"
+version = "0.0.1"
 description = "3dcodeverse: a data-flywheel harness for LLM-written 3D code (Blender / CadQuery / Three.js / URDF / GLSL) across static objects, articulated objects and scenes."
 readme = "README.md"
 # One fixed version: 3.13 (owner's decision 2026-08-26 — no floor, no matrix; the

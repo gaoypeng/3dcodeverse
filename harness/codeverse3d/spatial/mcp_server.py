@@ -18,6 +18,7 @@ from typing import Any
 
 from PIL import Image
 
+from codeverse3d import __version__
 from codeverse3d.spatial.observe import fmt_numbers, truncate
 from codeverse3d.spatial.registry import Observation, ToolContext, list_tools
 from codeverse3d.spatial.tool_common import spec_dict
@@ -151,7 +152,7 @@ def make_server(ctx: ToolContext):
     async def on_call_tool(_req_ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
         return await call_tool(ctx, defs, params)
 
-    return Server(SERVER_NAME, version="0.1.0",
+    return Server(SERVER_NAME, version=__version__,
                   instructions="3dcodeverse spatial tools: build, measure, render and check the 3D object in this workspace.",
                   on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 

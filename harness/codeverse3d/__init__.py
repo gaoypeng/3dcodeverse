@@ -14,4 +14,4 @@ Package map:
 - ``addons``        tools that read finished runs.   - ``cli``   the ``3dcodeverse`` command line.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.0.1"
