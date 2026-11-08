@@ -1,108 +1,22 @@
-"""Run records: finalise / load / iterate.
-
-``finalize_record`` fills the environment, reads the run's total off its cost ledger, writes
-``record.json`` (telemetry included) atomically.  Telemetry is best-effort and never fails a run.
-"""
+"""Reading the recorded runs: ``load_record`` / ``iter_runs`` and the derived per-round views."""
 
 from __future__ import annotations
 
 import logging
-import platform
-import subprocess
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from codeverse3d import __version__
-from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment
-from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
-from c3d_flywheel.cost.ledger import existing_ledger_path, ledger_usage, load_ledger
-from codeverse3d.proc import read_json_or_none, version_line
-from codeverse3d.spatial.node import node_modules_dir, puppeteer_cache_dir
 from codeverse3d.workspace import Workspace
+
+from c3d_flywheel.legacy import RoundRecord, RunId, RunRecord
 
 log = logging.getLogger(__name__)
 
 
 class RecordError(RuntimeError):
     """A record.json is missing or invalid."""
-
-
-# --------------------------------------------------------------------------- environment
-def _cmd_first_line(cmd: list[str]) -> str:
-    rc, line = version_line(cmd)
-    return line or f"exit {rc}"
-
-
-def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str] | None:
-    try:
-        return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=10, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-
-def _harness_git_sha(pkg_file: Path | None = None) -> str:
-    """Commit of the harness checkout this package runs from (``""`` outside a checkout).
-
-    The file itself must be tracked (a wheel or venv copy must not borrow an unrelated repo's
-    sha); a modified tree is marked ``-dirty``.
-    """
-    here = (pkg_file or Path(__file__)).resolve()
-    tracked = _git(["ls-files", "--error-unmatch", here.name], here.parent)
-    if tracked is None or tracked.returncode != 0:
-        return ""
-    head = _git(["rev-parse", "HEAD"], here.parent)
-    if head is None or head.returncode != 0 or not head.stdout.strip():
-        return ""
-    sha = head.stdout.strip()
-    # dirty = any tracked file under the package tree (harness/) modified; untracked files ignored
-    pkg_root = here.parents[2] if here.parent.name == "record" else here.parent
-    status = _git(["status", "--porcelain", "--untracked-files=no", "--", str(pkg_root)], here.parent)
-    if status is not None and status.returncode == 0 and status.stdout.strip():
-        sha += "-dirty"
-    return sha
-
-
-def _chrome_version() -> str:
-    """Chrome build from the puppeteer cache directory name (offline, no launch)."""
-    cache = puppeteer_cache_dir() / "chrome"
-    if not cache.is_dir():
-        return ""
-    builds = sorted(p.name for p in cache.iterdir() if p.is_dir())
-    return builds[-1] if builds else ""
-
-
-def _node_pkg_version(name: str) -> str:
-    try:
-        pkg = node_modules_dir() / name / "package.json"
-    except RuntimeError:  # no runtime_js: provenance only
-        return ""
-    return str((read_json_or_none(pkg) or {}).get("version", ""))
-
-
-@lru_cache(maxsize=1)
-def environment_versions() -> dict[str, str]:
-    """Tool versions + harness provenance.  Cached per process (Blender is slow to ask)."""
-    s = get_settings()
-    env: dict[str, str] = {
-        "python": platform.python_version(),
-        "codeverse3d": __version__,
-        "platform": platform.platform(),
-        "host": platform.node(),
-        "harness_git_sha": _harness_git_sha(),
-    }
-    blender = s.resolve_blender()
-    env["blender"] = _cmd_first_line([blender, "--version"]) if blender else ""
-    env["blender_path"] = blender
-    env["node"] = _cmd_first_line([s.binaries.node, "--version"])
-    env["three"] = _node_pkg_version("three")
-    env["puppeteer"] = _node_pkg_version("puppeteer")
-    env["chrome"] = _chrome_version()
-    return env
 
 
 # --------------------------------------------------------------------------- derived fields
@@ -119,11 +33,9 @@ def previous_verdict(rounds: Iterable[RoundRecord | None], index: int) -> Judgme
 
 
 def rubric_of(record: RunRecord) -> str:
-    """The run's rubric: the stamped one, else its last judged round's, else ``judges.base.run_rubric``."""
-    from codeverse3d.judges.base import run_rubric
-
+    """The run's rubric: the stamped one, else its last judged round's, else ``""``."""
     judged = (r.judgment.rubric for r in reversed(record.rounds) if r.judgment is not None and r.judgment.rubric)
-    return str(record.extra.get("rubric") or "") or next(judged, "") or run_rubric(record.spec)
+    return str(record.extra.get("rubric") or "") or next(judged, "")
 
 
 def stop_reason(record: RunRecord) -> str:
@@ -167,90 +79,6 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
         "minutes": round(r.minutes, 2),
         "complexity": cx.get("index") if cx else None,
     }
-
-
-def fill_derived(record: RunRecord) -> RunRecord:
-    """Fill finished_at/environment when absent and the complexity block."""
-    if record.finished_at is None:
-        record.finished_at = datetime.now(UTC)
-    env = dict(environment_versions())
-    env.update(record.environment)  # the track's own entries win
-    record.environment = env
-    block = complexity_block(record)
-    if block is not None:
-        record.extra["complexity"] = block
-    return record
-
-
-def complexity_block(record: RunRecord) -> dict[str, Any] | None:
-    """``record.extra["complexity"]``: the last measured round's vector, plus plan parts and the per-round trail."""
-    cx = next((c for c in (round_complexity(r) for r in reversed(record.rounds)) if c), None)
-    if cx is None:
-        return None
-    plan_parts = len(record.plan.parts) if record.plan is not None else 0
-    block = dict(cx)
-    block["plan_parts"] = plan_parts
-    block["parts_per_plan_part"] = (
-        round(int(cx.get("part_count") or 0) / plan_parts, 3) if plan_parts else None
-    )
-    trail = [c["index"] for c in (round_complexity(r) for r in record.rounds) if c]
-    block["by_round"] = trail
-    return block
-
-
-# --------------------------------------------------------------------------- io
-def package_run(ws: Workspace, record: RunRecord) -> None:
-    """Read the run's total off its ledger (``record.total_usage`` = its sum at list price).
-
-    Best-effort: a failure is logged and the run still gets its ``record.json``."""
-    from c3d_flywheel.record.telemetry import build_telemetry
-
-    if existing_ledger_path(ws.root) is not None:
-        record.total_usage = ledger_usage(load_ledger(ws.root))
-    try:
-        ws.ensure_layout()
-    except OSError as e:  # read-only mount
-        log.warning("run layout not created in %s: %s", ws.root, e)
-        return
-    try:
-        record.telemetry = build_telemetry(ws, record)
-    except Exception as e:  # noqa: BLE001 - never fail a finished run over accounting
-        log.warning("telemetry not written for %s: %s", ws.root, e)
-
-
-def repackage(ws: Workspace) -> RunRecord | None:
-    """Re-package a finished run's ``record.json`` after its ledger grew; None when there is no ledger or record."""
-    if existing_ledger_path(ws.root) is None:
-        return None
-    try:
-        record = load_record(ws)
-    except RecordError:
-        return None
-    package_run(ws, record)
-    ws.write_json(ws.record_path, record)
-    return record
-
-
-@contextmanager
-def join_post_run(ws: Workspace) -> Iterator[None]:
-    """Work on a finished run that may spend money: rows join its ledger, and the record is
-    re-packaged on the way out (even on error) so ``total_usage`` stays the ledger's sum."""
-    from c3d_flywheel.cost.instrument import run_ledger
-
-    try:
-        with run_ledger(ws.root, run=ws.root.name, create=False):
-            yield
-    finally:
-        repackage(ws)
-
-
-def finalize_record(ws: Workspace, record: RunRecord) -> Path:
-    """Fill derived fields + environment, build the telemetry block and write ``record.json``."""
-    record.workspace = record.workspace or str(ws.root)
-    fill_derived(record)
-    package_run(ws, record)
-    ws.write_json(ws.record_path, record)
-    return ws.record_path
 
 
 def load_record(ws: Workspace | Path | str) -> RunRecord:

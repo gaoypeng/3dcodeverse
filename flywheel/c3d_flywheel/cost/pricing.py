@@ -136,7 +136,7 @@ def lookup_price(provider: str, model: str) -> Price | None:
 
 @dataclass(frozen=True)
 class PriceRow:
-    """A resolved price plus its audit trail — what ``3dcodeverse cost prices`` prints."""
+    """A resolved price plus its audit trail — what ``c3d-flywheel cost prices`` prints."""
 
     provider: str
     model: str

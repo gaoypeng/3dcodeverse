@@ -1,40 +1,26 @@
-"""Append-only cost ledger: one JSONL row per model / agent call.
-
-``record_call`` prices and appends a row (never raises); ``load_ledger`` reads rows back
-tolerantly; ``summarise`` buckets them by dimension.
-"""
+"""The cost ledger of a finished run (``telemetry/cost.jsonl``): read tolerantly, re-price, bucket by dimension."""
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import threading
-import time
-from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
-from contextvars import ContextVar
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.common import Usage
-from c3d_flywheel.cost.context import CallContext, _stage, attribute
-from c3d_flywheel.cost.tally import book_usage
-from c3d_flywheel.cost.types import (
-    CallCost,
-    CostBucket,
-    Role,
-    Stage,
-    Summary,
-    normalise_ids,
-    role_for_stage,
-)
-from c3d_flywheel.models.pricing import (
+from codeverse3d.proc import iter_jsonl_lines
+
+from c3d_flywheel.cost.pricing import (
     estimate_cost,
     price_provenance,
     unit_prices,
 )
-from codeverse3d.proc import iter_jsonl_lines
+from c3d_flywheel.cost.types import (
+    CallCost,
+    CostBucket,
+    Summary,
+    normalise_ids,
+)
 
 log = logging.getLogger(__name__)
 
@@ -48,89 +34,10 @@ DIMENSIONS = ("run", "stage", "role", "backend", "model", "provider", "round", "
 PROVIDER_PRICED_BACKENDS = frozenset({"claude-code"})
 
 
-class CostLedger:
-    """Append-only JSONL ledger.  Thread-safe; one line per call, flushed on write."""
-
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        self._lock = threading.Lock()
-
-    def append(self, row: CallCost) -> CallCost:
-        line = json.dumps(row.model_dump(mode="json"), ensure_ascii=False, default=str)
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self._lock, self.path.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-                fh.flush()
-        except OSError as e:  # pragma: no cover - disk full / read-only run dir
-            log.warning("cost ledger append failed (%s): %s", self.path, e)
-        return row
-
-
-_fallback_lock = threading.Lock()
-_fallback: CostLedger | None = None
-
-#: sentinel: "this execution context did not state a ledger"
-_UNSET: Any = object()
-#: context-local ONLY override of the default ledger, so parallel runs never share a file
-_default_var: ContextVar[Any] = ContextVar("c3d_cost_default_ledger", default=_UNSET)
-
-
-@contextmanager
-def bound_ledger(path: str | Path) -> Iterator[CostLedger]:
-    """Point :func:`record_call` at ``path`` for the block."""
-    led = CostLedger(path)
-    token = _default_var.set(led)
-    try:
-        yield led
-    finally:
-        _default_var.reset(token)
-
-
-def default_ledger() -> CostLedger:
-    """The ledger :func:`record_call` writes to: the bound one, else the per-process fallback
-    log, so a call outside any run is still accounted for.  There is no off switch."""
-    global _fallback
-    led = _default_var.get()
-    if led is not _UNSET:
-        return led
-    with _fallback_lock:
-        if _fallback is None:
-            _fallback = CostLedger(process_ledger_path())
-        return _fallback
-
-
-def process_ledger_path() -> Path:
-    """The fallback log for calls with no run context: one file per process under ``<cache_dir>/cost/``."""
-    from codeverse3d.config import get_settings
-
-    base = Path(get_settings().cache_dir)
-    stamp = time.strftime("%Y%m%d", time.localtime())
-    return base / "cost" / f"p{os.getpid()}-{stamp}.jsonl"
-
-
 def existing_ledger_path(workspace: str | Path) -> Path | None:
     """The run's ``telemetry/cost.jsonl`` if it exists, else ``None``."""
     p = Path(workspace) / TELEMETRY_LEDGER
     return p if p.is_file() else None
-
-
-def open_run_ledger(workspace: str | Path) -> CostLedger:
-    """The run's ledger (the file is created by its first row)."""
-    return CostLedger(Path(workspace) / TELEMETRY_LEDGER)
-
-
-#: ``_as_role`` differs from ``context._role``: it returns Role.OTHER (truthy) where that returns None.
-_as_stage = _stage
-
-
-def _as_role(value: Role | str | None) -> Role | None:
-    if value is None or isinstance(value, Role):
-        return value
-    try:
-        return Role(value)
-    except ValueError:
-        return Role.OTHER
 
 
 def price_call(
@@ -171,70 +78,6 @@ def price_call(
         "price_checked": row.checked,
     }
     return cost, fields
-
-
-def record_call(
-    usage: Usage | None = None,
-    *,
-    run: str = "",
-    stage: Stage | str | None = None,
-    role: Role | str | None = None,
-    round: int | None = None,  # noqa: A002 - matches the record/round vocabulary
-    label: str = "",
-    backend: str = "",
-    model: str = "",
-    outcome: str = "ok",
-    latency_ms: int | None = None,
-    n_calls: int = 1,
-    source: str = "live",
-    ledger: CostLedger | str | Path | None = None,
-    ts: float | None = None,
-    reprice: bool = False,
-    **extra: Any,
-) -> CallCost:
-    """Append one priced call to the ledger, book it into the open tallies, return the row.
-
-    Unstated ``run`` / ``round`` / ``stage`` / ``role`` resolve from the ambient context and label.
-    Never raises."""
-    u = usage or Usage()
-    ctx = attribute(CallContext(run=run, round=round, stage=_as_stage(stage), role=_as_role(role),
-                                label=label), label=label)
-    st = ctx.stage or Stage.OTHER
-    rl = ctx.role or role_for_stage(st)
-    run, round, label = ctx.run, ctx.round, ctx.label  # noqa: A001 - see the signature
-    try:
-        cost, price_fields = price_call(u, backend=backend, model=model, reprice=reprice)
-    except Exception as e:  # pragma: no cover - pricing must never break a run
-        log.warning("cost: pricing failed for %s/%s: %s", backend, model, e)
-        cost, price_fields = float(u.cost_usd), {}
-    row = CallCost(
-        ts=ts if ts is not None else time.time(),
-        run=run,
-        round=round,
-        stage=st,
-        role=rl,
-        label=label,
-        input_tokens=int(u.input_tokens),
-        cached_tokens=int(u.cached_tokens),
-        output_tokens=int(u.output_tokens),
-        thoughts_tokens=int(u.thoughts_tokens),
-        tool_calls=int(u.tool_calls),
-        cost_usd=cost,
-        recorded_usd=float(u.cost_usd),
-        latency_ms=int(u.latency_ms if latency_ms is None else latency_ms),
-        cache_hit=int(u.cached_tokens) > 0,
-        outcome=outcome,
-        n_calls=max(1, int(n_calls)),
-        source=source,
-        **price_fields,
-        **extra,
-    )
-    (ledger if isinstance(ledger, CostLedger) else CostLedger(ledger) if ledger else default_ledger()).append(row)
-    book_usage(Usage(backend=row.backend, model=row.model, input_tokens=row.input_tokens,
-                     output_tokens=row.output_tokens, cached_tokens=row.cached_tokens,
-                     thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls,
-                     cost_usd=row.cost_usd, latency_ms=row.latency_ms))
-    return row
 
 
 def load_ledger(path: str | Path) -> list[CallCost]:
