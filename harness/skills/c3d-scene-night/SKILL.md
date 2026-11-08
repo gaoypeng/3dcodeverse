@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-night
-description: "Use when a scene_threejs brief says night, dusk, evening, neon, lamplit or moonlit. Night scenes fail two ways: black frames (the gate catches those) and the CHRISTMAS-TREE look - every window a flat glow, light shafts like white tents, twelve competing hues. States what is measured and judged, then the strong options: the library's night windows and neon, glow without postprocessing, fake light pools, the measured shaft ceiling, a wet road with something to mirror, and few light temperatures."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a scene_threejs brief says night, dusk, evening, neon, lamplit or moonlit. Night scenes fail two ways: black frames (the gate catches those) and the CHRISTMAS-TREE look - every window a flat glow, light shafts like white tents, twelve competing hues. States what is measured and judged, then the strong options: the library's night windows and neon, glow without postprocessing, fake light pools, the measured shaft ceiling, a wet road with something to mirror, and few light temperatures."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; ACES tone mapping, exposure 1.0.
 metadata:

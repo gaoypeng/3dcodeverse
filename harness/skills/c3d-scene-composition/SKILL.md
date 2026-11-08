@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-composition
-description: "Use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. States what the harness's deterministic instruments require of a composition - one height function everything samples, a world that does not end in shot, cameras whose eye, clearance and coverage are measured - and how each is measured, so the brief's own place can satisfy them in its own way. Includes the sky/ground/content classifier that silently decides two gate findings, the camera score caps, and a menu of horizon treatments."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. States what the harness's deterministic instruments require of a composition - one height function everything samples, a world that does not end in shot, cameras whose eye, clearance and coverage are measured - and how each is measured, so the brief's own place can satisfy them in its own way. Includes the sky/ground/content classifier that silently decides two gate findings, the camera score caps, and a menu of horizon treatments."
 license: Apache-2.0
 compatibility: track scene, language scene_threejs (three r182, headless Chrome, the harness builds the cameras from your plain camera objects).
 metadata:

@@ -1,6 +1,6 @@
 ---
 name: c3d-threejs-shader-traps
-description: "Use when a scene_threejs session writes a ShaderMaterial or an onBeforeCompile patch, or when shader_preflight reported an error (on the static threejs track a ShaderMaterial is dropped at GLB export — see that contract). Write custom GLSL that survives this harness's shader gate on the first build. Says which mistakes the harness detects statically, which it detects at runtime, which it cannot see at all, and corrects three widely repeated three.js warnings that do not apply to this renderer."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a scene_threejs session writes a ShaderMaterial or an onBeforeCompile patch, or when shader_preflight reported an error (on the static threejs track a ShaderMaterial is dropped at GLB export — see that contract). Write custom GLSL that survives this harness's shader gate on the first build. Says which mistakes the harness detects statically, which it detects at runtime, which it cannot see at all, and corrects three widely repeated three.js warnings that do not apply to this renderer."
 license: Apache-2.0
 compatibility: three@0.182.0, headless WebGL via puppeteer. Rules read from runtime_js/lib/glsl_audit.mjs, runtime_js/lib/host_compile.mjs, runtime_js/lib/shader_report.mjs and runtime_js/lib/browser/renderer.js.
 metadata:

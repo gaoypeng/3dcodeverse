@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-materials
-description: "Use in every scene_threejs build or refine session that authors surfaces - terrain, buildings, props, vegetation. The strongest 'plastic toy' tell is a flat albedo; the second is identical twins. States what the judge reads at crop scale (placeholder_material, flat_ground, monotonous_vegetation, undressed_scene, asset_quality_detail) and what the placement gate measures, then offers short optional practices with the shipped library's real API: surface variance, per-copy variation, roughness, edges near the lens, terrain that reads as a landform, vegetation variety, dressing and seating."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use in every scene_threejs build or refine session that authors surfaces - terrain, buildings, props, vegetation. The strongest 'plastic toy' tell is a flat albedo; the second is identical twins. States what the judge reads at crop scale (placeholder_material, flat_ground, monotonous_vegetation, undressed_scene, asset_quality_detail) and what the placement gate measures, then offers short optional practices with the shipped library's real API: surface variance, per-copy variation, roughness, edges near the lens, terrain that reads as a landform, vegetation variety, dressing and seating."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; ACES tone mapping, GTAO + soft bloom supplied by the renderer.
 metadata:

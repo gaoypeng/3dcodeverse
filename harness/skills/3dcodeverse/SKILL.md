@@ -1,6 +1,6 @@
 ---
 name: 3dcodeverse
-description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. It holds the tracks and their languages, every instrument, the workflow and its stop rules, and the quality rules every track shares; read it, the language's 3d-lang-* skill and its plan reference together, before the first 3dcode call."
+description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step, all in ONE read: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md; no c3d-* skill until a 3dcode finding or score item names its topic."
 license: Apache-2.0
 metadata:
   verified: "2026-11-07"
@@ -58,7 +58,7 @@ lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode
 | `measure` | overall bbox, ground gap, per-part size / triangles / islands in Y-up metres (`--parts`) | when a number, not a picture, answers it |
 | `check-contract` | the built object vs `plan.json`: missing parts, bbox delta per part, overall size, ground contact | object tracks, after every build |
 | `check-connectivity` | the contact graph: floating parts with the gap vector that closes them, interpenetration, stray islands | object tracks, after every build |
-| `cross-section` | a labelled slice (`--axis x|y|z --at 0..1 --parts`) with loops, area and hollow ratio | is the cavity cut, is the wall there, is this part where I think |
+| `cross-section` | a labelled slice (`--axis x|y|z --at 0..1 --parts`) with loops, area and hollow ratio | when `check` or a score item says a cavity, wall or part position is wrong — not as a routine look |
 | `render-views` | named views (`--views`, `--mode shaded|wire|normals|silhouette|clay`, `--isolate`, `--explode`) | to see one aspect |
 | `render-sheet` | the labelled 14-view contact sheet (`--mode`) | the refine round's one look, to confirm a listed item |
 | `isolate --part X` | one part alone + its measurement row | where did that fragment come from; where is this part |
@@ -112,7 +112,8 @@ ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then 
 to confirm the listed items.  A WARN never caps the score: fix it once if cheap, otherwise
 leave it.
 
-1. **Plan.**  Write `W/plan.json` by `references/plan-<track>.md` — exact numbers, an acceptance
+1. **Plan.**  (There is no `spec.json` yet; step 2 creates it.)  Write `W/plan.json` by
+   `references/plan-<track>.md` — exact numbers, an acceptance
    checklist, and SHORT: one sentence per part, one line of summary, the reference's example is
    the length (an object plan under 5 KB).
 2. **Validate (and create the project).**  `3dcode validate-plan --workspace W --track T
@@ -166,6 +167,9 @@ leave it.
 
 * **The plan's numbers are what the gates measure.**  Build them; if one looks wrong for the
   object, keep the plan's value in the code and say why in a comment — never drift silently.
+* **Parts meet at their surfaces.**  Where one part goes INTO another (an axle in a hub, a fork
+  in a head tube, a switch in its base, a leg in a seat) end it at the receiving surface or make
+  the receiver hollow: more than 2 mm of overlap is measured, more than 10 mm is an ERROR.
 * **Detail goes INSIDE the parts the plan names** — edges, profiles, seams, counted repeats —
   never into new parts: detail inside a part is neutral-to-positive for the score, an unplanned
   part is strongly negative (the contract gate reports it, the judge counts it as clutter).
@@ -173,7 +177,7 @@ leave it.
   the underside of a lid that never opens — are never parts.
 * **A material per part with the plan's colour**; a grey default anywhere is a judged defect.
 * **Hollow things are hollow** when the real object is (a mug, bowl, box, drawer): cut the
-  cavity and confirm it with `3dcode cross-section`.
+  cavity in the code; open `3dcode cross-section` only when `check` or a score item says it is missing.
 * **Never trim part names, counts, the overall size or the planned motion to "simplify"**;
   no placeholders, no unit-cube stand-ins, no static image where the plan says motion.
 * **A render is evidence; "it should be fine" is not.**  The judge's montages are that evidence;

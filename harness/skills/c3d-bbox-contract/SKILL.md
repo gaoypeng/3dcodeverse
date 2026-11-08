@@ -1,6 +1,6 @@
 ---
 name: c3d-bbox-contract
-description: "Use when a session owns part sizes, placement or ground contact, or when the contract gate fired: hit the plan's dimensions on the first build. Applies to baseline, part, detail, refine and rebuild sessions on static_object and articulated_object. Covers the tolerance the gate really uses (relative, not a flat millimetre figure), how instanced parts are measured, ground contact and footprint, part-name matching, and how to prove the numbers with measure / check_contract instead of by eye."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a session owns part sizes, placement or ground contact, or when the contract gate fired: hit the plan's dimensions on the first build. Applies to baseline, part, detail, refine and rebuild sessions on static_object and articulated_object. Covers the tolerance the gate really uses (relative, not a flat millimetre figure), how instanced parts are measured, ground contact and footprint, part-name matching, and how to prove the numbers with measure / check_contract instead of by eye."
 license: Apache-2.0
 metadata:
   evidence: measured

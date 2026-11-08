@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-lighting
-description: "Use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives what the frame gate measures (the exposure band every authored camera has to sit in), the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light - and the sky-lit / practical-lit cases with the starter sunRig as one toolbox."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives what the frame gate measures (the exposure band every authored camera has to sit in), the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light - and the sky-lit / practical-lit cases with the starter sunRig as one toolbox."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; renderer fixed at ACES Filmic tone mapping, exposure 1.0, sRGB output.
 metadata:

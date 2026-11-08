@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-motion
-description: "Use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers how motion is measured, the single update hook the harness actually calls, the amplitudes measured to read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers how motion is measured, the single update hook the harness actually calls, the amplitudes measured to read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
 license: Apache-2.0
 compatibility: "scene track, language scene_threejs. three r182 in headless Chrome; the harness photographs each camera at t = 0 s and t = 1.5 s and diffs the pair."
 metadata:

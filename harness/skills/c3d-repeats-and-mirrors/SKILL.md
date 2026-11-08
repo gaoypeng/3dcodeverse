@@ -1,6 +1,6 @@
 ---
 name: c3d-repeats-and-mirrors
-description: "Use when a part has instances above 1 or symmetry, is a left/right pair or a ring of N, or when contract/instance_bbox or instance_count fired. Build repeated, mirrored and radially arrayed parts so the contract gate passes on the first build. Covers instance naming (Name_0..Name_N), which box the gate compares for an instanced part, mirroring without a negative object scale, and radial angles derived from the count."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a part has instances above 1 or symmetry, is a left/right pair or a ring of N, or when contract/instance_bbox or instance_count fired. Build repeated, mirrored and radially arrayed parts so the contract gate passes on the first build. Covers instance naming (Name_0..Name_N), which box the gate compares for an instanced part, mirroring without a negative object scale, and radial angles derived from the count."
 license: Apache-2.0
 compatibility: static_object and articulated_object tracks; blender, urdf_blender, cadquery and threejs. Numbers are from codeverse3d/spatial/contract.py and conventions.py.
 metadata:

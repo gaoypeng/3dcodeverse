@@ -1,6 +1,6 @@
 ---
 name: c3d-urdf-joints
-description: "Use when authoring or repairing an articulated_object's src/robot.urdf - links, joints, axes, limits, clearances - or when joint_sweep fired. Also covers the rest pose in src/model.py, and applies on every repair round that reported joint_sweep or motion_direction. Explains which pose set the sweep gate tests, why a moved-pose overlap is always an ERROR, and the arithmetic that predicts which way positive q pushes a child before you write the axis."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when authoring or repairing an articulated_object's src/robot.urdf - links, joints, axes, limits, clearances - or when joint_sweep fired. Also covers the rest pose in src/model.py, and applies on every repair round that reported joint_sweep or motion_direction. Explains which pose set the sweep gate tests, why a moved-pose overlap is always an ERROR, and the arithmetic that predicts which way positive q pushes a child before you write the axis."
 license: Apache-2.0
 compatibility: track articulated_object, language urdf_blender. Constants read from codeverse3d/languages/urdf/__init__.py, codeverse3d/spatial/joints_sweep.py, joints_poses.py and codeverse3d/tracks/articulated_object.py.
 metadata:

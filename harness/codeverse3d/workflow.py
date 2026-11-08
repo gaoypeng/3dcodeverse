@@ -570,14 +570,14 @@ def commit_round(ws: Workspace, round_index: int, message: str) -> tuple[str, li
 
 
 def judge_instruction(out: Path, images: list[str]) -> str:
-    """The exact text to hand a fresh-context judge subagent for the folder ``out``: two steps, nothing after.  The
-    reply line travels in the second step, with the write — a step of its own is one more model call per round."""
+    """The exact text to hand a fresh-context judge subagent for the folder ``out``: two steps, nothing after.  File
+    names, not paths: the parent copies this text into its spawn call, and every token of it is generated."""
     agent = PLUGIN_ROOT / "agents" / "3d-judge.md"
-    return (f"Judge ONLY the folder {out}. Step 1, in ONE step: read {out / 'brief.md'} and all of these images "
-            f"together: {' '.join(images)}. Step 2, in ONE step: write {out / JUDGMENT_NAME} (exactly the JSON the brief "
-            f"specifies) AND, in that same step, send exactly one line back to whoever started you: wrote {out / JUDGMENT_NAME} "
-            f"(where only a message wakes the caller, that message is this line, sent in the same step as the write). "
-            f"Nothing after step 2. If you were not started as the 3d-judge agent, read {agent} in step 1 as well.")
+    names = " ".join(Path(i).name if Path(i).parent == out else str(i) for i in images)
+    return (f"Judge ONLY the folder {out}/. Step 1, in ONE step, read these files of it together: brief.md {names}. "
+            f"Step 2, in ONE step: write judgment.json there (the JSON brief.md specifies) and send back the one line "
+            f"'wrote {out / JUDGMENT_NAME}' (as a message where only a message wakes the caller). Nothing after. "
+            f"Not started as the 3d-judge agent? Also read {agent} in step 1.")
 
 
 @tool("judge", NoArgs, "One step from code to the judge: make the workspace a git repo (local identity if none), run "

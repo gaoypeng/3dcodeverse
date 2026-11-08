@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-atmosphere
-description: "Use when a scene_threejs env, baseline or refine session builds the sky, the environment map, clouds or fog. The sky is not a backdrop: it is the light source every PBR material reflects. States what has to be true (scene.environment set before the first frame and agreeing with the visible sky; clouds that read as volumes; haze that leaves the midground readable) and how it is read, with the library's sky, cloud and fog modules as the strong options and the one-line equirect orientation bug that blackens water."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a scene_threejs env, baseline or refine session builds the sky, the environment map, clouds or fog. The sky is not a backdrop: it is the light source every PBR material reflects. States what has to be true (scene.environment set before the first frame and agreeing with the visible sky; clouds that read as volumes; haze that leaves the midground readable) and how it is read, with the library's sky, cloud and fog modules as the strong options and the one-line equirect orientation bug that blackens water."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; renderer fixed at ACES Filmic tone mapping, exposure 1.0, sRGB output.
 metadata:

@@ -1,6 +1,6 @@
 ---
 name: c3d-blender-forms
-description: "Use when writing Blender bpy code (language blender or urdf_blender): turn a described shape into the right bpy technique. Avoids the five bpy traps this harness's lint and exporter actually catch: join without an active object, a part file model.py never imports, no PascalCase names, modifier_apply out of context, and primitive_cube_add scale doubling the extents. Covers building, detailing, refining and repairing geometry."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when writing Blender bpy code (language blender or urdf_blender): turn a described shape into the right bpy technique. Avoids the five bpy traps this harness's lint and exporter actually catch: join without an active object, a part file model.py never imports, no PascalCase names, modifier_apply out of context, and primitive_cube_add scale doubling the extents. Covers building, detailing, refining and repairing geometry."
 license: Apache-2.0
 compatibility: Blender 5.2.2 LTS headless, run by codeverse3d/languages/wrappers/run_bpy.py; imports per the contract's allow-list.
 metadata:

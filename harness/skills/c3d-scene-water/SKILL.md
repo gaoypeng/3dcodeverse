@@ -1,6 +1,6 @@
 ---
 name: c3d-scene-water
-description: "Use when a scene_threejs session builds water in any form - pond, lake, harbor, river, ocean, pool, canal, waterfall or fountain. Water is a dielectric, not a mirror: the single most common water bug is metalness, and the second is an environment bake it has nothing to reflect. States what has to be true and how the judge and the motion probe read it, then the shared noise block that keeps terrain, shoreline and scatter agreeing, Gerstner for open water, and foam that reads."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when a scene_threejs session builds water in any form - pond, lake, harbor, river, ocean, pool, canal, waterfall or fountain. Water is a dielectric, not a mirror: the single most common water bug is metalness, and the second is an environment bake it has nothing to reflect. States what has to be true and how the judge and the motion probe read it, then the shared noise block that keeps terrain, shoreline and scatter agreeing, Gerstner for open water, and foam that reads."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; ACES tone mapping, exposure 1.0.
 metadata:

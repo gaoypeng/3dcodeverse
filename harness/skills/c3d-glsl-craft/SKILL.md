@@ -1,6 +1,6 @@
 ---
 name: c3d-glsl-craft
-description: "Use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. What the five sampled frames measure and where the real operating band is, what the shader judge names and charges for, and a short list of strong optional practices behind its recorded complaints: structure that does not alias, motion from the mechanism instead of a uv scroll, light as a path through a volume, exposure before colour."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. What the five sampled frames measure and where the real operating band is, what the shader judge names and charges for, and a short list of strong optional practices behind its recorded complaints: structure that does not alias, motion from the mechanism instead of a uv scroll, light as a path through a volume, exposure before colour."
 license: Apache-2.0
 compatibility: GLSL 330 core via moderngl, headless. One image pass (src/shader.frag), include files src/*.glsl (one layer each) and one feedback pass (src/buffer_a.frag). The harness declares the uniforms; the contract lists them.
 metadata:

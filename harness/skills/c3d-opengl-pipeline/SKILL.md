@@ -1,6 +1,6 @@
 ---
 name: c3d-opengl-pipeline
-description: "Use when writing an opengl_python / moderngl program, or when the gl_frames gate reported flicker, no motion or a near-flat image. Covers baseline, refine, repair and rebuild sessions: the sampled-time trap that breaks every feedback simulation, what the frame gate and the judge measure on this language (edge density, motion delta, the acceptance items), and a few optional practices — full-screen passes, instancing, textures, your own framebuffers, linear light, GL state."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when writing an opengl_python / moderngl program, or when the gl_frames gate reported flicker, no motion or a near-flat image. Covers baseline, refine, repair and rebuild sessions: the sampled-time trap that breaks every feedback simulation, what the frame gate and the judge measure on this language (edge density, motion delta, the acceptance items), and a few optional practices — full-screen passes, instancing, textures, your own framebuffers, linear light, GL state."
 license: Apache-2.0
 compatibility: OpenGL 3.3 core through moderngl, headless EGL; one module src/program.py, GLSL 330 core inline or in src/*.glsl.
 metadata:

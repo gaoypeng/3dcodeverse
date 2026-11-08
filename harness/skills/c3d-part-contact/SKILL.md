@@ -1,6 +1,6 @@
 ---
 name: c3d-part-contact
-description: "Use when an object has two or more parts, or when a connectivity or joint_sweep finding fired: how parts must touch without penetrating. For static_object and articulated_object in any language, before the first build and on every repair round. Gives the contact, weld-overlap, penetration and stray-island numbers the connectivity gate actually measures, and how to add detail without creating new contact pairs."
+description: "Open only when a 3dcode finding or score item names this topic, never up front. use when an object has two or more parts, or when a connectivity or joint_sweep finding fired: how parts must touch without penetrating. For static_object and articulated_object in any language, before the first build and on every repair round. Gives the contact, weld-overlap, penetration and stray-island numbers the connectivity gate actually measures, and how to add detail without creating new contact pairs."
 license: Apache-2.0
 compatibility: Object tracks only (static_object, articulated_object). Needs the connectivity gate, i.e. an exported object.glb; scene and graphics tracks have no part graph.
 metadata:
