@@ -43,7 +43,7 @@ from codeverse3d.languages._gl_common import METRICS_NAME, SHEET_NAME, read_metr
 from codeverse3d.spatial.contract import check_contract, check_fixed_parts, planned_joins
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
 from codeverse3d.spatial.frame_motion import motion_text_for
-from codeverse3d.spatial.joints_sweep import SWEEP_GATE, sweep_gate
+from codeverse3d.spatial.joints_sweep import HINGE_CLEARANCE_M, SWEEP_GATE, sweep_gate
 from codeverse3d.spatial.measure import GlbLoadError, measure_glb
 from codeverse3d.spatial.render import RenderError, render_glb
 from codeverse3d.spatial.scene_placement import placement_gate_safe
@@ -590,8 +590,10 @@ def object_gates(ws: Workspace, spec: Spec, plan: Plan | None, build: BuildResul
     if spec.checks:
         out += run_project_checks(spec, ws.root, glb, measurement, round_index)
     if spec.track is Track.ARTICULATED_OBJECT:
-        sweep, _robot = sweep_gate(ws)
+        sweep, robot = sweep_gate(ws)
         out.append(sweep)
+        if robot is not None:
+            out[0] = _moving_links_not_floating(out[0], robot)
         try:
             motion = motion_checks(ws, plan)
         except Exception as e:  # noqa: BLE001 — advisory gate; the sweep gate is the hard one
@@ -600,6 +602,37 @@ def object_gates(ws: Workspace, spec: Spec, plan: Plan | None, build: BuildResul
         if motion is not None:
             out.append(motion)
     return measurement, out
+
+
+def _moving_links_not_floating(conn: GateReport, robot: Any) -> GateReport:
+    """A link on a moving joint keeps hinge / rail clearance from its parent: the joint sweep judges its attachment
+    (ERROR beyond 3 x HINGE_CLEARANCE_M), so connectivity's 2 mm contact rule must not call it — or what is welded to
+    it — floating while that clearance is under HINGE_CLEARANCE_M."""
+    parent_joint = {j.child: j for j in robot.joints.values()}
+
+    def moving_root(link: str) -> str | None:
+        while link in parent_joint:
+            j = parent_joint[link]
+            if j.type != "fixed":
+                return link
+            link = j.parent
+        return None
+
+    floating = {f.target: f for f in conn.findings if f.severity == Severity.ERROR and isinstance(f.data, dict)
+                and f.data.get("kind") == "floating"}
+
+    def clear(root: str) -> bool:
+        f = floating.get(root)
+        return f is None or float(f.data.get("gap_m") or 1.0) <= HINGE_CLEARANCE_M
+
+    kept: list[GateFinding] = []
+    for f in conn.findings:
+        root = moving_root(str(f.target)) if f in floating.values() else None
+        if root is not None and clear(root):
+            f = f.model_copy(update={"severity": Severity.INFO,
+                                     "message": f.message + f" — '{root}' moves on its joint; the joint sweep judges its clearance"})
+        kept.append(f)
+    return GateReport.of(conn.gate, kept, duration_ms=conn.duration_ms)
 
 
 def scene_gates(ws: Workspace, spec: Spec, plan: Plan | None, build: BuildResult) -> list[GateReport]:
