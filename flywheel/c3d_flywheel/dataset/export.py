@@ -11,7 +11,6 @@ from typing import Any, NamedTuple
 
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic, write_text_atomic
-from codeverse3d.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from c3d_flywheel.dataset import sample as S
@@ -19,6 +18,7 @@ from c3d_flywheel.dataset.quality import DuplicateGroup, code_sha256, mark_dupli
 from c3d_flywheel.legacy import RunId, RunRecord
 from c3d_flywheel.record.git_history import CODE_ROOTS
 from c3d_flywheel.record.record import FoundRun, iter_runs
+from c3d_flywheel.runlayout import RunWorkspace
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ExportReport(BaseModel):
 
 
 def load_captions(
-    ws: Workspace, record: RunRecord, captions_dir: Path | None = None, *, slug: str | None = None
+    ws: RunWorkspace, record: RunRecord, captions_dir: Path | None = None, *, slug: str | None = None
 ) -> dict[str, Any]:
     caps = record.extra.get("captions") or {}
     if caps.get("detailed"):
@@ -73,7 +73,7 @@ class ExportedSample(NamedTuple):
 
 
 def export_one(
-    ws: Workspace, record: RunRecord, out_dir: Path, *,
+    ws: RunWorkspace, record: RunRecord, out_dir: Path, *,
     captions_dir: Path | None = None, run_id: RunId | None = None
 ) -> ExportedSample:
     key = run_id.slug if run_id is not None else S.sample_key(ws)

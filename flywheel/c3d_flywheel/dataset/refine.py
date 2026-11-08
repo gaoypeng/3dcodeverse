@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from c3d_flywheel.dataset.pairs import MIN_PREFERENCE_DELTA
@@ -20,6 +19,7 @@ from c3d_flywheel.record.git_history import (
     read_tree_at,
 )
 from c3d_flywheel.record.record import effective_judgment, effective_score, iter_runs
+from c3d_flywheel.runlayout import RunWorkspace
 
 REFINE_KINDS: tuple[str, ...] = ("refine", "rewrite", "detail")
 MAX_DIFF_BYTES = 200_000
@@ -76,7 +76,7 @@ def outcome_of(delta: float | None, threshold: float) -> str:
     return "regressed" if delta <= -threshold else "unchanged"
 
 
-def _transition(ws: Workspace, rec: RunRecord, prev: RoundRecord, cur: RoundRecord, *, battery: str, run: str,
+def _transition(ws: RunWorkspace, rec: RunRecord, prev: RoundRecord, cur: RoundRecord, *, battery: str, run: str,
                 threshold: float, max_diff_bytes: int, with_code: bool) -> RefineTransition:
     diff, total, truncated = diff_between(ws, prev.commit, cur.commit, max_bytes=max_diff_bytes)
     changed = changed_files_between(ws, prev.commit, cur.commit)

@@ -10,7 +10,6 @@ from typing import Literal
 
 from codeverse3d.contracts.spec import FIXED_PARTS_GATE, PROJECT_GATE_PREFIX
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from c3d_flywheel.legacy import RoundRecord, RunRecord
@@ -21,6 +20,7 @@ from c3d_flywheel.record.record import (
     round_complexity,
     stop_reason,
 )
+from c3d_flywheel.runlayout import RunWorkspace
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class Selection(BaseModel):
 
 # --------------------------------------------------------------------------- rows
 def _load(run_dir: Path | str, record: RunRecord | None) -> RunRecord:
-    return record if record is not None else load_record(Workspace(run_dir))
+    return record if record is not None else load_record(RunWorkspace(run_dir))
 
 
 def round_rows(run_dir: Path | str, *, record: RunRecord | None = None) -> list[RoundRow]:
@@ -94,7 +94,7 @@ def _ranked(rows: list[RoundRow]) -> list[RoundRow]:
 
 
 # --------------------------------------------------------------------------- a round's own outputs
-def round_file(ws: Workspace, rnd: RoundRecord | None, name: str = "object.glb") -> Path | None:
+def round_file(ws: RunWorkspace, rnd: RoundRecord | None, name: str = "object.glb") -> Path | None:
     out = round_outputs(ws, rnd)
     p = out / name if out is not None else None
     return p if p is not None and p.is_file() else None
@@ -117,7 +117,7 @@ def fallback_round(rounds: Iterable[RoundRecord]) -> int | None:
 
 
 # --------------------------------------------------------------------------- summarise
-def load_selection(ws: Workspace) -> Selection | None:
+def load_selection(ws: RunWorkspace) -> Selection | None:
     data = read_json_or_none(ws.root / SELECTION_NAME)
     try:
         return Selection.model_validate(data) if data is not None else None
@@ -129,7 +129,7 @@ def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSum
     rec = _load(run_dir, record)
     rows = round_rows(run_dir, record=rec)
     by_index = {r.index: r for r in rows}
-    sel = load_selection(Workspace(run_dir))
+    sel = load_selection(RunWorkspace(run_dir))
     if sel is not None and sel.round in by_index:
         picked, method = sel.round, sel.method
     else:
@@ -144,7 +144,7 @@ def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSum
 
 # --------------------------------------------------------------------------- package
 def package(run_dir: Path | str, round_index: int, *, method: Method = "round") -> Path:
-    ws = Workspace(run_dir)
+    ws = RunWorkspace(run_dir)
     rec = load_record(ws)
     if not any(r.index == round_index for r in rec.rounds):
         raise ValueError(f"no round {round_index} in {ws.root} (rounds: {[r.index for r in rec.rounds]})")

@@ -6,7 +6,6 @@ from pathlib import Path
 from urllib.parse import quote
 
 from codeverse3d.contracts.common import ENTRY_FILE
-from codeverse3d.workspace import Workspace
 
 from c3d_flywheel.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
 from c3d_flywheel.gallery.code import CODE_CSS, numbered, read_text, src_files
@@ -16,6 +15,7 @@ from c3d_flywheel.gallery.theme import esc, footer, page_shell, top_bar
 from c3d_flywheel.gallery.urls import UrlMaker
 from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record.record import effective_judgment
+from c3d_flywheel.runlayout import RunWorkspace
 
 DETAIL_CSS = CODE_CSS + """
 .hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:var(--s-4);align-items:start}
@@ -222,7 +222,7 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
 
 
 def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
-    ws = Workspace(entry.path)
+    ws = RunWorkspace(entry.path)
     rnd = _picked(entry, rec)
     figs: list[tuple[str, str]] = []
     if rnd is not None and rnd.renders is not None:
@@ -330,7 +330,7 @@ document.addEventListener('keydown',function(e){
 """
 
 
-def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord, *,
+def render_detail(entry: RunEntry, urls: UrlMaker, ws: RunWorkspace, rec: RunRecord, *,
                   prev: RunEntry | None = None, nxt: RunEntry | None = None) -> str:
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
                   ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))

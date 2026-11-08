@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from codeverse3d.workspace import Workspace
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from c3d_flywheel.legacy import LegacySpec, RunRecord
+from c3d_flywheel.runlayout import RunWorkspace
 
 console = Console(emoji=False)
 err_console = Console(stderr=True, style="bold red", emoji=False)
@@ -53,18 +53,18 @@ def runs_root(runs_dir: Path | None) -> Path:
     return Path(runs_dir) if runs_dir is not None else DEFAULT_RUNS_DIR
 
 
-def open_workspace(slug: str, runs_dir: Path | None = None) -> Workspace:
+def open_workspace(slug: str, runs_dir: Path | None = None) -> RunWorkspace:
     """A run named by its directory, or by its slug under the runs root."""
     p = Path(slug)
     if p.is_dir() and (p / "spec.json").is_file():
-        return Workspace(p)
-    ws = Workspace(runs_root(runs_dir) / slug)
+        return RunWorkspace(p)
+    ws = RunWorkspace(runs_root(runs_dir) / slug)
     if not ws.exists():
         raise CliError(f"run not found: {ws.root} (no spec.json)")
     return ws
 
 
-def load_spec(ws: Workspace) -> LegacySpec:
+def load_spec(ws: RunWorkspace) -> LegacySpec:
     try:
         return LegacySpec.model_validate_json(ws.spec_path.read_text())
     except Exception as e:
@@ -112,7 +112,7 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
     if record.error:
         lines.append(f"[red]error: {record.error}[/red]")
     if ws_root is not None:
-        ws = Workspace(ws_root)
+        ws = RunWorkspace(ws_root)
         lines.append(f"workspace: {ws_root}")
         picked = next((r for r in record.rounds if r.index == s.round), None)
         if picked is not None and picked.renders is not None and picked.renders.contact_sheet:

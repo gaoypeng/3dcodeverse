@@ -7,9 +7,6 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.contracts.common import Usage
-from codeverse3d.proc import iter_jsonl_lines
-
 from c3d_flywheel.cost.pricing import (
     estimate_cost,
     price_provenance,
@@ -21,6 +18,8 @@ from c3d_flywheel.cost.types import (
     Summary,
     normalise_ids,
 )
+from c3d_flywheel.legacy import Usage
+from c3d_flywheel.runlayout import iter_jsonl_lines
 
 log = logging.getLogger(__name__)
 

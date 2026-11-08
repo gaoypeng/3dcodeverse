@@ -20,6 +20,7 @@ from c3d_flywheel.gallery.model import FILTER_KEYS, RunEntry, match, sort_entrie
 from c3d_flywheel.gallery.page import render_index
 from c3d_flywheel.gallery.theme import esc, footer, page_shell, top_bar
 from c3d_flywheel.gallery.urls import PathError, UrlMaker, content_type, safe_join
+from c3d_flywheel.runlayout import RunWorkspace
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -184,11 +185,9 @@ class GalleryApp:
         return Response(content_type=ctype, path=target, headers=headers)
 
     def _detail(self, entry: RunEntry) -> Response:
-        from codeverse3d.workspace import Workspace
-
         from c3d_flywheel.record.record import RecordError, load_record
 
-        ws = Workspace(entry.path)
+        ws = RunWorkspace(entry.path)
         try:
             rec = load_record(ws)
         except (RecordError, OSError, ValueError) as e:

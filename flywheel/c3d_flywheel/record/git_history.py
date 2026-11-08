@@ -11,7 +11,7 @@ import subprocess
 from collections.abc import Collection
 from pathlib import Path
 
-from codeverse3d.workspace import GIT_SAFE_DIFF_FLAGS, GIT_SAFE_FLAGS, Workspace, git_safe_env
+from c3d_flywheel.runlayout import GIT_SAFE_DIFF_FLAGS, GIT_SAFE_FLAGS, RunWorkspace, git_safe_env
 
 _GIT_TIMEOUT_S = 60
 
@@ -24,7 +24,7 @@ class GitReadError(RuntimeError):
     """A git read (ls-tree / cat-file / diff) failed or the commit does not exist."""
 
 
-def _run(ws: Workspace, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
+def _run(ws: RunWorkspace, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """One sanitised git invocation; every failure is a :class:`GitReadError`."""
     try:
         proc = subprocess.run(
@@ -39,7 +39,7 @@ def _run(ws: Workspace, *args: str, stdin: bytes | None = None) -> subprocess.Co
     return proc
 
 
-def commit_by_subject(ws: Workspace, subject: str) -> str | None:
+def commit_by_subject(ws: RunWorkspace, subject: str) -> str | None:
     """SHA of the newest commit whose subject line equals ``subject`` (None = no match)."""
     try:
         out = _run(ws, "log", "--format=%H%x00%s").stdout
@@ -57,7 +57,7 @@ def _keep(rel: str) -> bool:
     return bool(parts) and parts[0] in CODE_ROOTS and not any(p in _SKIP_PARTS for p in parts)
 
 
-def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = None) -> dict[str, bytes]:
+def read_tree_at(ws: RunWorkspace, commit: str, *, paths: Collection[str] | None = None) -> dict[str, bytes]:
     """``{repo-relative path: bytes}`` for every code file at ``commit``; ``paths`` narrows it.
 
     ``ls-tree`` + ``cat-file --batch``, never ``git archive``: archive runs an agent-planted
@@ -95,7 +95,7 @@ def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = 
     return files
 
 
-def diff_between(ws: Workspace, before: str, after: str, *, max_bytes: int | None = None) -> tuple[str, int, bool]:
+def diff_between(ws: RunWorkspace, before: str, after: str, *, max_bytes: int | None = None) -> tuple[str, int, bool]:
     """Unified diff of the code roots between two commits: ``(text, total_bytes, truncated)``.
 
     ``total_bytes`` is the uncapped size.  An unknown sha raises."""
@@ -107,13 +107,13 @@ def diff_between(ws: Workspace, before: str, after: str, *, max_bytes: int | Non
     return raw.decode("utf-8", errors="replace"), total, False
 
 
-def changed_files_between(ws: Workspace, before: str, after: str) -> list[str]:
+def changed_files_between(ws: RunWorkspace, before: str, after: str) -> list[str]:
     """Sorted code-root paths that differ between two commits."""
     out = _run(ws, "diff", *GIT_SAFE_DIFF_FLAGS, "--name-only", "-z", before, after, "--", *CODE_ROOTS).stdout
     return sorted(p for p in out.decode("utf-8", errors="replace").split("\0") if p and _keep(p))
 
 
-def read_working_tree(ws: Workspace) -> dict[str, bytes]:
+def read_working_tree(ws: RunWorkspace) -> dict[str, bytes]:
     """The current ``src/`` + ``public/``, for a round with no commit."""
     files: dict[str, bytes] = {}
     for root in CODE_ROOTS:

@@ -12,7 +12,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from codeverse3d.contracts.common import Usage
+from c3d_flywheel.legacy import Usage
 
 log = logging.getLogger(__name__)
 

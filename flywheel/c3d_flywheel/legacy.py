@@ -18,9 +18,62 @@ from codeverse3d.contracts.artifacts import (
     Measurement,
     RenderSet,
 )
-from codeverse3d.contracts.common import Usage
+from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.spec import Spec
 from pydantic import BaseModel, ConfigDict, Field
+
+# ===================================================================== labels (the plugin keeps only the enums)
+TRACK_LABEL: dict[Track, str] = {
+    Track.STATIC_OBJECT: "3D Objects",
+    Track.ARTICULATED_OBJECT: "Articulated Objects",
+    Track.SCENE: "3D Scenes",
+    Track.GRAPHICS: "Procedural Graphics",
+}
+
+LANGUAGE_LABEL: dict[Language, str] = {
+    Language.BLENDER: "Blender Python",
+    Language.CADQUERY: "CadQuery (Python)",
+    Language.URDF_BLENDER: "URDF + Blender Python",
+    Language.THREEJS: "Three.js (ESM)",
+    Language.SCENE_THREEJS: "Three.js scene (multi-file ESM + GLSL)",
+    Language.SCENE_BLENDER: "Blender scene (multi-file bpy)",
+    Language.GLSL_SHADER: "GLSL fragment shader",
+    Language.OPENGL_PYTHON: "OpenGL (moderngl Python + GLSL)",
+}
+
+
+def code_file(language: Language) -> str:
+    """Top-level dataset copy of the entry file: ``code`` + the entry suffix."""
+    entry = ENTRY_FILE[language]
+    return "code" + entry[entry.rfind(".") :]
+
+
+# ===================================================================== usage (one model / agent call)
+class Usage(BaseModel):
+    """Normalised token/cost accounting for ONE model or agent call, as v0.0.x recorded it."""
+
+    backend: str = ""
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    thoughts_tokens: int = 0
+    tool_calls: int = 0
+    cost_usd: float = 0.0
+    latency_ms: int = 0
+
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            backend=self.backend or other.backend,
+            model=self.model if self.model == other.model else (self.model or other.model),
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cached_tokens=self.cached_tokens + other.cached_tokens,
+            thoughts_tokens=self.thoughts_tokens + other.thoughts_tokens,
+            tool_calls=self.tool_calls + other.tool_calls,
+            cost_usd=self.cost_usd + other.cost_usd,
+            latency_ms=self.latency_ms + other.latency_ms,
+        )
 
 
 # ===================================================================== spec + plan (as recorded)

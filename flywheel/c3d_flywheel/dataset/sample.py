@@ -7,14 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.contracts.common import (
-    ENTRY_FILE,
-    LANGUAGE_LABEL,
-    TRACK_INFO,
-    Language,
-    code_file,
-)
-from codeverse3d.workspace import Workspace
+from codeverse3d.contracts.common import ENTRY_FILE, Language
 from pydantic import BaseModel, Field
 
 from c3d_flywheel import select
@@ -24,10 +17,11 @@ from c3d_flywheel.dataset.quality import (
     prompt_id,
     quality_tier,
 )
-from c3d_flywheel.legacy import RoundRecord, RunRecord
+from c3d_flywheel.legacy import LANGUAGE_LABEL, TRACK_LABEL, RoundRecord, RunRecord, code_file
 from c3d_flywheel.record import git_history
 from c3d_flywheel.record.deliverable import load_deliverable, round_outputs
 from c3d_flywheel.record.record import effective_judgment, round_summary, stop_reason
+from c3d_flywheel.runlayout import RunWorkspace
 
 MAX_GLB_BYTES = 20 * 1024 * 1024
 SOURCE_NAME = "3dcodeverse"
@@ -104,7 +98,7 @@ class SampleMeta(BaseModel):
         description="compact accounting digest from record.telemetry ({} when absent)")
 
 
-def sample_key(ws: Workspace) -> str:
+def sample_key(ws: RunWorkspace) -> str:
     return ws.root.name
 
 
@@ -116,12 +110,12 @@ def sample_rel_dir(record: RunRecord, key: str) -> Path:
     return Path(record.spec.track.value) / record.spec.language.value / key
 
 
-def exported_round(ws: Workspace, record: RunRecord) -> RoundRecord | None:
+def exported_round(ws: RunWorkspace, record: RunRecord) -> RoundRecord | None:
     shown = select.summarise(ws.root, record=record).round
     return next((r for r in record.rounds if r.index == shown), record.rounds[-1] if record.rounds else None)
 
 
-def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
+def code_files_for_round(ws: RunWorkspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
     """The round's code at its commit; a packaged ``deliverable/`` only when its manifest names that round."""
     if rnd is None:
         return git_history.read_working_tree(ws), "working_tree"
@@ -134,7 +128,7 @@ def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[s
                       + (f"round {manifest.round}" if manifest is not None else "no manifest"))
 
 
-def _deliverable_code(ws: Workspace) -> dict[str, bytes]:
+def _deliverable_code(ws: RunWorkspace) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     for root in git_history.CODE_ROOTS:
         base = ws.deliverable / root
@@ -164,7 +158,7 @@ def write_code_tree(dest: Path, files: dict[str, bytes], language: Language) -> 
     return code_name, written
 
 
-def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
+def copy_renders(ws: RunWorkspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
     out: list[str] = []
     rdir = dest / "renders"
     rdir.mkdir(parents=True, exist_ok=True)
@@ -201,7 +195,7 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
     return out
 
 
-def copy_link_meshes(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
+def copy_link_meshes(ws: RunWorkspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
     out_dir = round_outputs(ws, rnd)
     src = out_dir / "meshes" if out_dir is not None else None
     if src is None or not src.is_dir():
@@ -233,7 +227,7 @@ def gate_error_summary(rnd: RoundRecord | None) -> dict[str, int]:
 
 
 def build_meta(
-    ws: Workspace, record: RunRecord, *, key: str, entry: str, files: list[str], renders: list[str],
+    ws: RunWorkspace, record: RunRecord, *, key: str, entry: str, files: list[str], renders: list[str],
     rnd: RoundRecord | None, code_source: str, code: dict[str, bytes] | None = None,
     captions: dict[str, Any] | None = None,
 ) -> SampleMeta:
@@ -251,7 +245,7 @@ def build_meta(
         id=sample_id(record, key),
         key=key,
         name=name,
-        type=TRACK_INFO[spec.track].label,
+        type=TRACK_LABEL[spec.track],
         track=spec.track.value,
         language=spec.language.value,
         language_label=LANGUAGE_LABEL[spec.language],

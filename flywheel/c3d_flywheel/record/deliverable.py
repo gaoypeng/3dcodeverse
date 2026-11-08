@@ -14,10 +14,10 @@ from pathlib import Path
 
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.proc import write_json_atomic
-from codeverse3d.workspace import Workspace
 
 from c3d_flywheel.legacy import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
 from c3d_flywheel.record import git_history
+from c3d_flywheel.runlayout import RunWorkspace
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
 _MESH_DIR = "meshes"
 
 
-def keep_round_artifacts(ws: Workspace, round_index: int) -> list[str]:
+def keep_round_artifacts(ws: RunWorkspace, round_index: int) -> list[str]:
     """Copy the round's build outputs to ``artifacts/rNN/`` (names relative to ``artifacts/``).
 
     Real copies, never hard links, so a later in-place build cannot change a kept round.
@@ -54,7 +54,7 @@ def keep_round_artifacts(ws: Workspace, round_index: int) -> list[str]:
 class _Writer:
     """Collects files into ``deliverable/`` as real copies (a hard link would let edits break the manifest sha256)."""
 
-    def __init__(self, ws: Workspace):
+    def __init__(self, ws: RunWorkspace):
         self.ws = ws
         self.files: list[DeliverableFile] = []
 
@@ -69,7 +69,7 @@ class _Writer:
             self.add_bytes(rel, src.read_bytes(), role)
 
 
-def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> dict[str, bytes]:
+def _code_tree(ws: RunWorkspace, rnd: RoundRecord | None) -> dict[str, bytes]:
     """``src/**`` (+ ``public/**``) at the round's commit; the working tree only when no round is named."""
     if rnd is None:
         return git_history.read_working_tree(ws)
@@ -78,7 +78,7 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> dict[str, bytes]:
     return git_history.read_tree_at(ws, rnd.commit)
 
 
-def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
+def round_outputs(ws: RunWorkspace, rnd: RoundRecord | None) -> Path | None:
     """The build outputs retained for this round; never substitute another build."""
     if rnd is None:
         return None
@@ -86,7 +86,7 @@ def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
     return kept if kept.is_dir() else None
 
 
-def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, out: Path | None, w: _Writer) -> None:
+def _copy_artifacts(ws: RunWorkspace, record: RunRecord, rnd: RoundRecord | None, out: Path | None, w: _Writer) -> None:
     if out is None:
         return
     for name, role in _ARTIFACT_ROLES:
@@ -100,7 +100,7 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, o
             w.add_file(src, f"frames/{src.name}", "frames")
 
 
-def _copy_sheet(ws: Workspace, rnd: RoundRecord | None, w: _Writer) -> None:
+def _copy_sheet(ws: RunWorkspace, rnd: RoundRecord | None, w: _Writer) -> None:
     if rnd is None or rnd.renders is None or not rnd.renders.contact_sheet:
         return
     sheet = ws.rebase(rnd.renders.contact_sheet)
@@ -108,7 +108,7 @@ def _copy_sheet(ws: Workspace, rnd: RoundRecord | None, w: _Writer) -> None:
         w.add_file(sheet, f"sheet{sheet.suffix or '.png'}", "sheet")
 
 
-def _copy_captions(ws: Workspace, record: RunRecord, w: _Writer) -> None:
+def _copy_captions(ws: RunWorkspace, record: RunRecord, w: _Writer) -> None:
     caps = record.extra.get("captions") or {}
     if not caps.get("detailed"):
         w.add_file(ws.root / "captions.json", "captions.json", "captions")
@@ -118,7 +118,7 @@ def _copy_captions(ws: Workspace, record: RunRecord, w: _Writer) -> None:
                                             indent=2, ensure_ascii=False).encode(), "captions")
 
 
-def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None, *, clean: bool = True) -> RunDeliverable:
+def build_deliverable(ws: RunWorkspace, record: RunRecord, round_index: int | None, *, clean: bool = True) -> RunDeliverable:
     """(Re)build ``<run>/deliverable/`` for round ``round_index`` and return the manifest (idempotent)."""
     rnd = next((r for r in record.rounds if r.index == round_index), None)
     out = round_outputs(ws, rnd)
@@ -142,7 +142,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     return manifest
 
 
-def load_deliverable(ws: Workspace) -> RunDeliverable | None:
+def load_deliverable(ws: RunWorkspace) -> RunDeliverable | None:
     """``deliverable/manifest.json``, else None."""
     path = ws.deliverable_manifest_path
     if not path.is_file():

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from codeverse3d.conventions import views_by_preference
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.workspace import Workspace
 
 from c3d_flywheel import select
 from c3d_flywheel.dataset.quality import quality_tier
@@ -30,6 +29,7 @@ from c3d_flywheel.record.record import (
     is_run_dir,
     load_record,
 )
+from c3d_flywheel.runlayout import RunWorkspace
 
 DEFAULT_RUNS = "runs"
 DEFAULT_BENCH_GLOB = "eval/bench/out/*/runs"
@@ -44,7 +44,7 @@ def default_roots(base: Path | str = ".") -> list[Path]:
     return roots
 
 
-def run_rel(ws: Workspace, path: Path | str | None) -> str:
+def run_rel(ws: RunWorkspace, path: Path | str | None) -> str:
     """``path`` (rebased into this workspace) as a run-relative posix string, or ``""``
     when it is outside the run."""
     if not path:
@@ -62,7 +62,7 @@ def _first_file(run_dir: Path, *rels: str) -> str:
     return ""
 
 
-def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
+def _round_sheet(ws: RunWorkspace, rec: RunRecord, index: int) -> str:
     rnd = next((r for r in rec.rounds if r.index == index), None)
     if rnd is not None and rnd.renders is not None and rnd.renders.contact_sheet:
         rel = run_rel(ws, rnd.renders.contact_sheet)
@@ -71,7 +71,7 @@ def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
     return _first_file(ws.root, f"artifacts/renders/r{index:02d}/sheet.png")
 
 
-def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
+def picked_sheet(ws: RunWorkspace, rec: RunRecord, picked: int | None) -> str:
     return (_round_sheet(ws, rec, picked) if picked is not None else "") or _first_file(
         ws.root, "deliverable/sheet.png", "artifacts/frames_sheet.png")
 
@@ -79,7 +79,7 @@ def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
 HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low", "front_left_low", "front")
 
 
-def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, str, int]:
+def hero_view(ws: RunWorkspace, rec: RunRecord, picked: int | None) -> tuple[str, str, int]:
     rnd = next((r for r in rec.rounds if r.index == picked), None)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         return "", "", 0
@@ -93,12 +93,12 @@ def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, s
     return rel, humanize_view(chosen.name), len(views)
 
 
-def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
+def _articulation_sheet(ws: RunWorkspace, picked: int | None) -> str:
     rel = f"artifacts/renders/r{picked:02d}/poses/articulation_sheet.png" if picked is not None else ""
     return rel if rel and (ws.root / rel).is_file() else ""
 
 
-def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
+def entry_links(ws: RunWorkspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
     run = ws.root
     rnd = next((r for r in rec.rounds if r.index == picked), None) if rec is not None else None
     out = round_outputs(ws, rnd)
@@ -141,7 +141,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     return links
 
 
-def round_rows(ws: Workspace, rec: RunRecord) -> list[RoundRow]:
+def round_rows(ws: RunWorkspace, rec: RunRecord) -> list[RoundRow]:
     rounds = {r.index: r for r in rec.rounds}
     return [RoundRow(**{**row.model_dump(), "commit": row.commit[:12]}, sheet=_round_sheet(ws, rec, row.index),
                      gates={k: v for k, v in gate_error_summary(rounds[row.index]).items() if v})
@@ -152,7 +152,7 @@ _CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
             "silhouette", "feature_density", "symmetry_groups", "hollowness")
 
 
-def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
+def _complexity(ws: RunWorkspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
     try:
         block = select.round_complexity_block(next((r for r in rec.rounds if r.index == picked), None))
     except Exception:  # noqa: BLE001
@@ -163,7 +163,7 @@ def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[floa
     return float(block["index"]), str(block.get("band") or ""), axes
 
 
-def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> RunEntry:
+def entry_from_record(battery: str, ws: RunWorkspace, rec: RunRecord, *, slug: str | None = None) -> RunEntry:
     summary = select.summarise(ws.root, record=rec)
     picked = summary.round
     rnd = next((r for r in rec.rounds if r.index == picked), None)
@@ -198,7 +198,7 @@ def _spec_fields(run_dir: Path) -> dict[str, str]:
 
 
 def entry_for_dir(battery: str, run_dir: Path, *, slug: str | None = None) -> RunEntry:
-    ws = Workspace(run_dir)
+    ws = RunWorkspace(run_dir)
     slug = slug or run_dir.name
     fields = _spec_fields(run_dir)
     if not (run_dir / "record.json").is_file():

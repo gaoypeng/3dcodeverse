@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from codeverse3d.contracts.artifacts import Judgment
-from codeverse3d.workspace import Workspace
 
 from c3d_flywheel.legacy import RoundRecord, RunId, RunRecord
+from c3d_flywheel.runlayout import RunWorkspace
 
 log = logging.getLogger(__name__)
 
@@ -81,8 +81,8 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
     }
 
 
-def load_record(ws: Workspace | Path | str) -> RunRecord:
-    ws = ws if isinstance(ws, Workspace) else Workspace(ws)
+def load_record(ws: RunWorkspace | Path | str) -> RunRecord:
+    ws = ws if isinstance(ws, RunWorkspace) else RunWorkspace(ws)
     if not ws.record_path.is_file():
         raise RecordError(f"no record.json in {ws.root}")
     try:
@@ -127,13 +127,13 @@ def battery_label(root: Path | str) -> str:
 
 
 def run_id_for(root: Path | str, run_dir: Path) -> RunId:
-    """The ``RunId`` of ``run_dir`` under scan root ``root`` (minted here: a Workspace forgets the scan root)."""
+    """The ``RunId`` of ``run_dir`` under scan root ``root`` (minted here: a RunWorkspace forgets the scan root)."""
     return RunId(battery=battery_label(root), rel=run_dir.relative_to(Path(root)).as_posix())
 
 
 class FoundRun(NamedTuple):
 
-    ws: Workspace
+    ws: RunWorkspace
     record: RunRecord
     run_id: RunId
 
@@ -201,7 +201,7 @@ def iter_runs(
             f"({', '.join(battery_dirs)}/) but holds no record.json within "
             f"{RUN_SEARCH_DEPTH} levels")
     for d in children:
-        ws = Workspace(d)
+        ws = RunWorkspace(d)
         try:
             rec = load_record(ws)
         except RecordError as e:

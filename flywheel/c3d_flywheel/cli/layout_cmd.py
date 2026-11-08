@@ -8,7 +8,6 @@ import json
 from typing import Annotated, Any
 
 import typer
-from codeverse3d.workspace import Workspace
 from rich.table import Table
 
 from c3d_flywheel.cli import _common as C
@@ -28,6 +27,7 @@ from c3d_flywheel.legacy import (
     RunRecord,
     SettingsSnapshot,
 )
+from c3d_flywheel.runlayout import RunWorkspace, read_jsonl_lenient
 
 
 def _human_bytes(n: int) -> str:
@@ -44,8 +44,8 @@ def _section(title: str) -> None:
 
 
 # --------------------------------------------------------------------------- status
-def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None:
-    from codeverse3d.proc import read_json_or_none, read_jsonl_lenient
+def print_status(ws: RunWorkspace, record: RunRecord | None, n_events: int) -> None:
+    from codeverse3d.proc import read_json_or_none
 
     _section("STATUS — where the run stands")
     if record is not None:
@@ -98,7 +98,7 @@ def _deliverable_table(d: RunDeliverable) -> Table:
     return t
 
 
-def _unpackaged_artifact_rows(ws: Workspace) -> dict[str, Any]:
+def _unpackaged_artifact_rows(ws: RunWorkspace) -> dict[str, Any]:
     rows: dict[str, Any] = {}
     for name in ("object.glb", "object.stl", "object.step", "robot.urdf", "preview.gif"):
         p = ws.artifacts / name
@@ -109,7 +109,7 @@ def _unpackaged_artifact_rows(ws: Workspace) -> dict[str, Any]:
     return rows
 
 
-def print_deliverable(ws: Workspace, record: RunRecord) -> None:
+def print_deliverable(ws: RunWorkspace, record: RunRecord) -> None:
     from c3d_flywheel import select
     from c3d_flywheel.record.deliverable import load_deliverable
 
@@ -129,7 +129,7 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
 
 
 # --------------------------------------------------------------------------- (b) evidence
-def print_evidence(ws: Workspace, record: RunRecord) -> None:
+def print_evidence(ws: RunWorkspace, record: RunRecord) -> None:
     from c3d_flywheel import select
     from c3d_flywheel.dataset.sample import gate_error_summary
     from c3d_flywheel.record.record import effective_judgment
@@ -185,7 +185,7 @@ def _roles_table(settings: SettingsSnapshot) -> Table:
     return t
 
 
-def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
+def print_cost_and_settings(ws: RunWorkspace, record: RunRecord) -> None:
     from c3d_flywheel.record.telemetry import build_telemetry
 
     _section("COST & SETTINGS — token price and the key step settings")

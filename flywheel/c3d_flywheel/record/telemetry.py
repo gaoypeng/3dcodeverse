@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import logging
 
-from codeverse3d.workspace import Workspace
-
 from c3d_flywheel.cost.ledger import load_ledger, summarise
 from c3d_flywheel.cost.types import STAGE_ORDER, CallCost
 from c3d_flywheel.legacy import CostSummary, RunRecord, RunTelemetry, StageCost
 from c3d_flywheel.record.record import effective_score
+from c3d_flywheel.runlayout import RunWorkspace
 
 log = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- the ledger (c3d_flywheel.cost)
-def ledger_rows(ws: Workspace) -> list[CallCost]:
+def ledger_rows(ws: RunWorkspace) -> list[CallCost]:
     """The run's priced per-call rows (none without a ledger)."""
     try:
         return load_ledger(ws.root)
@@ -47,6 +46,6 @@ def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
     )
 
 
-def build_telemetry(ws: Workspace, record: RunRecord) -> RunTelemetry:
+def build_telemetry(ws: RunWorkspace, record: RunRecord) -> RunTelemetry:
     """The cost summary of one run, computed from its ledger (no settings snapshot: that is only ever read)."""
     return RunTelemetry(cost=cost_summary(record, ledger_rows(ws)))

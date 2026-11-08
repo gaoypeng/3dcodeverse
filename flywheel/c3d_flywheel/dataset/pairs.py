@@ -7,14 +7,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.proc import read_jsonl_lenient
-from codeverse3d.workspace import Workspace
-
 from c3d_flywheel import select
 from c3d_flywheel.dataset.quality import prompt_id
 from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record import git_history
 from c3d_flywheel.record.record import effective_judgment, iter_runs, skip_unreadable
+from c3d_flywheel.runlayout import RunWorkspace, read_jsonl_lenient
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
            "cross_backend_pairs"]
@@ -22,7 +20,7 @@ __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_p
 MAX_INLINE_CODE = 200_000
 
 
-def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _side(ws: RunWorkspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
     key = rnd.commit or f"wt:{rnd.index}"
     if key not in cache:
         try:
@@ -45,7 +43,7 @@ def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) 
     }
 
 
-def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) -> dict[str, Any]:
+def _base(ws: RunWorkspace, rec: RunRecord, kind: str, *, slug: str | None = None) -> dict[str, Any]:
     return {
         "kind": kind,
         "run": slug or ws.root.name,
@@ -62,7 +60,7 @@ def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) 
 MIN_PREFERENCE_DELTA = 0.05
 
 
-def preference_pairs(ws: Workspace, rec: RunRecord, *, min_delta: float,
+def preference_pairs(ws: RunWorkspace, rec: RunRecord, *, min_delta: float,
                      slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
     judged = [r for r in rec.rounds if effective_judgment(r) is not None and r.commit]
@@ -100,7 +98,7 @@ def _error_of(rnd: RoundRecord) -> dict[str, Any]:
     }
 
 
-def repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
+def repair_pairs(ws: RunWorkspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
     out = []
     rounds = rec.rounds
@@ -123,7 +121,7 @@ def repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> l
     return out
 
 
-def _round_build_errors(ws: Workspace, index: int) -> list[str]:
+def _round_build_errors(ws: RunWorkspace, index: int) -> list[str]:
     out: list[str] = []
     for ev in read_jsonl_lenient(ws.events_path, dicts_only=True):
         if ev.get("event") == "build.done" and ev.get("round") == index and ev.get("ok") is False:
@@ -133,7 +131,7 @@ def _round_build_errors(ws: Workspace, index: int) -> list[str]:
     return out
 
 
-def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
+def in_round_repair_pairs(ws: RunWorkspace, rec: RunRecord, *, slug: str | None = None) -> list[dict[str, Any]]:
     cache: dict[str, dict[str, Any]] = {}
     out = []
     for rnd in rec.rounds:
@@ -169,7 +167,7 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = N
 
 
 def cross_backend_pairs(
-    groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]], *, min_delta: float
+    groups: dict[tuple[str, str, str], list[tuple[RunWorkspace, RunRecord, str]]], *, min_delta: float
 ) -> list[dict[str, Any]]:
     out = []
     for (_h, _t, _l), runs in groups.items():
@@ -209,7 +207,7 @@ def cross_backend_pairs(
 def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float = MIN_PREFERENCE_DELTA) -> int:
     out = Path(out_jsonl)
     out.parent.mkdir(parents=True, exist_ok=True)
-    groups: dict[tuple[str, str, str], list[tuple[Workspace, RunRecord, str]]] = defaultdict(list)
+    groups: dict[tuple[str, str, str], list[tuple[RunWorkspace, RunRecord, str]]] = defaultdict(list)
     n = 0
     tmp = out.with_suffix(out.suffix + ".tmp")
     with tmp.open("w") as fh:
