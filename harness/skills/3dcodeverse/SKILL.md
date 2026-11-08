@@ -93,7 +93,7 @@ the language skill's `## Files` allows.  Do not re-read a file you just wrote or
 
 **Commands run in the foreground; wait for them.**  Every `3dcode` call finishes on its own (a
 scene `check` or `judge` can take a minute): agy — `run_command` with
-`WaitMsBeforeAsync: 300000`; Claude Code — Bash with `timeout: 600000`.  Never poll a task or a
+`WaitMsBeforeAsync: 300000`; Claude Code — Bash with `timeout: 600000`; Codex — `exec_command` with `yield_time_ms: 300000`.  Never poll a task or a
 subagent (`manage_task`, `manage_subagents`, `echo`, `sleep`): the result wakes you.
 
 **No self-polishing.**  The judge decides what to polish next and `score` lists it; you do not
