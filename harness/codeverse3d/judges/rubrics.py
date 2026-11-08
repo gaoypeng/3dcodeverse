@@ -241,7 +241,7 @@ class AcceptanceVerdict(BaseModel):
 
 class DefectVerdict(BaseModel):
     present: bool = Field(description="true only if the defect is VISIBLE in the images or stated by a gate/measurement")
-    evidence: str = Field(default="", description="which image / tile / number shows it (or why it is absent)")
+    evidence: str = Field(default="", description="which image / tile / number shows it; empty when absent")
 
 
 class JudgeOutput(BaseModel):
@@ -461,6 +461,9 @@ def repair_judgment(payload: Any, rubric: Rubric, acceptance_ids: list[str], *,
                               repairs, missing, required=True)
     data["defects"] = _keyed(payload.get("defects"), [d.id for d in rubric.defects], "present", None, "defects",
                              repairs, missing, required=True)
+    # an absent defect needs no evidence; a present one drives penalties and caps, so it must say where it shows
+    missing += [f"defects.{key}.evidence (present is true: one sentence saying where it is visible, or which gate ERROR / "
+                "measurement states it)" for key, body in data["defects"].items() if body["present"] and not body["evidence"].strip()]
     data["acceptance"] = _keyed(payload.get("acceptance"), list(acceptance_ids), "verified", None, "acceptance",
                                 repairs, missing, required=True)
     data["issues"] = _issues(payload.get("issues"), repairs)

@@ -383,15 +383,16 @@ def fmt_vec(v: Any, digits: int = 3) -> str:
     return "(" + ", ".join(f"{round(float(x), digits) + 0.0:+.{digits}f}" for x in v) + ")"
 
 
-def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
-    """Compact markdown table for prompts (judge/agent)."""
+def measure_summary_table(m: Measurement, max_rows: int = 30, *, topology: bool = True) -> str:
+    """Compact markdown table for prompts; ``topology=False`` drops the per-part tris / islands / watertight columns
+    (the judge's brief: it cites sizes and positions, the topology stays in gates.json)."""
     lines = [
         f"overall: {fmt_extent_cm(m.extents)} cm (W×H×D, Y-up) · centre ({m.center[0]:.3f}, {m.center[1]:.3f}, {m.center[2]:.3f}) m"
         f" · {m.tri_count} tris · {len(m.parts)} parts · {m.n_islands} islands"
         f" · ground gap {m.ground_gap_m * 1000:.1f} mm · footprint offset {m.footprint_offset_m * 1000:.1f} mm",
         "",
-        "| part | size W×H×D (cm) | y range (m) | tris | islands | watertight |",
-        "|---|---|---|---|---|---|",
+        "| part | size W×H×D (cm) | y range (m) |" + (" tris | islands | watertight |" if topology else ""),
+        "|---|---|---|" + ("---|---|---|" if topology else ""),
     ]
     by_name = {p.name: p for p in m.parts}
     rows: list[tuple[float, str]] = []
@@ -406,15 +407,16 @@ def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
             label = f"{key} ×{len(ps)} ({members[0]}..{split_instance(members[-1])[1]})"
             each = np.max([np.subtract(p.bbox_max, p.bbox_min) for p in ps], axis=0)
             size_txt = f"{fmt_extent_cm(each)} each, span {fmt_extent_cm(ext)}"
-        tris = sum(p.tri_count for p in ps)
-        islands = sum(p.islands for p in ps)
-        wt = "yes" if all(p.watertight for p in ps) else ("no" if not any(p.watertight for p in ps) else "some")
+        row = f"| {label} | {size_txt} | {mins[1]:.3f}..{maxs[1]:.3f} |"
+        if topology:
+            wt = "yes" if all(p.watertight for p in ps) else ("no" if not any(p.watertight for p in ps) else "some")
+            row += f" {sum(p.tri_count for p in ps)} | {sum(p.islands for p in ps)} | {wt} |"
         size = float(np.prod(np.maximum(ext, 1e-9)))
-        rows.append((size, f"| {label} | {size_txt} | {mins[1]:.3f}..{maxs[1]:.3f} | {tris} | {islands} | {wt} |"))
+        rows.append((size, row))
     rows.sort(key=lambda r: -r[0])
     lines.extend(r[1] for r in rows[:max_rows])
     if len(rows) > max_rows:
-        lines.append(f"| … {len(rows) - max_rows} more parts | | | | | |")
+        lines.append(f"| … {len(rows) - max_rows} more parts | | |" + (" | | |" if topology else ""))
     finds = m.extra.get("findings") or []
     if finds:
         lines.append("")

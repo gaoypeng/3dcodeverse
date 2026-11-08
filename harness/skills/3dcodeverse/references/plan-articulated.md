@@ -1,6 +1,7 @@
 # plan.json for `articulated_object`
 
-Everything in `plan-static.md` (same `parts[]` schema; `summary` also says what moves) plus
+Everything in `plan-static.md` (same `parts[]` schema and the same brevity — one short sentence
+per part, one line of `summary` that also says what moves, 3 significant figures) plus
 `root_link` and `joints[]`.  The frame is Z up, −Y front, metres, radians; every number describes the REST pose (q = 0: doors
 closed, drawers in, lids down unless a joint's `rest` says otherwise), bottom on z = 0.
 
@@ -37,16 +38,16 @@ closed, drawers in, lids down unless a joint's `rest` says otherwise), bottom on
   `how: "articulation"` item per joint stating the travel and that nothing is penetrated through
   it ("drawer slides out 0.35 m without touching the cabinet").
 
-The shape (not numbers to copy): a root link, one moving link with two children, one joint,
-one articulation item.
+The shape and the length to write (not numbers to copy): a root link, one moving link with two
+children, one joint, one articulation item.
 ```json
-{"object_name": "DeskDrawerUnit", "root_link": "Cabinet",
- "parts": [{"name": "Cabinet", "role": "carcass", "description": "...", "bbox": {"center": [0, 0, 0.35], "extents": [0.45, 0.5, 0.7]}, "material": "..."},
-           {"name": "Drawer", "role": "the one moving body", "description": "...", "attach_to": "Cabinet",
-            "bbox": {"center": [0, -0.02, 0.45], "extents": [0.41, 0.46, 0.14]}, "material": "...",
-            "children": [{"name": "DrawerFront", "description": "...", "bbox": {"center": [0, -0.24, 0.45], "extents": [0.41, 0.02, 0.14]}},
-                         {"name": "DrawerHandle", "description": "...", "bbox": {"center": [0, -0.26, 0.45], "extents": [0.12, 0.02, 0.02]}, "material": "..."}]}],
+{"object_name": "DeskDrawerUnit", "summary": "Oak desk drawer unit 0.45 × 0.5 × 0.7 m; one drawer slides out 0.35 m to the front.", "root_link": "Cabinet",
+ "overall_bbox": {"center": [0, 0, 0.35], "extents": [0.45, 0.5, 0.7]}, "style_notes": "Plain office carcass, 18 mm panels, no plinth, no lock.",
+ "parts": [{"name": "Cabinet", "role": "carcass", "description": "Open-fronted box of 18 mm panels with a 0.41 × 0.14 m drawer opening at z = 0.45.", "bbox": {"center": [0, 0, 0.35], "extents": [0.45, 0.5, 0.7]}, "material": "oiled oak, mid brown"},
+           {"name": "Drawer", "role": "the one moving body", "description": "Drawer box 12 mm sides, 2 mm clearance to the opening.", "attach_to": "Cabinet", "bbox": {"center": [0, -0.02, 0.45], "extents": [0.41, 0.46, 0.14]}, "material": "oiled oak, mid brown",
+            "children": [{"name": "DrawerFront", "description": "Front panel, 3 mm chamfered edges.", "bbox": {"center": [0, -0.24, 0.45], "extents": [0.41, 0.02, 0.14]}},
+                         {"name": "DrawerHandle", "description": "Bar handle on two 8 mm posts.", "bbox": {"center": [0, -0.26, 0.45], "extents": [0.12, 0.02, 0.02]}, "material": "brushed steel"}]}],
  "joints": [{"name": "DrawerSlide", "type": "prismatic", "parent": "Cabinet", "child": "Drawer", "axis": [0, -1, 0],
              "pivot": [0, -0.02, 0.45], "lower": 0, "upper": 0.35, "rest": 0, "motion": "front: the drawer pulls out towards -Y"}],
- "acceptance": [{"id": "a1", "text": "the drawer slides out 0.35 m without touching the cabinet", "how": "articulation", "priority": "should"}]}
+ "acceptance": [{"id": "a1", "text": "the drawer slides out 0.35 m without touching the cabinet", "how": "articulation", "priority": "should"}, …]}
 ```

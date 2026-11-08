@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -83,17 +84,21 @@ def contact_sheet(
             ImageDraw.Draw(tile_im).text((8, 8), "missing image", fill=(90, 0, 0), font=font)
         sheet.paste(tile_im, (x, y))
         if label:
-            draw.rectangle([x, y + tile_h, x + tile_w - 1, y + tile_h + LABEL_H - 1], fill=LABEL_BG)
-            txt = str(text)
-            tw = draw.textlength(txt, font=font)
-            while tw > tile_w - 8 and len(txt) > 4:
-                txt = txt[:-2] + "…"
-                tw = draw.textlength(txt, font=font)
-            draw.text((x + (tile_w - tw) / 2, y + tile_h + 6), txt, fill=LABEL_FG, font=font)
+            _label_cell(draw, str(text), x, y + tile_h, tile_w, font)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(out, format="PNG", optimize=False)
     return out
+
+
+def _label_cell(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, width: int, font: Any) -> None:
+    """The dark label strip under one tile, text centred and cut to fit."""
+    draw.rectangle([x, y, x + width - 1, y + LABEL_H - 1], fill=LABEL_BG)
+    tw = draw.textlength(text, font=font)
+    while tw > width - 8 and len(text) > 4:
+        text = text[:-2] + "…"
+        tw = draw.textlength(text, font=font)
+    draw.text((x + (width - tw) / 2, y + 6), text, fill=LABEL_FG, font=font)
 
 
 def write_gif(frames: Sequence[str | Path], out: Path | str, *, fps: int = 12, width: int | None = None) -> Path:
@@ -132,6 +137,45 @@ def montage_2x2(
     except (OSError, ValueError, ZeroDivisionError):
         cell = tile
     return contact_sheet(images, out, cols=cols, tile=cell, label=True)
+
+
+def montage_stack(
+    images: Sequence[tuple[str, str | Path]],
+    out: Path | str,
+    *,
+    vertical: bool,
+    tile: int = 512,
+) -> Path:
+    """Labelled tiles in ONE image: a column at a common width ``tile`` or a row at a common height ``tile``,
+    each tile keeping its own label strip — the judge's single detail-crop image."""
+    if not images:
+        raise ValueError("montage_stack: no images")
+    tiles: list[tuple[str, Image.Image]] = []
+    for text, path in images:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            size = ((tile, max(1, round(im.height * tile / im.width))) if vertical
+                    else (max(1, round(im.width * tile / im.height)), tile))
+            tiles.append((str(text), im.resize(size, Image.LANCZOS)))
+    if vertical:
+        w, h = tile + 2 * PAD, PAD + sum(im.height + LABEL_H + PAD for _, im in tiles)
+    else:
+        w, h = PAD + sum(im.width + PAD for _, im in tiles), tile + LABEL_H + 2 * PAD
+    sheet = Image.new("RGB", (w, h), BG)
+    draw = ImageDraw.Draw(sheet)
+    font = load_font()
+    x = y = PAD
+    for text, im in tiles:
+        sheet.paste(im, (x, y))
+        _label_cell(draw, text, x, y + im.height, im.width, font)
+        if vertical:
+            y += im.height + LABEL_H + PAD
+        else:
+            x += im.width + PAD
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out, format="PNG", optimize=False)
+    return out
 
 
 def crop_region(

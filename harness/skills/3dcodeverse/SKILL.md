@@ -1,6 +1,6 @@
 ---
 name: 3dcodeverse
-description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. It holds the tracks and their languages, every instrument, the workflow and its stop rules, and the quality rules every track shares; read it before the first 3dcode call, then the language's 3d-lang-* skill."
+description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. It holds the tracks and their languages, every instrument, the workflow and its stop rules, and the quality rules every track shares; read it, the language's 3d-lang-* skill and its plan reference together, before the first 3dcode call."
 license: Apache-2.0
 metadata:
   verified: "2026-11-07"
@@ -14,6 +14,12 @@ a judge who never sees your code scores the renders; `3dcode score` turns the ve
 number and an improvement list.  Nothing is drawn by hand and nothing comes from an asset
 store: the object, mechanism, place or effect has to come out of the code at real scale, and it
 is measured.  Your job is the loop below, honestly.
+
+**Read three files together, in ONE step, before `init`** — all under the plugin root, beside
+this file: this skill's `## The loop` (the rest of this file is reference), the language skill
+`skills/3d-lang-<language>/SKILL.md` (hyphens: `scene_threejs` → `3d-lang-scene-threejs`; the
+table below names each) and `skills/3dcodeverse/references/plan-<track>.md`.  Open no other
+reference (`c3d-*` skills, a language skill's `references/`) unless a finding needs it.
 
 ## Tracks and languages
 
@@ -92,9 +98,9 @@ Keep files small and modular so edits stay local — one part / zone / asset / l
 the language skill's `## Files` allows.  Do not re-read a file you just wrote or edited.
 
 **Commands run in the foreground; wait for them.**  Every `3dcode` call finishes on its own (a
-scene `check` or `judge` can take a minute or two): when you run one, give it a wait of several
-minutes so it returns its result in the same step instead of moving to the background.  Never
-poll a running command or subagent; its result comes back to you.
+scene `check` or `judge` can take a minute or two): give each `3dcode` command a wait of up to
+five minutes (300 000 ms) so it finishes in the same step instead of moving to the background.
+Never poll a running command or subagent; its result comes back to you.
 
 **How many rounds is the user's call.**  By default there is ONE round: plan, write the code,
 `3dcode check` until it lists no ERROR, report — no judge, no render-look-edit cycles.  Judge
@@ -110,12 +116,15 @@ leave it.
    `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated
    dimension, `--references img.png` per reference image.  It prints the entry files and the
    skill to read.
-2. **Plan.**  Write `plan.json` by `references/plan-<track>.md` (exact numbers, acceptance
-   checklist), then `3dcode validate-plan --workspace W` until it prints PASS; FAIL lists each
-   error with its JSON path — fix the plan, never argue with the validator.  When it says
-   `plan.json rewritten`, re-read the file before any further edit of it.
-3. **Baseline round (r00).**  Write every file the language skill describes from the plan, then
-   `3dcode check --workspace W` and fix each ERROR it lists (a compile or runtime error at the
+2. **Plan.**  Write `plan.json` by `references/plan-<track>.md` — exact numbers, an acceptance
+   checklist, and SHORT: one sentence per part, one line of summary, the reference's example is
+   the length (an object plan under 5 KB).  Then `3dcode validate-plan --workspace W` until it
+   prints PASS; FAIL lists each error with its JSON path — fix the plan, never argue with the
+   validator.  It writes the normalised plan back and says what changed; there is nothing to
+   re-read.
+3. **Baseline round (r00).**  Write every file the language skill describes from the plan in at
+   most THREE write steps — several files per step (all the part / zone / layer files together),
+   the entry file last — then `3dcode check --workspace W` and fix each ERROR it lists (a compile or runtime error at the
    `file:line` it names, see Repairs; a gate ERROR by its fix hint) until none is left — every
    ERROR caps the score.  Object tracks: the whole object first — every plan part at its box and
    attached to its parent before any part gets detail (a part still a ≤ 12-triangle box within
@@ -130,9 +139,11 @@ leave it.
    DEGRADED verdict — a clearly separated step after writing nothing else into context: open
    `brief.md`, look at every image, answer exactly its JSON — and mark the round "self-judged"
    in your report.  Then `3dcode score --workspace W --round 0`: it prints overall, passed,
-   the caps applied, what it repaired in the judgment, the improvement list and the round's
-   image paths — open those paths when an item needs confirming; never list or guess names in
-   `judge/`, never re-read `brief.md`.
+   the caps applied, what it repaired in the judgment and the improvement list — each item names
+   its target, its tile and the evidence, which is all a fix needs.  Do NOT open the judge's
+   montages after `score`; the refine round's one look is the `render-sheet` (or the track's
+   `scene-views` / `gl-frames`) after your edits.  Never list or guess names in `judge/`, never
+   re-read `brief.md`.
 5. **Refine rounds (r01, r02 …; exactly as many as the user asked for).**  Each round
    makes exactly the score's improvement list, gate ERRORs first (`[gate/...]` items), as
    edits under the editing rule, keeping every other part, name and dimension.

@@ -53,7 +53,7 @@ from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
 from codeverse3d.proc import unique_tmp
 from codeverse3d.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse3d.spatial.measure import measure_summary_table
-from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2
+from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2, montage_stack
 
 _PRESETS: dict[str, ViewPreset] = {v.name: v for v in (*OBJECT_VIEWS, *SCENE_VIEWS)}
 #: clay tiles label their own cameras (``OBJECT_CLAY_VIEWS.top`` is el 88, the rig's is 90), so they resolve here first
@@ -590,7 +590,9 @@ def acceptance_section(items: list[AcceptanceItem]) -> str:
 
 
 def measurement_section(m: Measurement | None) -> str:
-    return "MEASUREMENTS (Y-up, metres):\n" + _clip(str(measure_summary_table(m)), 6000) if m is not None else "MEASUREMENTS: (none)"
+    """The judge's table: sizes and positions only — per-part topology (tris, islands, watertight) stays in gates.json."""
+    return ("MEASUREMENTS (Y-up, metres):\n" + _clip(str(measure_summary_table(m, topology=False)), 6000) if m is not None
+            else "MEASUREMENTS: (none)")
 
 
 def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | None:
@@ -783,7 +785,8 @@ def previous_section(prev: Judgment | None, round_index: int) -> str:
 def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool) -> str:
     n_grids = sum(1 for m in montages if not m.is_detail)
     kinds = {m.kind for m in montages}
-    lines = [f"VIEW RIG: {n_grids} montage(s)" + (f" + {len(montages) - n_grids} detail crop(s)" if len(montages) > n_grids else "")
+    n_crops = len(montages) - n_grids
+    lines = [f"VIEW RIG: {n_grids} montage(s)" + (f" + {n_crops} detail crop{'s in one image' if n_crops > 1 else ''}" if n_crops else "")
              + " — a montage is a ≤2×2 grid; its label strip names the view at top-left / top-right / bottom-left / bottom-right; "
              "tile label = 'name · az/el[· mode][· t=]'",
              "- az 0° = the FRONT of the object, counter-clockwise seen from above (90° = its right side, 180° = back); "
@@ -854,11 +857,39 @@ def montage_images(
         lbl, strip = montage_label(m, i, len(grids)), montage_strip(m, i, len(grids))
         png = render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
         out.append((lbl, prepare_image(png, label=strip, max_px=max_px, cache_dir=cache_dir)))
-    for i, m in enumerate(details, 1):
-        lbl, strip = montage_label(m, i, len(details)), montage_strip(m, i, len(details))
-        png = render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
-        out.append((lbl, prepare_image(png, label=strip, max_px=min(max_px, 768), cache_dir=cache_dir)))
+    if len(details) == 1:
+        png = render_montage(details[0], cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX)
+        out.append((montage_label(details[0], 1, 1), prepare_image(png, label=montage_strip(details[0], 1, 1),
+                                                                   max_px=min(max_px, 768), cache_dir=cache_dir)))
+    elif details:
+        lbl, strip, png = crop_sheet(details, cache_dir=cache_dir, tile_px=max_px)
+        out.append((lbl, prepare_image(png, label=strip, max_px=max_px, cache_dir=cache_dir)))
     return out, montages
+
+
+def crop_sheet(details: list[Montage], *, cache_dir: Path | None, tile_px: int) -> tuple[str, str, Path]:
+    """A pack's detail crops as ONE labelled image (every image costs the judge the same, whatever it shows):
+    ``(brief label, strip label, PNG)``.  Each crop keeps its own label strip.  Wide crops (a ground band) stack
+    top to bottom at a common width, tall ones sit left to right at a common height — whichever keeps more pixels
+    per crop once the image is scaled to the judge's longest edge."""
+    crops = [(montage_strip(m, i, len(details)), render_montage(m, cache_dir=cache_dir, tile_px=MONTAGE_TILE_PX))
+             for i, m in enumerate(details, 1)]
+    aspects = []
+    for _, p in crops:
+        with Image.open(p) as im:
+            aspects.append(im.width / max(1, im.height))
+    vertical = sum(1 / a for a in aspects) < sum(aspects)
+    order = "top to bottom" if vertical else "left to right"
+    cache = Path(cache_dir) if cache_dir else default_cache_dir()
+    cache.mkdir(parents=True, exist_ok=True)
+    out = cache / f"crops_{_key([_stat(str(p)) + '|' + s for s, p in crops] + [str(tile_px), order])}.png"
+    if not out.is_file():
+        tmp = montage_stack(crops, unique_tmp(out), vertical=vertical, tile=tile_px)
+        tmp.replace(out)
+    label = (f"DETAIL CROPS ({len(crops)} in one image, {order}; cite them as DETAIL CROP k): "
+             + "; ".join(f"{i} = {m.title.split(' — ', 1)[-1]}" + (f" ({m.hint})" if m.hint else "")
+                         for i, m in enumerate(details, 1)))
+    return label, f"DETAIL CROPS 1–{len(crops)}", out
 
 
 def _literal_values(model: type, field: str) -> tuple[str, ...]:
@@ -869,7 +900,7 @@ def _bound(model: type, field: str, attr: str) -> float:
     return next(float(getattr(m, attr)) for m in model.model_fields[field].metadata if hasattr(m, attr))
 
 
-EVIDENCE = "<MONTAGE k <position> (<view>) / DETAIL CROP k / the measurement that shows it>"
+EVIDENCE = "<one sentence: MONTAGE k <position> (<view>) / DETAIL CROP k / the measurement that shows it>"
 
 
 def judgment_shape(rubric: Rubric, acceptance_ids: list[str], judgment_path: Path) -> str:
@@ -879,9 +910,9 @@ def judgment_shape(rubric: Rubric, acceptance_ids: list[str], judgment_path: Pat
         "summary": "<2-4 sentences: what it is, what is right, what is most wrong>",
         "issues": [{"target": "<name from the plan digest, or overall>", "kind": "geometry", "severity": "major",
                     "detail": "<what is wrong, observable>", "evidence": EVIDENCE}],
-        "defects": {d.id: {"present": False, "evidence": "<evidence>"} for d in rubric.defects},
-        "acceptance": {a: {"verified": False, "evidence": "<evidence>"} for a in acceptance_ids},
-        "criteria": {c.id: {"score": 0.0, "evidence": "<evidence>"} for c in rubric.visual_criteria()},
+        "defects": {d.id: {"present": False} for d in rubric.defects},
+        "acceptance": {a: {"verified": False, "evidence": "<one sentence>"} for a in acceptance_ids},
+        "criteria": {c.id: {"score": 0.0, "evidence": "<one sentence>"} for c in rubric.visual_criteria()},
         "improvement_plan": [{"target": "<name from the plan digest>", "kind": "geometry",
                               "instruction": "<one imperative change and its expected effect>", "priority": 1, "expected_gain": 0.05}],
     }
@@ -893,8 +924,10 @@ def judgment_shape(rubric: Rubric, acceptance_ids: list[str], judgment_path: Pat
     rules = [
         f"Write ONE JSON object of this shape to `{judgment_path}` (nothing else in the file). Every id shown under "
         "criteria, defects and acceptance must be answered; a criterion the rubric marks MEASURED is not listed and not yours.",
-        "- criteria[].score: 0..1 against the anchors; evidence names the image and tile or the measurement.",
-        "- defects[].present: true only when an image, a gate ERROR or a measurement shows it (a WARN never does).",
+        "- evidence is ONE sentence naming the image and tile (MONTAGE k top-left (view) / DETAIL CROP k) or the measurement.",
+        "- criteria[].score: 0..1 against the anchors.",
+        "- defects[].present: true only when an image, a gate ERROR or a measurement shows it (a WARN never does); "
+        "a true needs `\"evidence\": \"<one sentence: where>\"` beside it, a false needs no evidence.",
         "- acceptance[].verified: true only when a render or a measurement proves the item.",
         f"- issues[].kind ∈ {', '.join(_literal_values(JudgeIssue, 'kind'))}; severity ∈ {', '.join(_literal_values(JudgeIssue, 'severity'))}; most severe first.",
         f"- improvement_plan: at most {hi} items, priority {lo} first ({lo}..{hi}); kind ∈ {', '.join(_literal_values(ImprovementItem, 'kind'))}; expected_gain 0..1.",

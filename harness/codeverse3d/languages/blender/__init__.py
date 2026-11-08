@@ -297,11 +297,11 @@ def source_traps(c: BpyCollector, source: str) -> list[GateFinding]:
     return out
 
 
-def _rules(c: BpyCollector, source: str, *, target: str, expect_names: bool, expect_bpy: bool) -> list[GateFinding]:
+def _rules(c: BpyCollector, source: str, *, target: str, expect_names: bool) -> list[GateFinding]:
+    # a file that uses `bpy` without importing it is caught by the KNOWN_BINDINGS rule in source_traps;
+    # an entry that only imports and calls its part builders needs no `import bpy`
     out: list[GateFinding] = []
     E, W = Severity.ERROR, Severity.WARN
-    if expect_bpy and "bpy" not in c.imports:
-        out.append(_f(LintKind.UNDEFINED_NAME, E, f"{target} never imports bpy", 1, "start the file with `import bpy`"))
 
     def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
         if kind == "forbidden":
@@ -335,11 +335,11 @@ def _rules(c: BpyCollector, source: str, *, target: str, expect_names: bool, exp
 
 
 def lint_blender_source(
-    source: str, *, target: str = "src/model.py", expect_names: bool = True, expect_bpy: bool = True,
+    source: str, *, target: str = "src/model.py", expect_names: bool = True,
 ) -> GateReport:
     """Lint one bpy script; returns ``GateReport(gate='lint:blender')``.
 
-    ``expect_names=False`` / ``expect_bpy=False`` relax the PascalCase-name and bpy-use checks for entry and helper files."""
+    ``expect_names=False`` relaxes the PascalCase-name check for entry and helper files."""
     t0 = time.monotonic()
     findings: list[GateFinding] = []
     tree, exc = safe_parse(source, target)
@@ -349,7 +349,7 @@ def lint_blender_source(
         return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
     c = BpyCollector()
     c.visit(tree)
-    findings = _rules(c, source, target=target, expect_names=expect_names, expect_bpy=expect_bpy)
+    findings = _rules(c, source, target=target, expect_names=expect_names)
     for f in findings:
         f.target = target
     return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
@@ -450,8 +450,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
         is_entry = p == entry
         is_helper = p.name.startswith("_")
         rep = lint_blender_source(p.read_text(), target=target,
-                                  expect_names=not (is_helper or (is_entry and bool(parts))),
-                                  expect_bpy=not is_helper)
+                                  expect_names=not (is_helper or (is_entry and bool(parts))))
         findings.extend(rep.findings)
     entry_tree, _ = safe_parse(entry.read_text(), ENTRY_REL)
     findings.extend(_layout_rules(ws, parts, entry_tree))
