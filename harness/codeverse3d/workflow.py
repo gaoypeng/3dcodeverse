@@ -193,13 +193,13 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
         return text_observation(text, ok=False, numbers={"errors": len(errors), "model": model.__name__}, limit=6000)
     assert plan is not None
     budget = plan_budget(spec)
-    unit = "passes" if spec.track is Track.GRAPHICS else "parts"
-    hard, soft = plan_quality_complaints(plan, budget, unit=unit)
+    unit = "passes" if spec.track is Track.GRAPHICS else "zones" if spec.track is Track.SCENE else "parts"
+    hard, soft = plan_quality_complaints(plan, budget, unit=unit) if unit != "zones" else ([], [])
     notes = normalise_plan(plan, spec)
     ws.write_json(ws.plan_path, plan)
     rt = get_runtime(spec.language)
     files = rt.expected_files(plan)
-    units = list(getattr(plan, "parts", None) or getattr(plan, "passes", None) or [])
+    units = list(getattr(plan, unit, None) or [])
     head = "PLAN FAIL (valid, but not worth building yet)" if hard else "PLAN OK"
     lines = [f"{head}: {model.__name__}, {len(units)} {unit}, {len(plan.acceptance)} acceptance items"]
     lines += [f"- ERROR: {h}" for h in hard]
