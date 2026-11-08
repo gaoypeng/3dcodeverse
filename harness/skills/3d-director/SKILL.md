@@ -68,8 +68,8 @@ read one when its description matches your plan or a finding.
 ## The loop
 
 1. **Init.**  `3dcode init --workspace W --track T --language L --prompt "..."` with
-   `--must "..."` / `--must-not "..."` per hard requirement, `--dim height=0.45` per stated
-   dimension, `--reference img.png` per reference image.  It prints the entry files and the
+   `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated
+   dimension, `--references img.png` per reference image.  It prints the entry files and the
    skill to read.  Then `git -C W init` if the workspace is not a repository.
 2. **Plan.**  Write `plan.json` by `references/plan-<track>.md` (exact numbers, acceptance
    checklist), then `3dcode validate-plan --workspace W` until it prints PASS; FAIL lists each

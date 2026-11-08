@@ -90,7 +90,7 @@ python function + argparse subcommand (kebab-case; a list argument is a repeated
 
 | subcommand | tracks | does |
 |---|---|---|
-| `init --track --language --prompt [--must]* [--must-not]* [--dim k=v]* [--reference path]*` | all | writes `spec.json`, the layout and the language's starter files; prints the entry files and the skill to read |
+| `init --track --language --prompt [--must-have]* [--must-not]* [--dims k=v]* [--references path]*` | all | writes `spec.json`, the layout and the language's starter files; prints the entry files and the skill to read |
 | `validate-plan` | all | validates `plan.json` against the track's plan model + the deterministic plan checks (placeholder echo, hard quality complaints, acceptance present, fixed-part clash); writes the normalised plan back; FAIL lists each error with its JSON path |
 | `build` | all | lint + build with the language runtime, export, measure; `artifacts/build.json` |
 | `check` | all | build + measure + every gate of the track → `artifacts/gates.json`; the round's verdict |

@@ -1,7 +1,7 @@
 # The wiring (the interface, nothing else)
 
-`src/scene.js` is the only caller of your modules; `3dcode init` copies a starter with this
-shape — keep it and fill the camera list from the plan:
+`src/scene.js` is the only caller of your modules; write it in this shape, the camera list from the
+plan, and mark every zone root with `userData.c3d_zone` (placement and the judge find zones by it):
 ```js
 import * as THREE from 'three';
 import { buildEnv, heightAt } from './env.js';
@@ -11,7 +11,7 @@ export async function createScene({ THREE, renderer, loaders }) {
   const assets = {};                                              // ctx.assets['<snake>'] ← each public/assets/<snake>.glb via loaders.gltf
   const ctx = { THREE, scene, renderer, loaders, heightAt, assets };
   const env = (await buildEnv(ctx)) || {}; ctx.env = env;         // ONE argument: ctx
-  const zones = [await buildQuay(ctx)]; for (const g of zones) scene.add(g);   // each a Group / Object3D
+  const zones = [await buildQuay(ctx)]; for (const g of zones) { g.userData.c3d_zone = g.name; scene.add(g); }
   const cameras = [{ name: 'Establishing', position: [0, 1.7, 30], lookAt: [0, 2, 0], fov: 50 }];  // the plan's list
   function update(t, dt) { if (env.update) env.update(t, dt); for (const z of zones) if (z.userData.update) z.userData.update(t, dt); }
   return { scene, cameras, update };
@@ -26,7 +26,7 @@ export function heightAt(x, z) { return 0; }   // the brief's surface — any fu
 export function buildEnv({ THREE, scene }) {
   // the brief's sky, light, ground (a mesh named 'Ground…' sampled from heightAt) and atmosphere:
   // scene.fog + scene.background set (no_fog / no_background), scene.environment an env texture
-  return { update(t, dt) {} };               // the ONLY env hook the assembler calls
+  return { update(t, dt) {} };               // the ONLY env hook scene.js calls
 }
 ```
 

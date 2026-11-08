@@ -19,8 +19,9 @@ from pydantic import BaseModel, Field, ValidationError
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import GateReport, Judgment, RenderSet, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, TRACK_LANGUAGES, TRACK_RUBRIC, Language, Track
+from codeverse3d.contracts.plan import ScenePlan
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
-from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc
+from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_snake
 from codeverse3d.gates import PLAN_MODELS, CheckResult, render_for_judge, run_check
 from codeverse3d.jsonparse import JsonParseError, parse_json_lenient
 from codeverse3d.judges import prompt_builder as pb
@@ -134,7 +135,7 @@ def init(ctx: ToolContext, args: InitArgs) -> Observation:
     lib = getattr(rt, "lib_interface", None)
     if callable(lib) and (surface := lib(ws)):
         lines.append("library surface (src/lib):\n" + surface)
-    lines.append(f"next: read the skill 3d-lang-{language.value}, write plan.json, run `3dcode validate-plan`")
+    lines.append(f"next: read the skill 3d-lang-{language.value.replace("_", "-")}, write plan.json, run `3dcode validate-plan`")
     return text_observation(lines, numbers={"track": track.value, "language": language.value, "workspace": str(ws.root),
                                             "entry": ENTRY_FILE[language], "owned_files": [rel_path(p, ws.root) for p in owned]},
                             limit=6000)
@@ -197,6 +198,16 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
     hard, soft = plan_quality_complaints(plan, budget, unit=unit) if unit != "zones" else ([], [])
     notes = normalise_plan(plan, spec)
     ws.write_json(ws.plan_path, plan)
+    if spec.language is Language.SCENE_BLENDER and isinstance(plan, ScenePlan):
+        # src/scene.py is data the build reads (ZONES / ASSETS / HEROES / CAMERAS), so it follows the plan
+        from codeverse3d.languages.scene_blender import render_scene_py
+
+        (ws.src / "scene.py").write_text(render_scene_py(
+            [to_snake(z.name) for z in plan.zones],
+            [to_snake(a.name) for a in plan.assets if a.kind != "blender_glb"],
+            [to_snake(a.name) for a in plan.assets if a.kind == "blender_glb"],
+            list(plan.cameras[:6]), title=plan.title, summary=plan.summary))
+        notes.append("src/scene.py written from the plan")
     rt = get_runtime(spec.language)
     files = rt.expected_files(plan)
     units = list(getattr(plan, unit, None) or [])

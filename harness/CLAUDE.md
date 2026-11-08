@@ -64,7 +64,7 @@ There is no CI: run `ruff check codeverse3d` and the smoke scripts under
 ```
 bash setup.sh                                   # python package + runtime_js + chrome + doctor
 python -m codeverse3d.doctor [--json]
-3dcode init --workspace W --track static_object --language blender --prompt "a dining chair" [--must ...] [--dim height=0.45] [--reference img.png]
+3dcode init --workspace W --track static_object --language blender --prompt "a dining chair" [--must-have ...] [--dims height=0.45] [--references img.png]
 3dcode validate-plan --workspace W
 3dcode build | check | judge-pack --round N | score --round N      (always --workspace W; --json for JSON)
 3dcode measure | check-contract | check-connectivity | cross-section | render-views | render-sheet | isolate | compare-reference | joint-sweep

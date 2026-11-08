@@ -15,7 +15,7 @@ into the Collection you are handed.
 
 ## Files (Z up, −Y front, metres)
 ```
-src/scene.py            ASSEMBLED BY THE BUILD from plan.json — data only (ZONES / ASSETS / HEROES / CAMERAS); never edit it
+src/scene.py            written by `3dcode validate-plan` from plan.json — data only (ZONES / ASSETS / HEROES / CAMERAS); never edit it, re-run validate-plan after a plan change
 src/env.py              def height_at(x, y) -> z    def build_env(ctx) -> dict     (world, light, ground, atmosphere; an interior's shell)
 src/zones/<snake>.py    def build(ctx) -> bpy.types.Collection      (everything linked into ctx.collection, the zone's own)
 src/assets/<snake>.py   def build_<snake>(ctx, variant=0) -> bpy.types.Collection   (ONCE at the origin, base on z = 0, front −Y)
