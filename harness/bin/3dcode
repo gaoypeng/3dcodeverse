@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 3dcode launcher: $C3D_PYTHON, else <plugin>/.venv/bin/python, else python3; the plugin root on PYTHONPATH.
+# 3dcode launcher (-P: the caller's cwd never shadows the package): $C3D_PYTHON, else <plugin>/.venv/bin/python, else python3; the plugin root on PYTHONPATH.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${C3D_PYTHON:-}"
 if [ -z "$PY" ] && [ -x "$HERE/.venv/bin/python" ]; then PY="$HERE/.venv/bin/python"; fi
 if [ -z "$PY" ]; then PY="python3"; fi
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
-exec "$PY" -m codeverse3d.cli "$@"
+exec "$PY" -P -m codeverse3d.cli "$@"
