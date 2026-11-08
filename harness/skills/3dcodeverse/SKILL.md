@@ -92,9 +92,9 @@ Keep files small and modular so edits stay local — one part / zone / asset / l
 the language skill's `## Files` allows.  Do not re-read a file you just wrote or edited.
 
 **Commands run in the foreground; wait for them.**  Every `3dcode` call finishes on its own (a
-scene `check` or `judge` can take a minute): agy — `run_command` with
-`WaitMsBeforeAsync: 300000`; Claude Code — Bash with `timeout: 600000`; Codex — `exec_command` with `yield_time_ms: 300000`.  Never poll a task or a
-subagent (`manage_task`, `manage_subagents`, `echo`, `sleep`): the result wakes you.
+scene `check` or `judge` can take a minute or two): when you run one, give it a wait of several
+minutes so it returns its result in the same step instead of moving to the background.  Never
+poll a running command or subagent; its result comes back to you.
 
 **No self-polishing.**  The judge decides what to polish next and `score` lists it; you do not
 iterate on looks between judges.  Round 0: write the code from the plan, run `3dcode check`
