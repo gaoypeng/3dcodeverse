@@ -49,7 +49,8 @@ AS AUTHORED.  The lint derives the export name from the file stem (`seat_cushion
 * Resolve: `three`, `three/addons/...` (e.g. `three/addons/utils/BufferGeometryUtils.js` for
   `mergeGeometries`, `three/addons/geometries/RoundedBoxGeometry.js`), relative `./` files
   under `src/`.  A URL, another package, `three/webgpu`, `three/tsl`, a path escaping `src/`,
-  a missing file or a name the module does not export is a lint ERROR (`bad_import`).
+  a missing file or a name the module does not export is a lint ERROR (`bad_import`); never
+  copy three's sources into `src/` (two copies of the library, `instanceof` failures).
   Undefined before r182: `mergeBufferGeometries` (now `mergeGeometries`), `three/examples/js/*`,
   `Geometry`, `Face3`, `sRGBEncoding`, `outputEncoding`.  `mergeGeometries` returns `null` when
   one input is indexed or lacks an attribute another has (`uv`, `color`).
@@ -62,7 +63,8 @@ AS AUTHORED.  The lint derives the export name from the file stem (`seat_cushion
 
 ## Materials
 * `MeshStandardMaterial` / `MeshPhysicalMaterial` colour, roughness, metalness, emissive and
-  vertex colours (`setAttribute('color', …)` + `vertexColors: true`) survive the export.
+  vertex colours (`setAttribute('color', …)` + `vertexColors: true`, exported as `COLOR_0`)
+  survive the export.
   `ShaderMaterial`, `MeshToonMaterial` and every texture do not (textures stripped with a build
   warning; a shader material exports plain).  A hex colour is sRGB; `material.color.r` is linear.
 * An `InstancedMesh` named `Posts` exports as sibling meshes `Posts_0 … Posts_{n-1}` with the
@@ -84,7 +86,8 @@ AS AUTHORED.  The lint derives the export name from the file stem (`seat_cushion
 * **Triangle budget** (sized from parts × instances): WARN below 350 per built object (floor
   clamped to 1 500–40 000), ERROR above 20 000 per built object (ceiling 60 000–600 000);
   target about 2 000 per built object; a build over 3 s per built object (≥ 20 s) WARN; killed
-  at 300 s.  Detail inside a part is invisible to the part-level gates; a new top-level node is
+  at 300 s; the build also has a memory limit, but the triangle ceiling is the only count
+  enforced.  Detail inside a part is invisible to the part-level gates; a new top-level node is
   a part.
 * **Build**: a zero extent or radius, or `scale.set(0, 0, 0)` to hide, produces NaN and fails
   the export (`visible = false`, or do not add it).

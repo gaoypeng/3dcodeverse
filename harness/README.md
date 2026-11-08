@@ -8,10 +8,12 @@ has a fresh-context judge score it.
 * **Tracks:** `static_object` · `articulated_object` · `scene` · `graphics`
 * **Languages:** `blender` · `cadquery` · `threejs` · `urdf_blender` · `scene_threejs` ·
   `scene_blender` · `glsl_shader` · `opengl_python`
-* **Skills** (`skills/`): `3d-director` (the workflow: init → plan → code → check → judge →
-  refine, stop rules), `3d-lang-<language>` × 8 (each language's files, frame, sandbox and
-  every threshold the instruments measure) and the `c3d-*` craft bundles (parts that touch,
-  bbox contract, repeats, scene lighting / placement / materials / motion, shader traps …).
+* **Skills** (`skills/`): `3dcodeverse` (the controller: what 3D coding here is, the tracks
+  and languages, every instrument, the workflow init → plan → code → check → judge → refine
+  with its stop rules, and the quality rules every track shares), `3d-lang-<language>` × 8
+  (each language's files, frame, sandbox and every threshold the instruments measure) and the
+  `c3d-*` craft bundles (parts that touch, bbox contract, repeats, scene lighting / placement /
+  materials / motion, shader traps …).
 * **Instruments** (`3dcode`, a command-line tool): `init`, `validate-plan`, `build`, `check`
   (every gate of the track), `judge-pack`, `score`, and the per-track probes — `measure`,
   `check-contract`, `check-connectivity`, `cross-section`, `render-views`, `render-sheet`,
@@ -52,7 +54,7 @@ Ask the host agent for a 3D thing and name the language if you care:
 > Make a small Japanese garden at dusk with a koi pond as a three.js scene.
 > Make neon rain on a window as a GLSL shader.
 
-The `3d-director` skill drives the rest: a workspace directory with `spec.json`, `plan.json`,
+The `3dcodeverse` skill drives the rest: a workspace directory with `spec.json`, `plan.json`,
 `src/` (the code), `artifacts/` (object.glb, renders, gates) and `judge/rNN/` (brief, montages,
 judgment, score).  The deliverable is the best-scoring round's `src/` and its artifacts.
 

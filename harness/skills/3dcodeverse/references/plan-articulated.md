@@ -1,7 +1,7 @@
 # plan.json for `articulated_object`
 
-Everything in `plan-static.md` (same `parts[]` schema) plus `root_link` and `joints[]`.  The
-frame is Z up, −Y front, metres, radians; every number describes the REST pose (q = 0: doors
+Everything in `plan-static.md` (same `parts[]` schema; `summary` also says what moves) plus
+`root_link` and `joints[]`.  The frame is Z up, −Y front, metres, radians; every number describes the REST pose (q = 0: doors
 closed, drawers in, lids down unless a joint's `rest` says otherwise), bottom on z = 0.
 
 * `parts` are LINKS: one per rigid body that moves as a unit (a drawer is ONE link with its
@@ -36,3 +36,17 @@ closed, drawers in, lids down unless a joint's `rest` says otherwise), bottom on
 * `acceptance`: the brief's dimensions (`measure`), each named feature (`visual`) and ONE
   `how: "articulation"` item per joint stating the travel and that nothing is penetrated through
   it ("drawer slides out 0.35 m without touching the cabinet").
+
+The shape (not numbers to copy): a root link, one moving link with two children, one joint,
+one articulation item.
+```json
+{"object_name": "DeskDrawerUnit", "root_link": "Cabinet",
+ "parts": [{"name": "Cabinet", "role": "carcass", "description": "...", "bbox": {"center": [0, 0, 0.35], "extents": [0.45, 0.5, 0.7]}, "material": "..."},
+           {"name": "Drawer", "role": "the one moving body", "description": "...", "attach_to": "Cabinet",
+            "bbox": {"center": [0, -0.02, 0.45], "extents": [0.41, 0.46, 0.14]}, "material": "...",
+            "children": [{"name": "DrawerFront", "description": "...", "bbox": {"center": [0, -0.24, 0.45], "extents": [0.41, 0.02, 0.14]}},
+                         {"name": "DrawerHandle", "description": "...", "bbox": {"center": [0, -0.26, 0.45], "extents": [0.12, 0.02, 0.02]}, "material": "..."}]}],
+ "joints": [{"name": "DrawerSlide", "type": "prismatic", "parent": "Cabinet", "child": "Drawer", "axis": [0, -1, 0],
+             "pivot": [0, -0.02, 0.45], "lower": 0, "upper": 0.35, "rest": 0, "motion": "front: the drawer pulls out towards -Y"}],
+ "acceptance": [{"id": "a1", "text": "the drawer slides out 0.35 m without touching the cabinet", "how": "articulation", "priority": "should"}]}
+```

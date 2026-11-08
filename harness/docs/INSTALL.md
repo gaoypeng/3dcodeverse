@@ -84,7 +84,7 @@ codex plugin add 3dcodeverse@3dcodeverse
 agy plugin install /path/to/3dcodeverse/harness
 agy plugin validate /path/to/3dcodeverse/harness --strict
 ```
-The host then sees the skills (`3d-director`, `3d-lang-*`, `c3d-*`) and the `3d-judge`
+The host then sees the skills (`3dcodeverse`, `3d-lang-*`, `c3d-*`) and the `3d-judge`
 subagent.  The skills run `3dcode …` in the host's terminal: the console script from
 `pip install -e harness`, or `harness/bin/3dcode` (`$C3D_PYTHON`, else `harness/.venv/bin/python`,
 else `python3`, with `PYTHONPATH=harness`).  To try a host without touching your real config,

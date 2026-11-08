@@ -26,7 +26,8 @@ self-contained (built and checked on its own).  The build runs ONE Blender proce
 order, each builder in its own try/except: `env.build_env(ctx)`; every hero imported; every
 `assets.<snake>.build_<snake>(ctx)`; every `zones.<snake>.build(ctx)`.  A builder that raises
 is DROPPED with its `file:line` and everything it created removed — the rest still builds, so
-one bad zone costs that zone.  `build_<zone>(ctx)`, `create()`, `main()`, `register()` are never
+one bad zone costs that zone; a dropped asset is NOT AVAILABLE, so `ctx.assets['x']` raises in
+every zone that instances it and drops those zones too.  `build_<zone>(ctx)`, `create()`, `main()`, `register()` are never
 called.  Link every object into `ctx.collection` (an object in `ctx.scene.collection` belongs to
 no zone).  Then the build adds the plan's cameras, hides the asset sources, writes the census
 and the `.blend`, and renders every camera at t = 0 and t = 1.5 s (frames 1 and 46).
@@ -46,10 +47,11 @@ and the `.blend`, and renders every camera at t = 0 and t = 1.5 s (frames 1 and 
 
 ## Frame
 Z up, −Y front, +X right, metres, the ground `height_at(x, y)` around z = 0.  The PLAN is
-written in the Y-up GLB frame: every number the build prints for you (bounds, zone bboxes,
-camera positions) is already converted; the plan's prose is not — "y = 1.2 m up" is z = 1.2,
-"+z towards the camera" is −y.  Sizes here are width × depth × height (the plan's width ×
-height × depth reordered).
+written in the Y-up GLB frame: a plan point (x, y, z) is Blender (x, −z, y) and plan extents
+(w, h, d) are Blender (w, d, h).  Only the CAMERAS in `src/scene.py` are pre-converted; the
+bounds and zone bboxes you convert yourself, and `check-placement` reports boxes and the
+`out_of_bounds` bounds in the plan's Y-up frame.  The plan's prose is not converted either —
+"y = 1.2 m up" is z = 1.2, "+z towards the camera" is −y.
 
 ## Allowed imports
 `bpy`, `bmesh`, `mathutils` (Vector, Matrix, Euler, noise), `math`, `numpy` (randomness only
@@ -89,16 +91,18 @@ add the `NodeGroupInput` / `NodeGroupOutput` nodes yourself,
 ## What the renderer does with what you build
 Cycles at 32 samples + OIDN, AgX, exposure 0, 1024 × 576; no post chain, no bloom: an emissive
 at strength 3–8 reads as a lamp, 20+ whites the frame (`blown_frac`), and a lamp beside it is
-what lights the wall.  Light is physical: a Sun in W/m², lamps in Watts; starting points that
-passed on a mid-albedo ground — a day Sun of 2–5 W/m² under a sky world at strength 0.2–0.5, a
-dusk or night lit by practicals (an emissive skin plus a Point light with a radius), a moon
-0.05–0.3, fog density 0.003–0.008.  Hue, material and geometry work are invisible on near-black
+what lights the wall.  Light is physical: a Sun in W/m², lamps in Watts; starting pairs that
+landed in the exposure band on a mid-albedo ground — day: Sun 2–5 W/m² under a sky world at
+strength 0.2–0.5, Sun `angle` 1–3° so shadows read and shade keeps colour; dusk: 1–1.5 W/m² at
+0.2; night: a moon 0.05–0.3 W/m² at 0.1, lit by practicals (an emissive skin plus a Point light
+with a radius); fog density 0.003–0.008.  Hue, material and geometry work are invisible on near-black
 pixels.  A SURFACE shader always has a silhouette: a soft particle (steam, smoke, dust, spray)
 renders edgeless only as a VOLUME — a material whose only linked output is the Material
 Output's `Volume`, fed by a `ShaderNodeVolumePrincipled`; a translucent puff, metaball, torus
 or disc is `hard_edged_particles`.  The census is the evaluated depsgraph (modifiers, geometry
 nodes and instances count as rendered; a volume-only mesh is fog, never a placed thing).
-Triangle budgets: 15 000 per asset, 40 000 per hero, 3 000 000 unique for the scene.
+Triangle budgets: 15 000 per asset, 40 000 per hero, 3 000 000 unique for the scene (an
+instance cloud counts its instances as rendered, its source once).
 
 ## Motion
 Animation is DATA: `obj.keyframe_insert(data_path, frame=ctx.frame(t))` at the two times (a
@@ -109,7 +113,7 @@ a `--factory-startup` build).  Set each `keyframe_points[].interpolation = 'LINE
 travel.  The build differences the two frames per camera: a camera moves when ≥ 0.4 % of its
 pixels change by more than 8/255; none moving is `no_motion` (ERROR), the judge's
 `nothing_moves`.  Amplitudes that registered: ≥ 0.10 rad, ≥ 0.05 m per 1.5 s, a particle /
-leaf / boat ≥ 0.6 m.  A hero GLB's own clip plays in every instance by itself.
+leaf / boat ≥ 0.6 m (an asset's own moving part: ≥ 0.15 rad).  A hero GLB's own clip plays in every instance by itself.
 
 ## Naming
 PascalCase, globally unique (a second `Lantern_0` becomes `Lantern_0.001` and reports a prop
@@ -148,15 +152,18 @@ findings cap at 0.50; eye < 0.3 m above the ground `camera_low`, > 80 m `camera_
 `hero_unseen`: a hero covering < 0.5 % of the frame in every camera is an ERROR (< 2 % in its
 named camera a WARN).  `scene_probe` (`3dcode scene-probe`): unique triangles over 3 000 000, a
 Python driver or app handler, no world, no atmosphere (`no_fog`: neither a world Volume nor a
-bounded fog volume), render settings touched.  Outdoors `fog_short` warns when 1 / density <
+bounded fog volume — mist is not read), render settings touched; a hero that would not import
+is a WARN on its file.  Outdoors `fog_short` warns when 1 / density <
 span / 1.5 and `world_edge` when no standing geometry reaches 1.25 × the bounds half-extent.  A
 dropped zone / asset / env is an ERROR on its line.
 
 ## Interiors
 `interior: true`: the enclosure (floor, walls, lid named `RoomShell…` / `Ceiling…`) is
 `src/env.py`'s; it must read enclosed from every camera and be lit inside; the floating
-threshold indoors is 0.02 m.  Zones dress the inside; a partition or counter a zone needs is the
-zone's, seated and clear of the shell.
+threshold indoors is 0.02 m.  Env cuts windows and doors as OPENINGS; zones put glazing and
+door leaves in the opening and wall fixtures flush against the inner face, and never build
+walls or a roof.  Zones dress the inside; a partition or counter a zone needs is the zone's,
+seated and clear of the shell.
 
 ## Realism (judged)
 Every large surface varies at more than one scale — broad tone and wear over metres AND fine
@@ -165,7 +172,11 @@ Bump); one constant colour per surface is `placeholder_material` / `flat_ground`
 trunk branching into limbs carrying leaf or needle cards, a rock an irregular asymmetric mass —
 never a cone, a ball on a stick or a cube (`asset_quality_detail`); one shape stamped many times
 is `monotonous_vegetation`.  The world continues past the content in every frame
-(`world_edge_visible`).  The brief's time of day is a hard constraint, decided once in
+(`world_edge_visible`).  A pond, bed or terrace must not read as a plate laid on the terrain
+from the overview rig: carve it into `height_at` or give it a built edge or a dressed seam;
+inside a shoreline the terrain lies below the water level or the shore z-fights.  Distant forms
+keep their natural colour, darkened — pre-tinted toward the fog they render brighter than the
+land and read as cardboard (`placeholder_material`).  The brief's time of day is a hard constraint, decided once in
 `src/env.py` and shared through the dict `build_env` returns.
 
 ## Asset modules
@@ -176,7 +187,8 @@ call it.  Imports `bpy`, `bmesh`, `mathutils`, `math`; no lights, cameras, world
 ground plane.  Every part has a Principled material with a real colour and roughness, varied
 at more than one scale; unique PascalCase names, one root mesh or children parented at
 RELATIVE locations; ≤ 15 000 triangles.  `variant` changes the SILHOUETTE when several copies
-are placed; `ctx.rng(seed)` varies details.  A moving part (when the description names one) is
+are placed; `ctx.rng(seed)` varies details and colour, so many copies are not one colour.  A
+moving part (when the description names one) is
 keyframed on its OWN rotation/location with its origin at the pivot (≥ 0.15 rad or ≥ 0.05 m
 registers).  Every sub-shape overlaps a neighbour by ≥ 2 mm; the lowest point is exactly z = 0.
 

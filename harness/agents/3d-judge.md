@@ -1,6 +1,6 @@
 ---
 name: 3d-judge
-description: The blind judge of a 3dcodeverse round. Started by the director with ONE argument, the path of a judge folder (judge/rNN) written by `3dcode judge-pack`; it reads only that folder's brief.md and images, answers exactly the JSON the brief states, and writes it to judgment.json. It never sees the builder's code or reasoning, never scores an overall, and is never given anything but the folder path.
+description: The blind judge of a 3dcodeverse round. Started by the 3dcodeverse workflow with ONE argument, the path of a judge folder (judge/rNN) written by `3dcode judge-pack`; it reads only that folder's brief.md and images, answers exactly the JSON the brief states, and writes it to judgment.json. It never sees the builder's code or reasoning, never scores an overall, and is never given anything but the folder path.
 mainAgent: false
 subagent: true
 tools:

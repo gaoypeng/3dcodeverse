@@ -28,7 +28,7 @@ corrected `<origin>`); fails on a rest-pose penetration deeper than 5 mm (`RestP
 sweeps every joint (`3dcode joint-sweep`); renders q = 0 plus every joint at both limits for the
 judge; builds `object.glb` with one node per link.  A link no object matches fails the build
 (with a did-you-mean for a case / snake_case mismatch); a visible mesh no link claims fails it
-too.  `<collision>` missing or different from `<visual>` is a WARN: the VISUAL mesh is collided.
+too (parent it under a link's object or add a `<link>`).  `<collision>` missing or different from `<visual>` is a WARN: the VISUAL mesh is collided.
 `references/interface.md` is one hinge, end to end.
 
 ## Frame rule (measured by the FK check)
@@ -41,7 +41,8 @@ too.  `<collision>` missing or different from `<visual>` is a WARN: the VISUAL m
   origin must then be the full inverse of the link's FK transform — the FK check prints it.
 * Root link frame = world origin.  Every other link frame = its joint's PIVOT: a world point ON
   the joint axis (hinge line, slide axis, axle); fixed joints: the attachment point.
-* `<joint><origin xyz>` = `pivot_child − frame_parent`.
+* `<joint><origin xyz>` = `pivot_child − frame_parent` (a child of the root: just its pivot; a
+  handle on a door: `pivot_handle − pivot_door`).
 * `<visual>` AND `<collision>` `<origin xyz>` = `−pivot_link` (root: `0 0 0`), because the mesh
   holds world coordinates and the link frame sits at the pivot.  The build verifies this
   numerically and prints the numbers when it is wrong.
@@ -51,13 +52,16 @@ too.  `<collision>` missing or different from `<visual>` is a WARN: the VISUAL m
   `motion_direction` gate moves the joint positively and checks the child's centroid
   displacement within 60° of that word.  Wrong way: negate the axis; never swap lower/upper
   (q = 0 must stay the authored rest pose).
-* Limits: `revolute` / `prismatic` need `<limit lower upper effort velocity/>` with
+* Limits describe the mechanism's real travel (a lid 0…1.5 rad, a drawer 0…0.4 m), never
+  `-3.14` / `3.14` placeholders: the sweep poses both ends, and a hinge that can swing through
+  its own housing is a modelling error it will find.  `revolute` / `prismatic` need
+  `<limit lower upper effort velocity/>` with
   `lower ≤ 0 ≤ upper` (`lower = plan.lower − rest`, `upper = plan.upper − rest`); a missing
   `<limit>` is a load ERROR.  `continuous`: `<limit effort velocity/>` only.  `fixed`: no
   `<limit>`, no `<axis>`.  Lint WARNs: `lower == upper`, a revolute range > 2π (use
   `continuous`), a `<limit>` without effort/velocity.
-* Single-root tree: one link no joint moves; every other link the child of exactly one joint
-  (ERROR otherwise); no cycles.  Anything riding on a moving link is part of that link's mesh or
+* Single-root tree: exactly one link that is no joint's child (the base); every other link the
+  child of exactly one joint (ERROR otherwise); no cycles.  Anything riding on a moving link is part of that link's mesh or
   a fixed child of it — attached to the base it stays behind and the sweep reports the overlap.
 * Names: link name == Blender object name == `meshes/<link>.glb` stem, case-sensitive, a plain
   identifier (`Door.001` means two objects shared a name); `world` is reserved (ERROR); name the
@@ -94,5 +98,4 @@ is a lint ERROR).  No triangle-budget gate; the build is killed at 300 s.
 `3dcode build` (lint, FK at q = 0, rest penetration) → `3dcode joint-sweep` → `3dcode
 check-connectivity` + `3dcode check-contract` → fix → repeat → `3dcode render-sheet` → OPEN
 the sheet and the pose sheet → `3dcode check` clean.  A sweep ERROR blocks the round whatever
-the geometry looks like; `3dcode check-contract` compares every link's bbox with the plan —
-keep the plan's size and say why in a comment if a number is wrong for the object.
+the geometry looks like; `3dcode check-contract` compares every link's bbox with the plan.

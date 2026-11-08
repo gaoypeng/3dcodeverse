@@ -65,7 +65,7 @@ def _spec(ctx: ToolContext) -> Spec:
 
 def _plan_raw(ws: Workspace) -> dict[str, Any]:
     if not ws.plan_path.is_file():
-        raise ToolUsageError("plan.json not found in the workspace — write it first (see the 3d-director skill)")
+        raise ToolUsageError("plan.json not found in the workspace — write it first (see the 3dcodeverse skill)")
     try:
         data = json.loads(ws.plan_path.read_text())
     except ValueError as e:

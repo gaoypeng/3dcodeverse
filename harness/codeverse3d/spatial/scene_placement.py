@@ -468,27 +468,13 @@ def _plan_bounds(plan: Any) -> tuple[tuple[float, ...], tuple[float, ...]] | Non
         return None
 
 
-def _layout_budget(layout: Any) -> int:
-    """Total things the L2 layout put in the zone."""
-    if layout is None:
-        return 0
-    get = layout.get if isinstance(layout, dict) else lambda k, d=0: getattr(layout, k, d)
-    placements = get("placements", []) or []
-    n = 0
-    for pl in placements:
-        n += int((pl.get("count", 1) if isinstance(pl, dict) else getattr(pl, "count", 1)) or 1)
-    for k in ("mid_props", "small_props", "ground_cover"):
-        n += int(get(k, 0) or 0)
-    return n
-
-
 def _row_names(row: AssetRow) -> str:
     """The row's own name plus its named descendants, snake-cased for loose matching."""
     return " ".join(to_snake(n) for n in [row.name, *row.inner])
 
 
 def contract_findings(census: dict[str, Any] | None, plan: Any,
-                      layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> list[GateFinding]:
+                      unavailable: Sequence[str] = ()) -> list[GateFinding]:
     """Deterministic plan-vs-census checks."""
     if not isinstance(census, dict) or plan is None:
         return []
@@ -496,18 +482,6 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     out: list[GateFinding] = []
     groups = {to_snake(g.get("name", "")): g for g in (census.get("groups") or [])
               if isinstance(g, dict)}
-    for zone_name, layout in (layouts or {}).items():
-        budget = _layout_budget(layout)
-        g = groups.get(to_snake(zone_name))
-        if g is None or budget <= 0:
-            continue   # zone_empty below covers a missing group
-        have = int(g.get("instances") or 0)
-        if have < budget:
-            out.append(_f(Severity.INFO,
-                          f"zone {zone_name} holds ~{have} instances; its layout planned {budget} "
-                          f"(placements + props + ground cover) — a note, not a requirement: the counts the brief "
-                          "states are its acceptance items",
-                          target=zone_name, kind="density_note", have=have, budget=budget))
     if "fog" in census and census.get("fog") is None:
         out.append(_f(Severity.ERROR, words["no_fog_msg"], target="env", kind="no_fog", hint=words["no_fog"]))
     if "background" in census and census.get("background") is None:
@@ -683,14 +657,14 @@ def setting_text(plan: Any) -> str:
 
 
 def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
-                        layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> GateReport | None:
+                        unavailable: Sequence[str] = ()) -> GateReport | None:
     """Round-gate entry."""
     try:
         table = (census or {}).get("placement")
         if not isinstance(table, dict):
             return None
         report = placement_findings(table, indoor=is_interior(plan), language=(census or {}).get("language"))
-        extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts, unavailable=unavailable))
+        extra = _cap_per_kind(contract_findings(census, plan, unavailable=unavailable))
         if extra:
             report = GateReport.of(GATE, report.findings + extra, duration_ms=report.duration_ms)
         return report

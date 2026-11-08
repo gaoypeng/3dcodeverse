@@ -10,8 +10,8 @@ and judged on frames at t = 0, 1, 2.5, 4 and 6 s.
    `light_and_tone` criterion grades the frames against this paragraph.
 3. `resolution`: `[1280, 720]` unless the request is explicitly vertical (`[720, 1280]`); at most
    1920 × 1080.  `duration_s` ≥ 6 (the preview loop; judged times stop at 6 s).
-4. `passes[]` in draw order: `name` PascalCase, `kind` (`fullscreen` | `geometry` | `postprocess`
-   | `feedback`), `description` — what it draws, the technique by name, the quantities (counts,
+4. `passes[]` (at most 6) in draw order: `name` PascalCase, `kind` (`fullscreen` | `geometry` |
+   `postprocess` | `feedback`), `description` — what it draws, the technique by name, the quantities (counts,
    sizes as screen fractions, speeds, the style's colours); optional `elements[]` (≤ 8 named
    things with their numbers) and `detail_hint`.  A fragment shader's pass is a layer composited
    inside the one shader; an OpenGL program's may be a real pass (geometry, an FBO).  One field

@@ -75,7 +75,8 @@ def render(ctx: moderngl.Context, state, t: float, frame: int, fbo: moderngl.Fra
 * `ctx.clear(...)` clears whatever framebuffer is bound (`my_fbo.clear(...)` for your own).  An
   offscreen framebuffer tests depth only with a `depth_attachment=` (`ctx.depth_renderbuffer`);
   reading and writing the same texture in one pass is undefined.
-* With `CULL_FACE` a front face is counter-clockwise from outside.  GL 3.3 core: no
+* With `CULL_FACE` a front face is counter-clockwise from outside (`ctx.front_face` defaults to
+  `"ccw"`; wound the other way the mesh is inside out).  GL 3.3 core: no
   `line_width` above 1, no GL_QUADS; `ctx.wireframe = True` is a debugging aid.
 * Errors come back as `src/program.py:LINE: <Exception>`; GLSL compile errors show the driver
   log with line numbers inside the shader STRING.

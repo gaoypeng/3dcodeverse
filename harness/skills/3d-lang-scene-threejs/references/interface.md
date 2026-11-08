@@ -1,7 +1,7 @@
 # The wiring (the interface, nothing else)
 
 `src/scene.js` is the only caller of your modules; write it in this shape, the camera list from the
-plan, and mark every zone root with `userData.c3d_zone` (placement and the judge find zones by it):
+plan:
 ```js
 import * as THREE from 'three';
 import { buildEnv, heightAt } from './env.js';
@@ -31,7 +31,9 @@ export function buildEnv({ THREE, scene }) {
 ```
 
 A zone module is `export function build(ctx) → THREE.Group` named after the zone, with its
-animation on `group.userData.update`; an asset module is
+animation on `group.userData.update`; it imports an asset as
+`import { buildStoneLantern } from '../assets/stone_lantern.js';` and the ground as `ctx.heightAt`
+(or `import { heightAt } from '../env.js'`).  An asset module is
 `export function build<Asset>(THREE, opts = {}) → THREE.Group` with `group.userData.size`.
 
 Shader text from files, inside async `createScene`:

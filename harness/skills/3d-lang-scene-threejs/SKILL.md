@@ -36,22 +36,28 @@ of `scene.js` and the env module's shape.
 * `scene`: a `THREE.Scene`; `scene.fog` and `scene.background` set (unset = `no_fog` /
   `no_background`, ERROR); `scene.environment` an environment texture (metals and glass render
   near black without one).  Whatever a camera sees ends in something the brief justifies.
-* `cameras`: a non-empty list of PLAIN objects `{ name, position: [x, y, z], lookAt: [x, y, z], fov }`
-  (the build makes the PerspectiveCameras: aspect 16/9, near 0.1).  PascalCase names from the
-  plan; `cameras[0]` is the establishing view (≥ 20 % content; others ≥ 10 %,
-  `content_small`).  Eye ≥ 0.3 m above the ground under it (`camera_low` WARN; `camera_high`
+* Every zone root carries `group.userData.c3d_zone = group.name` before `scene.add` — the
+  placement gate and the judge find zones by it.
+* `cameras`: every camera the plan lists (its list decides how many), as PLAIN objects
+  `{ name, position: [x, y, z], lookAt: [x, y, z], fov }` (the build makes the
+  PerspectiveCameras: aspect 16/9, near 0.1, far from the bounds).  PascalCase names from the
+  plan; `cameras[0]` is the establishing view (≥ 20 % content; others ≥ 10 %, `content_small`)
+  and need not contain the whole bounds.  The overview rig (`scene-views` without authored
+  cameras) is a fallback, not your picture: a scene judged only on the rig is a scene you did
+  not frame.  Eye ≥ 0.3 m above the ground under it (`camera_low` WARN; `camera_high`
   above 80 m), ≥ 0.5 m from every surface and not inside geometry (`camera_in_geometry`, ERROR,
   cap 0.50), at most 5 of its 9 sight rays ending within 1.5 m (`camera_blocked`, cap 0.50), the
   line of sight to `lookAt` not cut in its first half; below the terrain is `camera_underground`
   (cap 0.50) — compute y from `heightAt(x, z)`, never guess.
 * `update(t, dt)`: cheap (no allocations, traversals or material creation — cache lists at
-  build time) and deterministic (same t → same frame).  It fans out to `env.update` and every
+  build time and hoist scratch objects such as `new Vector3` / `getSize` to module scope) and
+  deterministic (same t → same frame).  It fans out to `env.update` and every
   zone's `group.userData.update`; `tickEnv`, `userData.tick` and `build<Zone>(ctx)` are never
   called — a hook nobody calls stands still, and calling a missing hook throws.
 * `src/env.js`: `heightAt(x, z)` is the surface every zone seats on — deterministic, cheap,
   `0` for a flat floor; every walkable surface (a path, a deck) is part of it, and it must agree
   with the ground mesh.  `SUN_AZIMUTH_DEG` is a plain numeric `export const` (read by regex to
-  put the overview rig on the sun side).  Anything else it exports is a convention between it
+  put the overview rig on the sun side; omitted, the rig guesses 45°).  Anything else it exports is a convention between it
   and the zones.
 
 ## Imports and sandbox
@@ -81,11 +87,11 @@ procedural (incl. DataTextures) or `loaders.texture` for files present in the wo
   > 25 % are tagged, ERROR past 50 %).  Four or more foot columns with at most one touching and
   a gap > 0.05 m is `cantilevered` (WARN).  A placed asset is measured against the plan's
   `approx_size_m`: WARN beyond 2.5 × (or under 1 / 2.5), ERROR beyond 4 × — never re-scale to
-  fit or stretch a clone; a chimney or cable that must reach further is a separate object.
-* **Bounds and density**: a planned content entirely outside the bounds + max(5 m, 10 % of the
+  fit or stretch a clone; a chimney or cable that must reach further is a separate object.  The
+  judge's `wrong_scale` (cap 0.75) is perceptual, on top of that gate.
+* **Bounds and contents**: a planned content entirely outside the bounds + max(5 m, 10 % of the
   span) is `out_of_bounds` (WARN; scenery past them is never reported); a zone group missing or
-  empty `zone_empty`; a planned asset not placed `missing_content`; a zone under half its
-  layout's count an INFO `density_note`.
+  empty `zone_empty`; a planned asset not placed `missing_content`.
 * **The world's extent** (exteriors): standing geometry ≥ 2 m tall reaches ≥ 1.25 × the bounds
   half-extent (`world_edge`, WARN); fog far ≥ 2 × the plan span, or for `FogExp2`
   1 / density ≥ span / 1.5 (`fog_short`); ≥ 8 same-size copies evenly on a ring is
@@ -99,21 +105,27 @@ procedural (incl. DataTextures) or `loaders.texture` for files present in the wo
 * **Motion**: the t = 0 and t = 1.5 s frames differenced per camera; a camera MOVES when ≥ 0.4 %
   of its pixels change by more than 8/255 (or ≥ 0.08 % by more than 60/255).  No authored camera
   moving is `no_motion` (ERROR) and the judge's `nothing_moves`.  Sub-centimetre sway is
-  invisible at 1024 × 576: foliage ±0.10–0.20 rad, particles ≥ 0.6 m per 1.5 s, water ≥ 3 cm or
-  a scrolling normal have passed.
+  invisible at 1024 × 576: foliage ±0.10–0.20 rad, particles ≥ 0.6 m per 1.5 s, water a bob
+  ≥ 0.04 m with a scrolling uv/normal have passed.
 * **Hero** (`hero_unseen`): a `public/assets/*.glb` covering < 0.5 % of the frame in EVERY
   camera is an ERROR; < 2 % in the camera the plan names for it a WARN.  A hero is visible only
   if a zone clones `ctx.assets['<snake>']` (its pivot is at its base; clips play by themselves;
   `clone.userData.clipOffset = <s>` de-phases a copy).
 * **Budget** (`3dcode scene-probe`): WARN above 5 000 draw calls, ERROR above 15 000;
-  3 000 000 unique triangles.  `InstancedMesh` and merged static geometry are the cheap repeats.
+  3 000 000 unique triangles.  `InstancedMesh` and merged static geometry are the cheap repeats;
+  practicals are allowed, but a shadow-casting light per practical is the usual blow-out.
 * **Shaders**: a console or shader error in any module is a build finding; `3dcode
   shader-probe` compiles a material before it renders black.
-* **Assets**: a procedural asset module is built in node when written; one instance ≤ 15 000
-  triangles, lowest point y = 0, footprint centred, size the plan's (ERROR beyond 2.5 × or under
-  0.4 × on any axis, and on a single-box blockout).  Set `group.userData.size = [w, h, d]`;
-  optional `group.userData.update = (t, dt) => {}` which the placing zone caches and calls.
-  `opts.seed` / `opts.variant` vary details deterministically; `variant` changes the SILHOUETTE.
+* **Assets**: a procedural asset module is built in node when written, so it is synchronous
+  and loads nothing (no `FileLoader` / `loaders.*` / `await`: shader text is loaded in
+  `createScene` and passed in through `opts`); one instance ≤ 15 000 triangles, lowest point
+  y = 0, footprint centred, size the plan's (ERROR beyond 2.5 × or under 0.4 × on any axis, and
+  on a single-box blockout); every sub-shape overlaps a neighbour by ≥ 2 mm.  Zones place the
+  Group by its ORIGIN, so an off-origin footprint misplaces every copy.  Set
+  `group.userData.size = [w, h, d]`; optional `group.userData.update = (t, dt) => {}` which the
+  placing zone caches and calls.  `opts.seed` / `opts.variant` vary details deterministically;
+  `variant` changes the SILHOUETTE, and `opts.hue` / `opts.seed` vary the colour so many copies
+  are not one colour.
 
 ## Naming
 Zones are Groups named PascalCase (plan names); assets PascalCase; every animated object has a
@@ -130,13 +142,18 @@ an interior's lid meshes `Ceiling…` / `RoomShell…` (the overview rig lifts t
 * The environment is judged as heavily as the props (`brief_fidelity`, `lighting_atmosphere`,
   `flat_ground`, `diorama_look`): a default sky over default green ground is unfinished.
   Distant forms pre-tinted toward the fog render BRIGHTER than the terrain and read as cardboard
-  (`placeholder_material`); natural colour, darkened, left to the fog, reads as haze.
+  (`placeholder_material`); natural colour, darkened, left to the fog, reads as haze.  Fog
+  gives the aerial perspective `thin_atmosphere` looks for — kept subtle, or the frame reads
+  milky (`blown_frac`).
 * An interior (`interior: true`) must read enclosed from every camera — walls and a ceiling
   exist in every frame, lit from the sources the brief names (a closed room with no openings and
-  no practicals renders black).  `roomShell` in `lib/environment.js` is one option.
+  no practicals renders black).  `roomShell` in `lib/environment.js` is one option.  Env cuts
+  windows and doors as openings; zones put glazing and door leaves IN the opening and wall
+  fixtures flush against the inner face, and never build walls or a roof.
 * Shadows: `castShadow` on the light AND the meshes, `receiveShadow` on what they fall on; a
   shadow texel larger than ~0.05 m over the content reads as jagged (judged) — `sunRig({ bounds })`
-  with the CONTENT radius fits frustum, map size and bias.
+  with the CONTENT radius fits frustum, map size and bias; a hand-set `sun.shadow.*` must meet
+  the same texel size.
 * Emissives bloom through the post chain (GTAO + selective bloom + an identity grade unless
   `scene.userData.grade` is set): author practicals at peak 1.5–4, not 20;
   `material.userData.bloom = false | true | <colour>` opts a material in or out.

@@ -46,13 +46,16 @@ build owns the scene setup, the export and the cameras: never save, render or ad
   object's transform (lint WARN without one).
 * Every object made through the data API must be linked to `bpy.context.scene.collection`;
   every visible object exports — delete cutters and guides or `hide_render` /
-  `hide_viewport` / `hide_set(True)`.  A curve exports only with `bevel_depth > 0`.
+  `hide_viewport` / `hide_set(True)` (an unapplied boolean still evaluates with a hidden
+  cutter).  A curve exports only with `bevel_depth > 0`.
 
 ## Sizes and contact (`check-contract`, `3dcode check-connectivity`)
 * Each part's built AABB (after modifiers) vs its plan row: per axis `tol = max(1 cm, 10 % of
   the planned extent)`; past `tol` WARN, past 3 × `tol` ERROR, with the per-axis delta.
   Instances are measured on extents (each copy or their union); a wrong copy count is a WARN.
-* Contact: surface gap ≤ 2 mm counts as touching; overlap > 2 mm is interpenetration (WARN),
+* Contact: surface gap ≤ 2 mm counts as touching (a flush face IS contact; the 2 mm is a
+  welding allowance, not a budget — a leg sunk 8 mm into a seat is a modelling error); overlap
+  > 2 mm is interpenetration (WARN),
   > 10 mm with ≥ 2 % of one part's surface inside the other an ERROR (score cap 0.70).  Every
   part must reach the ground-touching component through contacts: a floating part is an ERROR
   (cap 0.60) whose finding prints the fix.  Fix a gap by moving or extending the part, never
@@ -84,28 +87,41 @@ build owns the scene setup, the export and the cameras: never save, render or ad
   `Emission Strength`, `Specular IOR Level`, `Transmission Weight`, `Coat Weight`,
   `Sheen Weight`, `Subsurface Weight`; the pre-4.0 keys (`Specular`, `Transmission`,
   `Emission`, `Clearcoat`, `Sheen`, `Subsurface`) raise KeyError (lint ERROR).  `mat.use_nodes`
-  is deprecated (every material has a tree).  Transparency: `mat.surface_render_method = 'BLENDED'`.
+  is deprecated (every material has a tree).  Transparency: `mat.surface_render_method = 'BLENDED'`
+  (`mat.blend_method` still exists on 5.2.2 but is legacy).
 * Several colours on one part = several slots (`obj.data.materials.append`) +
-  `polygon.material_index`; the census warns on unused slots or an index past the last slot.
+  `polygon.material_index` (every polygon starts on slot 0); the census warns on unused slots
+  or an index past the last slot — that warning means the assignment did nothing and the part
+  exports in one colour.
 
 ## API traps (Blender 5.2.2; build errors or silent wrong sizes)
 * `bpy.ops.*` needs `bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj])`;
   the dict-override form was removed in 4.0 (ERROR).  `bpy.context.object` / `selected_objects`
   are unreliable headless — keep your own references.
 * `bmesh.ops.create_*` centres on the origin and needs no context; `bpy.ops.mesh.primitive_*_add`
-  defaults to `size=2` — pass `size=1` with `scale=`, then
-  `transform_apply(location=False, rotation=False, scale=True)` with all three keywords.
-  `obj.scale` is 1 at export time.
+  defaults to `size=2` — pass `size=1` with `scale=` (else the extents double, WARN), then
+  `transform_apply(location=False, rotation=False, scale=True)` with all three keywords (an
+  omitted keyword defaults to True and bakes the location, WARN).  Keep `obj.scale` at 1 by
+  export time: nothing resets it, and a scaled object is exported and measured scaled.
 * `bm.verts[i]` / `bm.faces[i]` need `ensure_lookup_table()` after `from_mesh` or any topology
   op (IndexError).  `create_cube` / `create_cone` return only `verts`.
 * Modifiers may stay unapplied (the exporter applies them); `modifier_apply` needs
-  `temp_override` and a single-user mesh.  Boolean solvers `MANIFOLD` / `EXACT` / `FLOAT`
+  `temp_override` and a single-user mesh (`obj.data = obj.data.copy()` first).  Boolean solvers `MANIFOLD` / `EXACT` / `FLOAT`
   (`'FAST'` raises); a cutter coplanar with the face it cuts fails silently.
 * Removed (lint ERROR): `use_auto_smooth` / `auto_smooth_angle` (use `polygon.use_smooth` or
   `shade_smooth_by_angle`), `Mesh.calc_normals()`, `mod["Socket_2"] = v`
   (`getattr(mod.properties.inputs, "Socket_2").value = v`).  Removed and NOT linted:
   `calc_normals_split()`, `edge.crease` / `edge.bevel_weight` (`crease_edge` /
   `bevel_weight_edge` attributes), `scene.node_tree`, `bgl`, `gpu.types.GPUShader(...)`.
+  `BLENDER_EEVEE_NEXT` is not an engine id on 5.x (lint WARN; render settings are the build's).
+
+## Built as a scene hero (`blender_glb`)
+When this workspace builds a hero for a scene plan: nothing outside the asset — no ground
+plane, no environment.  A moving part (only when the asset's description names one): keyframe
+that part's OWN rotation/location with its origin at the pivot (an Empty is not a part); the
+build runs at the factory 24 fps, so a key on frame f lands at t = f / 24 s — key frame 0 and
+frame 36 (t = 1.5 s, the scene's second sampled time) with the pose differing ≥ 0.15 rad or
+≥ 0.05 m; the GLB carries the action as a clip the scene loops, so end where you start.
 
 ## The loop
 write → `3dcode build` → `3dcode check-contract` + `3dcode check-connectivity` → fix everything

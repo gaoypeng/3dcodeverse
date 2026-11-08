@@ -48,7 +48,7 @@ LLM-written **raw executable 3D code** — no SDK layered on the language — fo
 harness/
   .claude-plugin/plugin.json  .codex-plugin/plugin.json  plugin.json     the three manifests (name 3dcodeverse)
   bin/3dcode                launcher: $C3D_PYTHON | .venv/bin/python | python3, PYTHONPATH=<plugin>, python -m codeverse3d.cli
-  skills/3d-director/       the workflow + references/plan-<track>.md (what plan.json holds per track)
+  skills/3dcodeverse/       the controller skill: tracks, instruments, workflow, shared quality rules + references/plan-<track>.md (what plan.json holds per track)
   skills/3d-lang-<lang>/    one per language: files, frame, sandbox, thresholds + references/interface.md
   skills/c3d-*/             craft bundles (optional practices for one defect class each)
   agents/3d-judge.md        the judge subagent

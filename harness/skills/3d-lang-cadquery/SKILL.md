@@ -16,7 +16,9 @@ render or `show_object`.
 ## Files and `result`
 * `src/model.py` is the entry.  The build runs it in a subprocess (`src/` first on `sys.path`,
   so a helper module beside it imports) and reads the module-level variable **`result`**; it
-  must exist at import time (not under `if __name__ == "__main__"`).
+  must exist at import time (not under `if __name__ == "__main__"`).  `random` and numpy are
+  seeded before the module runs; nothing may depend on time — the build runs twice (measure,
+  render) and both must match.
 * `result = cq.Assembly(name="<ObjectName>")` with one
   `.add(solid, name="<PartName>", color=cq.Color(r, g, b), loc=cq.Location(...))` per plan part.
   Part names PascalCase, unique, exactly the plan's (they become the GLB node names); instances

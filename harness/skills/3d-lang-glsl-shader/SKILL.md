@@ -82,15 +82,18 @@ it as `u_buffer_a`.  An accumulation with gain ≥ 1 saturates by t = 6 s (`blow
 per-frame random seeds, nothing that depends on `u_frame` alone (`flicker`).
 
 ## What the judge (`shader`) names
-Likeness (0.26): the wrong physics scores 0.4 however complete the inventory — evenly spaced
-bars standing in for curtains, rays, flames or waves (`comb_artefact`, −0.10, cap 0.65);
-hard-edged opaque shapes standing in for light — bokeh, glow, aurora, neon
-(`opaque_shapes_for_light`, −0.08); a few sparkles for a star field; a flat wash for a nebula.
-Depth and detail (0.16): one texture or noise field filling the frame is `flat_fill` (−0.08);
-staircase edges `banding_or_aliasing` (−0.05).  Light and tone (0.16): a night subject with
-nothing near-black `no_dark_range` (−0.06); haze lifting a region toward white `white_wash`
-(−0.08); uniformly candy-saturated colour `candy_saturation` (−0.06).  Motion (0.14): a texture
-scrolling under a fixed shape is 0.5.  A textbook demo with the brief's colours swapped in is
+Weights: likeness 0.26, depth_and_detail 0.16, light_and_tone 0.16, motion_quality 0.14,
+composition 0.10, technical_cleanliness 0.10, craft 0.08.  Likeness: the wrong physics scores
+0.4 however complete the inventory — evenly spaced bars standing in for curtains, rays, flames
+or waves (`comb_artefact`, −0.10, cap 0.65); hard-edged opaque shapes standing in for light —
+bokeh, glow, aurora, neon (`opaque_shapes_for_light`, −0.08); a few sparkles for a star field
+(a star field is thousands of points); a flat wash for a nebula.  Depth and detail: one
+texture or noise field filling the frame is `flat_fill` (−0.08); staircase edges
+`banding_or_aliasing` (−0.05, and a technical_cleanliness deduction).  Light and tone: a night
+subject with nothing near-black `no_dark_range` (−0.06); haze lifting a region toward white
+`white_wash` (−0.08); uniformly candy-saturated colour `candy_saturation` (−0.06).  Motion: a
+texture scrolling under a fixed shape is 0.5; a hard cut between two sampled times is
+`flicker` (−0.08, cap 0.70).  A textbook demo with the brief's colours swapped in is
 `placeholder_look` (−0.10); an effect present in source but invisible in the frame is
 `wrong_subject` (cap 0.40) — check the final `fragColor` write, the raymarch hit test, the ray
 direction, a term multiplied to zero.
