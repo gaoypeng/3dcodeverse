@@ -5,8 +5,10 @@ renderer; it carries the depth and fog chunks a hand-written shader silently los
 it is allowed where "never import a helper SDK" forbids everything else; edits to it are
 reverted.  Import with a relative path (`src/zones/x.js` and `src/assets/x.js`:
 `'../lib/grass.js'`; `src/scene.js`: `'./lib/grass.js'`), and only the names you CALL (120
-unused imported names were measured over six scenes).  Each module's JSDoc lists its options
-and bounds: an option left out takes its default, an invalid one throws a RangeError naming it.
+unused imported names were measured over six scenes).  An option left out takes its default, an
+invalid one throws a RangeError naming it, so the index `3dcode init` printed (every export with
+its parameters) plus this table is all you read: never open a lib file whole — only for ONE
+signature the index lacks, and only that function's lines.
 
 | Want | Call |
 | --- | --- |

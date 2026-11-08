@@ -1,6 +1,6 @@
 ---
 name: 3d-lang-glsl-shader
-description: "Use when writing, refining or repairing a graphics-track fragment shader (language glsl_shader): the files, the uniform block the build prepends (never redeclare it), the two entry points, the gl-frames gate thresholds (NaN, black/blown, static, flicker, low detail) with their score caps, the lint's GLSL 330 rules, the feedback buffer, the judge's named defects, and the 3dcode loop."
+description: "Use when writing, refining or repairing a graphics-track fragment shader (language glsl_shader): the files (one include file per layer, pasted above shader.frag), the uniform block the build prepends (never redeclare it), the two entry points, the gl-frames gate thresholds (NaN, black/blown, static, flicker, low detail) with their score caps, the lint's GLSL 330 rules, the feedback buffer, the judge's named defects, and the 3dcode loop."
 license: Apache-2.0
 compatibility: GLSL 330 core compiled with moderngl headless by the 3dcode build; frames at t = 0, 1, 2.5, 4, 6 s at the plan's resolution.
 metadata:
@@ -16,11 +16,12 @@ shows them to the judge.  Every frame is a pure function of the pixel and absolu
 
 ## Files
 ```
-src/shader.frag     REQUIRED  the image pass (no #version, no uniform/out declarations)
-src/common.glsl     optional  helpers AND each layer's function (sky, aurora, terrain …), pasted ABOVE shader.frag (and buffer_a.frag) at build time — shader.frag only composites them and stays short
+src/shader.frag     REQUIRED  the image pass: mainImage() composites the layers — a few dozen lines (no #version, no uniform/out declarations)
+src/*.glsl          include files, ONE LAYER EACH, a few KB: 10_noise.glsl, 20_sky.glsl, 30_aurora.glsl, 40_terrain.glsl … — pasted ABOVE shader.frag (and buffer_a.frag) at build time, common.glsl first if present, then file-name order (number the prefixes so helpers precede their callers); functions and constants only
 src/buffer_a.frag   optional  ONE feedback buffer pass, rendered every frame before the image pass
 ```
-Nothing else is read (another file under `src/` is a lint WARN `stray_file`).
+Nothing else is read (a file under `src/` of another kind, or a `.glsl` in a subfolder, is a lint
+WARN `stray_file`).  Every error the build prints names the include file and ITS line.
 `references/interface.md` is the interface, executable.
 
 ## What the build prepends (writing these yourself is a lint ERROR)
@@ -64,14 +65,15 @@ acos / asin outside [−1, 1].  An unmet `must` acceptance item caps at 0.7.
   `attribute`; `%` is integer-only — `mod(x, y)` on floats.
 * No uniform declarations (yours would never be set — use `const`), no `out`, no `#version`,
   no `#include`; `precision` is ignored (INFO).  Only `u_prev`, `u_noise`, `u_buffer_a` may be
-  sampled.  `common.glsl` must not define `main()` / `mainImage()`; inside `buffer_a.frag` the
-  previous buffer is `u_prev` (sampling `u_buffer_a` there is a WARN).  > 60 000 characters WARN.
+  sampled.  An include file must not define `main()` / `mainImage()`; inside `buffer_a.frag` the
+  previous buffer is `u_prev` (sampling `u_buffer_a` there is a WARN).  > 60 000 characters in
+  one file WARN — split the layers.
 
 ## Build errors
-`src/shader.frag:LINE: error: …` with YOUR line numbers.  "no matching function": an int
+`src/<file>:LINE: error: …` — the include file or pass and YOUR line number in it.  "no matching function": an int
 literal where a float is expected (`pow(2, 3)`, `mod(x, 2)`) — write `2.0`; "too few
 components": `vec4(col)` of a vec3 needs `vec4(col, 1.0)`; "redeclaration": a harness uniform
-declared again; "undeclared": a typo or a helper not in `common.glsl`.  Loop bounds are
+declared again; "undeclared": a typo, or a helper defined in an include file that sorts AFTER its caller.  Loop bounds are
 compile-time constants (break early inside); `smoothstep(a, b, x)` is undefined for a ≥ b; a
 frame that does not finish inside the render timeout fails the build.
 
@@ -99,8 +101,11 @@ texture scrolling under a fixed shape is 0.5; a hard cut between two sampled tim
 direction, a term multiplied to zero.
 
 ## The loop
-write → `3dcode gl-probe` (compiles? one frame at t = 1 s; `--t` for another) → fix everything
-it reports → repeat → `3dcode gl-frames` → OPEN the sheet and compare with the plan's key visuals
-→ `3dcode check` clean.  Do not finish while `gl-probe` reports anything: measured on a ten-rung
-ladder, sessions that ran this loop compiled 10 of 10, sessions without it 5 of 10.  Clear NaN,
-black, blown and static before adding the next layer; deleting a layer is a legitimate fix.
+write one include file per layer, then `shader.frag` → `3dcode gl-probe` (compiles? one frame at
+t = 1 s) → fix each compile error at the `file:line` it names → `3dcode gl-probe` again until it
+compiles → `3dcode check` (renders the judged frames, runs the `gl_frames` gate) → fix each
+ERROR (NaN, black, blown) → `3dcode judge`.  Do not finish while `gl-probe` reports anything:
+measured on a ten-rung ladder, sessions that ran this loop compiled 10 of 10, sessions without
+it 5 of 10.  When a frame or a judge item says a layer looks wrong, edit THAT layer's function
+in its include file (the host's edit tool, scoped to the lines); never rewrite a file.  Deleting
+a layer is a legitimate fix.  The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

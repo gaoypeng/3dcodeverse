@@ -20,7 +20,7 @@ src/env.js          export function heightAt(x, z); export function buildEnv(ctx
 src/zones/<snake>.js   export function build(ctx) → THREE.Group   (ctx = { THREE, scene, renderer, loaders, heightAt, env, assets })
 src/assets/<snake>.js  export function build<Asset>(THREE, opts = {}) → THREE.Group   (procedural; lowest point on y = 0)
 src/shaders/<snake>.js export function make<Name>Material(THREE, opts = {}) → ShaderMaterial | patched material
-src/lib/*.js        HARNESS-OWNED effect library (references/effects-catalog.md); import and call; edits are reverted
+src/lib/*.js        HARNESS-OWNED effect library: import and call, NEVER read — `3dcode init` printed every export with its parameters and references/effects-catalog.md says what each is for; edits are reverted
 public/assets/<snake>.glb   optional Blender-built heroes; scene.js preloads each into ctx.assets['<snake>']
 ```
 The build serves the workspace over http (`public/assets/` at `/assets/`), imports
@@ -28,6 +28,8 @@ The build serves the workspace over http (`public/assets/` at `/assets/`), impor
 `loaders = { gltf, texture, cube, manager }`, awaits `createScene`, validates the return
 value, renders every camera at t = 0 and t = 1.5 s (calling `update`) and probes (tris, draw
 calls, console/shader errors, camera checks, exposure, content, the frame difference).  The
+library's surface is the index `init` printed plus the catalog: open a `src/lib` file only for
+ONE signature the index lacks, and read only that function's lines — never a lib file whole.  The
 plan's `bounds` are what the census and placement gate measure against; the world a camera
 sees extends past them as far as the brief needs.  `references/interface.md` has the wiring
 of `scene.js` and the env module's shape.
@@ -167,10 +169,11 @@ an interior's lid meshes `Ceiling…` / `RoomShell…` (the overview rig lifts t
   `blender`) and its `artifacts/object.glb` copied to `public/assets/<snake>.glb`.
 
 ## The loop
-write → `3dcode build` → `3dcode check-placement` (every floating / sunken / interpenetrating
-row with the metres to move it) → fix → `3dcode build` → `3dcode scene-views` → read the frame
-table (`mean_lum`, `lum_std`, `dark_frac`, `blown_frac`, `content_frac`, MEASURED MOTION per
-camera) and OPEN the sheet → `3dcode scene-probe` for the census → repeat → `3dcode check`
-clean.  A module that throws takes the whole frame black; a zone that throws is dropped and
-scores nothing — never wrap it in try/catch to hide it.  A simple scene that is seated, lit and
-legible beats an elaborate one that floats in the dark.
+write every module → `3dcode check` (build, shader preflight, placement rows with the metres to
+move each floater / sunken / overlapping thing, asset modules, census) → fix each ERROR →
+`3dcode check` again until no ERROR → `3dcode judge`.  Exposure, camera and motion are measured
+at the judge (`scene_frames`) and come back in `score`'s list with the numbers; `3dcode
+scene-views` is the refine round's one look.  A module that throws takes the whole frame black;
+a zone that throws is dropped and scores nothing — never wrap it in try/catch to hide it.  A
+simple scene that is seated, lit and legible beats an elaborate one that floats in the dark.
+The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

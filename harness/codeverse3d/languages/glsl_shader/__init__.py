@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
@@ -106,13 +108,14 @@ def _piece(text: str) -> str:
     return text if text.endswith("\n") else text + "\n"
 
 
-def compose(shader_src: str, common_src: str | None = None, *,
-            shader_file: str = "src/shader.frag", common_file: str = "src/common.glsl") -> Composed:
-    """Header + common + shader (+ trailer) with a line map back to the agent files."""
+def compose(shader_src: str, includes: Sequence[tuple[str, str]] = (), *,
+            shader_file: str = "src/shader.frag") -> Composed:
+    """Header + every include file (in the order given) + shader (+ trailer), with a line map back to the agent files."""
     convention = detect_convention(shader_src)
     pieces: list[tuple[str, str]] = [("harness", HEADER)]
-    if common_src and common_src.strip():
-        pieces.append((common_file, _piece(common_src)))
+    for name, text in includes:
+        if text.strip():
+            pieces.append((name, _piece(text)))
     pieces.append((shader_file, _piece(shader_src)))
     if convention == "mainImage":
         pieces.append(("harness", MAIN_IMAGE_TRAILER))
@@ -125,9 +128,15 @@ def compose(shader_src: str, common_src: str | None = None, *,
         cursor += n
         out.append(text)
     src = "".join(out)
-    code = strip_comments(shader_src) + "\n" + strip_comments(common_src or "")
+    code = "\n".join(strip_comments(t) for t in [shader_src, *(t for _, t in includes)])
     uses_feedback = "u_prev" in code or "iChannel0" in code
     return Composed(source=src, line_map=LineMap(segments), convention=convention, uses_feedback=uses_feedback)
+
+
+def include_files(ws: Workspace) -> list[Path]:
+    """The include files: every ``src/*.glsl``, ``common.glsl`` first, then file-name order — all pasted above the passes."""
+    files = sorted(p for p in ws.src.glob("*.glsl") if p.is_file())
+    return sorted(files, key=lambda p: (p.name != COMMON_NAME, p.name))
 
 
 # --------------------------------------------------------------------------- compiler messages
@@ -142,7 +151,8 @@ def first_error(messages: list[GlslMessage]) -> GlslMessage | None:
 # ===================================================================== lint
 GATE = "lint:glsl_shader"
 SHADER = ENTRY_FILE[Language.GLSL_SHADER]
-COMMON = "src/common.glsl"
+COMMON_NAME = "common.glsl"
+INCLUDES = "src/*.glsl"
 BUFFER_A = "src/buffer_a.frag"
 SAMPLERS = {"u_prev", "u_noise", "u_buffer_a", "iChannel0", "iChannel1"}
 MAX_CHARS = 60_000
@@ -173,13 +183,14 @@ def _check_file(rel: str, text: str, *, role: str) -> list[GateFinding]:
                                fix_hint=hint, data={"kind": kind, "line": line, "file": rel}))
 
     if raw_len > MAX_CHARS:
-        add(Severity.WARN, "too_long", f"file is {raw_len} chars; keep shaders compact", "remove dead code; move helpers to src/common.glsl")
+        add(Severity.WARN, "too_long", f"file is {raw_len} chars; keep shaders compact",
+            "remove dead code; split the layers into include files (src/*.glsl, one layer each)")
     for m in _VERSION.finditer(text):
         add(Severity.ERROR, "version_line", "contains a #version line; the harness prepends `#version 330 core`",
             "delete the #version line", line_of(text, m.start()))
     for m in _INCLUDE.finditer(text):
-        add(Severity.ERROR, "include", "#include is not GLSL; src/common.glsl is pasted in automatically",
-            "delete the #include line; functions in src/common.glsl are already visible", line_of(text, m.start()))
+        add(Severity.ERROR, "include", "#include is not GLSL; every src/*.glsl is pasted in automatically",
+            "delete the #include line; functions in src/*.glsl are already visible", line_of(text, m.start()))
     for m in _UNIFORM_DECL.finditer(text):
         name = m.group(1)
         if name in UNIFORM_NAMES:
@@ -214,9 +225,9 @@ def _check_file(rel: str, text: str, *, role: str) -> list[GateFinding]:
                 "define `void mainImage(out vec4 fragColor, in vec2 fragCoord) { ... fragColor = vec4(col, 1.0); }`")
         if "fragColor" not in text and "gl_FragColor" not in text:
             add(Severity.ERROR, "no_output", "never writes fragColor", "end mainImage()/main() with `fragColor = vec4(col, 1.0);`")
-    if role == "common" and (_MAIN_IMAGE.search(text) or _PLAIN_MAIN.search(text)):
-        add(Severity.ERROR, "entry_in_common", "src/common.glsl must not define main()/mainImage()",
-            "move the entry point to src/shader.frag; keep only helper functions / constants in common.glsl")
+    if role == "include" and (_MAIN_IMAGE.search(text) or _PLAIN_MAIN.search(text)):
+        add(Severity.ERROR, "entry_in_include", f"{rel} must not define main()/mainImage()",
+            "move the entry point to src/shader.frag; an include file holds only functions and constants")
     if role == "buffer_a" and "u_buffer_a" in text:
         add(Severity.WARN, "buffer_self_ref", "buffer_a.frag samples u_buffer_a; inside the buffer pass the previous buffer is `u_prev`",
             "use texture(u_prev, uv) for feedback inside buffer_a.frag")
@@ -236,16 +247,18 @@ def lint_workspace(ws: Workspace) -> GateReport:
                                     data={"kind": "missing_entry", "file": SHADER}))
     else:
         findings.extend(_check_file(SHADER, shader.read_text(errors="replace"), role="shader"))
-    for rel, role in ((COMMON, "common"), (BUFFER_A, "buffer_a")):
-        p = ws.root / rel
-        if p.is_file():
-            findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role))
+    for inc in include_files(ws):
+        findings.extend(_check_file(ws_rel(ws, inc), inc.read_text(errors="replace"), role="include"))
+    buf = ws.root / BUFFER_A
+    if buf.is_file():
+        findings.extend(_check_file(BUFFER_A, buf.read_text(errors="replace"), role="buffer_a"))
+    contract = {SHADER, BUFFER_A, *(ws_rel(ws, p) for p in include_files(ws))}
     stray = [ws_rel(ws, p) for p in ws.src.rglob("*") if p.is_file()
-             and ws_rel(ws, p) not in (SHADER, COMMON, BUFFER_A)
+             and ws_rel(ws, p) not in contract
              and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
     for rel in stray:
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel} is not part of the shader contract and is ignored",
-                                    fix_hint="keep code in src/shader.frag (+ src/common.glsl, src/buffer_a.frag)", data={"kind": "stray_file", "file": rel}))
+                                    fix_hint="keep code in src/shader.frag, src/*.glsl include files and src/buffer_a.frag", data={"kind": "stray_file", "file": rel}))
     return GateReport.of(GATE, findings)
 
 
@@ -255,8 +268,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
 # ===================================================================== runtime
 class GlslShaderRuntime(RuntimeLayout):
     language = Language.GLSL_SHADER
-    entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
-    extra_files = (COMMON,)
+    entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], INCLUDES, BUFFER_A)
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host
@@ -271,12 +283,10 @@ class GlslShaderRuntime(RuntimeLayout):
 
     def compose_sources(self, ws: Workspace) -> tuple[Composed, Composed | None]:
         shader = (ws.root / SHADER).read_text(errors="replace")
-        common_p = ws.root / COMMON
-        common = common_p.read_text(errors="replace") if common_p.is_file() else None
-        image = compose(shader, common)
+        includes = [(ws_rel(ws, p), p.read_text(errors="replace")) for p in include_files(ws)]
+        image = compose(shader, includes)
         buf_p = ws.root / BUFFER_A
-        buffer_a = (compose(buf_p.read_text(errors="replace"), common, shader_file=BUFFER_A)
-                    if buf_p.is_file() else None)
+        buffer_a = compose(buf_p.read_text(errors="replace"), includes, shader_file=BUFFER_A) if buf_p.is_file() else None
         return image, buffer_a
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, times: list[float] | None = None,

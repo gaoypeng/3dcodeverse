@@ -1,9 +1,15 @@
 # 3dcodeverse — standing context
 
 `harness/` IS the plugin (python package `codeverse3d`, console script `3dcode`, skills under
-`skills/`, the judge under `agents/`, manifests `.claude-plugin/plugin.json`,
-`.codex-plugin/plugin.json`, `plugin.json`; the repo root's `.claude-plugin/marketplace.json`
-lists it).  It installs into Claude Code, Codex and Antigravity and boosts the HOST agent's 3D
+`skills/`, the judge under `agents/` (agy) and `claude-agents/` (Claude Code), manifests
+`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `plugin.json`; the repo root's
+`.claude-plugin/marketplace.json` lists it).  The two judge files differ ONLY in their
+frontmatter — agy needs `tools: [read_file, write_file]` in its own format (no `tools` key gives
+a read-only default; an unknown name like `Read` fails the spawn), Claude Code needs
+`tools: Read, Write` and reads agents only from the manifest's `"agents"` list; neither host can
+include the other's file, so the body below the frontmatter is kept byte-identical by hand (edit
+one, copy the body to the other).  Codex has no plugin agents: its subagent gets the printed
+`JUDGE INSTRUCTION`, whose last clause points it at `agents/3d-judge.md`.  It installs into Claude Code, Codex and Antigravity and boosts the HOST agent's 3D
 ability: the host writes raw Blender bpy / CadQuery / Three.js / URDF / GLSL / moderngl code
 in a workspace, the `3dcode` instruments build, measure, render and gate it, a fresh-context
 judge subagent scores the renders.  No pipeline, no stage graph, no round loop, no vendor-CLI

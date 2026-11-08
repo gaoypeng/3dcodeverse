@@ -99,7 +99,9 @@ palette, which are invisible on dark, low-chroma pixels.  The judge's named defe
 `no_dark_range`, `white_wash`, `candy_saturation`, `stretched_aspect`, `placeholder_look`).
 
 ## The loop
-write → `3dcode gl-probe` (imports? one frame at t = 1 s) → fix everything it reports → repeat →
-`3dcode gl-frames` → OPEN the sheet and compare with the plan's key visuals → `3dcode check`
-clean.  Do not finish while `gl-probe` reports anything.  Clear NaN, black, blown and static
-before adding the next pass; deleting a pass is a legitimate fix.
+write → `3dcode gl-probe` (imports? one frame at t = 1 s) → fix each error at the `file:line`
+it names → `3dcode gl-probe` again until it runs → `3dcode check` (renders the judged frames,
+runs the `gl_frames` gate) → fix each ERROR (NaN, black, blown) → `3dcode judge`.  Do not finish
+while `gl-probe` reports anything.  A pass that looks wrong is edited in its own shader file or
+its draw code with the host's edit tool; never rewrite a file.  Deleting a pass is a legitimate
+fix.  The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

@@ -95,7 +95,7 @@ of a one-input mechanism (a coupling naming no joint, itself, a fixed joint, or 
 is a lint ERROR).  No triangle-budget gate; the build is killed at 300 s.
 
 ## The loop
-`3dcode build` (lint, FK at q = 0, rest penetration) → `3dcode joint-sweep` → `3dcode
-check-connectivity` + `3dcode check-contract` → fix → repeat → `3dcode render-sheet` → OPEN
-the sheet and the pose sheet → `3dcode check` clean.  A sweep ERROR blocks the round whatever
-the geometry looks like; `3dcode check-contract` compares every link's bbox with the plan.
+write → `3dcode check` (lint, FK at q = 0, rest penetration, the joint sweep, connectivity,
+contract) → fix each ERROR → `3dcode check` again until no ERROR → `3dcode judge`.  A sweep ERROR
+blocks the round whatever the geometry looks like; `3dcode joint-sweep --joints J` alone re-tests
+one joint after its fix.  The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

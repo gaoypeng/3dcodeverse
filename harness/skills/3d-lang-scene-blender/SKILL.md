@@ -193,8 +193,9 @@ keyframed on its OWN rotation/location with its origin at the pivot (≥ 0.15 ra
 registers).  Every sub-shape overlaps a neighbour by ≥ 2 mm; the lowest point is exactly z = 0.
 
 ## The loop
-write → `3dcode build` → `3dcode check-placement` → seat what floats, lift what sank, separate
-what overlaps → `3dcode build` → `3dcode scene-views` → read `camera_checks.mean_lum` per
-camera and the MEASURED MOTION line, OPEN the sheet → fix the lighting → `3dcode scene-probe`
-for the census (triangles, drivers, the world) → repeat → `3dcode check` clean.  Get the floor
-and the light right; spend everything after that on the brief.
+write every module → `3dcode check` (build, placement rows with the metres to move each thing,
+asset modules, census: triangles, drivers, the world) → fix each ERROR → `3dcode check` again
+until no ERROR → `3dcode judge`.  Exposure and motion are measured at the judge and come back in
+`score`'s list with the numbers (`camera_checks.mean_lum`, MEASURED MOTION); `3dcode
+scene-views` is the refine round's one look.  Get the floor and the light right; spend
+everything after that on the brief.  The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

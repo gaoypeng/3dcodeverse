@@ -21,7 +21,8 @@ has a fresh-context judge score it.
   `isolate`, `compare-reference`, `joint-sweep`, `scene-probe`, `check-placement`,
   `scene-views`, `shader-probe`, `gl-probe`, `gl-frames`.  Each prints a verdict, numbers,
   fix hints and the paths of the PNGs it wrote.
-* **Judge** (`agents/3d-judge.md`): a subagent started with the one instruction `3dcode judge`
+* **Judge** (`agents/3d-judge.md` for Antigravity, `claude-agents/3d-judge.md` for Claude Code —
+  the same body, each host's tool names): a subagent started with the one instruction `3dcode judge`
   prints; it reads only `judge/rNN/brief.md` + the images and writes `judgment.json`; `3dcode
   score` does the arithmetic from the rubric's weights, penalties, floors and gate caps.
 

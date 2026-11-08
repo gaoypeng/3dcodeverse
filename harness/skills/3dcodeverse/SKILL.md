@@ -35,7 +35,7 @@ one when its description matches your plan or a finding.
 Every call is `3dcode <subcommand> --workspace <abs dir> [--flag value …]`.  Always pass
 `--workspace` (the absolute path).  The first line of the output is the verdict — `PASS`,
 `FAIL` or `ERROR` — then the numbers and fix hints, then the absolute paths of any PNGs it
-wrote: OPEN those images with your file viewer and look, every time.  Exit 0 means the tool
+wrote (open one when the loop below says to look).  Exit 0 means the tool
 ran (a FAIL is exit 0); non-zero means it could not run.  `--json` gives the same result as
 JSON.  A list flag is repeated (`--views front --views top`); `3dcode <subcommand> --help`
 lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode`.
@@ -54,16 +54,16 @@ lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode
 | `check-connectivity` | the contact graph: floating parts with the gap vector that closes them, interpenetration, stray islands | object tracks, after every build |
 | `cross-section` | a labelled slice (`--axis x|y|z --at 0..1 --parts`) with loops, area and hollow ratio | is the cavity cut, is the wall there, is this part where I think |
 | `render-views` | named views (`--views`, `--mode shaded|wire|normals|silhouette|clay`, `--isolate`, `--explode`) | to see one aspect |
-| `render-sheet` | the labelled 14-view contact sheet (`--mode`) | to see the whole object before `check` |
+| `render-sheet` | the labelled 14-view contact sheet (`--mode`) | the refine round's one look, to confirm a listed item |
 | `isolate --part X` | one part alone + its measurement row | where did that fragment come from; where is this part |
 | `compare-reference` | a reference image beside a render with the outline diff and IoU (`--reference-index`, `--view`) | after the first clean build and after every shape change when `spec.json` has references |
 | `joint-sweep` | every joint through its range: overlap, unattached, buried per link pair with the fix, plus pose renders (`--joints` renders fewer) | articulated, after every build |
 | `scene-probe` | the scene census: objects, materials, lights, draw calls, triangles, console errors, world and atmosphere | scene, for the budget and the world |
 | `check-placement` | per placed thing: gap under its feet, burial, support, interpenetration with the metres to move it; bounds, scale, zone contents (`--rebuild` probes again) | scene, after every build — read its rows (gap + tolerance), never `artifacts/scene_probe.json` (the raw dump) |
-| `scene-views` | the authored cameras and/or the orbit rig (`--cameras authored|orbit|all`, `--times`): sheet + frame table + MEASURED MOTION per camera | scene exposure, cameras, motion — those numbers, not your impression |
+| `scene-views` | the authored cameras and/or the orbit rig (`--cameras authored|orbit|all`, `--times`): sheet + frame table + MEASURED MOTION per camera | scene exposure, cameras, motion — those numbers, not your impression; the refine round's one look |
 | `shader-probe` | compiles every ShaderMaterial headlessly; errors with line numbers | scene_threejs, before a material renders black |
 | `gl-probe` | compile / import and ONE frame (`--t`, default 1 s): errors with source lines, or the frame + its stats | graphics, after every edit |
-| `gl-frames` | the judged frames (`--times`, `--width`, `--height`) as a sheet + per-frame metrics + the `gl_frames` gate | graphics, before `check`; look at the sheet |
+| `gl-frames` | the judged frames (`--times`, `--width`, `--height`) as a sheet + per-frame metrics + the `gl_frames` gate | graphics; `check` runs it — alone only as the refine round's one look |
 | `list` · `doctor` | every tool with its arguments · the machine's deps (Blender, node, GPU) | when a tool or a build is missing |
 
 `spec.json` is re-read on every call; `plan.json` is what the gates measure against.
@@ -88,9 +88,22 @@ judge/rNN/    brief.md + montages (judge-pack), judgment.json (the judge), score
 
 **Editing rule.**  After a file's first write, change it only with the host's edit tool, scoped
 to the lines the change needs; a large change is several edits, never a whole-file rewrite.
-Keep files small and modular so edits stay local — one part / zone / asset / pass per file, as
-the language skill's `## Files` allows.  Do not re-read a file you just wrote or edited, and
-write nothing while a command or a subagent runs: its result wakes you.
+Keep files small and modular so edits stay local — one part / zone / asset / layer per file, as
+the language skill's `## Files` allows.  Do not re-read a file you just wrote or edited.
+
+**Commands run in the foreground; wait for them.**  Every `3dcode` call finishes on its own (a
+scene `check` or `judge` can take a minute): agy — `run_command` with
+`WaitMsBeforeAsync: 300000`; Claude Code — Bash with `timeout: 600000`.  Never poll a task or a
+subagent (`manage_task`, `manage_subagents`, `echo`, `sleep`): the result wakes you.
+
+**No self-polishing.**  The judge decides what to polish next and `score` lists it; you do not
+iterate on looks between judges.  Round 0: write the code from the plan, run `3dcode check`
+until it lists no ERROR, then go straight to `3dcode judge --round 0` — no render-look-edit
+cycles before the first judge.  A refine round fixes exactly what the last `score` listed (gate
+ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then `3dcode judge`
+— at most ONE look at renders (`render-sheet` / `scene-views` / `gl-frames`) per refine round,
+to confirm the listed items.  A WARN never caps the score: fix it once if cheap, otherwise
+leave it.
 
 1. **Init.**  `3dcode init --workspace W --track T --language L --prompt "..."` with
    `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated
@@ -98,13 +111,14 @@ write nothing while a command or a subagent runs: its result wakes you.
    skill to read.
 2. **Plan.**  Write `plan.json` by `references/plan-<track>.md` (exact numbers, acceptance
    checklist), then `3dcode validate-plan --workspace W` until it prints PASS; FAIL lists each
-   error with its JSON path — fix the plan, never argue with the validator.
-3. **Baseline round (r00).**  Write the code the language skill describes.  Run the language's
-   loop (`build` → its gates → look at the renders) after every edit, and finish the round with
-   `3dcode check --workspace W`: every ERROR it lists caps the score, so fix each before judging.
-   Object tracks: the whole object first — every plan part at its box and attached to its
-   parent before any part gets detail (a part still a ≤ 12-triangle box within 1 mm of its plan
-   box is a `placeholder_part` ERROR); then detail.
+   error with its JSON path — fix the plan, never argue with the validator.  When it says
+   `plan.json rewritten`, re-read the file before any further edit of it.
+3. **Baseline round (r00).**  Write every file the language skill describes from the plan, then
+   `3dcode check --workspace W` and fix each ERROR it lists (a compile or runtime error at the
+   `file:line` it names, see Repairs; a gate ERROR by its fix hint) until none is left — every
+   ERROR caps the score.  Object tracks: the whole object first — every plan part at its box and
+   attached to its parent before any part gets detail (a part still a ≤ 12-triangle box within
+   1 mm of its plan box is a `placeholder_part` ERROR); then detail.  No ERROR → step 4.
 4. **Judge.**  `3dcode judge --workspace W --round 0`: it commits and tags `r00`, writes
    `judge/r00/` and prints a line starting `JUDGE INSTRUCTION:`.  The judge is a context that
    has not seen your work: start a FRESH subagent with the `3d-judge` agent definition and hand
@@ -114,7 +128,9 @@ write nothing while a command or a subagent runs: its result wakes you.
    DEGRADED verdict — a clearly separated step after writing nothing else into context: open
    `brief.md`, look at every image, answer exactly its JSON — and mark the round "self-judged"
    in your report.  Then `3dcode score --workspace W --round 0`: it prints overall, passed,
-   the caps applied, what it repaired in the judgment and the improvement list.
+   the caps applied, what it repaired in the judgment, the improvement list and the round's
+   image paths — open those paths when an item needs confirming; never list or guess names in
+   `judge/`, never re-read `brief.md`.
 5. **Refine rounds (r01, r02 …; at most 2 unless the user sets another number).**  Each round
    makes exactly the score's improvement list, gate ERRORs first (`[gate/...]` items), as
    edits under the editing rule, keeping every other part, name and dimension.
@@ -123,14 +139,15 @@ write nothing while a command or a subagent runs: its result wakes you.
    alone; on graphics a colour/light task touches palette, exposure and grade only, a motion
    task the time terms only — never rewrite unrelated layers or passes.  A measured finding
    that repeats needs a different change of the thing it measures, not the same edit again; a
-   judge note that repeats needs a visible change in the named view.  Then `check` →
-   `judge --round N` → the judge → `score --round N`.
+   judge note that repeats needs a visible change in the named view.  Then `check` until no
+   ERROR → the round's one look at the renders, if an item needs it → `judge --round N` → the
+   judge → `score --round N`.
 6. **Stop** when the rounds are used up, when `score` says passed with an empty improvement
    list, or when the overall fell two rounds running.  The deliverable is the BEST-scoring
    round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run
-   `3dcode check` once more so `artifacts/` matches.  Report in about ten lines: each round's
+   `3dcode check` once more so `artifacts/` matches.  Report in AT MOST ten lines: each round's
    overall and caps, the entry files, the deliverable round and the paths of its montages —
-   nothing more.
+   nothing more, no file-by-file list.
 
 ## Quality rules on every track
 
@@ -146,9 +163,10 @@ write nothing while a command or a subagent runs: its result wakes you.
   cavity and confirm it with `3dcode cross-section`.
 * **Never trim part names, counts, the overall size or the planned motion to "simplify"**;
   no placeholders, no unit-cube stand-ins, no static image where the plan says motion.
-* **A render is evidence; "it should be fine" is not.**  In every sheet check: the silhouette
-  reads as the requested thing from every view; nothing missing, exploded, lying on its side
-  or left over from a primitive (a stray `Cube`); the materials are the plan's.
+* **A render is evidence; "it should be fine" is not.**  The judge's montages are that evidence;
+  on your one look per refine round check only the listed items — and that the silhouette still
+  reads as the requested thing, nothing missing, exploded, lying on its side or left over from a
+  primitive (a stray `Cube`), the materials the plan's.
 
 ## References
 
@@ -163,7 +181,7 @@ show what the real thing looks like — its dominant and secondary colours, how 
 folds, layers and thins, where brightness concentrates and how much stays dark, its texture at
 fine scale — and they outrank the brief's adjectives; the judge sees your frames beside the
 same photos.  Keep the brief's foreground, framing and landscape, and open the photos again
-before every `gl-frames` / `scene-views` comparison.
+on the refine round's one look.
 
 ## Repairs
 

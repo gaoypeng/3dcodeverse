@@ -52,7 +52,7 @@ harness/
   skills/3dcodeverse/       the controller skill: tracks, instruments, workflow, shared quality rules + references/plan-<track>.md (what plan.json holds per track)
   skills/3d-lang-<lang>/    one per language: files, frame, sandbox, thresholds + references/interface.md
   skills/c3d-*/             craft bundles (optional practices for one defect class each)
-  agents/3d-judge.md        the judge subagent
+  agents/3d-judge.md        the judge subagent for agy (tools: read_file, write_file); claude-agents/3d-judge.md the same body for Claude Code (tools: Read, Write) — frontmatter differs, body byte-identical
   codeverse3d/
     cli.py                  `3dcode`: argparse generated from the tool registry's pydantic arg models
     config.py               Settings (binaries, limits, render) via C3D_*; resolve_blender()
@@ -137,7 +137,10 @@ facts, the rubric's criteria with anchors, the binary defect checklist with pena
 and the EXACT JSON the judge returns (`criteria`, `summary`, `strengths`, `issues`,
 `improvement_plan`, `acceptance`, `defects`).  `judge` wraps it: commit + tag, `judge-pack`,
 and the one `JUDGE INSTRUCTION:` line the host hands verbatim to a fresh `3d-judge` subagent,
-which reads only that folder, writes `judgment.json` and replies `wrote <path>`.  `score`
+which reads only that folder, writes `judgment.json` and replies `wrote <path>` (the line's last
+clause sends a subagent that was not started from the agent definition — Codex — to
+`agents/3d-judge.md`).  `score` prints the round's image paths so the builder never lists the
+folder.  `score`
 parses the judgment (repairing a trivial deviation and saying so; `judges/rubrics.py`), fills measured
 criteria from code, applies weights, subtracts defect penalties, applies floors, then the caps
 from `gates.json` (build error 0; floating 0.60; penetration 0.70; contract violation 0.75;

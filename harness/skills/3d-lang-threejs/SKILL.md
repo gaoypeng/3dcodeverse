@@ -97,7 +97,7 @@ AS AUTHORED.  The lint derives the export name from the file stem (`seat_cushion
 fails the build as `SelfCheckError` with your message — assert only what you are sure of.
 
 ## The loop
-write → `3dcode build` → `3dcode check-connectivity` + `3dcode check-contract` → fix → repeat →
-`3dcode render-sheet` → OPEN the sheet → `3dcode check` clean → finish.  `isolate --part X`
-settles "where did that fragment come from".  Every WARN and ERROR left at the end goes to the
-judge with the renders.
+write every part file → `3dcode check` (build, connectivity, contract) → fix each ERROR →
+`3dcode check` again until no ERROR → `3dcode judge`.  `isolate --part X` settles "where did
+that fragment come from".  Every WARN left at the end goes to the judge with the renders; a WARN
+never caps.  The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

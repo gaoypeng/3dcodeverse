@@ -64,7 +64,7 @@ class RuntimeLayout:
     """``expected_files`` for a runtime whose entry file (+ ``extra_files``) owns the whole artifact."""
 
     language: Language
-    #: files the agent owns besides the entry (urdf: robot.urdf; glsl_shader: common.glsl)
+    #: files the agent owns besides the entry (urdf: robot.urdf)
     extra_files: tuple[str, ...] = ()
     #: plan part name → the file that builds it, in a language with one file per part (blender, three.js)
     part_file: Callable[[str], str] | None = None

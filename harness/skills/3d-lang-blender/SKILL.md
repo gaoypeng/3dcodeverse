@@ -124,8 +124,9 @@ frame 36 (t = 1.5 s, the scene's second sampled time) with the pose differing �
 ≥ 0.05 m; the GLB carries the action as a clip the scene loops, so end where you start.
 
 ## The loop
-write → `3dcode build` → `3dcode check-contract` + `3dcode check-connectivity` → fix everything
-they report → repeat → `3dcode render-sheet` (or `render-views`) → OPEN the sheet and look →
-`3dcode check` clean → finish.  `isolate --part X` and `cross-section` answer "is this part
-where I think it is" faster than reasoning about transforms.  A clean simpler object beats a
-richer one with a visible defect: clear the two gates first, then spend on the brief's detail.
+write every part file → `3dcode check` (build, contract, connectivity, budget) → fix each ERROR at
+the `file:line` or part it names → `3dcode check` again until no ERROR → `3dcode judge`.  No
+render-sheet before the first judge: `isolate --part X` and `cross-section` answer "is this
+part where I think it is" from numbers, faster than a look.  A clean simpler object beats a
+richer one with a visible defect: clear the ERRORs, then spend on the brief's detail.
+The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

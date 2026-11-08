@@ -18,5 +18,8 @@
     "moderngl",
     "procedural"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "agents": [
+    "./claude-agents/3d-judge.md"
+  ]
 }

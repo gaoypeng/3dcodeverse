@@ -86,7 +86,7 @@ render or `show_object`.
   may raise headless (no fonts).
 
 ## The loop
-write → `3dcode build` (it surfaces the OCC exceptions with the line) → `3dcode check-contract`
-+ `3dcode check-connectivity` → fix → repeat → `3dcode render-sheet` → OPEN the sheet →
-`3dcode check` clean → finish.  Detail the brief asks for is scored; a feature the kernel
-refused fails the build unless wrapped, and then it is not there.
+write → `3dcode check` (the build surfaces the OCC exceptions with the line; then contract and
+connectivity) → fix each ERROR → `3dcode check` again until no ERROR → `3dcode judge`.  Detail
+the brief asks for is scored; a feature the kernel refused fails the build unless wrapped, and
+then it is not there.  The round's hand-over, the one look at renders per refine round and the stop rules are the `3dcodeverse` skill's `## The loop`.

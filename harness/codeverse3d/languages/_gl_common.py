@@ -140,7 +140,7 @@ def traceback_location(tb: str, program_path: Path) -> tuple[str, int | None]:
 
 @dataclass(frozen=True)
 class Segment:
-    file: str  # "src/shader.frag" | "src/common.glsl" | "harness"
+    file: str  # "src/shader.frag" | an include "src/<name>.glsl" | "harness"
     start: int  # 1-based first line in the composed source
     n_lines: int
 

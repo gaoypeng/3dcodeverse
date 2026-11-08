@@ -133,11 +133,11 @@ def init(ctx: ToolContext, args: InitArgs) -> Observation:
              f"entry file: {ENTRY_FILE[language]}; the agent's files: {', '.join(rt.entry_globs)}",
              f"frame: {frame_doc(LANGUAGE_FRAME[language.value])}"]
     if owned:
-        lines.append("runtime-owned files written (read, never edit): " + ", ".join(rel_path(p, ws.root) for p in owned[:12])
+        lines.append("runtime-owned files written (import them; never edit, never read whole): " + ", ".join(rel_path(p, ws.root) for p in owned[:12])
                      + (f" … +{len(owned) - 12}" if len(owned) > 12 else ""))
     lib = getattr(rt, "lib_interface", None)
     if callable(lib) and (surface := lib(ws)):
-        lines.append("library surface (src/lib):\n" + surface)
+        lines.append("library surface (src/lib) — every export with its parameters; this index replaces reading the files:\n" + surface)
     lines.append(f"next: read the skill 3d-lang-{language.value.replace("_", "-")}, write plan.json, run `3dcode validate-plan`")
     return text_observation(lines, numbers={"track": track.value, "language": language.value, "workspace": str(ws.root),
                                             "entry": ENTRY_FILE[language], "owned_files": [rel_path(p, ws.root) for p in owned]},
@@ -200,7 +200,9 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
     unit = "passes" if spec.track is Track.GRAPHICS else "zones" if spec.track is Track.SCENE else "parts"
     hard, soft = plan_quality_complaints(plan, budget, unit=unit) if unit != "zones" else ([], [])
     notes = normalise_plan(plan, spec)
+    before = ws.plan_path.read_bytes() if ws.plan_path.is_file() else b""
     ws.write_json(ws.plan_path, plan)
+    rewritten = ws.plan_path.read_bytes() != before
     if spec.language is Language.SCENE_BLENDER and isinstance(plan, ScenePlan):
         # src/scene.py is data the build reads (ZONES / ASSETS / HEROES / CAMERAS), so it follows the plan
         from codeverse3d.languages.scene_blender import render_scene_py
@@ -220,12 +222,14 @@ def validate_plan(ctx: ToolContext, args: NoArgs) -> Observation:
     lines += [f"- WARN: {s}" for s in soft]
     if notes:
         lines.append("normalised and written back: " + "; ".join(notes))
+    if rewritten:
+        lines.append("plan.json rewritten (normalised) — re-read before editing it")
     lines.append(f"files to write ({spec.language.value}): " + ", ".join(files[:16]) + (" …" if len(files) > 16 else ""))
     lines.append("acceptance: " + "; ".join(f"{a.id} [{a.priority}/{a.how}] {a.text}"[:160] for a in plan.acceptance[:12]))
     return text_observation(lines, ok=not hard,
                             numbers={"model": model.__name__, "n_units": len(units), "files": files,
                                      "acceptance_ids": [a.id for a in plan.acceptance], "hard": len(hard), "soft": len(soft),
-                                     **budget.as_dict()}, limit=6000)
+                                     "rewritten": rewritten, **budget.as_dict()}, limit=6000)
 
 
 # ===================================================================== check
@@ -548,10 +552,9 @@ def commit_round(ws: Workspace, round_index: int, message: str) -> tuple[str, li
 def judge_instruction(out: Path) -> str:
     """The exact text to hand a fresh-context judge subagent for the folder ``out``."""
     agent = PLUGIN_ROOT / "agents" / "3d-judge.md"
-    definition = f"at {agent}" if agent.is_file() else "3d-judge"
-    return (f"You are the 3d-judge of the 3dcodeverse plugin: read the plugin agent definition {definition} and follow it. "
-            f"Judge ONLY the folder {out}: read {out / 'brief.md'} and every image it lists, write {out / JUDGMENT_NAME}, "
-            f"then reply with exactly one line: wrote {out / JUDGMENT_NAME}")
+    return (f"Judge ONLY the folder {out}: read {out / 'brief.md'} and every image it lists, write {out / JUDGMENT_NAME}, "
+            f"then reply with exactly one line: wrote {out / JUDGMENT_NAME}. "
+            f"If you were not started as the 3d-judge agent, read {agent} first.")
 
 
 @tool("judge", NoArgs, "One step from code to the judge: make the workspace a git repo (local identity if none), run "
@@ -658,8 +661,12 @@ def score(ctx: ToolContext, args: NoArgs) -> Observation:
     if improve:
         lines.append("IMPROVE NEXT (gate errors first):")
         lines += [f"{i}. {t}" for i, t in enumerate(improve[:12], 1)]
+    paths = [str(i.get("path", "")) for i in pack.get("images") or [] if i.get("path")]
+    if paths:
+        lines.append("the round's images (open these to confirm an item; never list or guess names):")
+        lines += [f"  {p}" for p in paths]
     lines.append(f"written: {rel_path(out / SCORE_NAME, ws.root)}")
     return text_observation(lines, ok=judgment.passed,
                             numbers={"overall": judgment.overall, "passed": judgment.passed, "scores": judgment.scores,
                                      "defects": present, "caps": [c["rule"] for c in caps], "must_missing": missing,
-                                     "n_improvements": len(improve), "repairs": len(repairs)}, limit=8000)
+                                     "n_improvements": len(improve), "repairs": len(repairs)}, images=paths, limit=8000)
