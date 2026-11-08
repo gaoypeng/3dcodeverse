@@ -112,7 +112,7 @@ ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then 
 to confirm the listed items.  A WARN never caps the score: fix it once if cheap, otherwise
 leave it.
 
-1. **Plan.**  (There is no `spec.json` yet; step 2 creates it.)  Write `W/plan.json` by
+1. **Plan.**  The workspace is empty until step 2 creates it — nothing to read or list: write `W/plan.json` by
    `references/plan-<track>.md` — exact numbers, an acceptance
    checklist, and SHORT: one sentence per part, one line of summary, the reference's example is
    the length (an object plan under 5 KB).
@@ -189,7 +189,7 @@ leave it.
 
 ## References
 
-When `spec.json` lists `references`, open them before planning.  On the object tracks the
+When the user gives reference images, open them before planning.  On the object tracks the
 plan's proportions, part set and visible details match the FIRST image, with dimensions in
 metres consistent with what it shows; the pictures outrank the text where they disagree; that
 first reference is the silhouette target — its outline IoU against the best-matching render is

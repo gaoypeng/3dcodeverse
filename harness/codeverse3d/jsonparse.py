@@ -54,6 +54,10 @@ def parse_json_lenient(text: str) -> Any:
     s = text.strip()
     if not s:
         raise JsonParseError("empty response")
+    if "{" in s:  # before the balanced-span candidate, which would silently drop every key after a stray `}`
+        mended = _drop_stray_closers(s[s.find("{"):])
+        if mended is not None:
+            return strip_control_chars(mended)
     candidates: list[str] = [s]
     for m in _FENCE_RE.finditer(s):
         candidates.append(m.group(1).strip())
@@ -77,3 +81,20 @@ def parse_json_lenient(text: str) -> Any:
                 except json.JSONDecodeError:
                     pass
     raise JsonParseError(f"no JSON value found: {last_err} — head={s[:120]!r}")
+
+
+def _drop_stray_closers(s: str, tries: int = 3) -> Any:
+    """``Extra data`` after a complete object usually means one ``}`` too many closed the root early (the rest of the
+    keys follow it): drop that brace and parse again.  None when it is not that."""
+    for _ in range(tries):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError as exc:
+            if not exc.msg.startswith("Extra data"):
+                return None
+            k = s.rfind("}", 0, exc.pos)
+            rest = s[exc.pos:].lstrip()
+            if k < 0 or not rest.startswith((",", '"')):
+                return None
+            s = s[:k] + ("" if rest.startswith(",") else ",") + s[k + 1:]
+    return None
