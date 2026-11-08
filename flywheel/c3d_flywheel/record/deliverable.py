@@ -13,10 +13,11 @@ import shutil
 from pathlib import Path
 
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
-from codeverse3d.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
 from codeverse3d.proc import write_json_atomic
-from c3d_flywheel.record import git_history
 from codeverse3d.workspace import Workspace
+
+from c3d_flywheel.legacy import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
+from c3d_flywheel.record import git_history
 
 log = logging.getLogger(__name__)
 

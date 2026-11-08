@@ -7,16 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
-
-from codeverse3d import __version__
-from c3d_flywheel import select
-from c3d_flywheel.dataset.quality import (
-    QualityTier,
-    code_fingerprint,
-    prompt_id,
-    quality_tier,
-)
 from codeverse3d.contracts.common import (
     ENTRY_FILE,
     LANGUAGE_LABEL,
@@ -24,11 +14,20 @@ from codeverse3d.contracts.common import (
     Language,
     code_file,
 )
-from codeverse3d.contracts.run import RoundRecord, RunRecord
+from codeverse3d.workspace import Workspace
+from pydantic import BaseModel, Field
+
+from c3d_flywheel import select
+from c3d_flywheel.dataset.quality import (
+    QualityTier,
+    code_fingerprint,
+    prompt_id,
+    quality_tier,
+)
+from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record import git_history
 from c3d_flywheel.record.deliverable import load_deliverable, round_outputs
 from c3d_flywheel.record.record import effective_judgment, round_summary, stop_reason
-from codeverse3d.workspace import Workspace
 
 MAX_GLB_BYTES = 20 * 1024 * 1024
 SOURCE_NAME = "3dcodeverse"
@@ -65,7 +64,7 @@ class SampleMeta(BaseModel):
     source: str = SOURCE_NAME
     source_run: str = ""
     license: str = SAMPLE_LICENSE
-    harness_version: str = __version__
+    harness_version: str = Field(default="", description="the codeverse3d version that produced the run (record.environment)")
     prompt: str
     constraints: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
@@ -261,6 +260,7 @@ def build_meta(
         files=sorted(files),
         renders=sorted(renders),
         environment=dict(record.environment),
+        harness_version=str(record.environment.get("codeverse3d", "")),
         source_run=str(ws.root),
         prompt=spec.prompt,
         constraints=spec.constraints.model_dump(mode="json", exclude_none=True),

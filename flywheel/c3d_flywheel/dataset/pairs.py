@@ -7,13 +7,14 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.proc import read_jsonl_lenient
+from codeverse3d.workspace import Workspace
+
 from c3d_flywheel import select
 from c3d_flywheel.dataset.quality import prompt_id
-from codeverse3d.contracts.run import RoundRecord, RunRecord
-from codeverse3d.proc import read_jsonl_lenient
+from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record import git_history
 from c3d_flywheel.record.record import effective_judgment, iter_runs, skip_unreadable
-from codeverse3d.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
            "cross_backend_pairs"]

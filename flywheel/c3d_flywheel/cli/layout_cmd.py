@@ -1,5 +1,5 @@
-"""``3dcodeverse show`` — the single-run view: STATUS (works mid-run, without record.json;
-``3dcodeverse status`` is ``show --section status``), DELIVERABLE, QUALITY EVIDENCE and
+"""``c3d-flywheel show`` — the single-run view: STATUS (works without record.json;
+``c3d-flywheel status`` is ``show --section status``), DELIVERABLE, QUALITY EVIDENCE and
 COST & SETTINGS."""
 
 from __future__ import annotations
@@ -8,10 +8,11 @@ import json
 from typing import Annotated, Any
 
 import typer
+from codeverse3d.workspace import Workspace
 from rich.table import Table
 
-from codeverse3d.cli import _common as C
-from codeverse3d.cli._common import (
+from c3d_flywheel.cli import _common as C
+from c3d_flywheel.cli._common import (
     RunsDirOpt,
     console,
     fmt_score,
@@ -20,14 +21,13 @@ from codeverse3d.cli._common import (
     print_record_summary,
     warn,
 )
-from codeverse3d.contracts.run import (
+from c3d_flywheel.legacy import (
     CostSummary,
     DeliverableFile,
     RunDeliverable,
     RunRecord,
     SettingsSnapshot,
 )
-from codeverse3d.workspace import Workspace
 
 
 def _human_bytes(n: int) -> str:
@@ -45,26 +45,21 @@ def _section(title: str) -> None:
 
 # --------------------------------------------------------------------------- status
 def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None:
-    from codeverse3d.proc import EventLog, holder_of, read_json_or_none
+    from codeverse3d.proc import read_json_or_none, read_jsonl_lenient
 
     _section("STATUS — where the run stands")
     if record is not None:
         print_record_summary(record, ws.root)
     else:
         spec = C.load_spec(ws)
-        console.print(kv_table("run (no record.json yet)", {
+        console.print(kv_table("run (no record.json)", {
             "prompt": spec.prompt, "track": spec.track.value, "language": spec.language.value,
             "generator": spec.backends.generator, "judge": spec.backends.judge, "workspace": ws.root}))
-    state: dict[str, Any] = {}
-    if (held := holder_of(ws.root)) is not None:
-        state["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcodeverse'})"
     if ws.state_path.is_file():
         raw = read_json_or_none(ws.state_path)
-        state["run_state"] = "(unreadable)" if raw is None else ", ".join(
-            f"{k}={v}" for k, v in raw.items() if not isinstance(v, (dict, list)))[:300]
-    if state:
-        console.print(kv_table("state", state))
-    evs = EventLog(ws.events_path).read()
+        console.print(kv_table("state", {"run_state": "(unreadable)" if raw is None else ", ".join(
+            f"{k}={v}" for k, v in raw.items() if not isinstance(v, (dict, list)))[:300]}))
+    evs = read_jsonl_lenient(ws.events_path, dicts_only=True) if ws.events_path.is_file() else []
     if evs:
         console.print(f"[dim]last {min(n_events, len(evs))} of {len(evs)} events:[/dim]")
         for ev in evs[-n_events:]:
@@ -129,7 +124,7 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
     if d is not None:
         console.print(_deliverable_table(d))
     else:
-        console.print(kv_table("artifacts (no deliverable/ yet — `3dcodeverse pick` packages a round)",
+        console.print(kv_table("artifacts (no deliverable/ yet — `c3d-flywheel pick` packages a round)",
                                _unpackaged_artifact_rows(ws)))
 
 
@@ -252,7 +247,7 @@ def show(
         record: RunRecord | None = load_record(ws)
     except RecordError as e:
         if section not in ("all", "status"):
-            raise C.CliError(f"{e} (`3dcodeverse status {slug}` shows where the run stands)") from e
+            raise C.CliError(f"{e} (`c3d-flywheel status {slug}` shows where the run stands)") from e
         record, missing = None, str(e)
     if section in ("all", "status"):
         print_status(ws, record, events)
@@ -269,5 +264,5 @@ def show(
 
 
 def status(slug: str, runs_dir: RunsDirOpt = None, events: EventsOpt = 8) -> None:
-    """Where a run stands, mid-run too: `3dcodeverse show <slug> --section status`."""
+    """Where a run stands: `c3d-flywheel show <slug> --section status`."""
     show(slug, runs_dir, section="status", events=events)

@@ -1,4 +1,4 @@
-"""Which round of a finished run to hand over — and the hand-over itself (``3dcodeverse pick``)."""
+"""Which round of a finished run to hand over — and the hand-over itself (``c3d-flywheel pick``)."""
 
 from __future__ import annotations
 
@@ -8,20 +8,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from codeverse3d.contracts.spec import FIXED_PARTS_GATE, PROJECT_GATE_PREFIX
+from codeverse3d.proc import read_json_or_none
+from codeverse3d.workspace import Workspace
 from pydantic import BaseModel, Field
 
-from codeverse3d.contracts.run import RoundRecord, RunRecord
-from codeverse3d.contracts.spec import FIXED_PARTS_GATE, PROJECT_GATE_PREFIX
-from codeverse3d.proc import EventLog, read_json_or_none
+from c3d_flywheel.legacy import RoundRecord, RunRecord
 from c3d_flywheel.record.deliverable import build_deliverable, round_outputs
 from c3d_flywheel.record.record import (
     effective_judgment,
     load_record,
-    repackage,
     round_complexity,
     stop_reason,
 )
-from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
@@ -149,10 +148,7 @@ def package(run_dir: Path | str, round_index: int, *, method: Method = "round") 
     rec = load_record(ws)
     if not any(r.index == round_index for r in rec.rounds):
         raise ValueError(f"no round {round_index} in {ws.root} (rounds: {[r.index for r in rec.rounds]})")
-    rec = repackage(ws) or load_record(ws)
-    manifest = build_deliverable(ws, rec, round_index)
+    build_deliverable(ws, rec, round_index)
     sel = Selection(round=round_index, method=method, scores={r.index: r.score for r in round_rows(ws.root, record=rec)})
     ws.write_json(ws.root / SELECTION_NAME, sel)
-    EventLog(ws.events_path).emit("pick.packaged", round=round_index, method=method,
-                                  files=len(manifest.files))
     return ws.deliverable

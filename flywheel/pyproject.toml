@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "c3d-flywheel"
+version = "0.1.0"
+description = "Reads the runs 3dcodeverse v0.0.x recorded: show / pick / cost / gallery / dataset export."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "3dcodeverse",        # the plugin package: contracts, conventions, workspace, proc (pip install -e harness)
+  "pydantic>=2.12",
+  "typer>=0.12",
+  "click>=8.1",         # cli/cost_cmd.py subclasses TyperGroup with a click.Context
+  "rich>=13",
+  "pillow>=10",         # gallery --embed thumbnails
+]
+
+[project.optional-dependencies]
+parquet = ["pyarrow>=15"]   # `c3d-flywheel export --pack` and metadata.parquet
+
+[project.scripts]
+c3d-flywheel = "c3d_flywheel.cli.main:app"
+
+[tool.setuptools.packages.find]
+include = ["c3d_flywheel*"]
+
+[tool.setuptools.exclude-package-data]
+c3d_flywheel = ["**/__pycache__/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["c3d_flywheel"]

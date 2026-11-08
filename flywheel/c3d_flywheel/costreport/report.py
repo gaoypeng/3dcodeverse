@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from c3d_flywheel import select
+from c3d_flywheel.cost.types import STAGE_ORDER, CostBucket
 from c3d_flywheel.costreport.audit import (
     Audit,
     RunLedger,
@@ -18,7 +19,6 @@ from c3d_flywheel.costreport.audit import (
     stage_latency,
     uncached_if_no_cache,
 )
-from c3d_flywheel.cost.types import STAGE_ORDER, CostBucket
 
 
 def _usd(x: float) -> str:
@@ -145,7 +145,7 @@ def markdown(audit: Audit, *, title: str = "Cost audit") -> str:
 
 
 def console(audit: Audit) -> str:
-    """Compact plain-text version for ``3dcodeverse cost``."""
+    """Compact plain-text version for ``c3d-flywheel cost``."""
     lines = [line.replace("**", "") for line in summary_lines(audit)]
     lines += ["", "stage:"]
     for b in audit.summary.ranked("stage"):

@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import codeverse3d
+
 from c3d_flywheel.gallery.model import RunEntry
 from c3d_flywheel.gallery.theme import esc, footer, page_shell, top_bar
 from c3d_flywheel.gallery.urls import PathError, UrlMaker, safe_join
-from codeverse3d.config import get_settings
 
 #: URL prefix → path under node_modules/three
 VENDOR_MAP = {"three/build/": "build/", "three/examples/jsm/": "examples/jsm/"}
@@ -86,11 +87,14 @@ addEventListener('resize', () => {
 """
 
 
+def default_runtime_js() -> Path:
+    """The plugin's ``runtime_js/`` as an editable install lays it out: next to the ``codeverse3d`` package."""
+    return Path(codeverse3d.__file__).resolve().parent.parent / "runtime_js"
+
+
 def three_root(runtime_js: Path | str | None = None) -> Path | None:
     """``runtime_js/node_modules/three`` when the vendored copy is installed."""
-    if runtime_js is None:
-        runtime_js = get_settings().runtime_js_dir()
-    p = Path(runtime_js) / "node_modules" / "three"
+    p = Path(runtime_js or default_runtime_js()) / "node_modules" / "three"
     return p if (p / "build" / "three.module.js").is_file() else None
 
 

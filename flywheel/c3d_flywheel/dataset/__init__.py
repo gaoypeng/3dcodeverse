@@ -1,10 +1,9 @@
-"""Run records → a dataset: what ``3dcodeverse flywheel …`` does AFTER the runs exist.
+"""Run records → a dataset: ``c3d-flywheel export | pairs | refine``.
 
 * ``export``    ``export_samples(runs_dir, out_dir, min_score=..)`` → ``ExportReport``
 * ``pack``      ``pack_samples(out_dir)`` (plain tars + byte-range locators, optional)
 * ``pairs``     ``build_pairs(runs_dir, out_jsonl, min_delta=..)`` → n
 * ``refine``    the refine-transition rows (``RefineTransition``)
-* ``captions``  ``caption_sample(ws, record, model_id)`` → ``Captions``
 * ``sample``    one run → one dataset sample (the code files of its picked round)
 * ``quality``   ``quality_tier`` (A/B/C/D) · ``prompt_id`` · code fingerprints, duplicate groups
 """
