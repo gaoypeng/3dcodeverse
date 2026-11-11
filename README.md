@@ -60,9 +60,7 @@ Films rebuilt **entirely in code**, with full source and agent logs on [Hugging 
 
 ## 🎬 Video Demos
 
-3DCodeVerse in motion: code-built scenes, the robot factory, and video generation guided by 3D code, in 42 seconds.
-
-[![Demo Video of 3DCodeVerse](assets/demos/3dcodeverse_in_motion.webp)](https://3dcodeverse.com/#film)
+https://github.com/user-attachments/assets/3b0b5e5f-eed0-4ffd-8ab7-f3c709e15fad
 
 ## 🚀 Quick Start
 
