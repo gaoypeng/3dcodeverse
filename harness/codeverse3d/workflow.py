@@ -234,6 +234,10 @@ def validate_plan(ctx: ToolContext, args: ValidatePlanArgs) -> Observation:
     units = list(getattr(plan, unit, None) or [])
     head = "PLAN FAIL (valid, but not worth building yet)" if hard else "PLAN OK"
     lines = created + [f"{head}: {model.__name__}, {len(units)} {unit}, {len(plan.acceptance)} acceptance items"]
+    if not hard:
+        lines.append("TELL THE USER NOW — the message you promised in the opening, before any file is written: this plan in at most "
+                     "eight lines, in their language (the choices you made for them, overall size, the parts, what moves and how "
+                     "far, colours, anything left out).  Then write the files in the same step.")
     lines += [f"- ERROR: {h}" for h in hard]
     lines += [f"- WARN: {s}" for s in soft]
     if rewritten:
@@ -252,6 +256,10 @@ def validate_plan(ctx: ToolContext, args: ValidatePlanArgs) -> Observation:
 # ===================================================================== check
 #: WARNs that predict the judged score (a primitive-looking object), so they stay actionable
 ACTIONABLE_WARN_GATES = frozenset({"detail_budget"})
+
+
+#: printed under a failed check: the user hears about the ERRORs when the fix starts, not after
+NEXT_ON_ERROR = "next: fix each ERROR — and in the same step as the first edit tell the user, one plain line per ERROR, what is wrong and what you change."
 
 
 def _gate_lines(gates: list[GateReport], *, max_errors: int = 20, max_warns: int = 10, list_info: bool = True) -> list[str]:
@@ -308,6 +316,7 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
             lines = ["CHECK FAIL — " + build_failure_lines(res.build, ws.root, [], tail_n=25)[0]]
             lines += build_failure_lines(res.build, ws.root, [], tail_n=25)[1:]
             lines += _gate_lines([g for g in res.gates if not g.gate.startswith("lint")])
+        lines.append(NEXT_ON_ERROR)
         return text_observation(lines, ok=False, numbers=numbers, limit=6000)
     lines = [f"CHECK {'PASS' if res.ok else 'FAIL'} — build ok ({res.build.duration_ms} ms)"
              + (f" → {rel_path(res.build.glb_path, ws.root)}" if res.build.glb_path else "")]
@@ -324,7 +333,9 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
     lines.append(f"written: {rel_path(ws.gates_path, ws.root)}")
     if res.ok:
         lines.append(f"next: no ERROR — the round's code is done; judge it (`3dcode judge --round {ctx.round_index}`) if the "
-                     "user asked for a score or refine rounds, else report.")
+                     "user asked for a score or refine rounds, else render the track's one look for the user and report.")
+    else:
+        lines.append(NEXT_ON_ERROR)
     return text_observation(lines, ok=res.ok, numbers=numbers, limit=8000)
 
 

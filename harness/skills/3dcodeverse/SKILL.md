@@ -1,6 +1,6 @@
 ---
 name: 3dcodeverse
-description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step: if a 3DCODEVERSE PRELOADED block is in your context, these files are already read — plan at once; otherwise read, all in ONE step: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md (urdf_blender: also skills/3d-lang-blender/SKILL.md and plan-static.md, which it builds on); no c3d-* skill until a 3dcode finding or score item names its topic."
+description: "Use for ANY request to make, measure, judge or improve a 3D thing in code: a model, object or prop, a mechanism or robot with joints, a scene or environment, a shader or OpenGL effect — in Blender bpy, CadQuery, Three.js, URDF, GLSL or moderngl. This is 3D coding with the 3dcodeverse plugin: raw executable 3D code that the 3dcode instruments build, measure, render, gate and score. First step: if a 3DCODEVERSE PRELOADED block is in your context, these files are already read — start at the loop's step 0 (tell the user what you are about to make, create the project), then plan; otherwise read, all in ONE step: this file, skills/3d-lang-<language, hyphenated>/SKILL.md and skills/3dcodeverse/references/plan-<static|articulated|scene|graphics>.md (urdf_blender: also skills/3d-lang-blender/SKILL.md and plan-static.md, which it builds on); no c3d-* skill until a 3dcode finding or score item names its topic."
 license: Apache-2.0
 metadata:
   verified: "2026-11-07"
@@ -17,7 +17,7 @@ is measured.  Your job is the loop below, honestly.
 
 **Already in context?** A `3DCODEVERSE PRELOADED` block at the start of the session (the plugin's
 session hook) holds this file, every plan reference and every language skill: then nothing is left to
-read — write the plan.  **Otherwise read three files together, in ONE step, before anything else** — all under the plugin root, beside
+read — start at step 0 of `## The loop`.  **Otherwise read three files together, in ONE step, before anything else** — all under the plugin root, beside
 this file: this skill's `## The loop` (the rest of this file is reference), the language skill
 `skills/3d-lang-<language>/SKILL.md` (hyphens: `scene_threejs` → `3d-lang-scene-threejs`; the
 table below names each) and `skills/3dcodeverse/references/plan-<track>.md`.  Open no other
@@ -50,7 +50,7 @@ lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode
 
 | subcommand | what it answers | when |
 |---|---|---|
-| `init` | writes `spec.json` (track, language, prompt, must-haves, dims, references, style) and the workspace layout; prints the entry files | only to create a project before its plan exists — the first `validate-plan` does it otherwise |
+| `init` | writes `spec.json` (track, language, prompt, must-haves, dims, references, style) and the workspace layout; prints the entry files | step 0, once |
 | `validate-plan` | is `plan.json` a valid plan for the track — schema, plan checks, the acceptance items derived from `spec.json`; writes the normalised plan back (`scene_blender`: also `src/scene.py`) | after every plan edit, until PASS |
 | `build` | does `src/` lint, build and export, without the gates | scene / graphics quick iterations; object tracks run `check` |
 | `check` | build + EVERY gate of the track → `artifacts/gates.json`; PASS/FAIL with each ERROR and its fix — the round's verdict (it subsumes `build` and prints the measurement table) | before judging; every ERROR caps the score |
@@ -111,15 +111,37 @@ ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then 
 to confirm the listed items.  A WARN never caps the score: fix it once if cheap, otherwise
 leave it.
 
-1. **Plan.**  The workspace is empty until step 2 creates it — nothing to read or list: write `W/plan.json` by
+**Keep the user in the picture — in their language, a few lines at fixed moments.**  Minutes of
+silence read as stuck, and a direction the user cannot see is one they cannot stop.
+* **Opening — step 0, at once, BEFORE any design thinking.**  It takes no thought: two or three
+  lines that restate what you will make, name the track and language (the table's default, or
+  why you chose another), the workspace path and what this run does (one checked round / a
+  judged round / N refine rounds), and say that the plan comes next and its decisions will be
+  shown.  Before it, think only as far as three picks — track, language, workspace name; ALL
+  design thinking (sizes, parts, joints, style, how it could work) happens in step 1, after
+  `init` has returned: a design thought out before these lines is minutes the user spends
+  looking at nothing.  Ask instead of going on only when you cannot tell what the thing is.
+* **Plan — when `validate-plan` passes (its output asks for it), before any file is written**, at most eight lines: each choice you made
+  where the request left it open (size, style, what moves, the setting), the overall size, the
+  parts (zones, layers) by name, what moves and how far, the colours and materials, a scene's
+  cameras, and anything the request asked for that the plan leaves out, with the reason.  Do
+  not wait for an answer: the user interrupts to change course.
+* **Progress — one line before each step that takes a while** (writing the code, a `check`, a
+  `judge`, the judge subagent, each refine round with the items it fixes) **and one after each
+  verdict, in the same step as your first action on it**: PASS, or each ERROR in plain words with the change you will
+  make; a score with its caps and top items.
+
+0. **Open (and create the project).**  W is the directory the user named, else a new
+   `3dcodeverse_ws/<short-name>/` under the current directory.  In ONE step, with nothing designed yet: the
+   opening lines to the user and `3dcode init --workspace W --track T --language L --prompt "..."` with
+   `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated dimension,
+   `--references img.png` per reference image.  It writes spec.json, the layout and the language's own files and
+   prints the entry files.
+1. **Plan.**  Now design: write `W/plan.json` by
    `references/plan-<track>.md` — exact numbers, an acceptance
    checklist, and SHORT: one sentence per part, one line of summary, the reference's example is
    the length (an object plan under 5 KB).
-2. **Validate (and create the project).**  `3dcode validate-plan --workspace W --track T
-   --language L --prompt "..."` with `--must-have "..."` / `--must-not "..."` per hard
-   requirement, `--dims height=0.45` per stated dimension, `--references img.png` per reference
-   image: the first call also creates the project (spec.json, layout, the language's own files)
-   and prints its entry files.  Then `3dcode validate-plan --workspace W` until PASS; FAIL lists
+2. **Validate.**  `3dcode validate-plan --workspace W` until PASS; FAIL lists
    each error with its JSON path — fix the plan, never argue with the validator.  It says what it
    normalised; there is nothing to re-read.
 3. **Baseline round (r00).**  Write every file the language skill describes from the plan in at
@@ -164,9 +186,13 @@ leave it.
 6. **Stop** when the rounds the user asked for are done, when `score` says passed with an empty
    improvement list, or when the overall fell two rounds running.  Without a judge the
    deliverable is r00; with one it is the BEST-scoring round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run
-   `3dcode check` once more so `artifacts/` matches.  Report in AT MOST ten lines: each round's
-   overall and caps (if judged), the entry files, the deliverable round and the paths of its montages —
-   nothing more, no file-by-file list.
+   `3dcode check` once more so `artifacts/` matches.  A round nobody judged has no picture yet: run the
+   track's one look once (`render-sheet` / `scene-views` / `gl-frames`) for the user — its path goes in the
+   report; it is not a reason to edit.  Report in AT MOST ten lines: what was made, each round's
+   overall and caps (if judged), anything left failing or not done, the workspace with its entry files and
+   the deliverable (`artifacts/object.glb`, the scene or effect entry), the path of the picture to open (the
+   sheet, or the deliverable round's montages), and what the user can ask next ("judge it", "refine it N
+   times", a change in their own words) — nothing more, no file-by-file list.
 
 ## Quality rules on every track
 
