@@ -299,7 +299,10 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
         else:
             per = [_box_delta(np.asarray(r.bbox_min), np.asarray(r.bbox_max), box, tol_m) for r in rows]
             union = _box_delta(np.min([r.bbox_min for r in rows], axis=0), np.max([r.bbox_max for r in rows], axis=0), box, tol_m)
-            worst_each = max(per, key=lambda d: float(np.max(np.abs(d.extents) / d.tol)))
+            # the plan box is ONE copy's: radial copies are that copy turned about the axis, so their own
+            # axis-aligned boxes differ from it by construction — the copy that matches best is the one measured
+            pick = min if pp.symmetry == "radial" else max
+            worst_each = pick(per, key=lambda d: float(np.max(np.abs(d.extents) / d.tol)))
             if float(np.max(np.abs(union.extents) / union.tol)) < float(np.max(np.abs(worst_each.extents) / worst_each.tol)):
                 findings.extend(_box_findings(target, union, box, what=f"'{pp.name}' (all instances)", kind="instance_bbox", language=language, check_center=False))
             else:

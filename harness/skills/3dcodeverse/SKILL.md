@@ -16,8 +16,10 @@ store: the object, mechanism, place or effect has to come out of the code at rea
 is measured.  Your job is the loop below, honestly.
 
 **Already in context?** A `3DCODEVERSE PRELOADED` block at the start of the session (the plugin's
-session hook) holds this file, every plan reference and every language skill: then nothing is left to
-read — start at step 0 of `## The loop`.  **Otherwise read three files together, in ONE step, before anything else** — all under the plugin root, beside
+session hook) holds this file — and, on some hosts, every plan reference and every language skill: then nothing is left to
+read.  Where the block says the plan references and language skills are NOT preloaded, step 0 of `## The loop` reads the
+two your track and language need, by the absolute paths the block gives, in the same step as `init` — never as a step of
+its own.  Start at step 0.  **No such block at all?  Read three files together, in ONE step, before anything else** — all under the plugin root, beside
 this file: this skill's `## The loop` (the rest of this file is reference), the language skill
 `skills/3d-lang-<language>/SKILL.md` (hyphens: `scene_threejs` → `3d-lang-scene-threejs`; the
 table below names each) and `skills/3dcodeverse/references/plan-<track>.md`.  Open no other
@@ -46,7 +48,8 @@ Every call is `3dcode <subcommand> --workspace <abs dir> [--flag value …]`.  A
 wrote (open one when the loop below says to look).  Exit 0 means the tool
 ran (a FAIL is exit 0); non-zero means it could not run.  `--json` gives the same result as
 JSON.  A list flag is repeated (`--views front --views top`); `3dcode <subcommand> --help`
-lists a tool's flags.  If `3dcode` is not on PATH, run `<plugin root>/bin/3dcode`.
+lists a tool's flags.  Call it by the absolute path the PRELOADED block gives (`<plugin root>/bin/3dcode`) in every
+command — never probe for it (`which`, `command -v`, `ls bin`) and never export PATH.
 
 | subcommand | what it answers | when |
 |---|---|---|
@@ -104,7 +107,7 @@ Never poll a running command or subagent; its result comes back to you.
 **How many rounds is the user's call.**  By default there is ONE round: plan, write the code,
 `3dcode check` until it lists no ERROR, report — no judge, no render-look-edit cycles.  Judge
 (steps 4–5) only when the user asks for a score or for refine rounds, and run exactly the
-number of refine rounds the user asked for.  **No self-polishing:** the judge decides what to
+number of refine rounds the user asked for.  **No self-polishing:** apart from r00's one look (step 3), the judge decides what to
 polish and `score` lists it; you do not iterate on looks between judges.  A refine round fixes exactly what the last `score` listed (gate
 ERRORs first, then the judge's items), runs `3dcode check` until no ERROR, then `3dcode judge`
 — at most ONE look at renders (`render-sheet` / `scene-views` / `gl-frames`) per refine round,
@@ -136,7 +139,8 @@ silence read as stuck, and a direction the user cannot see is one they cannot st
    opening lines to the user and `3dcode init --workspace W --track T --language L --prompt "..."` with
    `--must-have "..."` / `--must-not "..."` per hard requirement, `--dims height=0.45` per stated dimension,
    `--references img.png` per reference image.  It writes spec.json, the layout and the language's own files and
-   prints the entry files.
+   prints the entry files.  Language skill and plan reference not preloaded: read both in this same step, beside
+   `init` (`urdf_blender`: also `3d-lang-blender` and `plan-static.md`) — three or four parallel calls, one step.
 1. **Plan.**  Now design: write `W/plan.json` by
    `references/plan-<track>.md` — exact numbers, an acceptance
    checklist, and SHORT: one sentence per part, one line of summary, the reference's example is
@@ -148,9 +152,14 @@ silence read as stuck, and a direction the user cannot see is one they cannot st
    most THREE write steps — several files per step (all the part / zone / layer files together),
    the entry file last — then `3dcode check --workspace W` and fix each ERROR it lists (a compile or runtime error at the
    `file:line` it names, see Repairs; a gate ERROR by its fix hint) until none is left — every
-   ERROR caps the score.  When the user asked for a score, run `3dcode judge --workspace W --round 0`
-   instead of each `check` after the code is written: it runs the check first and stops on any ERROR
-   with the same output, so a clean round goes straight to step 4 without a separate `check`.  Object tracks: the whole object first — every plan part at its box and
+   ERROR caps the score.  **Then r00's one look — once, whether or not a judge follows:** run the track's sheet
+   (`render-sheet` / `scene-views` / `gl-frames`), open the PNG it names and look for what the numbers cannot
+   tell: it does not read as the thing asked for; a named part is missing, tangled, inside-out, the wrong way
+   round or visibly detached; a mechanism that could not work as built (a tray that exits through a wall, a
+   lid that cannot clear); flat rectangles or hard edges where mist, smoke, glow or foam should be soft; a
+   black, blown-out or banded frame; a camera looking at nothing.  Fix what you SEE in ONE edit step, `check`
+   again until no ERROR, and go on — no second look, no polishing of what already reads right; nothing
+   visibly wrong means no edit at all.  Object tracks: the whole object first — every plan part at its box and
    attached to its parent before any part gets detail (a part still a ≤ 12-triangle box within
    1 mm of its plan box is a `placeholder_part` ERROR); then detail.  Model each part AT its planned
    size from the plan's numbers; never scale finished geometry to fit the plan box (a non-uniform
@@ -186,9 +195,8 @@ silence read as stuck, and a direction the user cannot see is one they cannot st
 6. **Stop** when the rounds the user asked for are done, when `score` says passed with an empty
    improvement list, or when the overall fell two rounds running.  Without a judge the
    deliverable is r00; with one it is the BEST-scoring round: if the last round is not it, `git -C W checkout rNN -- src` (and `public`) and run
-   `3dcode check` once more so `artifacts/` matches.  A round nobody judged has no picture yet: run the
-   track's one look once (`render-sheet` / `scene-views` / `gl-frames`) for the user — its path goes in the
-   report; it is not a reason to edit.  Report in AT MOST ten lines: what was made, each round's
+   `3dcode check` once more so `artifacts/` matches.  A round nobody judged: the sheet of r00's one look (run
+   it again if that look led to an edit) is the picture whose path goes in the report.  Report in AT MOST ten lines: what was made, each round's
    overall and caps (if judged), anything left failing or not done, the workspace with its entry files and
    the deliverable (`artifacts/object.glb`, the scene or effect entry), the path of the picture to open (the
    sheet, or the deliverable round's montages), and what the user can ask next ("judge it", "refine it N
@@ -242,7 +250,9 @@ not different arguments — check the name and signature against the language sk
 first.  Never finish a round on a broken build.  A gate ERROR (the build is fine) still listed
 after THREE fixes: take its fix hint literally once more (a joint_sweep hint may name the exact
 limit that clears), and if it is still there, judge anyway — run `3dcode judge` again with src/
-unchanged; the ERROR caps the score and the judge's list carries it into the next round.
+unchanged; the ERROR caps the score and the judge's list carries it into the next round.  A size or
+position ERROR is fixed in the code: moving the plan's number to what got built is not a fix — if the planned
+number itself was impossible, change that one number, re-run `validate-plan`, and name it in the report.
 
 ## Honesty
 

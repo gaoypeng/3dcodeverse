@@ -332,8 +332,9 @@ def check(ctx: ToolContext, args: NoArgs) -> Observation:
         lines.append("build warnings:\n" + "\n".join(f"- {sanitize_text(str(w), ws.root)}" for w in list(census_warn)[:10]))
     lines.append(f"written: {rel_path(ws.gates_path, ws.root)}")
     if res.ok:
-        lines.append(f"next: no ERROR — the round's code is done; judge it (`3dcode judge --round {ctx.round_index}`) if the "
-                     "user asked for a score or refine rounds, else render the track's one look for the user and report.")
+        lines.append("next: no ERROR.  Round 0 and not yet looked at: take its ONE look now (render-sheet / scene-views / "
+                     "gl-frames; open the PNG), fix what is visibly wrong in one edit step and check again.  Then judge it "
+                     f"(`3dcode judge --round {ctx.round_index}`) if the user asked for a score or refine rounds, else report.")
     else:
         lines.append(NEXT_ON_ERROR)
     return text_observation(lines, ok=res.ok, numbers=numbers, limit=8000)

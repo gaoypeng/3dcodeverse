@@ -26,6 +26,22 @@ def body(text: str) -> str:
 CHUNK_CHARS = 40_000
 
 
+def lazy_sections() -> list[str]:
+    """Claude Code: the workflow only.  A session uses one language and one track, and every preloaded token is
+    written to the prompt cache once and read back on every turn — the two files it needs cost one parallel read
+    in the step that runs `init`."""
+    langs = ", ".join(f for f in FILES[1:])
+    head = (f"# {HEADER}\nThe 3dcodeverse plugin (root: {ROOT}) preloaded its workflow at session start, in {{n}} parts: "
+            f"skills/3dcodeverse/SKILL.md.  For a 3D request it is already read; never open it again.  The instruments: "
+            f"`{ROOT}/bin/3dcode <subcommand> --workspace <abs dir>` — use this absolute path in every command, do not "
+            f"probe for it.  NOT preloaded — read the plan reference of your track and the language skill of your "
+            f"language (urdf_blender: also 3d-lang-blender and plan-static.md) in loop step 0, in the same step as "
+            f"`3dcode init`, from {ROOT}/: {langs}.  Other files (c3d-* skills, references/ of a language skill) only "
+            "when a 3dcode finding names them.  Not a 3D request: ignore this block.")
+    rel = FILES[0]
+    return [head, f"===== {rel} =====\n{body((ROOT / rel).read_text(encoding='utf-8')).strip()}"]
+
+
 def sections() -> list[str]:
     head = (f"# {HEADER}\nThe 3dcodeverse plugin (root: {ROOT}) preloaded these files at session start, in "
             f"{{n}} parts: the workflow, every plan reference and every language skill ({', '.join(FILES)}).  For a 3D "
@@ -58,16 +74,16 @@ def _split(sec: str, limit: int) -> list[str]:
     return [p if i == 0 else f"===== {title} (continued, piece {i + 1}/{n}) =====\n{p}" for i, p in enumerate(pieces)]
 
 
-def chunks(limit: int = CHUNK_CHARS) -> list[str]:
+def chunks(limit: int = CHUNK_CHARS, lazy: bool = False) -> list[str]:
     """The sections packed into messages of at most ``limit`` characters."""
     out: list[str] = []
-    for sec in (piece for s in sections() for piece in _split(s, limit)):
+    for sec in (piece for s in (lazy_sections() if lazy else sections()) for piece in _split(s, limit)):
         if out and len(out[-1]) + len(sec) + 2 <= limit:
             out[-1] += "\n\n" + sec
         else:
             out.append(sec)
     out = [c.replace("{n}", str(len(out)), 1) if i == 0 else c for i, c in enumerate(out)]
-    return [c if i == 0 else f"[{HEADER}, part {i + 1}/{len(out)}]\n{c}" for i, c in enumerate(out)]
+    return [f"[{HEADER}, part {i + 1}/{len(out)}]\n{c}" for i, c in enumerate(out)]
 
 
 def main() -> int:
@@ -84,7 +100,7 @@ def main() -> int:
     if host == "agy":
         out = {"injectSteps": [{"systemMessage": {"systemMessage": c}} for c in parts]}
     elif host == "claude":  # `3dcode-context claude <i>`: the i-th piece (one hook entry each)
-        pieces = chunks(CLAUDE_CHUNK_CHARS)
+        pieces = chunks(CLAUDE_CHUNK_CHARS, lazy=True)
         i = int(sys.argv[2]) if len(sys.argv) > 2 else 0
         if i >= len(pieces):
             sys.stdout.write("{}")

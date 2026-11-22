@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -453,6 +454,27 @@ def _plan_asset_sizes(plan: Any) -> dict[str, float]:
     return out
 
 
+def _asset_key(row_key: str, sizes: dict[str, float], zone_key: str = "") -> str:
+    """The plan asset a placed object is a copy of: the asset whose name is a run of WHOLE words of the object's
+    snake name (a trailing digit or plural ``s`` aside), the earliest such run winning, then the longest —
+    ``boulder_cabin_shore_0`` is a boulder, never the cabin its zone is named after (a word the object only carries
+    as part of its zone's name, after its own, names no asset)."""
+    zone = f"_{zone_key}_"
+    toks = [re.sub(r"\d+$", "", t) for t in row_key.split("_")]
+    best: tuple[int, int, str] | None = None
+    for k in sizes:
+        kt = k.split("_")
+        for i in range(len(toks) - len(kt) + 1):
+            run = toks[i:i + len(kt)]
+            if run[:-1] == kt[:-1] and run[-1] in (kt[-1], kt[-1] + "s"):
+                if i > 0 and zone_key and f"_{k}_" in zone:
+                    continue
+                cand = (i, -len(kt), k)
+                best = cand if best is None or cand < best else best
+                break
+    return best[2] if best else ""
+
+
 def _plan_bounds(plan: Any) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
     b = plan.get("bounds") if isinstance(plan, dict) else getattr(plan, "bounds", None)
     if b is None:
@@ -591,7 +613,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         if r.exempt or size is None:
             continue
         rk = to_snake(r.name)
-        key = next((k for k in sizes if k in rk), "")
+        key = _asset_key(rk, sizes, to_snake(r.zone))
         if not key:
             continue
         n, measured = r.instance_size(key)
