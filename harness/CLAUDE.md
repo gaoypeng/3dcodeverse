@@ -46,7 +46,7 @@ gates, judging) and `docs/INSTALL.md` before changing anything.
 ## Supported versions
 python **3.13** (one fixed version) · node **20.6+** · Blender **5.2 LTS** only · Linux x86_64.
 There is no CI: run `ruff check codeverse3d` and the smoke scripts under
-`/home/yipeng/3dcodeverse_tests/plugin_smoke/` (outside the repo) before every push, with
+`/home/yipeng/3dcodeverse_tests/` (outside the repo) before every push, with
 `set -o pipefail`.
 
 ## Environment (this machine)
